@@ -150,3 +150,57 @@ test("applyDecisions returns count and never throws on unknown id (skip)", () =>
   assert.equal(applied, 0);
   assert.equal(store.getById(k.id).archived, false);
 });
+
+test("applyDecisions catch path: throwing decision is skipped, logged, and later decisions still apply", () => {
+  const { store, service } = dreamSetup();
+  const { memory: a } = service.saveWithDedupe({ type: "project", title: "会炸", content: "x" });
+  const { memory: b } = service.saveWithDedupe({ type: "project", title: "正常", content: "y" });
+  const originalSetArchived = service.setArchived;
+  let calls = 0;
+  service.setArchived = (id, archived) => {
+    calls++;
+    if (calls === 1) throw new Error("boom");
+    return originalSetArchived.call(service, id, archived);
+  };
+  const warnings = [];
+  const logger = { warn: (msg) => warnings.push(msg) };
+  const applied = applyDecisions([
+    { action: "archive", ids: [a.id], reason: "x" },
+    { action: "archive", ids: [b.id], reason: "y" }
+  ], service, logger);
+  assert.equal(applied, 1, "throwing decision not counted, surviving decision counted");
+  assert.equal(store.getById(a.id).archived, false, "throwing decision left no partial effect");
+  assert.equal(store.getById(b.id).archived, true, "later decision still applied");
+  assert.equal(warnings.length, 1, "logger called once");
+  assert.match(warnings[0], /failed to apply archive at index 0: boom/);
+});
+
+test("applyDecisions conflict with missing loser skips cleanly", () => {
+  const { store, service } = dreamSetup();
+  const { memory: w } = service.saveWithDedupe({ type: "decision", title: "截止", content: "8月20日", importance: 4 });
+  const applied = applyDecisions([{ action: "conflict", winner: w.id, loser: "ghost", reason: "x" }], service);
+  assert.equal(applied, 0);
+  assert.equal(store.getById(w.id).archived, false, "winner untouched");
+  assert.ok(!store.getById(w.id).content.includes("已否决"), "no provenance note appended");
+});
+
+test("applyDecisions merge with missing keeper skips cleanly", () => {
+  const { store, service } = dreamSetup();
+  const applied = applyDecisions([
+    { action: "merge", ids: ["ghost"], keepSource: "ghost", title: "t", content: "c" }
+  ], service);
+  assert.equal(applied, 0);
+  assert.equal(store.getById("ghost"), undefined);
+});
+
+test("applyDecisions merge without importance falls back to max source importance", () => {
+  const { store, service } = dreamSetup();
+  const { memory: a } = service.saveWithDedupe({ type: "project", title: "插件", content: "旧", importance: 3 });
+  const { memory: b } = service.saveWithDedupe({ type: "project", title: "插件2", content: "新细节", importance: 4 });
+  const applied = applyDecisions([
+    { action: "merge", ids: [a.id, b.id], title: "插件总览", content: "合并内容", keepSource: b.id }
+  ], service);
+  assert.equal(applied, 1);
+  assert.equal(store.getById(b.id).importance, 4, "keeper keeps max of source importances");
+  assert.equal(store.getById(a.id).archived, true, "source archived");
+});
