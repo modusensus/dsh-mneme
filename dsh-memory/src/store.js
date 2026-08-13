@@ -20,18 +20,16 @@ CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance);
 
 const TYPES = new Set(["preference", "project", "decision", "history"]);
 
-let lastTs = "";
-function nowIso() {
-  let ts = new Date().toISOString();
-  // Guard: consecutive writes within the same millisecond must still produce
-  // strictly increasing timestamps (test asserts updated_at != created_at).
-  if (lastTs && ts <= lastTs) {
-    const d = new Date(lastTs);
-    d.setMilliseconds(d.getMilliseconds() + 1);
-    ts = d.toISOString();
-  }
-  lastTs = ts;
-  return ts;
+// Pure helpers: no shared module state.
+
+function sanitizePage(limit, offset, defaultLimit) {
+  const lim = Number.isInteger(limit) && limit > 0 ? limit : defaultLimit;
+  const off = Number.isInteger(offset) && offset > 0 ? offset : 0;
+  return { limit: lim, offset: off };
+}
+
+function escapeLike(q) {
+  return q.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
 function parseTags(raw) {
@@ -64,6 +62,21 @@ export function createStore(path) {
   db.exec("PRAGMA journal_mode = WAL;");
   db.exec(SCHEMA);
 
+  // Per-instance monotonic timestamp guard: consecutive writes within the same
+  // millisecond must still produce strictly increasing timestamps (test asserts
+  // updated_at != created_at). State lives in the store closure, not module scope.
+  let lastTs = "";
+  function nowIso() {
+    let ts = new Date().toISOString();
+    if (lastTs && ts <= lastTs) {
+      const d = new Date(lastTs);
+      d.setMilliseconds(d.getMilliseconds() + 1);
+      ts = d.toISOString();
+    }
+    lastTs = ts;
+    return ts;
+  }
+
   function count() {
     return db.prepare("SELECT count(*) AS c FROM memories").get().c;
   }
@@ -77,6 +90,9 @@ export function createStore(path) {
     const id = memory.id ?? randomUUID();
     const type = memory.type;
     if (!TYPES.has(type)) throw new Error(`invalid memory type: ${type}`);
+    if (memory.tags !== undefined && !Array.isArray(memory.tags)) {
+      throw new Error("tags must be an array");
+    }
     const now = nowIso();
     const tags = JSON.stringify(memory.tags ?? []);
     const importance = Number.isInteger(memory.importance) ? memory.importance : 3;
@@ -92,6 +108,9 @@ export function createStore(path) {
     if (!existing) throw new Error(`memory not found: ${id}`);
     const type = patch.type ?? existing.type;
     if (!TYPES.has(type)) throw new Error(`invalid memory type: ${type}`);
+    if (patch.tags !== undefined && !Array.isArray(patch.tags)) {
+      throw new Error("tags must be an array");
+    }
     const now = nowIso();
     db.prepare(
       `UPDATE memories SET type=?, title=?, content=?, tags=?, importance=?, source=?, updated_at=? WHERE id=?`
@@ -114,7 +133,7 @@ export function createStore(path) {
 
   function setForget(id, forgotten) {
     db.prepare("UPDATE memories SET forgotten = ?, updated_at = ? WHERE id = ?")
-      .run(forgotten ? 1 : 0, nowIso(), id);
+      .run(forgotten === true || forgotten === 1 ? 1 : 0, nowIso(), id);
     return getById(id);
   }
 
@@ -128,10 +147,11 @@ export function createStore(path) {
     if (!includeForgotten) {
       clauses.push("forgotten = 0");
     }
+    const { limit: lim, offset: off } = sanitizePage(limit, offset, 50);
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     const rows = db.prepare(
-      `SELECT * FROM memories ${where} ORDER BY importance DESC, updated_at DESC LIMIT ? OFFSET ?`
-    ).all(...params, limit, offset);
+      `SELECT * FROM memories ${where} ORDER BY importance DESC, updated_at DESC, id LIMIT ? OFFSET ?`
+    ).all(...params, lim, off);
     return rows.map(toRow);
   }
 
@@ -144,16 +164,19 @@ export function createStore(path) {
     const q = String(query).trim();
     if (!q) return [];
     // FTS5 over unicode61 (English + long phrases); LIKE fallback covers CJK substring.
-    const like = `%${q}%`;
+    // LIKE wildcards in the query are escaped so user input is matched literally.
+    const like = `%${escapeLike(q)}%`;
+    const { limit: lim } = sanitizePage(limit, 0, 20);
     const rows = db.prepare(
       `SELECT * FROM memories
-       WHERE forgotten = 0 AND (title LIKE ? OR content LIKE ? OR tags LIKE ?)
+       WHERE forgotten = 0 AND (title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\' OR tags LIKE ? ESCAPE '\\')
        ORDER BY
-         CASE WHEN title LIKE ? THEN 0 ELSE 1 END,
+         CASE WHEN title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END,
          importance DESC,
-         updated_at DESC
+         updated_at DESC,
+         id
        LIMIT ?`
-    ).all(like, like, like, like, limit);
+    ).all(like, like, like, like, lim);
     return rows.map(toRow);
   }
 

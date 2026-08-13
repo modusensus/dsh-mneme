@@ -80,3 +80,61 @@ test("setForget toggles injection suppression", () => {
   assert.equal(got.forgotten, true);
   store.close();
 });
+
+test("search matches title, content and tags", () => {
+  const store = openMemory();
+  store.save({ type: "project", title: "记忆插件", content: "c1", tags: [] });
+  store.save({ type: "project", title: "t2", content: "用户用中文交流", tags: [] });
+  store.save({ type: "preference", title: "t3", content: "c3", tags: ["偏好"] });
+  assert.ok(store.search("记忆插件").some((m) => m.title === "记忆插件"));
+  assert.ok(store.search("中文").some((m) => m.content === "用户用中文交流"));
+  assert.ok(store.search("偏好").some((m) => m.tags.includes("偏好")));
+  store.close();
+});
+
+test("search with empty query returns []", () => {
+  const store = openMemory();
+  store.save({ type: "project", title: "t", content: "c" });
+  assert.deepEqual(store.search(""), []);
+  assert.deepEqual(store.search("   "), []);
+  store.close();
+});
+
+test("forgotten memories are excluded from list and search until un-forgotten", () => {
+  const store = openMemory();
+  const saved = store.save({ type: "project", title: "秘密", content: "c", importance: 5 });
+  assert.ok(store.list().some((m) => m.id === saved.id));
+  assert.ok(store.search("秘密").some((m) => m.id === saved.id));
+  store.setForget(saved.id, true);
+  assert.ok(!store.list().some((m) => m.id === saved.id));
+  assert.ok(!store.search("秘密").some((m) => m.id === saved.id));
+  store.setForget(saved.id, false);
+  assert.ok(store.list().some((m) => m.id === saved.id));
+  assert.ok(store.search("秘密").some((m) => m.id === saved.id));
+  store.close();
+});
+
+test("search matches CJK substring", () => {
+  const store = openMemory();
+  store.save({ type: "project", title: "t", content: "用户用中文交流" });
+  assert.equal(store.search("中文").length, 1);
+  store.close();
+});
+
+test("search respects limit", () => {
+  const store = openMemory();
+  for (let i = 0; i < 3; i++) store.save({ type: "project", title: `m${i}`, content: "匹配词" });
+  assert.equal(store.search("匹配词").length, 3);
+  assert.equal(store.search("匹配词", { limit: 2 }).length, 2);
+  store.close();
+});
+
+test("list sanitizes invalid limit/offset", () => {
+  const store = openMemory();
+  for (let i = 0; i < 3; i++) store.save({ type: "project", title: `t${i}`, content: "c" });
+  assert.equal(store.list({ limit: -1 }).length, 3);
+  assert.equal(store.list({ limit: 0 }).length, 3);
+  assert.equal(store.list({ limit: 1.5 }).length, 3);
+  assert.equal(store.list({ limit: 2, offset: -5 }).length, 2);
+  store.close();
+});
