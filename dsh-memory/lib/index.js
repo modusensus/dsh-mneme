@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 
 export const name = "dsh-memory";
-export const inject = ["tools", "systemPrompt", "webServer", "llm"];
+export const inject = ["tools", "systemPrompt", "webServer", "llm", "agentDefaultModel"];
 export { Config };
 
 // Arrow (not function declaration): cordis 4 treats any apply with a

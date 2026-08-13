@@ -260,7 +260,7 @@ test("scheduler fires async and resets baseline", async () => {
   const { store, service } = dreamSetup();
   let runs = 0;
   const dream = createDreamScheduler({
-    onRun: async () => { runs++; },
+    onRun: async () => { runs++; return { ok: true }; },
     thresholdCount: 2, thresholdChars: 5000, delayMs: 5
   });
   for (let i = 0; i < 2; i++) service.saveWithDedupe({ type: "project", title: `m${i}`, content: "x".repeat(50) });
@@ -269,6 +269,50 @@ test("scheduler fires async and resets baseline", async () => {
   assert.equal(runs, 1, "ran once");
   // still above threshold but baseline reset → no immediate re-trigger
   assert.equal(dream.maybeSchedule(service), false, "baseline prevents loop");
+  store.close();
+});
+
+test("failed run does not refresh baseline: next write re-triggers", async () => {
+  const { store, service } = dreamSetup();
+  let calls = 0;
+  const dream = createDreamScheduler({
+    onRun: async () => {
+      calls++;
+      return { ok: false, error: "llm failed" };
+    },
+    thresholdCount: 2, thresholdChars: 5000, delayMs: 5,
+    logger: { warn: () => {} }
+  });
+  service.saveWithDedupe({ type: "project", title: "a", content: "x".repeat(10) });
+  service.saveWithDedupe({ type: "project", title: "b", content: "y".repeat(10) });
+  assert.equal(dream.maybeSchedule(service), true, "scheduled");
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(calls, 1, "run attempted once");
+  // baseline NOT refreshed on failure → the same write volume still triggers
+  assert.equal(dream.maybeSchedule(service), true, "failed run keeps baseline, re-schedules");
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(calls, 2, "retried after failure");
+  store.close();
+});
+
+test("throwing run does not refresh baseline and is logged", async () => {
+  const { store, service } = dreamSetup();
+  const warnings = [];
+  let calls = 0;
+  const dream = createDreamScheduler({
+    onRun: async () => {
+      calls++;
+      throw new Error("boom");
+    },
+    thresholdCount: 1, thresholdChars: 0, delayMs: 5,
+    logger: { warn: (msg) => warnings.push(msg) }
+  });
+  service.saveWithDedupe({ type: "project", title: "a", content: "x" });
+  assert.equal(dream.maybeSchedule(service), true, "scheduled");
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(calls, 1, "run attempted once");
+  assert.ok(warnings.some((m) => m.includes("run failed")), "throw logged");
+  assert.equal(dream.maybeSchedule(service), true, "throw keeps baseline, re-schedules");
   store.close();
 });
 
