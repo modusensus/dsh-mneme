@@ -83,22 +83,28 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       // timer callback (which would crash the process) and skip the teardown.
       // Errors are logged, never swallowed silently.
       Promise.resolve()
-        .then(() => (onRun ? onRun() : undefined))
+        .then(() => (onRun ? onRun() : Promise.resolve({ ok: true, skipped: true })))
+        .then((result) => {
+          // Refresh the baseline only for a successful run (design §5.3: an
+          // LLM failure must not move the baseline, so the next write can
+          // immediately re-trigger a retry). A `{ok:false}` result or a throw
+          // keeps the old baseline. A run that reports nothing is treated as
+          // completed without failure (no-op hooks / minimal test doubles).
+          if (result && result.ok) {
+            try {
+              baseline = shouldTrigger(service);
+            } catch (error) {
+              // Store closed mid-flight: keep the last known baseline.
+              logger?.warn?.(`dsh-memory dream: baseline refresh failed: ${String(error)}`);
+            }
+          }
+        })
         .catch((error) => {
-          logger?.warn?.(`dsh-memory dream: scheduled run failed: ${String(error)}`);
+          logger?.warn?.(`dsh-memory dream: run failed: ${error?.message ?? error}`);
+          // Failed runs do not refresh the baseline.
         })
         .finally(() => {
           running = false;
-          // Recompute the baseline from live state: the run itself may have
-          // archived/merged entries, so the scheduled-time snapshot would
-          // otherwise stay stale and re-trigger immediately. If the store was
-          // closed while the run was in flight, keep the last known baseline.
-          try {
-            const fresh = shouldTrigger(service);
-            baseline = { count: fresh.count, chars: fresh.chars };
-          } catch (error) {
-            logger?.warn?.(`dsh-memory dream: baseline refresh failed: ${String(error)}`);
-          }
         });
     }, delayMs);
     return true;
