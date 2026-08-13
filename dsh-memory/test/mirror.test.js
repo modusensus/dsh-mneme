@@ -75,3 +75,19 @@ test("human edit wins on next sync (bidirectional, human-first)", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("readHumanEdits content is not polluted by file header", () => {
+  const dir = tempDir();
+  try {
+    const mirror = createMirror(dir);
+    mirror.sync([sampleMemory("preference", { id: "m1", content: "机器内容" })]);
+    const m1 = mirror.readHumanEdits("preference").find((e) => e.id === "m1");
+    assert.ok(m1, "detects m1");
+    assert.equal(m1.content, "机器内容");
+    assert.ok(!m1.content.includes("#"), "no H1 header in content");
+    assert.ok(!m1.content.includes("dsh-memory 镜像"), "no mirror banner in content");
+    assert.ok(!m1.content.includes("<!--"), "no html comment in content");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
