@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-  id: "dsh-mneme",
+  id: "@modusensus/dsh-mneme",
   factory: (require) => {
     var module = { exports: {} };
     var exports = module.exports;
