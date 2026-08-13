@@ -138,9 +138,10 @@ test("injectCandidates excludes archived entries", () => {
 
 test("summary memory is a candidate at top priority", () => {
   const { service } = setup();
+  service.saveWithDedupe({ type: "preference", title: "语言", content: "中文", importance: 5 });
   service.saveWithDedupe({ type: "summary", title: "记忆库总览", content: "总览内容", importance: 5 });
   const candidates = service.injectCandidates({ maxItems: 5, threshold: 3 });
-  assert.equal(candidates[0]?.type, "summary", "summary first");
+  assert.equal(candidates[0]?.type, "summary", "summary first even with competing high-importance preference");
 });
 
 test("write methods invoke onWrite hook when provided", () => {
@@ -151,6 +152,6 @@ test("write methods invoke onWrite hook when provided", () => {
   assert.equal(called, 1, "saveWithDedupe hooks");
   svc.update(svc.all()[0].id, { content: "y" });
   assert.equal(called, 2, "update hooks");
-  store.setArchived(svc.all()[0].id, true);
+  svc.setArchived(svc.all()[0].id, true);
   assert.equal(called, 2, "setArchived does not hook (not a content write)");
 });
