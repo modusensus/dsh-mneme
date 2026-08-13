@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createMirror } from "../src/mirror.js";
@@ -71,6 +71,7 @@ test("human edit wins on next sync (bidirectional, human-first)", () => {
     assert.ok(Array.isArray(humanEdits));
     const m1 = humanEdits.find((e) => e.id === "m1");
     assert.ok(m1, "detects human edit for m1");
+    assert.equal(m1.content, "人类编辑内容");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -87,6 +88,56 @@ test("readHumanEdits content is not polluted by file header", () => {
     assert.ok(!m1.content.includes("#"), "no H1 header in content");
     assert.ok(!m1.content.includes("dsh-memory 镜像"), "no mirror banner in content");
     assert.ok(!m1.content.includes("<!--"), "no html comment in content");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("body containing '---' survives round-trip (no silent truncation)", () => {
+  const dir = tempDir();
+  try {
+    const mirror = createMirror(dir);
+    const content = "第一段\n\n---\n\n第二段";
+    mirror.sync([sampleMemory("project", { id: "p1", content })]);
+    const p1 = mirror.readHumanEdits("project").find((e) => e.id === "p1");
+    assert.ok(p1, "detects p1");
+    assert.equal(p1.content, content);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("body lines resembling metadata are preserved", () => {
+  const dir = tempDir();
+  try {
+    const mirror = createMirror(dir);
+    const content = "- **ID**: 假条目\n- **重要性**: 5（正文里写的）";
+    mirror.sync([sampleMemory("preference", { id: "m1", content })]);
+    const m1 = mirror.readHumanEdits("preference").find((e) => e.id === "m1");
+    assert.ok(m1, "detects m1");
+    assert.equal(m1.content, content);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("sync with empty array deletes stale mirror files", () => {
+  const dir = tempDir();
+  try {
+    const mirror = createMirror(dir);
+    mirror.sync([
+      sampleMemory("preference"),
+      sampleMemory("project"),
+      sampleMemory("decision"),
+      sampleMemory("history")
+    ]);
+    for (const type of Object.keys(TYPE_FILE)) {
+      assert.ok(existsSync(join(dir, TYPE_FILE[type])), `${type} file exists`);
+    }
+    mirror.sync([]);
+    for (const type of Object.keys(TYPE_FILE)) {
+      assert.ok(!existsSync(join(dir, TYPE_FILE[type])), `${type} file removed`);
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
