@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { validateDecisions } from "../src/dream.js";
+import { validateDecisions, applyDecisions } from "../src/dream.js";
+import { createStore } from "../src/store.js";
+import { createService } from "../src/service.js";
 
 function snapshot(ids) {
   return new Map(ids.map((id, i) => [id, { id, type: i % 2 ? "project" : "preference", title: `t${i}`, content: `c${i}`, importance: 3, archived: false, forgotten: false }]));
@@ -95,4 +97,56 @@ test("every snapshot memory must be covered by a decision", () => {
 test("duplicate ids within one decision reject", () => {
   const { ok } = validateDecisions([{ action: "keep", ids: ["a", "a"] }], snapshot(["a"]));
   assert.equal(ok, false);
+});
+
+function dreamSetup() {
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config: {} });
+  return { store, service };
+}
+
+test("applyDecisions merges: keepSource updated, others archived", () => {
+  const { store, service } = dreamSetup();
+  const { memory: a } = service.saveWithDedupe({ type: "project", title: "插件", content: "旧", importance: 3 });
+  const { memory: b } = service.saveWithDedupe({ type: "project", title: "插件2", content: "新细节", importance: 4 });
+  const applied = applyDecisions([
+    { action: "merge", ids: [a.id, b.id], title: "插件总览", content: "合并内容", importance: 5, keepSource: b.id }
+  ], service);
+  assert.equal(applied, 1);
+  const keeper = store.getById(b.id);
+  assert.equal(keeper.content, "合并内容");
+  assert.equal(keeper.title, "插件总览");
+  assert.equal(keeper.importance, 5);
+  assert.equal(store.getById(a.id).archived, true, "source archived");
+});
+
+test("applyDecisions conflict: winner kept, loser archived with provenance", () => {
+  const { store, service } = dreamSetup();
+  const { memory: w } = service.saveWithDedupe({ type: "decision", title: "截止", content: "8月20日", importance: 4 });
+  const { memory: l } = service.saveWithDedupe({ type: "decision", title: "截止旧", content: "8月15日", importance: 4 });
+  applyDecisions([{ action: "conflict", winner: w.id, loser: l.id, reason: "更新" }], service);
+  assert.equal(store.getById(l.id).archived, true);
+  const winner = store.getById(w.id);
+  assert.ok(winner.content.includes("8月20日"), "winner content intact");
+  assert.ok(winner.content.includes("已否决旧信息"), "provenance note appended");
+});
+
+test("applyDecisions archive and keep", () => {
+  const { store, service } = dreamSetup();
+  const { memory: k } = service.saveWithDedupe({ type: "preference", title: "语言", content: "中文" });
+  const { memory: a } = service.saveWithDedupe({ type: "project", title: "废弃", content: "过时" });
+  applyDecisions([
+    { action: "keep", ids: [k.id] },
+    { action: "archive", ids: [a.id], reason: "过时" }
+  ], service);
+  assert.equal(store.getById(k.id).archived, false);
+  assert.equal(store.getById(a.id).archived, true);
+});
+
+test("applyDecisions returns count and never throws on unknown id (skip)", () => {
+  const { store, service } = dreamSetup();
+  const { memory: k } = service.saveWithDedupe({ type: "preference", title: "语言", content: "中文" });
+  const applied = applyDecisions([{ action: "archive", ids: ["ghost"], reason: "x" }], service);
+  assert.equal(applied, 0);
+  assert.equal(store.getById(k.id).archived, false);
 });
