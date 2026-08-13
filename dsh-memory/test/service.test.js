@@ -127,3 +127,30 @@ test("saveWithDedupe created branch keeps forgotten entries out of mirror", () =
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("injectCandidates excludes archived entries", () => {
+  const { store, service } = setup();
+  const saved = service.saveWithDedupe({ type: "preference", title: "旧偏好", content: "old", importance: 5 });
+  store.setArchived(saved.memory.id, true);
+  const candidates = service.injectCandidates({ maxItems: 5, threshold: 3 });
+  assert.ok(!candidates.some((c) => c.id === saved.memory.id), "archived excluded");
+});
+
+test("summary memory is a candidate at top priority", () => {
+  const { service } = setup();
+  service.saveWithDedupe({ type: "summary", title: "记忆库总览", content: "总览内容", importance: 5 });
+  const candidates = service.injectCandidates({ maxItems: 5, threshold: 3 });
+  assert.equal(candidates[0]?.type, "summary", "summary first");
+});
+
+test("write methods invoke onWrite hook when provided", () => {
+  const { store } = setup();
+  let called = 0;
+  const svc = createService({ store, mirror: null, config: {}, onWrite: () => { called++; } });
+  svc.saveWithDedupe({ type: "project", title: "a", content: "x" });
+  assert.equal(called, 1, "saveWithDedupe hooks");
+  svc.update(svc.all()[0].id, { content: "y" });
+  assert.equal(called, 2, "update hooks");
+  store.setArchived(svc.all()[0].id, true);
+  assert.equal(called, 2, "setArchived does not hook (not a content write)");
+});
