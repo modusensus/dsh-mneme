@@ -71,12 +71,19 @@ function toProtocolChunk(chunk) {
   }
 }
 
+// Only direct human prompts are summarized: plugin-injected context
+// (AGENTS.md, skill bodies, file-change notices) and other machine-originated
+// events must not leak into the memory store. Events without a data payload
+// (minimal test doubles) pass the kind check and are handled by the content
+// check below.
 function collectMessages(session) {
   const messages = [];
   for (const event of session.events ?? []) {
-    if (event.type === "user/message") {
-      messages.push(createUserMessage({ content: event.data?.content ?? [{ type: "text", text: "" }] }));
-    }
+    const kind = event.data?.source?.kind;
+    if (event.type !== "user/message") continue;
+    if (kind !== undefined && kind !== "user") continue;
+    if (!event.data?.content?.length) continue; // nothing to summarize
+    messages.push(createUserMessage({ content: event.data.content }));
   }
   return messages.slice(-20);
 }
@@ -84,10 +91,11 @@ function collectMessages(session) {
 export function createSummarizer(ctx, service, config) {
   if (!config.autoSummarize) return { dispose: () => {} };
 
-  let inFlight = new Map();
+  const inFlight = new Map();
+  let disposed = false;
 
   async function summarize(session) {
-    if (inFlight.has(session.id)) return;
+    if (disposed || inFlight.has(session.id)) return;
     const controller = new AbortController();
     inFlight.set(session.id, controller);
     try {
@@ -116,11 +124,16 @@ export function createSummarizer(ctx, service, config) {
         if (chunk.type === "text-delta") {
           text += chunk.text ?? chunk.delta ?? "";
         }
-        if (chunk.type === "finish" && (chunk.kind === "error" || chunk.reason?.kind === "error")) return;
+        if (chunk.type === "finish") {
+          const reasonKind = chunk.reason?.kind ?? chunk.kind;
+          if (reasonKind === "error" || reasonKind === "aborted") return;
+        }
       }
-      // Real adapters emit protocol chunks that BlockAssembler reassembles;
-      // fall back to the raw delta text for non-protocol shapes. Note: this
-      // dsh-llm exposes no public no-arg assemble() — blocks() is the API.
+      // Direct delta accumulation is the primary extraction path (it works
+      // for real protocol chunks {index,text} and looser {delta} shapes
+      // alike); the assembler blocks are a fallback for streams that only
+      // deliver text inside block-end. This dsh-llm exposes no public
+      // no-arg assemble() — blocks() is the message-level API.
       const blocks = assembler.blocks();
       const assembledText = blocks
         .filter((b) => b.type === "text")
@@ -135,17 +148,22 @@ export function createSummarizer(ctx, service, config) {
     }
   }
 
-  ctx.on("session/event", (session, event) => {
-    if (event.type !== "turn/end") return;
-    // Return the summarization promise so awaiters (tests, runtime dispatch)
-    // observe the writes; the catch keeps listener dispatch from rejecting.
+  const unsubscribe = ctx.on("session/event", (session, event) => {
+    if (disposed || event.type !== "turn/end") return;
+    // Return the summarization promise so awaiters observe the writes; the
+    // catch keeps listener dispatch from rejecting. Dispose-initiated aborts
+    // and external AbortErrors are silent.
     return summarize(session).catch((error) => {
+      if (disposed || error?.name === "AbortError") return;
       ctx.logger?.warn?.(`dsh-memory: summarization failed: ${String(error)}`);
     });
   });
 
   return {
     dispose() {
+      if (disposed) return;
+      disposed = true;
+      unsubscribe?.();
       for (const controller of inFlight.values()) controller.abort();
       inFlight.clear();
     }

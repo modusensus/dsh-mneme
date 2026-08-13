@@ -4,7 +4,7 @@ import { createStore } from "../src/store.js";
 import { createService } from "../src/service.js";
 import { createSummarizer, parseSummaryJson } from "../src/summarize.js";
 
-function setup(over = {}) {
+function setup(over = {}, opts = {}) {
   const store = createStore(":memory:");
   const service = createService({ store, mirror: null, config: {} });
   const events = [];
@@ -12,11 +12,15 @@ function setup(over = {}) {
   const ctx = {
     on(name, fn) {
       events.push({ name, fn });
-      return () => {};
+      return () => {
+        const i = events.findIndex((e) => e.name === name && e.fn === fn);
+        if (i !== -1) events.splice(i, 1);
+      };
     },
     llm: {
       stream(options) {
         calls.push(options);
+        if (opts.stream) return opts.stream(options);
         const json = JSON.stringify([
           { type: "decision", title: "选型", content: "确定用 node:sqlite", importance: 4 },
           { type: "preference", title: "语言", content: "用户喜欢中文交流", importance: 5 }
@@ -33,6 +37,14 @@ function setup(over = {}) {
   const config = { autoSummarize: true, ...over };
   const summarizer = createSummarizer(ctx, service, config);
   return { store, service, events, calls, summarizer };
+}
+
+// A realistic direct human prompt event (source.kind === "user").
+function userMessage(text) {
+  return {
+    type: "user/message",
+    data: { source: { kind: "user" }, content: [{ type: "text", text }] }
+  };
 }
 
 test("parseSummaryJson extracts valid entries and skips malformed ones", () => {
@@ -64,10 +76,7 @@ test("turn/end event triggers summarization and stores entries", async () => {
   const session = {
     id: "s1",
     requestHeader: () => ({ config: { provider: "deepseek", model: "deepseek-chat" } }),
-    events: [
-      { seq: 1, type: "user/message" },
-      { seq: 2, type: "turn/end" }
-    ]
+    events: [userMessage("帮我选型"), { seq: 2, type: "turn/end" }]
   };
   await handler(session, { seq: 2, type: "turn/end" });
   assert.equal(store.count(), 2);
@@ -83,4 +92,65 @@ test("skips summarization for events other than turn/end", async () => {
   await handler(session, { seq: 1, type: "user/message" });
   assert.equal(store.count(), 0);
   assert.equal(calls.length, 0);
+});
+
+test("dispose unsubscribes and stops later turn/end events from summarizing", async () => {
+  const { events, summarizer, calls } = setup();
+  const handler = events.find((e) => e.name === "session/event").fn;
+  summarizer.dispose();
+  // The ctx.on() disposer must have removed the listener.
+  assert.ok(!events.some((e) => e.name === "session/event"));
+  const session = {
+    id: "s1",
+    requestHeader: () => ({ config: { provider: "deepseek", model: "deepseek-chat" } }),
+    events: [userMessage("你好"), { seq: 2, type: "turn/end" }]
+  };
+  // Even a stale handler reference must not start a new LLM call.
+  await handler(session, { seq: 2, type: "turn/end" });
+  assert.equal(calls.length, 0);
+});
+
+test("excludes plugin-injected user/message events from summarization input", async () => {
+  const { events, store, calls } = setup();
+  const handler = events.find((e) => e.name === "session/event").fn;
+  const session = {
+    id: "s2",
+    requestHeader: () => ({ config: { provider: "deepseek", model: "deepseek-chat" } }),
+    events: [
+      {
+        seq: 1,
+        type: "user/message",
+        data: { source: { kind: "plugin" }, content: [{ type: "text", text: "AGENTS.md 内容" }] }
+      },
+      userMessage("帮我看看这个报错"),
+      { seq: 3, type: "turn/end" }
+    ]
+  };
+  await handler(session, { seq: 3, type: "turn/end" });
+  assert.equal(calls.length, 1);
+  const userMessages = calls[0].messages.filter((m) => m.role === "user");
+  assert.equal(userMessages.length, 1);
+  assert.ok(!JSON.stringify(calls[0].messages).includes("AGENTS.md"));
+  assert.equal(store.count(), 2);
+});
+
+test("aborted finish does not store entries", async () => {
+  const { events, store, calls } = setup({}, {
+    stream() {
+      return (async function* () {
+        yield { type: "block-start", block: { type: "text" } };
+        yield { type: "text-delta", delta: "[]" };
+        yield { type: "finish", kind: "aborted" };
+      })();
+    }
+  });
+  const handler = events.find((e) => e.name === "session/event").fn;
+  const session = {
+    id: "s3",
+    requestHeader: () => ({ config: { provider: "deepseek", model: "deepseek-chat" } }),
+    events: [userMessage("继续"), { seq: 2, type: "turn/end" }]
+  };
+  await handler(session, { seq: 2, type: "turn/end" });
+  assert.equal(calls.length, 1); // the stream was actually reached
+  assert.equal(store.count(), 0);
 });
