@@ -1,4 +1,3 @@
-import { BlockAssembler } from "@deepseek-ai/dsh-llm";
 import { validateDecisions, applyDecisions } from "./dream/decisions.js";
 export { validateDecisions, applyDecisions };
 
@@ -14,6 +13,7 @@ const CONSOLIDATION_PROMPT = `你是记忆库整理助手。下面是全部记�
 规则：
 - 每条记忆至少出现在一个决策中
 - merge 的 keepSource 必须是 ids 之一
+- 仅合并同类型条目（type 相同）
 - 不要编造 ids；只使用提供的 id
 - 重要性 1-5，合并后取最高
 - 只输出 JSON 数组，不要其他文字`;
@@ -22,31 +22,45 @@ function totalChars(memories) {
   return memories.reduce((sum, m) => sum + (m.title?.length ?? 0) + (m.content?.length ?? 0), 0);
 }
 
+/**
+ * Consume an LLM stream and return the accumulated text. Direct text-delta
+ * accumulation covers both the real protocol ({type:"text-delta", index, text})
+ * and looser test doubles ({type:"text-delta", text}); a terminal error/abort
+ * surfaces as undefined. The caller decides how to treat an empty result.
+ */
 async function streamText(ctx, options) {
-  const assembler = new BlockAssembler();
   let text = "";
   for await (const chunk of ctx.llm.stream(options)) {
     if (chunk.type === "text-delta" && typeof chunk.text === "string") text += chunk.text;
-    assembler.push(chunk);
     if (chunk.type === "finish" && (chunk.reason?.kind === "error" || chunk.reason?.kind === "aborted")) {
       return undefined;
     }
   }
-  return text || assembler.blocks().filter((b) => b.type === "text").map((b) => b.text).join("");
+  return text;
 }
 
-function resolveRoute(ctx, config) {
+/**
+ * Resolve the LLM route: agent default model (deployment) first, plugin config
+ * (dreamProvider/dreamModel) as fallback. Falls through to undefined when no
+ * route exists — runDream then fails safe. Fallback is logged so a silent
+ * route switch is observable.
+ */
+function resolveRoute(ctx, config, logger) {
   try {
     const sel = ctx.agentDefaultModel?.currentSelection?.();
     if (sel?.provider && sel?.model) return { provider: sel.provider, model: sel.model };
-  } catch { /* fall through */ }
+    logger?.warn?.("dsh-memory dream: agentDefaultModel unavailable, falling back to config route");
+  } catch (error) {
+    logger?.warn?.(`dsh-memory dream: agentDefaultModel lookup failed, falling back to config route: ${String(error)}`);
+  }
   if (config.dreamProvider && config.dreamModel) return { provider: config.dreamProvider, model: config.dreamModel };
   return undefined;
 }
 
-export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChars = 5000, delayMs = 2000 }) {
+export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChars = 5000, delayMs = 2000, logger }) {
   let pendingTimer = null;
   let running = false;
+  let disposed = false;
   let baseline = { count: 0, chars: 0 };
 
   function shouldTrigger(service) {
@@ -59,82 +73,126 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
   }
 
   function maybeSchedule(service) {
-    if (running || pendingTimer) return false;
+    if (disposed || running || pendingTimer) return false;
     const { trigger, count, chars } = shouldTrigger(service);
     if (!trigger) return false;
     pendingTimer = setTimeout(() => {
       pendingTimer = null;
       running = true;
-      Promise.resolve(onRun ? onRun() : Promise.resolve())
-        .catch(() => {})
+      // Defer the onRun invocation so a synchronous throw cannot escape the
+      // timer callback (which would crash the process) and skip the teardown.
+      // Errors are logged, never swallowed silently.
+      Promise.resolve()
+        .then(() => (onRun ? onRun() : undefined))
+        .catch((error) => {
+          logger?.warn?.(`dsh-memory dream: scheduled run failed: ${String(error)}`);
+        })
         .finally(() => {
           running = false;
-          baseline = { count, chars };
+          // Recompute the baseline from live state: the run itself may have
+          // archived/merged entries, so the scheduled-time snapshot would
+          // otherwise stay stale and re-trigger immediately. If the store was
+          // closed while the run was in flight, keep the last known baseline.
+          try {
+            const fresh = shouldTrigger(service);
+            baseline = { count: fresh.count, chars: fresh.chars };
+          } catch (error) {
+            logger?.warn?.(`dsh-memory dream: baseline refresh failed: ${String(error)}`);
+          }
         });
     }, delayMs);
     return true;
   }
 
   function dispose() {
+    disposed = true;
     if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
+    // An in-flight run is left to complete naturally: its LLM calls are
+    // already paid for and aborting would discard the work. The caller is
+    // responsible for closing the store only after the run has finished.
   }
 
   async function runDream(ctx, service, config) {
     const logger = ctx.logger;
     const memories = service.all().filter((m) => !m.archived && m.type !== "summary");
-    if (memories.length === 0) return { ok: true, applied: 0, skipped: true };
+    if (memories.length === 0) return { ok: true, applied: 0, skipped: true, summary: false };
     const snapshot = new Map(memories.map((m) => [m.id, m]));
-    const route = resolveRoute(ctx, config);
-    if (!route) return { ok: false, error: "no llm route" };
+    const route = resolveRoute(ctx, config, logger);
+    if (!route) {
+      logger?.warn?.("dsh-memory dream: no llm route available");
+      return { ok: false, error: "no llm route", summary: false };
+    }
 
     const listText = [...snapshot.values()].map((m) =>
       `id=${m.id} | type=${m.type} | importance=${m.importance} | updated=${m.updated_at} | title=${m.title} | content=${m.content}`
     ).join("\n");
 
-    const decisionText = await streamText(ctx, {
-      provider: route.provider,
-      model: route.model,
-      purpose: "compaction",
-      maxTokens: config.dreamMaxTokens ?? 4096,
-      messages: [
-        { role: "system", content: [{ type: "text", text: CONSOLIDATION_PROMPT }] },
-        { role: "user", content: [{ type: "text", text: listText }] }
-      ]
-    });
-    if (decisionText === undefined) return { ok: false, error: "llm failed" };
+    let decisionText;
+    try {
+      decisionText = await streamText(ctx, {
+        provider: route.provider,
+        model: route.model,
+        purpose: "compaction",
+        maxTokens: config.dreamMaxTokens ?? 4096,
+        messages: [
+          { role: "system", content: [{ type: "text", text: CONSOLIDATION_PROMPT }] },
+          { role: "user", content: [{ type: "text", text: listText }] }
+        ]
+      });
+    } catch (error) {
+      logger?.warn?.(`dsh-memory dream: consolidation llm call failed: ${String(error)}`);
+      return { ok: false, error: "llm failed", summary: false };
+    }
+    if (decisionText === undefined) {
+      logger?.warn?.("dsh-memory dream: consolidation llm stream aborted or errored");
+      return { ok: false, error: "llm failed", summary: false };
+    }
 
     let decisions;
     try {
       const start = decisionText.indexOf("[");
       const end = decisionText.lastIndexOf("]");
-      if (start === -1 || end <= start) return { ok: false, error: "no json array in llm output" };
+      if (start === -1 || end <= start) {
+        logger?.warn?.("dsh-memory dream: no json array in llm output");
+        return { ok: false, error: "no json array in llm output", summary: false };
+      }
       decisions = JSON.parse(decisionText.slice(start, end + 1));
     } catch {
-      return { ok: false, error: "invalid decisions json" };
+      logger?.warn?.("dsh-memory dream: invalid decisions json");
+      return { ok: false, error: "invalid decisions json", summary: false };
     }
     const { ok, errors } = validateDecisions(decisions, snapshot);
     if (!ok) {
       logger?.warn?.(`dsh-memory dream: invalid decisions: ${errors.join("; ")}`);
-      return { ok: false, error: `invalid decisions: ${errors.length} errors` };
+      return { ok: false, error: `invalid decisions: ${errors.length} errors`, summary: false };
     }
 
     const applied = applyDecisions(decisions, service, logger);
 
-    // Summary generation (second LLM call)
-    const summaryText = await streamText(ctx, {
-      provider: route.provider,
-      model: route.model,
-      purpose: "compaction",
-      maxTokens: config.dreamMaxTokens ?? 2048,
-      messages: [
-        { role: "system", content: [{ type: "text", text: SUMMARY_PROMPT }] },
-        { role: "user", content: [{ type: "text", text: service.all().filter((m) => !m.archived && m.type !== "summary").map((m) => `- ${m.title}: ${m.content}`).join("\n") }] }
-      ]
-    });
+    // Summary generation (second LLM call). A throwing stream is reported as
+    // a failed run; summary:false marks a run that produced no summary.
+    let summaryText;
+    try {
+      summaryText = await streamText(ctx, {
+        provider: route.provider,
+        model: route.model,
+        purpose: "compaction",
+        maxTokens: config.dreamMaxTokens ?? 2048,
+        messages: [
+          { role: "system", content: [{ type: "text", text: SUMMARY_PROMPT }] },
+          { role: "user", content: [{ type: "text", text: service.all().filter((m) => !m.archived && m.type !== "summary").map((m) => `- ${m.title}: ${m.content}`).join("\n") }] }
+        ]
+      });
+    } catch (error) {
+      logger?.warn?.(`dsh-memory dream: summary llm call failed: ${String(error)}`);
+      return { ok: false, error: "llm failed", summary: false };
+    }
+    let summaryStored = false;
     if (summaryText !== undefined && summaryText.trim()) {
       service.saveWithDedupe({ type: "summary", title: "记忆库总览", content: summaryText.trim(), importance: 5, source: "dream" });
+      summaryStored = true;
     }
-    return { ok: true, applied };
+    return { ok: true, applied, summary: summaryStored };
   }
 
   return { maybeSchedule, runDream, dispose };
