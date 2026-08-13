@@ -11,10 +11,15 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 
 export const name = "dsh-memory";
-export const inject = ["tools", "systemPrompt"];
+export const inject = ["tools", "systemPrompt", "webServer", "llm"];
 export { Config };
 
-export function apply(ctx, config) {
+// Arrow (not function declaration): cordis 4 treats any apply with a
+// prototype as a class constructor (`new apply(...)`) and discards its return
+// value, so a `function apply` disposer would never run on unload. An arrow
+// has no prototype, is called normally, and its returned disposer is collected
+// and run by the fiber on unload.
+export const apply = (ctx, config) => {
   const cfg = Config(config);
 
   // Resolve memoryDir: expand leading "~"
@@ -58,4 +63,4 @@ export function apply(ctx, config) {
     }
     store.close();
   };
-}
+};
