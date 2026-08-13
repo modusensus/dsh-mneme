@@ -157,16 +157,21 @@ test/                 # 104 个 node:test 测试
 
 ```bash
 cd dsh-mneme
-node --test --test-isolation=none test/*.test.js
+npm install        # 安装 peer 依赖（以 devDependencies 形式，用于本地测试）
+npm test           # 运行 104 个测试（--test-isolation=none 用于受限沙箱，禁止子进程 spawn）
+npm run sync       # 把 src/ 同步到 lib/（发布时由 prepack 钩子自动执行）
 ```
 
-> 注：`--test-isolation=none` 用于受限沙箱（禁止子进程 spawn）；普通环境可直接 `node --test`。
+> 注：`npm test` 使用 `--test-isolation=none` 适配受限沙箱；普通环境可直接 `node --test`。
+> `lib/` 是 `src/` 的同步分发产物（`npm run sync`），其中 `lib/client.js` 为手写 Web 面板源码，不受同步影响。
 
 ## 📄 设计文档
 
-- [记忆库设计](docs/superpowers/specs/2026-08-13-dsh-memory-design.md)
-- [autoDream 设计](docs/superpowers/specs/2026-08-13-dsh-memory-autodream-design.md)
-- [实施计划](docs/superpowers/plans/2026-08-13-dsh-memory-autodream.md)
+> 设计文档位于仓库根 `docs/`，链接以 `../docs/` 相对路径指向（GitHub 上从本目录打开可正常跳转）。
+
+- [记忆库设计](../docs/superpowers/specs/2026-08-13-dsh-memory-design.md)
+- [autoDream 设计](../docs/superpowers/specs/2026-08-13-dsh-memory-autodream-design.md)
+- [实施计划](../docs/superpowers/plans/2026-08-13-dsh-memory-autodream.md)
 
 ## 📜 License
 
