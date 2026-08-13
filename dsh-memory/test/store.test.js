@@ -1,5 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { DatabaseSync } from "node:sqlite";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createStore } from "../src/store.js";
 
 function openMemory() {
@@ -150,5 +154,57 @@ test("list sanitizes invalid limit/offset", () => {
   assert.equal(store.list({ limit: 0 }).length, 3);
   assert.equal(store.list({ limit: 1.5 }).length, 3);
   assert.equal(store.list({ limit: 2, offset: -5 }).length, 2);
+  store.close();
+});
+
+test("schema migration adds archived column to legacy database", () => {
+  const dir = mkdtempSync(join(tmpdir(), "dsh-memory-migrate-"));
+  const dbPath = join(dir, "legacy.db");
+  try {
+    // Create a legacy db WITHOUT archived column
+    const legacy = new DatabaseSync(dbPath);
+    legacy.exec(`CREATE TABLE memories (
+      id TEXT PRIMARY KEY, type TEXT NOT NULL, title TEXT NOT NULL, content TEXT NOT NULL,
+      tags TEXT NOT NULL DEFAULT '[]', importance INTEGER NOT NULL DEFAULT 3,
+      forgotten INTEGER NOT NULL DEFAULT 0, source TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );`);
+    legacy.close();
+    // Open with createStore → should ALTER TABLE
+    const store = createStore(dbPath);
+    const cols = store.db.prepare("PRAGMA table_info(memories)").all().map((c) => c.name);
+    assert.ok(cols.includes("archived"), "archived column added");
+    store.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("setArchived marks entry archived; list excludes it by default", () => {
+  const store = openMemory();
+  const saved = store.save({ type: "project", title: "t", content: "c", importance: 3 });
+  const archived = store.setArchived(saved.id, true);
+  assert.equal(archived.archived, true);
+  assert.equal(store.list().length, 0, "excluded from default list");
+  assert.equal(store.list({ includeArchived: true }).length, 1, "included with flag");
+  assert.equal(store.count(), 0, "excluded from default count");
+  assert.equal(store.count(undefined, { includeArchived: true }), 1);
+  store.close();
+});
+
+test("search excludes archived by default", () => {
+  const store = openMemory();
+  const saved = store.save({ type: "project", title: "secret", content: "hidden content", importance: 3 });
+  store.setArchived(saved.id, true);
+  assert.equal(store.search("secret").length, 0);
+  assert.equal(store.search("secret", { includeArchived: true }).length, 1);
+  store.close();
+});
+
+test("save/update preserve archived flag", () => {
+  const store = openMemory();
+  const saved = store.save({ type: "project", title: "t", content: "c" });
+  store.setArchived(saved.id, true);
+  const updated = store.update(saved.id, { content: "new" });
+  assert.equal(updated.archived, true, "update keeps archived");
   store.close();
 });
