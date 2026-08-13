@@ -1,8 +1,8 @@
-# dsh-recall
+# dsh-mneme
 
 > 给 DeepSeek Harness 的跨会话记忆插件：让 Agent 记住你、记住项目、自动整理记忆。
 
-`dsh-recall` 是一个 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) 插件，为 Agent 提供持久的跨会话记忆能力。它借鉴了 Claude 的 **Dream 机制** 与 cc-haha / Claude Code 的 **autoDream** 实现思路——不仅**存储**记忆，还会**自动巩固**（去重、合并、冲突裁决、摘要生成），让记忆库越用越精炼。
+`dsh-mneme` 是一个 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) 插件，为 Agent 提供持久的跨会话记忆能力。它借鉴了 Claude 的 **Dream 机制** 与 cc-haha / Claude Code 的 **autoDream** 实现思路——不仅**存储**记忆，还会**自动巩固**（去重、合并、冲突裁决、摘要生成），让记忆库越用越精炼。
 
 ## ✨ 功能
 
@@ -55,7 +55,7 @@
 
 ```bash
 # 1. 在 DSH web profile 安装插件
-dsh plugin --profile web add @modusensus/dsh-recall
+dsh plugin --profile web add @modusensus/dsh-mneme
 
 # 2. 在 ~/.dsh/profiles/web/cordis.patch.yml 注册插件（见下方配置块）
 # 3. 重启
@@ -65,7 +65,7 @@ dsh web
 #### 方式二：从源码安装
 
 ```bash
-git clone https://github.com/modusensus/dsh-recall.git
+git clone https://github.com/modusensus/dsh-mneme.git
 ```
 
 在 `~/.dsh/profiles/web/package.json` 添加依赖：
@@ -73,7 +73,7 @@ git clone https://github.com/modusensus/dsh-recall.git
 ```json
 {
   "dependencies": {
-    "@modusensus/dsh-recall": "file:/path/to/dsh-recall"
+    "@modusensus/dsh-mneme": "file:/path/to/dsh-mneme"
   }
 }
 ```
@@ -82,8 +82,8 @@ git clone https://github.com/modusensus/dsh-recall.git
 
 ```yaml
 - insert:
-    - id: dsh-recall
-      name: '@modusensus/dsh-recall'
+    - id: dsh-mneme
+      name: '@modusensus/dsh-mneme'
       config:
         memoryDir: ~/.dsh/memory
         autoInject: true
@@ -162,7 +162,7 @@ test/                 # 104 个 node:test 测试
 ## 🧪 开发
 
 ```bash
-cd dsh-recall
+cd dsh-mneme
 node --test --test-isolation=none test/*.test.js
 ```
 

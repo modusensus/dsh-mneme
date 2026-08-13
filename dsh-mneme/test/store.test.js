@@ -158,7 +158,7 @@ test("list sanitizes invalid limit/offset", () => {
 });
 
 test("schema migration adds archived column to legacy database", () => {
-  const dir = mkdtempSync(join(tmpdir(), "dsh-recall-migrate-"));
+  const dir = mkdtempSync(join(tmpdir(), "dsh-mneme-migrate-"));
   const dbPath = join(dir, "legacy.db");
   try {
     // Create a legacy db WITHOUT archived column

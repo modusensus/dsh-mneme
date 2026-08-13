@@ -4,7 +4,7 @@ export function createInjector(ctx, service, config) {
 
   function render(candidates) {
     if (!candidates.length) return "";
-    const lines = ["[记忆库] 来自 dsh-recall 的跨会话记忆（用户偏好与高优先级项目/决策）："];
+    const lines = ["[记忆库] 来自 dsh-mneme 的跨会话记忆（用户偏好与高优先级项目/决策）："];
     for (const m of candidates) {
       lines.push(`- [${m.type}] ${m.title}（重要性 ${m.importance}）：${m.content}`);
     }

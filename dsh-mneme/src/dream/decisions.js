@@ -114,7 +114,7 @@ export function applyDecisions(decisions, service, logger = null) {
     } catch (error) {
       // Skip individual bad decision; never corrupt the store. The optional
       // logger makes the failure visible instead of failing silently.
-      logger?.warn?.(`dsh-recall dream: failed to apply ${d.action} at index ${i}: ${error.message}`);
+      logger?.warn?.(`dsh-mneme dream: failed to apply ${d.action} at index ${i}: ${error.message}`);
     }
   }
   return applied;

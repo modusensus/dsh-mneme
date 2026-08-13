@@ -49,9 +49,9 @@ function resolveRoute(ctx, config, logger) {
   try {
     const sel = ctx.agentDefaultModel?.currentSelection?.();
     if (sel?.provider && sel?.model) return { provider: sel.provider, model: sel.model };
-    logger?.warn?.("dsh-recall dream: agentDefaultModel unavailable, falling back to config route");
+    logger?.warn?.("dsh-mneme dream: agentDefaultModel unavailable, falling back to config route");
   } catch (error) {
-    logger?.warn?.(`dsh-recall dream: agentDefaultModel lookup failed, falling back to config route: ${String(error)}`);
+    logger?.warn?.(`dsh-mneme dream: agentDefaultModel lookup failed, falling back to config route: ${String(error)}`);
   }
   if (config.dreamProvider && config.dreamModel) return { provider: config.dreamProvider, model: config.dreamModel };
   return undefined;
@@ -95,12 +95,12 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
               baseline = shouldTrigger(service);
             } catch (error) {
               // Store closed mid-flight: keep the last known baseline.
-              logger?.warn?.(`dsh-recall dream: baseline refresh failed: ${String(error)}`);
+              logger?.warn?.(`dsh-mneme dream: baseline refresh failed: ${String(error)}`);
             }
           }
         })
         .catch((error) => {
-          logger?.warn?.(`dsh-recall dream: run failed: ${error?.message ?? error}`);
+          logger?.warn?.(`dsh-mneme dream: run failed: ${error?.message ?? error}`);
           // Failed runs do not refresh the baseline.
         })
         .finally(() => {
@@ -125,7 +125,7 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     const snapshot = new Map(memories.map((m) => [m.id, m]));
     const route = resolveRoute(ctx, config, logger);
     if (!route) {
-      logger?.warn?.("dsh-recall dream: no llm route available");
+      logger?.warn?.("dsh-mneme dream: no llm route available");
       return { ok: false, error: "no llm route", summary: false };
     }
 
@@ -146,11 +146,11 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
         ]
       });
     } catch (error) {
-      logger?.warn?.(`dsh-recall dream: consolidation llm call failed: ${String(error)}`);
+      logger?.warn?.(`dsh-mneme dream: consolidation llm call failed: ${String(error)}`);
       return { ok: false, error: "llm failed", summary: false };
     }
     if (decisionText === undefined) {
-      logger?.warn?.("dsh-recall dream: consolidation llm stream aborted or errored");
+      logger?.warn?.("dsh-mneme dream: consolidation llm stream aborted or errored");
       return { ok: false, error: "llm failed", summary: false };
     }
 
@@ -159,17 +159,17 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       const start = decisionText.indexOf("[");
       const end = decisionText.lastIndexOf("]");
       if (start === -1 || end <= start) {
-        logger?.warn?.("dsh-recall dream: no json array in llm output");
+        logger?.warn?.("dsh-mneme dream: no json array in llm output");
         return { ok: false, error: "no json array in llm output", summary: false };
       }
       decisions = JSON.parse(decisionText.slice(start, end + 1));
     } catch {
-      logger?.warn?.("dsh-recall dream: invalid decisions json");
+      logger?.warn?.("dsh-mneme dream: invalid decisions json");
       return { ok: false, error: "invalid decisions json", summary: false };
     }
     const { ok, errors } = validateDecisions(decisions, snapshot);
     if (!ok) {
-      logger?.warn?.(`dsh-recall dream: invalid decisions: ${errors.join("; ")}`);
+      logger?.warn?.(`dsh-mneme dream: invalid decisions: ${errors.join("; ")}`);
       return { ok: false, error: `invalid decisions: ${errors.length} errors`, summary: false };
     }
 
@@ -190,7 +190,7 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
         ]
       });
     } catch (error) {
-      logger?.warn?.(`dsh-recall dream: summary llm call failed: ${String(error)}`);
+      logger?.warn?.(`dsh-mneme dream: summary llm call failed: ${String(error)}`);
       return { ok: false, error: "llm failed", summary: false };
     }
     let summaryStored = false;
