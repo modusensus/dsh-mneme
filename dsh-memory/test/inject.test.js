@@ -44,3 +44,15 @@ test("returns empty text when nothing qualifies", () => {
   const text = contexts[0].text({});
   assert.equal(text, "");
 });
+
+test("renders summary block first when summary candidate exists", () => {
+  const { contexts, service } = setup();
+  service.saveWithDedupe({ type: "summary", title: "记忆库总览", content: "这是总览摘要", importance: 5 });
+  service.saveWithDedupe({ type: "preference", title: "语言", content: "中文", importance: 5 });
+  const text = contexts[0].text({});
+  const summaryIdx = text.indexOf("这是总览摘要");
+  const prefIdx = text.indexOf("语言");
+  assert.ok(summaryIdx !== -1, "summary present");
+  assert.ok(prefIdx !== -1, "preference present");
+  assert.ok(summaryIdx < prefIdx, "summary rendered first");
+});
