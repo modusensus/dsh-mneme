@@ -1,7 +1,7 @@
 {
   "name": "@modusensus/dsh-mneme",
   "description": "Cross-session memory plugin for DeepSeek Harness with autoDream consolidation: SQLite+FTS5 store, Markdown mirrors, 6 model tools, automatic injection, session summarization, and a Web GUI panel",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "MIT",
   "type": "module",
   "main": "lib/index.js",
@@ -14,11 +14,14 @@
     },
     "./package.json": "./package.json"
   },
-  "files": ["lib", "src"],
+  "files": ["lib", "src", "cordis.patch.yml"],
   "dsh": {
     "client": {
       "inject": ["slots", "locale", "layout", "connection"],
       "platform": "web"
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
     }
   },
   "peerDependencies": {

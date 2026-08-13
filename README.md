@@ -1,6 +1,11 @@
 # dsh-mneme
 
-> 给 DeepSeek Harness 的跨会话记忆插件：让 Agent 记住你、记住项目、自动整理记忆。
+[![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
+[![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![dsh-plugin](https://img.shields.io/badge/dsh-plugin-awesome-orange)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
+[![tests](https://img.shields.io/badge/tests-104%20passed-success)](https://github.com/modusensus/dsh-mneme)
+
+> 给 DeepSeek Harness 的跨会话记忆插件：让 Agent 记住你、记住项目、自动整理记忆。**Mneme**（Μνήμη）——希腊记忆女神 Mnemosyne 之名，掌管记忆与梦境，正如 autoDream 在后台巩固记忆。
 
 `dsh-mneme` 是一个 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) 插件，为 Agent 提供持久的跨会话记忆能力。它借鉴了 Claude 的 **Dream 机制** 与 cc-haha / Claude Code 的 **autoDream** 实现思路——不仅**存储**记忆，还会**自动巩固**（去重、合并、冲突裁决、摘要生成），让记忆库越用越精炼。
 
@@ -53,55 +58,44 @@
 
 #### 方式一：npm 安装（推荐）
 
+dsh-mneme 是一个 **bundle**（声明了 `dsh.bundle` manifest），安装即自动激活，无需手动写配置：
+
 ```bash
-# 1. 在 DSH web profile 安装插件
+# 1. 安装插件（自动注册 bundle 层）
 dsh plugin --profile web add @modusensus/dsh-mneme
 
-# 2. 在 ~/.dsh/profiles/web/cordis.patch.yml 注册插件（见下方配置块）
-# 3. 重启
+# 2. 重启
 dsh web
 ```
+
+> 如需自定义配置（阈值、延迟等），可在 `~/.dsh/profiles/web/cordis.patch.yml` 中按 `id: dsh-mneme` 覆盖默认值（见下方配置表）。
 
 #### 方式二：从源码安装
 
 ```bash
 git clone https://github.com/modusensus/dsh-mneme.git
+cd dsh-mneme
+dsh plugin --profile web add .
+dsh web
 ```
 
-在 `~/.dsh/profiles/web/package.json` 添加依赖：
+#### 自定义配置（可选）
 
-```json
-{
-  "dependencies": {
-    "@modusensus/dsh-mneme": "file:/path/to/dsh-mneme"
-  }
-}
-```
-
-#### 插件注册（`~/.dsh/profiles/web/cordis.patch.yml`）
+默认配置即可用。如需调整，在 `~/.dsh/profiles/web/cordis.patch.yml` 中覆盖：
 
 ```yaml
-- insert:
-    - id: dsh-mneme
-      name: '@modusensus/dsh-mneme'
-      config:
-        memoryDir: ~/.dsh/memory
-        autoInject: true
-        autoSummarize: true
-        maxInjectedItems: 5
-        importanceThreshold: 3
-        autoDream: true
-        dreamThresholdCount: 10
-        dreamThresholdChars: 5000
-        dreamDelayMs: 2000
-```
-
-最后安装依赖并重启：
-
-```bash
-cd ~/.dsh/profiles/web
-pnpm install
-dsh web
+- id: dsh-mneme
+  name: '@modusensus/dsh-mneme'
+  config:
+    memoryDir: ~/.dsh/memory
+    autoInject: true
+    autoSummarize: true
+    maxInjectedItems: 5
+    importanceThreshold: 3
+    autoDream: true
+    dreamThresholdCount: 10
+    dreamThresholdChars: 5000
+    dreamDelayMs: 2000
 ```
 
 ## ⚙️ 配置

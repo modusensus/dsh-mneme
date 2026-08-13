@@ -1,0 +1,15 @@
+# dsh-mneme bundle patch — the layer applied when a profile lists this bundle.
+# Installed via: dsh plugin --profile <name> add @modusensus/dsh-mneme
+- insert:
+    - id: dsh-mneme
+      name: '@modusensus/dsh-mneme'
+      config:
+        memoryDir: ~/.dsh/memory
+        autoInject: true
+        autoSummarize: true
+        maxInjectedItems: 5
+        importanceThreshold: 3
+        autoDream: true
+        dreamThresholdCount: 10
+        dreamThresholdChars: 5000
+        dreamDelayMs: 2000
