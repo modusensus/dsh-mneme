@@ -466,7 +466,7 @@ test("mirror writes one markdown file per type on sync", () => {
       assert.ok(text.includes("标题"), `${type} file contains title`);
       assert.ok(text.includes("内容"), `${type} file contains content`);
     }
-    assert.ok(!mirror.filePath("decision").includes("decisions"));
+    assert.ok(mirror.filePath("decision").includes("decisions"));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
