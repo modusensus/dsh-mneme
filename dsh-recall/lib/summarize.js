@@ -155,7 +155,7 @@ export function createSummarizer(ctx, service, config) {
     // and external AbortErrors are silent.
     return summarize(session).catch((error) => {
       if (disposed || error?.name === "AbortError") return;
-      ctx.logger?.warn?.(`dsh-memory: summarization failed: ${String(error)}`);
+      ctx.logger?.warn?.(`dsh-recall: summarization failed: ${String(error)}`);
     });
   });
 

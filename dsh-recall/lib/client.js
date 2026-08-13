@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-  id: "dsh-memory",
+  id: "dsh-recall",
   factory: (require) => {
     var module = { exports: {} };
     var exports = module.exports;
@@ -66,8 +66,8 @@ window.__ModuleLoader__.load({
           const params = new URLSearchParams();
           if (tab !== "all") params.set("type", tab);
           const url = query.trim()
-            ? `/api/dsh-memory/search?q=${encodeURIComponent(query.trim())}`
-            : `/api/dsh-memory/list?${params.toString()}`;
+            ? `/api/dsh-recall/search?q=${encodeURIComponent(query.trim())}`
+            : `/api/dsh-recall/list?${params.toString()}`;
           const res = await fetch(url, { signal: controller.signal });
           const data = await res.json();
           setItems(data.items || []);
@@ -156,7 +156,7 @@ window.__ModuleLoader__.load({
     };
 
     function apply(ctx) {
-      ctx.effect(() => ctx.locale.register(NS, dictionaries), "dsh-memory: dictionaries");
+      ctx.effect(() => ctx.locale.register(NS, dictionaries), "dsh-recall: dictionaries");
 
       ctx.effect(() => {
         const t = ctx.locale.bind(NS);
@@ -177,7 +177,7 @@ window.__ModuleLoader__.load({
             );
           })
         );
-      }, "dsh-memory: sidebar action");
+      }, "dsh-recall: sidebar action");
     }
 
     exports.apply = apply;

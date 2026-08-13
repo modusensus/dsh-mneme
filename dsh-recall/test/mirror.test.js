@@ -8,7 +8,7 @@ import { createMirror } from "../src/mirror.js";
 const TYPE_FILE = { preference: "preferences.md", project: "projects.md", decision: "decisions.md", history: "history.md" };
 
 function tempDir() {
-  return mkdtempSync(join(tmpdir(), "dsh-memory-mirror-"));
+  return mkdtempSync(join(tmpdir(), "dsh-recall-mirror-"));
 }
 
 function sampleMemory(type, over = {}) {
@@ -86,7 +86,7 @@ test("readHumanEdits content is not polluted by file header", () => {
     assert.ok(m1, "detects m1");
     assert.equal(m1.content, "机器内容");
     assert.ok(!m1.content.includes("#"), "no H1 header in content");
-    assert.ok(!m1.content.includes("dsh-memory 镜像"), "no mirror banner in content");
+    assert.ok(!m1.content.includes("dsh-recall 镜像"), "no mirror banner in content");
     assert.ok(!m1.content.includes("<!--"), "no html comment in content");
   } finally {
     rmSync(dir, { recursive: true, force: true });

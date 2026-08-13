@@ -121,7 +121,7 @@ export function createMirror(dir) {
         rmSync(file, { force: true });
         continue;
       }
-      const header = `# ${TYPE_FILE[type]} — dsh-memory 镜像\n\n<!-- 手工编辑此文件会被合并回记忆库（人工优先）。 -->\n\n`;
+      const header = `# ${TYPE_FILE[type]} — dsh-recall 镜像\n\n<!-- 手工编辑此文件会被合并回记忆库（人工优先）。 -->\n\n`;
       const body = items.map(renderMemory).join("\n");
       writeFileSync(file, header + body, "utf8");
     }
