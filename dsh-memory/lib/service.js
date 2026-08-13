@@ -1,6 +1,17 @@
-const INJECT_TYPES = new Set(["preference", "project", "decision"]);
+const INJECT_TYPES = new Set(["preference", "project", "decision", "summary"]);
 
-export function createService({ store, mirror, config }) {
+export function createService({ store, mirror, config, onWrite }) {
+  /**
+   * Fire-and-forget write notification; errors are swallowed to keep write
+   * paths clean. The store mutation has already committed, so a throwing
+   * subscriber must not surface as a write failure. Archive/forget flags are
+   * state toggles, not content writes, so they never notify.
+   */
+  function notifyWrite() {
+    if (!onWrite) return;
+    try { onWrite(); } catch { /* ignore */ }
+  }
+
   /**
    * Save a memory, merging into an existing one when title matches within the same type.
    * @returns {{action: "created"|"merged", memory: object}}
@@ -17,6 +28,7 @@ export function createService({ store, mirror, config }) {
         title: memory.title ?? existing.title
       });
       syncMirror();
+      notifyWrite();
       return { action: "merged", memory: merged };
     }
     const created = store.save({
@@ -28,20 +40,24 @@ export function createService({ store, mirror, config }) {
       source: memory.source ?? "manual"
     });
     syncMirror();
+    notifyWrite();
     return { action: "created", memory: created };
   }
 
   /**
    * Candidate memories for automatic context injection:
-   * all preferences + non-forgotten items with importance >= threshold.
-   * History is never auto-injected.
+   * summaries first, then all preferences, then non-forgotten items with
+   * importance >= threshold. History is never auto-injected. Archived entries
+   * are excluded (store.list already filters them by default; the extra
+   * !m.archived check is kept as double insurance).
    */
   function injectCandidates({ maxItems = 5, threshold = 3 } = {}) {
     const items = store.list({ limit: 200, includeForgotten: false })
-      .filter((m) => INJECT_TYPES.has(m.type) && !m.forgotten && (m.type === "preference" || m.importance >= threshold))
+      .filter((m) => !m.archived && INJECT_TYPES.has(m.type) && !m.forgotten &&
+        (m.type === "summary" || m.type === "preference" || m.importance >= threshold))
       .sort((a, b) => {
-        const pa = a.type === "preference" ? 0 : 1;
-        const pb = b.type === "preference" ? 0 : 1;
+        const pa = a.type === "summary" ? 0 : a.type === "preference" ? 1 : 2;
+        const pb = b.type === "summary" ? 0 : b.type === "preference" ? 1 : 2;
         return pa - pb || b.importance - a.importance;
       });
     return items.slice(0, maxItems);
@@ -65,7 +81,10 @@ export function createService({ store, mirror, config }) {
         applied++;
       }
     }
-    if (applied) syncMirror();
+    if (applied) {
+      syncMirror();
+      notifyWrite();
+    }
     return applied;
   }
 
@@ -106,14 +125,21 @@ export function createService({ store, mirror, config }) {
     remove: (id) => {
       store.remove(id);
       syncMirror();
+      notifyWrite();
     },
     update: (id, p) => {
       const updated = store.update(id, p);
       syncMirror();
+      notifyWrite();
       return updated;
     },
     setForget: (id, f) => {
       const updated = store.setForget(id, f);
+      syncMirror();
+      return updated;
+    },
+    setArchived: (id, f) => {
+      const updated = store.setArchived(id, f);
       syncMirror();
       return updated;
     }

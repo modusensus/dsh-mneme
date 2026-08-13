@@ -2,11 +2,14 @@ const INJECT_TYPES = new Set(["preference", "project", "decision", "summary"]);
 
 export function createService({ store, mirror, config, onWrite }) {
   /**
-   * Fire the optional onWrite hook after any content write. Archive/forget
-   * flags are state toggles, not content writes, so they never notify.
+   * Fire-and-forget write notification; errors are swallowed to keep write
+   * paths clean. The store mutation has already committed, so a throwing
+   * subscriber must not surface as a write failure. Archive/forget flags are
+   * state toggles, not content writes, so they never notify.
    */
   function notifyWrite() {
-    if (onWrite) onWrite();
+    if (!onWrite) return;
+    try { onWrite(); } catch { /* ignore */ }
   }
 
   /**
