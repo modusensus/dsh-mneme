@@ -817,7 +817,12 @@ function resolveRoute(ctx, service) {
 }
 ```
 
-> **IMPORTANT — route resolution:** the skeleton above uses a placeholder `resolveRoute`. In the real plugin, dream runs outside any session, so there is no `session.requestHeader()`. The correct route source is the **agent default model service** (`ctx.agentDefaultModel`, used by `dsh-agent-default-model`) or plugin config. **During Task 6, replace `resolveRoute` with the real mechanism**: check `ctx.agentDefaultModel?.current` (or whatever the service exposes per `dsh-agent-default-model` README: registers `{provider, model, reasoningEffort?}` under the `agent-default-model` settings section). If unavailable, fall back to `config.dreamProvider`/`config.dreamModel` config keys (add them to config.js in Task 6 if needed) — decide based on what the installed dsh-agent-default-model exposes, and report the chosen mechanism. Also verify: the streamText `assembler.push(chunk)` may throw on the mock `{block:...}` shapes used in tests — tests use real-protocol shapes (`{type:"text-delta", text}`) so this is consistent; the real protocol has `{type:"text-delta", index, text}` which is handled.
+> **ROUTE RESOLUTION — RESOLVED (research done by controller 2026-08-13):** dream runs outside any session, so there is no `session.requestHeader()`. The correct mechanism is **`ctx.agentDefaultModel.currentSelection()`** (verified: `@deepseek-ai/dsh-agent-default-model` lib/index.js line 56, returns `{provider, model, reasoningEffort?}`; the service is part of the dsh-base bundle composition, available in the web profile). Fallback chain in `resolveRoute(ctx)`:
+> 1. `ctx.agentDefaultModel?.currentSelection?.()` → `{provider, model}` if both present
+> 2. `config.dreamProvider && config.dreamModel` (add these two keys to config.js in Task 6 — `z.string()` optional, no default)
+> 3. `undefined` → `runDream` returns `{ok:false, error:"no llm route"}` (fail-safe, no crash)
+> The `inject` export must include `"agentDefaultModel"` when the plugin reads it — verify the service is provided by an ancestor fiber in the web composition (dsh-base bundle provides it); if `ctx.agentDefaultModel` access throws without inject, add it to the inject list in Task 8 and re-verify with the real-cordis probe in Task 10.
+> Also verify: the streamText `assembler.push(chunk)` may throw on the mock `{block:...}` shapes used in tests — tests use real-protocol shapes (`{type:"text-delta", text}`) so this is consistent; the real protocol has `{type:"text-delta", index, text}` which is handled.
 
 Also import at top of dream.js: `import { BlockAssembler } from "@deepseek-ai/dsh-llm";` and the summary type must be allowed by store.save (TYPES set) — **Task 1 Step 3 must add "summary" to TYPES**; if not, add it there now.
 
