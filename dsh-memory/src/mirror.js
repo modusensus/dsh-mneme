@@ -64,6 +64,8 @@ export function createMirror(dir) {
         const titleMatch = block.match(/^## (.+)$/m);
         const content = block
           .replace(/^## .+\n?/m, "")
+          .replace(/^# .+\n?/m, "")
+          .replace(/<!--[\s\S]*?-->\n?/g, "")
           .replace(/^- \*\*(ID|类型|重要性|标签|更新时间|来源)\*\*:.*$/gm, "")
           .replace(/^\s*$/gm, "")
           .trim();
