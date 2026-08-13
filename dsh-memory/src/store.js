@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS memories (
   tags        TEXT NOT NULL DEFAULT '[]',
   importance  INTEGER NOT NULL DEFAULT 3,
   forgotten   INTEGER NOT NULL DEFAULT 0,
+  archived    INTEGER NOT NULL DEFAULT 0,
   source      TEXT,
   created_at  TEXT NOT NULL,
   updated_at  TEXT NOT NULL
@@ -18,7 +19,7 @@ CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(type);
 CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance);
 `;
 
-const TYPES = new Set(["preference", "project", "decision", "history"]);
+const TYPES = new Set(["preference", "project", "decision", "history", "summary"]);
 
 // Pure helpers: no shared module state.
 
@@ -51,6 +52,7 @@ function toRow(row) {
     tags: parseTags(row.tags),
     importance: row.importance,
     forgotten: row.forgotten === 1,
+    archived: row.archived === 1,
     source: row.source ?? undefined,
     created_at: row.created_at,
     updated_at: row.updated_at
@@ -61,6 +63,12 @@ export function createStore(path) {
   const db = new DatabaseSync(path);
   db.exec("PRAGMA journal_mode = WAL;");
   db.exec(SCHEMA);
+
+  // Schema migration: add archived column to legacy databases (idempotent)
+  const columns = db.prepare("PRAGMA table_info(memories)").all().map((c) => c.name);
+  if (!columns.includes("archived")) {
+    db.exec("ALTER TABLE memories ADD COLUMN archived INTEGER NOT NULL DEFAULT 0");
+  }
 
   // Per-instance monotonic timestamp guard: consecutive writes within the same
   // millisecond must still produce strictly increasing timestamps (test asserts
@@ -77,7 +85,7 @@ export function createStore(path) {
     return ts;
   }
 
-  function count(type, { includeForgotten = false } = {}) {
+  function count(type, { includeForgotten = false, includeArchived = false } = {}) {
     const clauses = [];
     const params = [];
     if (type !== undefined) {
@@ -86,6 +94,9 @@ export function createStore(path) {
     }
     if (!includeForgotten) {
       clauses.push("forgotten = 0");
+    }
+    if (!includeArchived) {
+      clauses.push("archived = 0");
     }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     return db.prepare(`SELECT count(*) AS c FROM memories ${where}`).get(...params).c;
@@ -147,7 +158,13 @@ export function createStore(path) {
     return getById(id);
   }
 
-  function list({ type, limit = 50, offset = 0, includeForgotten = false } = {}) {
+  function setArchived(id, archived) {
+    db.prepare("UPDATE memories SET archived = ?, updated_at = ? WHERE id = ?")
+      .run(archived ? 1 : 0, nowIso(), id);
+    return getById(id);
+  }
+
+  function list({ type, limit = 50, offset = 0, includeForgotten = false, includeArchived = false } = {}) {
     const clauses = [];
     const params = [];
     if (type) {
@@ -156,6 +173,9 @@ export function createStore(path) {
     }
     if (!includeForgotten) {
       clauses.push("forgotten = 0");
+    }
+    if (!includeArchived) {
+      clauses.push("archived = 0");
     }
     const { limit: lim, offset: off } = sanitizePage(limit, offset, 50);
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
@@ -170,16 +190,17 @@ export function createStore(path) {
     return rows.map(toRow);
   }
 
-  function search(query, { limit = 20 } = {}) {
+  function search(query, { limit = 20, includeArchived = false } = {}) {
     const q = String(query).trim();
     if (!q) return [];
     // FTS5 over unicode61 (English + long phrases); LIKE fallback covers CJK substring.
     // LIKE wildcards in the query are escaped so user input is matched literally.
     const like = `%${escapeLike(q)}%`;
     const { limit: lim } = sanitizePage(limit, 0, 20);
+    const archivedFilter = includeArchived ? "" : "archived = 0 AND ";
     const rows = db.prepare(
       `SELECT * FROM memories
-       WHERE forgotten = 0 AND (title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\' OR tags LIKE ? ESCAPE '\\')
+       WHERE ${archivedFilter}forgotten = 0 AND (title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\' OR tags LIKE ? ESCAPE '\\')
        ORDER BY
          CASE WHEN title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END,
          importance DESC,
@@ -198,6 +219,7 @@ export function createStore(path) {
     update,
     remove,
     setForget,
+    setArchived,
     list,
     all,
     search,
