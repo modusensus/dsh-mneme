@@ -81,6 +81,20 @@ test("setForget toggles injection suppression", () => {
   store.close();
 });
 
+test("count excludes forgotten by default, includeForgotten opts in", () => {
+  const store = openMemory();
+  const a = store.save({ type: "project", title: "t1", content: "c" });
+  store.save({ type: "project", title: "t2", content: "c" });
+  store.save({ type: "preference", title: "p", content: "c" });
+  store.setForget(a.id, true);
+  assert.equal(store.count(), 2, "default excludes forgotten (matches list)");
+  assert.equal(store.count("project"), 1);
+  assert.equal(store.count("preference"), 1);
+  assert.equal(store.count(undefined, { includeForgotten: true }), 3);
+  assert.equal(store.count("project", { includeForgotten: true }), 2);
+  store.close();
+});
+
 test("search matches title, content and tags", () => {
   const store = openMemory();
   store.save({ type: "project", title: "记忆插件", content: "c1", tags: [] });

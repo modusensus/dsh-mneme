@@ -74,3 +74,62 @@ test("unknown route under prefix returns 404 json", async () => {
   await route.handler(req("/api/dsh-memory/nope"), res);
   assert.equal(res.statusCode, 404);
 });
+
+test("list total excludes forgotten entries", async () => {
+  const { routes, service } = setup();
+  service.saveWithDedupe({ type: "preference", title: "正常", content: "可见" });
+  const forgotten = service.saveWithDedupe({ type: "preference", title: "遗忘", content: "隐藏" });
+  service.saveWithDedupe({ type: "project", title: "项目", content: "其他类型" });
+  service.setForget(forgotten.memory.id, true);
+  const route = routes.find((r) => r.path === "/api/dsh-memory/list");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-memory/list?type=preference"), res);
+  assert.equal(res.statusCode, 200);
+  const data = JSON.parse(res.body);
+  assert.equal(data.items.length, 1);
+  assert.equal(data.total, 1, "total matches visible items, forgotten excluded");
+});
+
+test("list honors limit/offset", async () => {
+  const { routes, service } = setup();
+  service.saveWithDedupe({ type: "preference", title: "a", content: "1" });
+  service.saveWithDedupe({ type: "preference", title: "b", content: "2" });
+  const route = routes.find((r) => r.path === "/api/dsh-memory/list");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-memory/list?limit=1&offset=0"), res);
+  const data = JSON.parse(res.body);
+  assert.equal(data.items.length, 1);
+  assert.equal(data.total, 2);
+});
+
+test("responses carry application/json content-type", async () => {
+  const { routes } = setup();
+  const route = routes.find((r) => r.path === "/api/dsh-memory/list");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-memory/list"), res);
+  assert.match(res.headers["Content-Type"], /application\/json/);
+});
+
+test("handler errors return 500 json instead of leaking to host", async () => {
+  const routes = [];
+  const ctx = {
+    webServer: {
+      register(route) {
+        routes.push(route);
+        return () => {};
+      }
+    }
+  };
+  const service = {
+    list() { throw new Error("boom"); },
+    count() { throw new Error("boom"); },
+    search() { throw new Error("boom"); },
+    toApiList() { return []; }
+  };
+  createApi(ctx, service);
+  const route = routes.find((r) => r.path === "/api/dsh-memory/list");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-memory/list"), res);
+  assert.equal(res.statusCode, 500);
+  assert.deepEqual(JSON.parse(res.body), { error: "internal" });
+});
