@@ -51,30 +51,39 @@
 
 ### 安装步骤
 
-1. **克隆仓库到本地**：
+#### 方式一：npm 安装（推荐）
+
+```bash
+# 1. 在 DSH web profile 安装插件
+dsh plugin --profile web add @modusensus/dsh-recall
+
+# 2. 在 ~/.dsh/profiles/web/cordis.patch.yml 注册插件（见下方配置块）
+# 3. 重启
+dsh web
+```
+
+#### 方式二：从源码安装
 
 ```bash
 git clone https://github.com/modusensus/dsh-recall.git
 ```
 
-2. **在 DSH web profile 中注册插件**：
-
-编辑 `~/.dsh/profiles/web/package.json`，添加依赖：
+在 `~/.dsh/profiles/web/package.json` 添加依赖：
 
 ```json
 {
   "dependencies": {
-    "dsh-recall": "file:/path/to/dsh-recall"
+    "@modusensus/dsh-recall": "file:/path/to/dsh-recall"
   }
 }
 ```
 
-3. **在 `~/.dsh/profiles/web/cordis.patch.yml` 注册插件**：
+#### 插件注册（`~/.dsh/profiles/web/cordis.patch.yml`）
 
 ```yaml
 - insert:
     - id: dsh-recall
-      name: dsh-recall
+      name: '@modusensus/dsh-recall'
       config:
         memoryDir: ~/.dsh/memory
         autoInject: true
@@ -87,7 +96,7 @@ git clone https://github.com/modusensus/dsh-recall.git
         dreamDelayMs: 2000
 ```
 
-4. **安装依赖并重启**：
+最后安装依赖并重启：
 
 ```bash
 cd ~/.dsh/profiles/web
