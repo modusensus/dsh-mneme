@@ -76,6 +76,7 @@ test("setForget toggles injection suppression", () => {
   const saved = store.save({ type: "project", title: "t", content: "c", importance: 5 });
   store.setForget(saved.id, true);
   const got = store.getById(saved.id);
-  assert.equal(got.forgotten, 1);
+  // toRow maps SQLite 0/1 to boolean
+  assert.equal(got.forgotten, true);
   store.close();
 });

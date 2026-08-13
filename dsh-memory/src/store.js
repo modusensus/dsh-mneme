@@ -52,7 +52,7 @@ function toRow(row) {
     content: row.content,
     tags: parseTags(row.tags),
     importance: row.importance,
-    forgotten: row.forgotten,
+    forgotten: row.forgotten === 1,
     source: row.source ?? undefined,
     created_at: row.created_at,
     updated_at: row.updated_at
