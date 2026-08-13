@@ -86,6 +86,7 @@ node_modules/
   "description": "Cross-session memory plugin for DeepSeek Harness: SQLite+FTS5 store, Markdown mirrors, model tools, automatic injection & summarization, Web GUI panel",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
