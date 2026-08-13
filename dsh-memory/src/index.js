@@ -4,6 +4,7 @@ import { createService } from "./service.js";
 import { createTools } from "./tools.js";
 import { createInjector } from "./inject.js";
 import { createSummarizer } from "./summarize.js";
+import { createDreamScheduler } from "./dream.js";
 import { createApi } from "./api.js";
 import { Config } from "./config.js";
 import { mkdirSync } from "node:fs";
@@ -39,6 +40,24 @@ export const apply = (ctx, config) => {
     if (edits.length) service.mergeHumanEdits(type, edits);
   }
 
+  // Dream scheduler: automatic consolidation + summary runs, triggered by
+  // store growth. Writes through the service fire the dream hook, which asks
+  // the scheduler to (re)schedule a run once absolute and since-last-run
+  // thresholds are both exceeded. onRun is deferred through `dream` so the
+  // closure sees the assigned scheduler; the null guard keeps a run safe even
+  // if the hook fires before assignment or after dispose.
+  let dream = null;
+  if (cfg.autoDream) {
+    dream = createDreamScheduler({
+      thresholdCount: cfg.dreamThresholdCount,
+      thresholdChars: cfg.dreamThresholdChars,
+      delayMs: cfg.dreamDelayMs,
+      logger: ctx.logger,
+      onRun: () => (dream ? dream.runDream(ctx, service, cfg) : Promise.resolve({ ok: true, skipped: true }))
+    });
+    service.setDreamHook(() => dream.maybeSchedule(service));
+  }
+
   const disposers = [];
 
   ctx.inject(["systemPrompt"], (promptCtx) => {
@@ -61,6 +80,7 @@ export const apply = (ctx, config) => {
     for (const dispose of disposers) {
       if (typeof dispose === "function") dispose();
     }
+    if (dream) dream.dispose();
     store.close();
   };
 };

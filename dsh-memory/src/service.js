@@ -1,6 +1,11 @@
 const INJECT_TYPES = new Set(["preference", "project", "decision", "summary"]);
 
 export function createService({ store, mirror, config, onWrite }) {
+  // Optional dream scheduler hook, installed via setDreamHook after creation
+  // (the scheduler holds a reference back to the service, so it cannot be
+  // passed in the constructor). Fired on the same write events as onWrite.
+  let dreamHook = null;
+
   /**
    * Fire-and-forget write notification; errors are swallowed to keep write
    * paths clean. The store mutation has already committed, so a throwing
@@ -8,8 +13,12 @@ export function createService({ store, mirror, config, onWrite }) {
    * state toggles, not content writes, so they never notify.
    */
   function notifyWrite() {
-    if (!onWrite) return;
-    try { onWrite(); } catch { /* ignore */ }
+    if (onWrite) {
+      try { onWrite(); } catch { /* ignore */ }
+    }
+    if (dreamHook) {
+      try { dreamHook(); } catch { /* ignore */ }
+    }
   }
 
   /**
@@ -116,6 +125,7 @@ export function createService({ store, mirror, config, onWrite }) {
     injectCandidates,
     mergeHumanEdits,
     toApiList,
+    setDreamHook(fn) { dreamHook = fn; },
     // passthroughs used by tools and api layers; mutations keep the mirror in sync
     search: (q, o) => store.search(q, o),
     list: (o) => store.list(o),
