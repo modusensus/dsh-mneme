@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { validateDecisions, applyDecisions } from "../src/dream.js";
+import { validateDecisions, applyDecisions, createDreamScheduler } from "../src/dream.js";
 import { createStore } from "../src/store.js";
 import { createService } from "../src/service.js";
 
@@ -203,4 +203,98 @@ test("applyDecisions merge without importance falls back to max source importanc
   assert.equal(applied, 1);
   assert.equal(store.getById(b.id).importance, 4, "keeper keeps max of source importances");
   assert.equal(store.getById(a.id).archived, true, "source archived");
+});
+
+test("maybeSchedule triggers when count exceeds threshold", () => {
+  const { store, service } = dreamSetup();
+  let runs = 0;
+  const dream = createDreamScheduler({
+    onRun: async () => { runs++; },
+    thresholdCount: 3,
+    thresholdChars: 5000,
+    delayMs: 0
+  });
+  for (let i = 0; i < 3; i++) service.saveWithDedupe({ type: "project", title: `m${i}`, content: "x".repeat(100) });
+  const pending = dream.maybeSchedule(service);
+  assert.equal(pending, true, "scheduled");
+  assert.equal(runs, 0, "not run yet (async)");
+  store.close();
+});
+
+test("maybeSchedule does not trigger below threshold", () => {
+  const { store, service } = dreamSetup();
+  const dream = createDreamScheduler({ onRun: async () => {}, thresholdCount: 10, thresholdChars: 5000, delayMs: 0 });
+  service.saveWithDedupe({ type: "project", title: "only", content: "x" });
+  assert.equal(dream.maybeSchedule(service), false);
+  store.close();
+});
+
+test("scheduler fires async and resets baseline", async () => {
+  const { store, service } = dreamSetup();
+  let runs = 0;
+  const dream = createDreamScheduler({
+    onRun: async () => { runs++; },
+    thresholdCount: 2, thresholdChars: 5000, delayMs: 5
+  });
+  for (let i = 0; i < 2; i++) service.saveWithDedupe({ type: "project", title: `m${i}`, content: "x".repeat(50) });
+  dream.maybeSchedule(service);
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(runs, 1, "ran once");
+  // still above threshold but baseline reset → no immediate re-trigger
+  assert.equal(dream.maybeSchedule(service), false, "baseline prevents loop");
+  store.close();
+});
+
+test("runDream stores summary and applies decisions", async () => {
+  const { store, service } = dreamSetup();
+  // seed 2 memories so snapshot is non-empty and decisions cover them
+  const a = service.saveWithDedupe({ type: "project", title: "旧1", content: "第一段内容" });
+  const b = service.saveWithDedupe({ type: "project", title: "旧2", content: "第二段内容" });
+  let calls = 0;
+  const ctx = {
+    llm: {
+      stream: async function* () {
+        calls++;
+        if (calls === 1) {
+          const text = JSON.stringify([
+            { action: "merge", ids: [a.memory.id, b.memory.id], title: "合并标题", content: "合并后的内容", importance: 4, keepSource: a.memory.id }
+          ]);
+          yield { type: "text-delta", text };
+        } else {
+          yield { type: "text-delta", text: "记忆库总览摘要文本" };
+        }
+        yield { type: "finish", reason: { kind: "ok" } };
+      }
+    },
+    logger: { warn: () => {} }
+  };
+  const dream = createDreamScheduler({ thresholdCount: 1, thresholdChars: 0, delayMs: 0 });
+  const result = await dream.runDream(ctx, service, { dreamProvider: "deepseek", dreamModel: "deepseek-chat" });
+  assert.equal(result.ok, true);
+  const summary = store.all().find((m) => m.type === "summary");
+  assert.ok(summary, "summary created");
+  assert.equal(summary.title, "记忆库总览");
+  assert.equal(summary.content, "记忆库总览摘要文本");
+  store.close();
+});
+
+test("runDream fails safe on invalid decisions", async () => {
+  const { store, service } = dreamSetup();
+  service.saveWithDedupe({ type: "preference", title: "语言", content: "中文" });
+  let calls = 0;
+  const ctx = {
+    llm: {
+      stream: async function* () {
+        calls++;
+        yield { type: "text-delta", text: calls === 1 ? "not json at all" : "summary" };
+        yield { type: "finish", reason: { kind: "ok" } };
+      }
+    },
+    logger: { warn: () => {} }
+  };
+  const dream = createDreamScheduler({ thresholdCount: 1, thresholdChars: 0, delayMs: 0 });
+  const result = await dream.runDream(ctx, service, { dreamProvider: "deepseek", dreamModel: "deepseek-chat" });
+  assert.equal(result.ok, false, "invalid decisions rejected");
+  assert.equal(store.all().filter((m) => m.type === "summary").length, 0, "no summary on failure");
+  store.close();
 });
