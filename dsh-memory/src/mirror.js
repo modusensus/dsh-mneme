@@ -5,7 +5,8 @@ export const TYPE_FILE = {
   preference: "preferences.md",
   project: "projects.md",
   decision: "decisions.md",
-  history: "history.md"
+  history: "history.md",
+  summary: "summary.md"
 };
 
 const ESCAPE = /([\\`*_[\]{}()#+.!|>~-])/g;
