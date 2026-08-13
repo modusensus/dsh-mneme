@@ -101,7 +101,7 @@ export function createService({ store, mirror, config }) {
     search: (q, o) => store.search(q, o),
     list: (o) => store.list(o),
     all: () => store.all(),
-    count: () => store.count(),
+    count: (type) => store.count(type),
     getById: (id) => store.getById(id),
     remove: (id) => {
       store.remove(id);

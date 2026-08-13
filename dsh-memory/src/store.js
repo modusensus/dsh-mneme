@@ -77,8 +77,11 @@ export function createStore(path) {
     return ts;
   }
 
-  function count() {
-    return db.prepare("SELECT count(*) AS c FROM memories").get().c;
+  function count(type) {
+    if (type === undefined) {
+      return db.prepare("SELECT count(*) AS c FROM memories").get().c;
+    }
+    return db.prepare("SELECT count(*) AS c FROM memories WHERE type = ?").get(type).c;
   }
 
   function getById(id) {
