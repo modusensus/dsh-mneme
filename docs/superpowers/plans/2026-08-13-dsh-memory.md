@@ -110,7 +110,7 @@ node_modules/
     "@deepseek-ai/dsh-llm": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-system-prompt": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-host-webserver": "^0.1.0-rc.6",
-    "@deepseek-ai/schemastery": "^0.1.0"
+    "@deepseek-ai/schemastery": "^3.18.1"
   }
 }
 ```
@@ -1957,7 +1957,7 @@ Expected: lib contains `api.js config.js index.js inject.js mirror.js service.js
 
 Run (workdir `dsh-memory`):
 ```powershell
-npm install --no-save @deepseek-ai/cordis@^4.0.1 @deepseek-ai/dsh-tools@^0.1.0-rc.6 @deepseek-ai/dsh-llm@^0.1.0-rc.6 @deepseek-ai/dsh-system-prompt@^0.1.0-rc.6 @deepseek-ai/dsh-host-webserver@^0.1.0-rc.6 @deepseek-ai/schemastery@^0.1.0
+npm install --no-save @deepseek-ai/cordis@^4.0.1 @deepseek-ai/dsh-tools@^0.1.0-rc.6 @deepseek-ai/dsh-llm@^0.1.0-rc.6 @deepseek-ai/dsh-system-prompt@^0.1.0-rc.6 @deepseek-ai/dsh-host-webserver@^0.1.0-rc.6 @deepseek-ai/schemastery@^3.18.1
 ```
 Expected: installs into `dsh-memory/node_modules` (gitignored). If the registry is unreachable, skip — the runtime resolves peers from the profile tree instead; adjust `summarize.js`'s `BlockAssembler.assemble()` accessor by reading `node_modules/@deepseek-ai/dsh-llm/lib/…` from the profile once installed.
 
