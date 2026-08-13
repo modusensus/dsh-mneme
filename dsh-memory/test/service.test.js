@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createStore } from "../src/store.js";
 import { createService } from "../src/service.js";
+import { createMirror } from "../src/mirror.js";
 
 function setup() {
   const store = createStore(":memory:");
@@ -56,9 +60,52 @@ test("mergeHumanEdits applies human content over machine", () => {
 });
 
 test("toApiList maps store rows to wire DTOs", () => {
-  const { store, service } = setup();
+  const { service } = setup();
   const saved = service.saveWithDedupe({ type: "decision", title: "选型", content: "node:sqlite", importance: 3 });
-  const dto = service.toApiList([saved]);
+  const dto = service.toApiList([saved.memory]);
   assert.deepEqual(Object.keys(dto[0]).sort(), ["id", "type", "title", "content", "tags", "importance", "source", "created_at", "updated_at"].sort());
-  assert.equal(dto[0].id, saved.id);
+  assert.equal(dto[0].id, saved.memory.id);
+  assert.equal(dto[0].type, "decision");
+  assert.equal(dto[0].title, "选型");
+  assert.equal(dto[0].content, "node:sqlite");
+  assert.equal(dto[0].importance, 3);
+});
+
+test("mergeHumanEdits skips edits without id and keeps applying the rest", () => {
+  const { store, service } = setup();
+  const first = service.saveWithDedupe({ type: "preference", title: "语言", content: "机器内容" });
+  const second = service.saveWithDedupe({ type: "preference", title: "主题", content: "机器内容" });
+  const edits = [
+    { content: "缺少 id 的损坏条目" },
+    { id: first.memory.id, title: "语言", content: "人类编辑内容" },
+    { id: second.memory.id, title: "主题", content: "第二个人类编辑" }
+  ];
+  const applied = service.mergeHumanEdits("preference", edits);
+  assert.equal(applied, 2, "returns count of applied edits, not input length");
+  assert.equal(store.getById(first.memory.id).content, "人类编辑内容");
+  assert.equal(store.getById(second.memory.id).content, "第二个人类编辑");
+});
+
+test("mutations through passthroughs sync mirror; forgotten entries stay out of it", () => {
+  const store = createStore(":memory:");
+  const dir = mkdtempSync(join(tmpdir(), "dsh-memory-service-"));
+  const mirror = createMirror(dir);
+  const service = createService({ store, mirror, config: {} });
+  try {
+    const saved = service.saveWithDedupe({ type: "project", title: "A", content: "a", importance: 4 });
+    assert.ok(existsSync(join(dir, "projects.md")), "mirror written on save");
+
+    service.update(saved.memory.id, { content: "a2" });
+    assert.match(readFileSync(join(dir, "projects.md"), "utf8"), /a2/, "update re-syncs mirror");
+
+    service.setForget(saved.memory.id, true);
+    assert.ok(!existsSync(join(dir, "projects.md")), "forgotten entry removed from mirror");
+
+    const second = service.saveWithDedupe({ type: "project", title: "B", content: "b", importance: 2 });
+    assert.ok(existsSync(join(dir, "projects.md")), "mirror rewritten after re-save");
+    service.remove(second.memory.id);
+    assert.ok(!existsSync(join(dir, "projects.md")), "remove re-syncs mirror");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
