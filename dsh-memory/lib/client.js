@@ -5,7 +5,9 @@ window.__ModuleLoader__.load({
     var exports = module.exports;
 
     let react = require("react");
-    let { useState, useEffect, useCallback } = react;
+    let reactDom = require("react-dom");
+    let { useState, useEffect, useCallback, useRef } = react;
+    let { createPortal } = reactDom;
 
     const inject = ["slots", "locale"];
 
@@ -36,79 +38,99 @@ window.__ModuleLoader__.load({
       }
     };
 
+    function typeLabel(t, type) {
+      const key = `memory.tab.${type}`;
+      const label = t(key);
+      return label && label !== key ? label : String(type);
+    }
+
+    function formatDate(value) {
+      if (!value) return "—";
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
+    }
+
     function MemoryPanel({ t, onClose }) {
       const [tab, setTab] = useState("all");
       const [query, setQuery] = useState("");
       const [items, setItems] = useState([]);
       const [loading, setLoading] = useState(false);
+      const abortRef = useRef(null);
 
       const load = useCallback(async () => {
+        abortRef.current?.abort();
+        const controller = new AbortController();
+        abortRef.current = controller;
         setLoading(true);
         try {
           const params = new URLSearchParams();
           if (tab !== "all") params.set("type", tab);
-          if (query.trim()) {
-            const res = await fetch(`/api/dsh-memory/search?q=${encodeURIComponent(query.trim())}`);
-            const data = await res.json();
-            setItems(data.items || []);
-          } else {
-            const res = await fetch(`/api/dsh-memory/list?${params.toString()}`);
-            const data = await res.json();
-            setItems(data.items || []);
-          }
+          const url = query.trim()
+            ? `/api/dsh-memory/search?q=${encodeURIComponent(query.trim())}`
+            : `/api/dsh-memory/list?${params.toString()}`;
+          const res = await fetch(url, { signal: controller.signal });
+          const data = await res.json();
+          setItems(data.items || []);
         } catch (error) {
+          if (error.name === "AbortError") return;
           setItems([]);
         } finally {
           setLoading(false);
         }
       }, [tab, query]);
 
-      useEffect(() => { load(); }, [load]);
+      useEffect(() => {
+        load();
+        return () => abortRef.current?.abort();
+      }, [load]);
 
       const tabs = ["all", "preference", "project", "decision", "history"];
 
-      return react.createElement("div", { style: styles.overlay },
-        react.createElement("div", { style: styles.panel },
-          react.createElement("div", { style: styles.header },
-            react.createElement("span", { style: styles.title }, t("memory.panel.title")),
-            react.createElement("button", { style: styles.close, onClick: onClose }, "×")
-          ),
-          react.createElement("input", {
-            style: styles.search,
-            placeholder: t("memory.panel.search"),
-            value: query,
-            onChange: (e) => setQuery(e.target.value)
-          }),
-          react.createElement("div", { style: styles.tabs },
-            tabs.map((key) =>
-              react.createElement("button", {
-                key,
-                style: { ...styles.tab, ...(tab === key ? styles.tabActive : {}) },
-                onClick: () => setTab(key)
-              }, t(`memory.tab.${key}`))
-            )
-          ),
-          react.createElement("div", { style: styles.list },
-            loading
-              ? react.createElement("div", { style: styles.hint }, "…")
-              : items.length === 0
-                ? react.createElement("div", { style: styles.hint }, t("memory.panel.empty"))
-                : items.map((item) =>
-                    react.createElement("div", { key: item.id, style: styles.card },
-                      react.createElement("div", { style: styles.cardTitle },
-                        react.createElement("span", null, item.title),
-                        react.createElement("span", { style: styles.badge },
-                          `${t(`memory.tab.${item.type}`)} · ★${item.importance}`
+      return createPortal(
+        react.createElement("div", { style: styles.overlay },
+          react.createElement("div", { style: styles.panel },
+            react.createElement("div", { style: styles.header },
+              react.createElement("span", { style: styles.title }, t("memory.panel.title")),
+              react.createElement("button", { style: styles.close, onClick: onClose }, "×")
+            ),
+            react.createElement("input", {
+              style: styles.search,
+              placeholder: t("memory.panel.search"),
+              value: query,
+              onChange: (e) => setQuery(e.target.value)
+            }),
+            react.createElement("div", { style: styles.tabs },
+              tabs.map((key) =>
+                react.createElement("button", {
+                  key,
+                  style: { ...styles.tab, ...(tab === key ? styles.tabActive : {}) },
+                  onClick: () => setTab(key)
+                }, t(`memory.tab.${key}`))
+              )
+            ),
+            react.createElement("div", { style: styles.list },
+              loading
+                ? react.createElement("div", { style: styles.hint }, "…")
+                : items.length === 0
+                  ? react.createElement("div", { style: styles.hint }, t("memory.panel.empty"))
+                  : items.map((item) =>
+                      react.createElement("div", { key: item.id, style: styles.card },
+                        react.createElement("div", { style: styles.cardTitle },
+                          react.createElement("span", null, item.title),
+                          react.createElement("span", { style: styles.badge },
+                            `${typeLabel(t, item.type)} · ★${item.importance}`
+                          )
+                        ),
+                        react.createElement("div", { style: styles.cardContent }, item.content),
+                        react.createElement("div", { style: styles.cardMeta },
+                          formatDate(item.updated_at)
                         )
-                      ),
-                      react.createElement("div", { style: styles.cardContent }, item.content),
-                      react.createElement("div", { style: styles.cardMeta },
-                        new Date(item.updated_at).toLocaleString()
                       )
                     )
-                  )
+            )
           )
-        )
+        ),
+        document.body
       );
     }
 
@@ -140,9 +162,9 @@ window.__ModuleLoader__.load({
         const t = ctx.locale.bind(NS);
         return ctx.slots.inject("sidebar.footer.action", () =>
           ctx.slots.register({
-            name: "memory",
+            name: "sidebar.footer.action",
+            id: "memory",
             locale: NS,
-            children: {},
             inject: () => ({})
           }, () => {
             const [open, setOpen] = react.useState(false);
