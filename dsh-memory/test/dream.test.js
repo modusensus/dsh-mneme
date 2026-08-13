@@ -58,3 +58,41 @@ test("archived or summary entries cannot be decision targets", () => {
   const { ok } = validateDecisions([{ action: "archive", ids: ["arch"] }], snap);
   assert.equal(ok, false);
 });
+
+test("empty decision list rejects", () => {
+  const { ok, errors } = validateDecisions([], snapshot(["a"]));
+  assert.equal(ok, false);
+  assert.ok(errors.some((e) => e.includes("non-empty array")));
+});
+
+test("empty ids rejects", () => {
+  const { ok } = validateDecisions([{ action: "archive", ids: [] }], snapshot(["a"]));
+  assert.equal(ok, false);
+});
+
+test("merge requires non-empty title and content", () => {
+  const snap = snapshot(["a"]);
+  const base = { action: "merge", ids: ["a"], keepSource: "a" };
+  for (const [title, content] of [["", "x"], ["t", ""], [undefined, "x"], ["t", undefined]]) {
+    const { ok } = validateDecisions([{ ...base, title, content }], snap);
+    assert.equal(ok, false, `title=${JSON.stringify(title)} content=${JSON.stringify(content)}`);
+  }
+});
+
+test("summary entries cannot be decision targets", () => {
+  const snap = new Map([["s", { id: "s", type: "summary", title: "t", content: "c", importance: 3, archived: false, forgotten: false }]]);
+  const { ok } = validateDecisions([{ action: "archive", ids: ["s"] }], snap);
+  assert.equal(ok, false);
+});
+
+test("every snapshot memory must be covered by a decision", () => {
+  const snap = snapshot(["a", "b"]);
+  const { ok, errors } = validateDecisions([{ action: "keep", ids: ["a"] }], snap);
+  assert.equal(ok, false);
+  assert.ok(errors.some((e) => e.includes("missing from decisions")));
+});
+
+test("duplicate ids within one decision reject", () => {
+  const { ok } = validateDecisions([{ action: "keep", ids: ["a", "a"] }], snapshot(["a"]));
+  assert.equal(ok, false);
+});
