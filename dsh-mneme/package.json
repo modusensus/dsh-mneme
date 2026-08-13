@@ -14,10 +14,19 @@
     },
     "./package.json": "./package.json"
   },
-  "files": ["lib", "src", "cordis.patch.yml"],
+  "files": [
+    "lib",
+    "src",
+    "cordis.patch.yml"
+  ],
   "dsh": {
     "client": {
-      "inject": ["slots", "locale", "layout", "connection"],
+      "inject": [
+        "slots",
+        "locale",
+        "layout",
+        "connection"
+      ],
       "platform": "web"
     },
     "bundle": {
@@ -26,10 +35,23 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-tools": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-host-webserver": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-llm": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-system-prompt": "^0.1.0-rc.6",
-    "@deepseek-ai/dsh-host-webserver": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.6",
     "@deepseek-ai/schemastery": "^3.18.1"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-host-webserver": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-llm": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-system-prompt": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.6",
+    "@deepseek-ai/schemastery": "^3.18.1"
+  },
+  "scripts": {
+    "sync": "node scripts/sync-lib.js",
+    "prepack": "npm run sync",
+    "test": "node --test --test-isolation=none test/*.test.js"
   }
 }
