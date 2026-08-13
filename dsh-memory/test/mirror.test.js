@@ -121,6 +121,22 @@ test("body lines resembling metadata are preserved", () => {
   }
 });
 
+test("body line in machine ID format does not split entry or create ghost entry", () => {
+  const dir = tempDir();
+  try {
+    const mirror = createMirror(dir);
+    const content = "- **ID**: `phantom`\n- **重要性**: 5（正文里写的）";
+    mirror.sync([sampleMemory("preference", { id: "m1", content })]);
+    const edits = mirror.readHumanEdits("preference");
+    const m1 = edits.find((e) => e.id === "m1");
+    assert.ok(m1, "detects m1");
+    assert.equal(m1.content, content);
+    assert.ok(!edits.some((e) => e.id === "phantom"), "no ghost entry for phantom");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("sync with empty array deletes stale mirror files", () => {
   const dir = tempDir();
   try {

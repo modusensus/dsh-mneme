@@ -47,12 +47,14 @@ export function createMirror(dir) {
 
   /**
    * Parse a mirror file back into {id, title, content} entries for human edits.
-   * Entries are anchored on "- **ID**: `...`" lines: each entry's block spans
-   * from its ID line up to the next ID line (or end of file). The block head
-   * (the ID line plus the generated metadata run) and the trailing structural
-   * "---" separator are stripped; everything in between is the entry body, so
-   * user content containing "---" or metadata-like lines is preserved. The
-   * title is the "## " heading preceding the ID line.
+   * Entries are anchored on "- **ID**: `...`" lines that are followed by the
+   * "- **类型**:" metadata line (structural entry head): each entry's block
+   * spans from its ID line up to the next ID line (or end of file). The block
+   * head (the ID line plus the generated metadata run) and the trailing
+   * structural "---" separator are stripped; everything in between is the entry
+   * body, so user content containing "---", metadata-like lines, or even a
+   * machine-format "- **ID**: `x`" line is preserved. The title is the "## "
+   * heading preceding the ID line.
    */
   function readHumanEdits(type = undefined) {
     const types = type ? [type] : Object.keys(TYPE_FILE);
@@ -61,7 +63,11 @@ export function createMirror(dir) {
       const file = filePath(t);
       if (!file || !existsSync(file)) continue;
       const text = readFileSync(file, "utf8").replace(/\r\n/g, "\n");
-      const anchors = [...text.matchAll(/^- \*\*ID\*\*: `([^`]+)`/gm)];
+      // Anchor on the ID line only when it is a structural entry head: the
+      // machine-rendered ID line is always followed by the "- **类型**:" line.
+      // A body line like "- **ID**: `x`" is not, so it never splits the block
+      // or produces a ghost entry.
+      const anchors = [...text.matchAll(/^- \*\*ID\*\*: `([^`]+)`\n- \*\*类型\*\*:/gm)];
       let prevEnd = 0;
       for (let i = 0; i < anchors.length; i++) {
         const anchor = anchors[i];
