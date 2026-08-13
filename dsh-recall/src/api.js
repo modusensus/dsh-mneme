@@ -8,10 +8,10 @@ function sendJson(res, status, payload) {
 export function createApi(ctx, service) {
   const disposers = [];
 
-  // /api/dsh-memory prefix fallback → 404 JSON for unknown sub-paths
+  // /api/dsh-recall prefix fallback → 404 JSON for unknown sub-paths
   disposers.push(ctx.webServer.register({
     kind: "prefix",
-    path: "/api/dsh-memory",
+    path: "/api/dsh-recall",
     handler(req, res) {
       sendJson(res, 404, { error: "not-found" });
     }
@@ -19,7 +19,7 @@ export function createApi(ctx, service) {
 
   disposers.push(ctx.webServer.register({
     kind: "exact",
-    path: "/api/dsh-memory/list",
+    path: "/api/dsh-recall/list",
     handler(req, res) {
       try {
         const url = new URL(req.url, "http://localhost");
@@ -36,7 +36,7 @@ export function createApi(ctx, service) {
 
   disposers.push(ctx.webServer.register({
     kind: "exact",
-    path: "/api/dsh-memory/search",
+    path: "/api/dsh-recall/search",
     handler(req, res) {
       try {
         const url = new URL(req.url, "http://localhost");

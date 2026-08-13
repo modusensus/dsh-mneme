@@ -18,7 +18,7 @@ test("saveWithDedupe adds new memory when no similar exists", () => {
   const result = service.saveWithDedupe({
     type: "project",
     title: "记忆插件",
-    content: "正在开发 dsh-memory，SQLite+Markdown",
+    content: "正在开发 dsh-recall，SQLite+Markdown",
     importance: 4
   });
   assert.equal(result.action, "created");
@@ -88,7 +88,7 @@ test("mergeHumanEdits skips edits without id and keeps applying the rest", () =>
 
 test("mutations through passthroughs sync mirror; forgotten entries stay out of it", () => {
   const store = createStore(":memory:");
-  const dir = mkdtempSync(join(tmpdir(), "dsh-memory-service-"));
+  const dir = mkdtempSync(join(tmpdir(), "dsh-recall-service-"));
   const mirror = createMirror(dir);
   const service = createService({ store, mirror, config: {} });
   try {
@@ -112,7 +112,7 @@ test("mutations through passthroughs sync mirror; forgotten entries stay out of 
 
 test("saveWithDedupe created branch keeps forgotten entries out of mirror", () => {
   const store = createStore(":memory:");
-  const dir = mkdtempSync(join(tmpdir(), "dsh-memory-service-"));
+  const dir = mkdtempSync(join(tmpdir(), "dsh-recall-service-"));
   const mirror = createMirror(dir);
   const service = createService({ store, mirror, config: {} });
   try {

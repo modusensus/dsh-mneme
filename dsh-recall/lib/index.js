@@ -11,7 +11,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
-export const name = "dsh-memory";
+export const name = "dsh-recall";
 export const inject = ["tools", "systemPrompt", "webServer", "llm", "agentDefaultModel"];
 export { Config };
 
