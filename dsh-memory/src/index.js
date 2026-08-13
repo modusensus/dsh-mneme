@@ -52,7 +52,9 @@ export function apply(ctx, config) {
   }
 
   return () => {
-    for (const dispose of disposers) dispose();
+    for (const dispose of disposers) {
+      if (typeof dispose === "function") dispose();
+    }
     store.close();
   };
 }
