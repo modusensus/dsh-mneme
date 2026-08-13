@@ -55,3 +55,52 @@ export function validateDecisions(decisions, snapshot) {
   }
   return { ok: errors.length === 0, errors };
 }
+
+/**
+ * Apply a validated decision list to the service. Caller must validate first.
+ * @param decisions - validated decision list.
+ * @param service - memory service (saveWithDedupe/getById/update/setArchived).
+ * @returns number of applied mutations.
+ */
+export function applyDecisions(decisions, service) {
+  let applied = 0;
+  for (const d of decisions) {
+    try {
+      if (d.action === "keep") continue;
+      if (d.action === "archive") {
+        for (const id of d.ids) {
+          const mem = service.getById(id);
+          if (mem && !mem.archived) { service.setArchived(id, true); applied++; }
+        }
+      } else if (d.action === "merge") {
+        const keeper = service.getById(d.keepSource);
+        if (!keeper || keeper.archived) continue;
+        service.update(d.keepSource, {
+          title: d.title,
+          content: d.content,
+          importance: d.importance ?? Math.max(keeper.importance, ...d.ids.map((id) => service.getById(id)?.importance ?? 1))
+        });
+        for (const id of d.ids) {
+          if (id !== d.keepSource) {
+            const mem = service.getById(id);
+            if (mem && !mem.archived) { service.setArchived(id, true); }
+          }
+        }
+        applied++;
+      } else if (d.action === "conflict") {
+        const winner = service.getById(d.winner);
+        const loser = service.getById(d.loser);
+        if (!winner || !loser) continue;
+        service.update(d.winner, {
+          content: `${winner.content}\n\n（已否决旧信息：${loser.content.slice(0, 100)}）`
+        });
+        service.setArchived(d.loser, true);
+        applied++;
+      }
+    } catch (error) {
+      // Skip individual bad decision; never corrupt the store
+      continue;
+    }
+  }
+  return applied;
+}
