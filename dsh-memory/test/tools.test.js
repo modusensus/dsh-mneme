@@ -148,7 +148,7 @@ test("memory_forget suppresses injection without deleting", async () => {
   const forget = registered.find((t) => t.name === "memory_forget");
   const result = await forget.execute({ id: memory.id });
   assert.equal(result.memory.forgotten, true);
-  assert.equal(store.count(), 1, "still stored");
+  assert.equal(store.count(undefined, { includeForgotten: true }), 1, "still stored but suppressed");
 });
 
 test("memory_forget on missing id rejects", async () => {

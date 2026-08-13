@@ -48,7 +48,8 @@ export function apply(ctx, config) {
   disposers.push(summarizer.dispose);
 
   if (ctx.webServer) {
-    disposers.push(createApi(ctx, service));
+    const api = createApi(ctx, service);
+    disposers.push(api.dispose);
   }
 
   return () => {

@@ -77,11 +77,18 @@ export function createStore(path) {
     return ts;
   }
 
-  function count(type) {
-    if (type === undefined) {
-      return db.prepare("SELECT count(*) AS c FROM memories").get().c;
+  function count(type, { includeForgotten = false } = {}) {
+    const clauses = [];
+    const params = [];
+    if (type !== undefined) {
+      clauses.push("type = ?");
+      params.push(type);
     }
-    return db.prepare("SELECT count(*) AS c FROM memories WHERE type = ?").get(type).c;
+    if (!includeForgotten) {
+      clauses.push("forgotten = 0");
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    return db.prepare(`SELECT count(*) AS c FROM memories ${where}`).get(...params).c;
   }
 
   function getById(id) {
