@@ -4,8 +4,8 @@ import { validateDecisions, applyDecisions, createDreamScheduler } from "../src/
 import { createStore } from "../src/store.js";
 import { createService } from "../src/service.js";
 
-function snapshot(ids) {
-  return new Map(ids.map((id, i) => [id, { id, type: i % 2 ? "project" : "preference", title: `t${i}`, content: `c${i}`, importance: 3, archived: false, forgotten: false }]));
+function snapshot(ids, type = "project") {
+  return new Map(ids.map((id, i) => [id, { id, type, title: `t${i}`, content: `c${i}`, importance: 3, archived: false, forgotten: false }]));
 }
 
 test("valid decision list passes", () => {
@@ -97,6 +97,33 @@ test("every snapshot memory must be covered by a decision", () => {
 test("duplicate ids within one decision reject", () => {
   const { ok } = validateDecisions([{ action: "keep", ids: ["a", "a"] }], snapshot(["a"]));
   assert.equal(ok, false);
+});
+
+test("merge importance out of range rejects", () => {
+  const snap = snapshot(["a", "b"]);
+  for (const importance of [0, 6, 99, 1.5, "4"]) {
+    const { ok, errors } = validateDecisions([
+      { action: "merge", ids: ["a", "b"], keepSource: "a", title: "t", content: "c", importance }
+    ], snap);
+    assert.equal(ok, false, `importance=${JSON.stringify(importance)} rejected`);
+    assert.ok(errors.some((e) => e.includes("importance")), `importance error present for ${JSON.stringify(importance)}`);
+  }
+  const { ok } = validateDecisions([
+    { action: "merge", ids: ["a", "b"], keepSource: "a", title: "t", content: "c", importance: 5 }
+  ], snap);
+  assert.equal(ok, true, "importance 5 accepted");
+});
+
+test("merge across types rejects", () => {
+  const snap = new Map([
+    ["p", { id: "p", type: "preference", title: "语言", content: "中文", importance: 3, archived: false, forgotten: false }],
+    ["j", { id: "j", type: "project", title: "插件", content: "内容", importance: 3, archived: false, forgotten: false }]
+  ]);
+  const { ok, errors } = validateDecisions([
+    { action: "merge", ids: ["p", "j"], keepSource: "p", title: "合并", content: "合并内容", importance: 4 }
+  ], snap);
+  assert.equal(ok, false, "cross-type merge rejected");
+  assert.ok(errors.some((e) => e.includes("multiple types")), "multi-type error present");
 });
 
 function dreamSetup() {
@@ -245,6 +272,43 @@ test("scheduler fires async and resets baseline", async () => {
   store.close();
 });
 
+test("maybeSchedule returns false while a run is in flight", async () => {
+  const { store, service } = dreamSetup();
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  let entered = false;
+  const dream = createDreamScheduler({
+    onRun: async () => { entered = true; await gate; },
+    thresholdCount: 1, thresholdChars: 0, delayMs: 0,
+    logger: { warn: () => {} }
+  });
+  service.saveWithDedupe({ type: "project", title: "a", content: "x" });
+  assert.equal(dream.maybeSchedule(service), true, "first schedule accepted");
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(entered, true, "run started");
+  assert.equal(dream.maybeSchedule(service), false, "no schedule while running");
+  release();
+  await new Promise((r) => setTimeout(r, 10)); // let the run finish + baseline refresh
+  store.close();
+});
+
+test("dispose clears pending timer and blocks future scheduling", async () => {
+  const { store, service } = dreamSetup();
+  let runs = 0;
+  const dream = createDreamScheduler({
+    onRun: async () => { runs++; },
+    thresholdCount: 1, thresholdChars: 0, delayMs: 5,
+    logger: { warn: () => {} }
+  });
+  service.saveWithDedupe({ type: "project", title: "a", content: "x" });
+  assert.equal(dream.maybeSchedule(service), true, "scheduled");
+  dream.dispose();
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(runs, 0, "pending run cancelled by dispose");
+  assert.equal(dream.maybeSchedule(service), false, "disposed scheduler never schedules");
+  store.close();
+});
+
 test("runDream stores summary and applies decisions", async () => {
   const { store, service } = dreamSetup();
   // seed 2 memories so snapshot is non-empty and decisions cover them
@@ -271,6 +335,13 @@ test("runDream stores summary and applies decisions", async () => {
   const dream = createDreamScheduler({ thresholdCount: 1, thresholdChars: 0, delayMs: 0 });
   const result = await dream.runDream(ctx, service, { dreamProvider: "deepseek", dreamModel: "deepseek-chat" });
   assert.equal(result.ok, true);
+  assert.equal(result.applied, 1, "merge decision applied");
+  assert.equal(result.summary, true, "summary stored");
+  const keeper = store.getById(a.memory.id);
+  assert.equal(keeper.title, "合并标题", "keeper title updated");
+  assert.equal(keeper.content, "合并后的内容", "keeper content updated");
+  assert.equal(keeper.importance, 4, "keeper importance updated");
+  assert.equal(store.getById(b.memory.id).archived, true, "merged source archived");
   const summary = store.all().find((m) => m.type === "summary");
   assert.ok(summary, "summary created");
   assert.equal(summary.title, "记忆库总览");
@@ -280,8 +351,9 @@ test("runDream stores summary and applies decisions", async () => {
 
 test("runDream fails safe on invalid decisions", async () => {
   const { store, service } = dreamSetup();
-  service.saveWithDedupe({ type: "preference", title: "语言", content: "中文" });
+  const saved = service.saveWithDedupe({ type: "preference", title: "语言", content: "中文" });
   let calls = 0;
+  const warnings = [];
   const ctx = {
     llm: {
       stream: async function* () {
@@ -290,11 +362,17 @@ test("runDream fails safe on invalid decisions", async () => {
         yield { type: "finish", reason: { kind: "ok" } };
       }
     },
-    logger: { warn: () => {} }
+    logger: { warn: (msg) => warnings.push(msg) }
   };
   const dream = createDreamScheduler({ thresholdCount: 1, thresholdChars: 0, delayMs: 0 });
   const result = await dream.runDream(ctx, service, { dreamProvider: "deepseek", dreamModel: "deepseek-chat" });
   assert.equal(result.ok, false, "invalid decisions rejected");
+  assert.equal(result.summary, false, "no summary flag on failure");
   assert.equal(store.all().filter((m) => m.type === "summary").length, 0, "no summary on failure");
+  const lang = store.getById(saved.memory.id);
+  assert.ok(lang, "original memory still present");
+  assert.equal(lang.archived, false, "original memory not archived");
+  assert.equal(lang.content, "中文", "original memory content untouched");
+  assert.ok(warnings.length >= 1, "failure was logged");
   store.close();
 });

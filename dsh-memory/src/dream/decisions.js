@@ -47,6 +47,15 @@ export function validateDecisions(decisions, snapshot) {
       if (typeof d.title !== "string" || !d.title.trim() || typeof d.content !== "string" || !d.content.trim()) {
         errors.push(`${at}: merge needs non-empty title and content`);
       }
+      if (d.importance !== undefined && (!Number.isInteger(d.importance) || d.importance < 1 || d.importance > 5)) {
+        errors.push(`${at}: merge importance must be an integer 1-5 when provided`);
+      }
+      // Merging across types would blur preference/project/decision boundaries
+      // in the injected context; the snapshot carries each entry's type.
+      const mergeTypes = new Set(d.ids.map((id) => snapshot.get(id)?.type));
+      if (mergeTypes.size > 1) {
+        errors.push(`${at}: merge ids span multiple types (${[...mergeTypes].join(", ")})`);
+      }
     }
   }
   // Every snapshot id must appear in at least one decision
