@@ -27,7 +27,7 @@ export function createService({ store, mirror, config }) {
       importance: memory.importance ?? 3,
       source: memory.source ?? "manual"
     });
-    if (mirror) mirror.sync(store.all());
+    syncMirror();
     return { action: "created", memory: created };
   }
 

@@ -109,3 +109,21 @@ test("mutations through passthroughs sync mirror; forgotten entries stay out of 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("saveWithDedupe created branch keeps forgotten entries out of mirror", () => {
+  const store = createStore(":memory:");
+  const dir = mkdtempSync(join(tmpdir(), "dsh-memory-service-"));
+  const mirror = createMirror(dir);
+  const service = createService({ store, mirror, config: {} });
+  try {
+    const a = service.saveWithDedupe({ type: "project", title: "A", content: "a", importance: 4 });
+    service.setForget(a.memory.id, true);
+    service.saveWithDedupe({ type: "project", title: "B", content: "b", importance: 2 });
+    const text = readFileSync(join(dir, "projects.md"), "utf8");
+    assert.ok(!text.includes(a.memory.id), "forgotten A must not reappear in mirror");
+    assert.ok(!text.includes("## A"), "forgotten A entry absent from mirror");
+    assert.match(text, /## B/, "non-forgotten B present in mirror");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
