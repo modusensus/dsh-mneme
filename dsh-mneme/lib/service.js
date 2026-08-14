@@ -10,11 +10,96 @@ export function createService({ store, mirror, config, onWrite }) {
   // any content write it fire-and-forgets a re-embed of the row so vector
   // search stays in sync; failures are swallowed inside the embedder.
   let embedder = null;
+  let vectorIndex = null;
+  let reranker = null;
 
   function scheduleEmbed(memory) {
     if (embedder && memory?.id) {
       try { embedder.schedule(memory); } catch { /* ignore */ }
     }
+  }
+
+  /**
+   * Cross-encoder rerank over a candidate list (best effort). Reranker
+   * failures degrade to the original candidate order — reranking is an
+   * accuracy upgrade, never a correctness gate.
+   */
+  async function rerankCandidates(query, candidates, topK) {
+    if (!reranker || !candidates.length) return candidates.slice(0, topK);
+    try {
+      const scored = await reranker.rerank(query, candidates.map((c) => ({ id: c.id, title: c.title, content: c.content })));
+      if (!Array.isArray(scored)) return candidates.slice(0, topK);
+      const byId = new Map(candidates.map((c) => [c.id, c]));
+      const out = [];
+      for (const s of scored) {
+        const c = byId.get(s.id);
+        if (c) { out.push({ ...c, score: s.score }); if (out.length >= topK) break; }
+      }
+      return out.length ? out : candidates.slice(0, topK);
+    } catch {
+      return candidates.slice(0, topK);
+    }
+  }
+
+  /**
+   * Semantic-aware memory search: keyword recall (store.search) plus optional
+   * vector recall + rerank. mode:
+   *   auto    (default) keyword first, vector fills remaining slots (legacy)
+   *   hybrid  vector first, keyword fills remaining slots
+   *   vector  vector only, falls back to keyword when unavailable
+   *   keyword text only, never touches the embedder
+   * useRerank runs the cross-encoder over the merged list when a reranker is
+   * installed; results carry an extra `score` when reranked.
+   */
+  async function searchMemories(query, { mode = "auto", topK = 20, threshold, useRerank = true } = {}) {
+    const q = String(query ?? "").trim();
+    if (!q) return [];
+    const lim = topK > 0 ? topK : 20;
+
+    const keyword = store.search(q, { limit: lim });
+    const wantVector = mode === "vector" || mode === "hybrid" || (mode === "auto" && !!embedder);
+    let vector = [];
+    if (wantVector && embedder) {
+      try {
+        // Legacy embedders expose embed(query); local ones expose embedSingle.
+        const embedSingle = typeof embedder.embedSingle === "function"
+          ? embedder.embedSingle.bind(embedder)
+          : embedder.embed.bind(embedder);
+        const qv = await embedSingle(q);
+        if (qv?.length) {
+          vector = vectorIndex
+            ? vectorIndex.search(qv, { limit: lim * 2, threshold: threshold ?? 0 })
+            : store.searchVector(qv, { limit: lim * 2, threshold: threshold ?? 0 });
+        }
+      } catch { /* vector unavailable: keep keyword results */ }
+    }
+
+    let merged;
+    if (mode === "keyword") {
+      merged = keyword;
+    } else if (mode === "vector" || mode === "hybrid") {
+      // semantic-first: vector recalls lead, keyword fills remaining slots
+      merged = vector.length ? vector.slice(0, lim) : keyword;
+      const seen = new Set(merged.map((m) => m.id));
+      for (const m of keyword) {
+        if (merged.length >= lim) break;
+        if (!seen.has(m.id)) { seen.add(m.id); merged.push(m); }
+      }
+    } else {
+      // auto: keyword leads, vector fills remaining slots (legacy behavior)
+      merged = keyword.slice(0, lim);
+      const seen = new Set(merged.map((m) => m.id));
+      for (const m of vector) {
+        if (merged.length >= lim) break;
+        if (!seen.has(m.id)) { seen.add(m.id); merged.push(m); }
+      }
+    }
+
+    merged = merged.slice(0, lim);
+    if (useRerank && reranker && merged.length) {
+      return rerankCandidates(q, merged, lim);
+    }
+    return merged;
   }
 
   /**
@@ -140,6 +225,9 @@ export function createService({ store, mirror, config, onWrite }) {
     toApiList,
     setDreamHook(fn) { dreamHook = fn; },
     setEmbedder(emb) { embedder = emb; },
+    setVectorIndex(vi) { vectorIndex = vi; },
+    setReranker(rn) { reranker = rn; },
+    searchMemories,
     // passthroughs used by tools and api layers; mutations keep the mirror in sync
     search: (q, o) => store.search(q, o),
     searchVector: (v, o) => store.searchVector(v, o),
