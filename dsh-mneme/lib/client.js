@@ -86,7 +86,7 @@ window.__ModuleLoader__.load({
       return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
     }
 
-    function MemoryPanel({ t, onClose }) {
+    function MemoryPanel({ t, onClose, embedded }) {
       const [tab, setTab] = useState("all");
       const [query, setQuery] = useState("");
       const [items, setItems] = useState([]);
@@ -122,13 +122,11 @@ window.__ModuleLoader__.load({
 
       const tabs = ["all", "preference", "project", "decision", "history"];
 
-      return createPortal(
-        react.createElement("div", { style: styles.overlay },
-          react.createElement("div", { style: styles.panel },
-            react.createElement("div", { style: styles.header },
-              react.createElement("span", { style: styles.title }, t("memory.panel.title")),
-              react.createElement("button", { style: styles.close, onClick: onClose }, "×")
-            ),
+      const body = react.createElement("div", { style: embedded ? { ...styles.panel, width: "100%", maxWidth: "100%", maxHeight: "none" } : styles.panel },
+        !embedded && react.createElement("div", { style: styles.header },
+          react.createElement("span", { style: styles.title }, t("memory.panel.title")),
+          react.createElement("button", { style: styles.close, onClick: onClose }, "×")
+        ),
             react.createElement("input", {
               style: styles.search,
               placeholder: t("memory.panel.search"),
@@ -164,16 +162,17 @@ window.__ModuleLoader__.load({
                       )
                     )
             )
-          )
-        ),
-        document.body
       );
+      return embedded
+        ? body
+        : createPortal(react.createElement("div", { style: styles.overlay }, body), document.body);
     }
 
     const h = react.createElement;
 
     // --- Settings panel: user profile, rules, custom commands ---
-    function SettingsPanel({ t, onClose }) {
+    function SettingsPanel({ t, onClose, embedded }) {
+      const [sectionTab, setSectionTab] = react.useState("settings");
       const [profile, setProfile] = react.useState("");
       const [rules, setRules] = react.useState([]);
       const [commands, setCommands] = react.useState([]);
@@ -260,19 +259,23 @@ window.__ModuleLoader__.load({
       const hintStyle = { fontSize: 11, color: "var(--dsw-alias-label-tertiary, #999)", marginBottom: 8 };
       const rowStyle = { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: "1px solid var(--dsw-alias-border-l1, #eee)" };
 
-      return createPortal(
-        h("div", { style: styles.overlay },
-          h("div", { style: styles.panel },
-            h("div", { style: styles.header },
-              h("span", { style: styles.title }, t("memory.settings.title")),
-              h("button", { style: styles.close, onClick: onClose }, "×")
-            ),
-            h("div", { style: { overflowY: "auto" } },
+      const body = h("div", { style: embedded ? { ...styles.panel, width: "100%", maxWidth: "100%", maxHeight: "none" } : styles.panel },
+        !embedded && h("div", { style: styles.header },
+          h("span", { style: styles.title }, t("memory.settings.title")),
+          h("button", { style: styles.close, onClick: onClose }, "×")
+        ),
+        h("div", { style: styles.tabs },
+          h("button", { style: { ...styles.tab, ...(sectionTab === "memory" ? styles.tabActive : {}) }, onClick: () => setSectionTab("memory") }, t("memory.panel.open")),
+          h("button", { style: { ...styles.tab, ...(sectionTab === "settings" ? styles.tabActive : {}) }, onClick: () => setSectionTab("settings") }, t("memory.settings.title"))
+        ),
+        sectionTab === "memory"
+          ? h(MemoryPanel, { t, embedded: true })
+          : h("div", { style: { overflowY: "auto" } },
               // profile
               h("div", { style: labelStyle }, t("memory.settings.profile")),
               h("div", { style: hintStyle }, t("memory.settings.profileHint")),
               h("textarea", {
-                style: { ...inputStyle, minHeight: 72, resize: "vertical", fontFamily: "inherit" },
+                style: { ...inputStyle, minHeight: 72, resize: "both", fontFamily: "inherit" },
                 value: profile,
                 placeholder: t("memory.settings.profile"),
                 onChange: (e) => setProfile(e.target.value)
@@ -316,15 +319,15 @@ window.__ModuleLoader__.load({
               h("div", { style: { display: "grid", gap: 6, marginTop: 6 } },
                 h("input", { style: { ...inputStyle, marginBottom: 0 }, value: newCmd.name, placeholder: t("memory.settings.cmdName"), onChange: (e) => setNewCmd({ ...newCmd, name: e.target.value }) }),
                 h("input", { style: { ...inputStyle, marginBottom: 0 }, value: newCmd.description, placeholder: t("memory.settings.cmdDesc"), onChange: (e) => setNewCmd({ ...newCmd, description: e.target.value }) }),
-                h("textarea", { style: { ...inputStyle, marginBottom: 0, minHeight: 48, resize: "vertical", fontFamily: "inherit" }, value: newCmd.instruction, placeholder: t("memory.settings.cmdInstruction"), onChange: (e) => setNewCmd({ ...newCmd, instruction: e.target.value }) }),
+                h("textarea", { style: { ...inputStyle, marginBottom: 0, minHeight: 48, resize: "both", fontFamily: "inherit" }, value: newCmd.instruction, placeholder: t("memory.settings.cmdInstruction"), onChange: (e) => setNewCmd({ ...newCmd, instruction: e.target.value }) }),
                 h("button", { style: styles.footerButton, onClick: addCommand }, t("memory.settings.cmdAdd")),
                 cmdError && h("div", { style: { fontSize: 12, color: "var(--dsw-alias-state-error, #c33)" } }, cmdError)
               )
             )
-          )
-        ),
-        document.body
       );
+      return embedded
+        ? body
+        : createPortal(h("div", { style: styles.overlay }, body), document.body);
     }
 
     const styles = {
@@ -351,32 +354,18 @@ window.__ModuleLoader__.load({
     function apply(ctx) {
       ctx.effect(() => ctx.locale.register(NS, dictionaries), "dsh-mneme: dictionaries");
 
+      // Register a custom section inside the DSH settings panel (nav label +
+      // embedded memory/settings content). Access is via the official settings
+      // panel only; no sidebar buttons are registered.
       ctx.effect(() => {
         const t = ctx.locale.bind(NS);
-        return ctx.slots.inject("sidebar.footer.action", () =>
-          ctx.slots.register({
-            name: "sidebar.footer.action",
-            id: "memory",
-            locale: NS,
-            inject: () => ({})
-          }, () => {
-            const [open, setOpen] = react.useState(false);
-            const [openSettings, setOpenSettings] = react.useState(false);
-            return react.createElement(react.Fragment, null,
-              react.createElement("button", {
-                onClick: () => setOpen(true),
-                style: { ...styles.footerButton, ...(open ? styles.footerButtonActive : {}) }
-              }, t("memory.panel.open")),
-              react.createElement("button", {
-                onClick: () => setOpenSettings(true),
-                style: { ...styles.footerButton, ...(openSettings ? styles.footerButtonActive : {}) }
-              }, t("memory.settings.open")),
-              open && react.createElement(MemoryPanel, { t, onClose: () => setOpen(false) }),
-              openSettings && react.createElement(SettingsPanel, { t, onClose: () => setOpenSettings(false) })
-            );
-          })
-        );
-      }, "dsh-mneme: sidebar action");
+        return ctx.slots.register({
+          name: "settings.section",
+          id: "dsh-mneme",
+          label: () => t("memory.settings.title"),
+          inject: () => ({})
+        }, () => react.createElement(SettingsPanel, { t, embedded: true, onClose: () => {} }));
+      }, "dsh-mneme: settings section");
     }
 
     exports.apply = apply;
