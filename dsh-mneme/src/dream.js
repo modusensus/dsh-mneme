@@ -62,6 +62,7 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
   let running = false;
   let disposed = false;
   let baseline = { count: 0, chars: 0 };
+  let inFlight = null;
 
   function shouldTrigger(service) {
     const memories = service.all().filter((m) => !m.archived && m.type !== "summary");
@@ -81,8 +82,9 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       running = true;
       // Defer the onRun invocation so a synchronous throw cannot escape the
       // timer callback (which would crash the process) and skip the teardown.
-      // Errors are logged, never swallowed silently.
-      Promise.resolve()
+      // Errors are logged, never swallowed silently. inFlight lets dispose()
+      // await the running consolidation before the caller closes the store.
+      inFlight = Promise.resolve()
         .then(() => (onRun ? onRun() : Promise.resolve({ ok: true, skipped: true })))
         .then((result) => {
           // Refresh the baseline only for a successful run (design §5.3: an
@@ -105,17 +107,19 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
         })
         .finally(() => {
           running = false;
+          inFlight = null;
         });
     }, delayMs);
     return true;
   }
 
-  function dispose() {
+  async function dispose() {
     disposed = true;
     if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
-    // An in-flight run is left to complete naturally: its LLM calls are
-    // already paid for and aborting would discard the work. The caller is
-    // responsible for closing the store only after the run has finished.
+    // An in-flight run is left to complete naturally (its LLM calls are
+    // already paid for and aborting would discard the work). Await it so the
+    // caller can close the store only after every write has landed.
+    if (inFlight) await inFlight.catch(() => {});
   }
 
   async function runDream(ctx, service, config) {

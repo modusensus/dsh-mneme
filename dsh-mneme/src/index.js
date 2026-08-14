@@ -34,9 +34,15 @@ export const apply = (ctx, config) => {
   const service = createService({ store, mirror, config: cfg });
 
   // Human edits in mirror files win on every sync; merge them back first.
-  // TYPE_FILE maps each memory type to its mirror filename.
+  // TYPE_FILE maps each memory type to its mirror filename. Read every type's
+  // edits up front: mergeHumanEdits re-renders ALL mirror files on success, so
+  // a per-type read-then-merge loop would overwrite edits in files not yet read
+  // (e.g. preferences.md merging would clobber unsynced projects.md edits).
+  const humanEdits = new Map();
   for (const type of Object.keys(TYPE_FILE)) {
-    const edits = mirror.readHumanEdits(type);
+    humanEdits.set(type, mirror.readHumanEdits(type));
+  }
+  for (const [type, edits] of humanEdits) {
     if (edits.length) service.mergeHumanEdits(type, edits);
   }
 
@@ -76,11 +82,14 @@ export const apply = (ctx, config) => {
     disposers.push(api.dispose);
   }
 
-  return () => {
+  // Async disposer: cordis awaits the returned promise on unload (runDisposable),
+  // so an in-flight dream run is allowed to finish before the SQLite store is
+  // closed — dream.dispose() resolves only after its current run settles.
+  return async () => {
     for (const dispose of disposers) {
       if (typeof dispose === "function") dispose();
     }
-    if (dream) dream.dispose();
+    if (dream) await dream.dispose();
     store.close();
   };
 };

@@ -193,8 +193,9 @@ export function createStore(path) {
   function search(query, { limit = 20, includeArchived = false } = {}) {
     const q = String(query).trim();
     if (!q) return [];
-    // FTS5 over unicode61 (English + long phrases); LIKE fallback covers CJK substring.
-    // LIKE wildcards in the query are escaped so user input is matched literally.
+    // Plain LIKE substring scan over title/content/tags (wildcards escaped so
+    // user input matches literally). No FTS5: CJK substring matching needs
+    // LIKE, and typical memory stores are small enough that a scan is fine.
     const like = `%${escapeLike(q)}%`;
     const { limit: lim } = sanitizePage(limit, 0, 20);
     const archivedFilter = includeArchived ? "" : "archived = 0 AND ";
