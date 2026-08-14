@@ -200,6 +200,59 @@ test("search excludes archived by default", () => {
   store.close();
 });
 
+// --- vector search ---
+
+test("save/update persist embedding vector and searchVector ranks by cosine", () => {
+  const store = openMemory();
+  const a = store.save({ type: "preference", title: "猫", content: "喜欢猫", embedding: [1, 0, 0] });
+  const b = store.save({ type: "preference", title: "狗", content: "喜欢狗", embedding: [0, 1, 0] });
+  const c = store.save({ type: "preference", title: "猫狗", content: "都养", embedding: [0.9, 0.1, 0] });
+
+  const hits = store.searchVector([1, 0, 0], { limit: 3 });
+  assert.deepEqual(hits.map((m) => m.id), [a.id, c.id, b.id]);
+  assert.equal(hits[0].score, 1);
+  assert.ok(hits[1].score > hits[2].score);
+
+  // update re-stores embedding
+  store.update(b.id, { embedding: [1, 1, 0] });
+  const hits2 = store.searchVector([1, 1, 0], { limit: 3 });
+  assert.equal(hits2[0].id, b.id);
+  store.close();
+});
+
+test("searchVector only considers rows with an embedding and filters forgotten/archived", () => {
+  const store = openMemory();
+  const plain = store.save({ type: "project", title: "无向量", content: "x" });
+  const withVec = store.save({ type: "project", title: "有向量", content: "y", embedding: [1, 0, 0] });
+  store.setForget(withVec.id, true);
+  assert.deepEqual(store.searchVector([1, 0, 0]).map((m) => m.id), []);
+  store.setForget(withVec.id, false);
+  store.setArchived(withVec.id, true);
+  assert.deepEqual(store.searchVector([1, 0, 0]).map((m) => m.id), []);
+  store.setArchived(withVec.id, false);
+  assert.deepEqual(store.searchVector([1, 0, 0]).map((m) => m.id), [withVec.id]);
+  assert.equal(plain.id, plain.id, "plain row keeps id");
+  store.close();
+});
+
+test("setEmbedding, embeddedCount, needsEmbedding and threshold filtering", () => {
+  const store = openMemory();
+  const t1 = store.save({ type: "project", title: "t1", content: "c1" });
+  const m2 = store.save({ type: "project", title: "t2", content: "c2" });
+  assert.equal(store.embeddedCount(), 0);
+  store.setEmbedding(m2.id, [0, 1]);
+  assert.equal(store.embeddedCount(), 1);
+  const missing = store.needsEmbedding(10);
+  assert.equal(missing.length, 1);
+  assert.equal(missing[0].id, t1.id, "only the non-embedded row is listed");
+
+  const t3 = store.save({ type: "project", title: "t3", content: "c3", embedding: [1, 1] });
+  // threshold 0.99: only t3 (cos=1) survives; m2 ([0,1]) scores ~0.707.
+  const near = store.searchVector([1, 1], { limit: 5, threshold: 0.99 });
+  assert.deepEqual(near.map((m) => m.id), [t3.id]);
+  store.close();
+});
+
 test("save/update preserve archived flag", () => {
   const store = openMemory();
   const saved = store.save({ type: "project", title: "t", content: "c" });

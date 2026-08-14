@@ -41,7 +41,19 @@ window.__ModuleLoader__.load({
         "memory.settings.cmdInstruction": "指令内容",
         "memory.settings.cmdAdd": "添加命令",
         "memory.settings.cmdDelete": "删除",
-        "memory.settings.empty": "暂无内容"
+        "memory.settings.empty": "暂无内容",
+        "memory.panel.semantic": "语义",
+        "memory.settings.vectorTitle": "向量搜索",
+        "memory.settings.vectorHint": "接入 OpenAI 兼容的 embeddings API 做语义搜索，可匹配字面不同但语义相近的记忆",
+        "memory.settings.vectorEnabled": "启用向量搜索",
+        "memory.settings.vectorBaseUrl": "API 地址 (Base URL)",
+        "memory.settings.vectorApiKey": "API Key",
+        "memory.settings.vectorModel": "模型名",
+        "memory.settings.vectorSave": "保存配置",
+        "memory.settings.vectorSaved": "配置已保存",
+        "memory.settings.vectorReindex": "重建索引",
+        "memory.settings.vectorReindexing": "索引中…",
+        "memory.settings.vectorReindexDone": "已索引 {n} 条"
       },
       en: {
         "memory.panel.title": "Memory",
@@ -70,7 +82,19 @@ window.__ModuleLoader__.load({
         "memory.settings.cmdInstruction": "Instruction",
         "memory.settings.cmdAdd": "Add Command",
         "memory.settings.cmdDelete": "Delete",
-        "memory.settings.empty": "Nothing yet"
+        "memory.settings.empty": "Nothing yet",
+        "memory.panel.semantic": "Semantic",
+        "memory.settings.vectorTitle": "Vector Search",
+        "memory.settings.vectorHint": "Connect an OpenAI-compatible embeddings API for semantic search by meaning, not just keywords",
+        "memory.settings.vectorEnabled": "Enable vector search",
+        "memory.settings.vectorBaseUrl": "Base URL",
+        "memory.settings.vectorApiKey": "API Key",
+        "memory.settings.vectorModel": "Model",
+        "memory.settings.vectorSave": "Save Config",
+        "memory.settings.vectorSaved": "Config saved",
+        "memory.settings.vectorReindex": "Reindex",
+        "memory.settings.vectorReindexing": "Indexing…",
+        "memory.settings.vectorReindexDone": "Indexed {n} items"
       }
     };
 
@@ -89,9 +113,18 @@ window.__ModuleLoader__.load({
     function MemoryPanel({ t, onClose, embedded }) {
       const [tab, setTab] = useState("all");
       const [query, setQuery] = useState("");
+      const [semantic, setSemantic] = useState(false);
+      const [vecEnabled, setVecEnabled] = useState(false);
       const [items, setItems] = useState([]);
       const [loading, setLoading] = useState(false);
       const abortRef = useRef(null);
+
+      useEffect(() => {
+        fetch("/api/dsh-mneme/vector-config")
+          .then((res) => res.json())
+          .then((d) => setVecEnabled(!!d.config?.enabled))
+          .catch(() => {});
+      }, []);
 
       const load = useCallback(async () => {
         abortRef.current?.abort();
@@ -102,7 +135,7 @@ window.__ModuleLoader__.load({
           const params = new URLSearchParams();
           if (tab !== "all") params.set("type", tab);
           const url = query.trim()
-            ? `/api/dsh-mneme/search?q=${encodeURIComponent(query.trim())}`
+            ? `/api/dsh-mneme/search?q=${encodeURIComponent(query.trim())}&mode=${semantic ? "vector" : "auto"}`
             : `/api/dsh-mneme/list?${params.toString()}`;
           const res = await fetch(url, { signal: controller.signal });
           const data = await res.json();
@@ -113,7 +146,7 @@ window.__ModuleLoader__.load({
         } finally {
           setLoading(false);
         }
-      }, [tab, query]);
+      }, [tab, query, semantic]);
 
       useEffect(() => {
         load();
@@ -127,12 +160,19 @@ window.__ModuleLoader__.load({
           react.createElement("span", { style: styles.title }, t("memory.panel.title")),
           react.createElement("button", { style: styles.close, onClick: onClose }, "×")
         ),
-            react.createElement("input", {
-              style: styles.search,
-              placeholder: t("memory.panel.search"),
-              value: query,
-              onChange: (e) => setQuery(e.target.value)
-            }),
+            react.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center", marginBottom: 12 } },
+              react.createElement("input", {
+                style: { ...styles.search, flex: 1, marginBottom: 0 },
+                placeholder: t("memory.panel.search"),
+                value: query,
+                onChange: (e) => setQuery(e.target.value)
+              }),
+              vecEnabled && react.createElement("button", {
+                style: { ...styles.tab, ...(semantic ? styles.tabActive : {}) },
+                title: t("memory.settings.vectorTitle"),
+                onClick: () => setSemantic(!semantic)
+              }, t("memory.panel.semantic"))
+            ),
             react.createElement("div", { style: styles.tabs },
               tabs.map((key) =>
                 react.createElement("button", {
@@ -180,17 +220,23 @@ window.__ModuleLoader__.load({
       const [newCmd, setNewCmd] = react.useState({ name: "", description: "", instruction: "" });
       const [saved, setSaved] = react.useState(false);
       const [cmdError, setCmdError] = react.useState("");
+      const [vector, setVector] = react.useState({ enabled: false, baseUrl: "", apiKey: "", model: "" });
+      const [vectorSaved, setVectorSaved] = react.useState(false);
+      const [reindexing, setReindexing] = react.useState(false);
+      const [reindexMsg, setReindexMsg] = react.useState("");
 
       const load = react.useCallback(async () => {
         try {
-          const [p, r, c] = await Promise.all([
+          const [p, r, c, v] = await Promise.all([
             fetch("/api/dsh-mneme/profile").then((res) => res.json()),
             fetch("/api/dsh-mneme/rules").then((res) => res.json()),
-            fetch("/api/dsh-mneme/commands").then((res) => res.json())
+            fetch("/api/dsh-mneme/commands").then((res) => res.json()),
+            fetch("/api/dsh-mneme/vector-config").then((res) => res.json())
           ]);
           setProfile(p.profile || "");
           setRules(Array.isArray(r.rules) ? r.rules : []);
           setCommands(Array.isArray(c.commands) ? c.commands : []);
+          setVector(v.config || { enabled: false, baseUrl: "", apiKey: "", model: "" });
         } catch { /* ignore */ }
       }, []);
 
@@ -252,6 +298,30 @@ window.__ModuleLoader__.load({
       async function removeCommand(id) {
         await fetch(`/api/dsh-mneme/commands?id=${encodeURIComponent(id)}`, { method: "DELETE" });
         setCommands(commands.filter((c) => c.id !== id));
+      }
+
+      async function saveVector() {
+        try {
+          await fetch("/api/dsh-mneme/vector-config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(vector)
+          });
+          setVectorSaved(true);
+          setTimeout(() => setVectorSaved(false), 1500);
+        } catch { /* ignore */ }
+      }
+
+      async function reindex() {
+        setReindexing(true);
+        setReindexMsg("");
+        try {
+          const res = await fetch("/api/dsh-mneme/vector-reindex");
+          const data = await res.json();
+          const n = data.indexed ?? 0;
+          setReindexMsg(t("memory.settings.vectorReindexDone").replace("{n}", String(n)));
+        } catch { setReindexMsg(""); }
+        setReindexing(false);
       }
 
       const inputStyle = { ...styles.search, marginBottom: 8 };
@@ -322,6 +392,22 @@ window.__ModuleLoader__.load({
                 h("textarea", { style: { ...inputStyle, marginBottom: 0, minHeight: 48, resize: "both", fontFamily: "inherit" }, value: newCmd.instruction, placeholder: t("memory.settings.cmdInstruction"), onChange: (e) => setNewCmd({ ...newCmd, instruction: e.target.value }) }),
                 h("button", { style: styles.footerButton, onClick: addCommand }, t("memory.settings.cmdAdd")),
                 cmdError && h("div", { style: { fontSize: 12, color: "var(--dsw-alias-state-error, #c33)" } }, cmdError)
+              ),
+              // vector search
+              h("div", { style: { ...labelStyle, marginTop: 20 } }, t("memory.settings.vectorTitle")),
+              h("div", { style: hintStyle }, t("memory.settings.vectorHint")),
+              h("label", { style: { display: "flex", alignItems: "center", gap: 6, marginBottom: 8, fontSize: 13 } },
+                h("input", { type: "checkbox", checked: !!vector.enabled, onChange: (e) => setVector({ ...vector, enabled: e.target.checked }) }),
+                h("span", null, t("memory.settings.vectorEnabled"))
+              ),
+              h("input", { style: inputStyle, value: vector.baseUrl, placeholder: t("memory.settings.vectorBaseUrl"), onChange: (e) => setVector({ ...vector, baseUrl: e.target.value }) }),
+              h("input", { style: inputStyle, type: "password", value: vector.apiKey, placeholder: t("memory.settings.vectorApiKey"), onChange: (e) => setVector({ ...vector, apiKey: e.target.value }) }),
+              h("input", { style: inputStyle, value: vector.model, placeholder: t("memory.settings.vectorModel"), onChange: (e) => setVector({ ...vector, model: e.target.value }) }),
+              h("div", { style: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" } },
+                h("button", { style: styles.footerButton, onClick: saveVector }, t("memory.settings.vectorSave")),
+                vectorSaved && h("span", { style: { fontSize: 12, color: "var(--dsw-alias-state-success, #2a7)" } }, t("memory.settings.vectorSaved")),
+                h("button", { style: styles.footerButton, onClick: reindex, disabled: reindexing }, reindexing ? t("memory.settings.vectorReindexing") : t("memory.settings.vectorReindex")),
+                reindexMsg && h("span", { style: { fontSize: 12, color: "var(--dsw-alias-label-secondary, #666)" } }, reindexMsg)
               )
             )
       );

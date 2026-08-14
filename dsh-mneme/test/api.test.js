@@ -26,7 +26,7 @@ function req(path, method = "GET", body = null) {
   return r;
 }
 
-function setup() {
+function setup(embedder) {
   const store = createStore(":memory:");
   const service = createService({ store, mirror: null, config: {} });
   const settings = createSettings(store.db);
@@ -44,7 +44,7 @@ function setup() {
       }
     }
   };
-  const api = createApi(ctx, service, settings, commands);
+  const api = createApi(ctx, service, settings, commands, embedder);
   return { store, service, routes, api, settings };
 }
 
@@ -219,4 +219,74 @@ test("POST /api/dsh-mneme/commands rejects invalid name with 400", async () => {
   const res = new FakeRes();
   await route.handler(req("/api/dsh-mneme/commands", "POST", { name: "Bad Name", instruction: "x" }), res);
   assert.equal(res.statusCode, 400);
+});
+
+// --- vector search routes ---
+
+function setupWithEmbedder(embedder) {
+  const base = setup(embedder);
+  base.settings.setVectorConfig({
+    enabled: true,
+    baseUrl: "https://api.example.com/v1",
+    apiKey: "sk-test",
+    model: "text-embedding-v3"
+  });
+  return base;
+}
+
+test("vector-config defaults and round-trips through PUT/GET", async () => {
+  const { routes, settings } = setup();
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/vector-config");
+
+  const get1 = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/vector-config"), get1);
+  assert.equal(JSON.parse(get1.body).config.enabled, false);
+
+  const put = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/vector-config", "PUT", { enabled: true, baseUrl: "https://api.openai.com/v1", apiKey: "sk-x", model: "text-embedding-3-small" }), put);
+  assert.equal(JSON.parse(put.body).config.model, "text-embedding-3-small");
+  assert.equal(settings.getVectorConfig().enabled, true);
+});
+
+test("search mode=vector merges vector results when embedder returns a vector", async () => {
+  const embedder = {
+    embed: async () => [1, 0, 0],
+    reindexMissing: async () => ({ indexed: 0, skipped: 0 })
+  };
+  const { routes, store, service } = setupWithEmbedder(embedder);
+  const v = service.saveWithDedupe({ type: "preference", title: "猫", content: "喜欢猫" });
+  store.setEmbedding(v.memory.id, [1, 0, 0]);
+  service.saveWithDedupe({ type: "preference", title: "狗", content: "喜欢狗" });
+
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/search");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/search?q=%E7%8C%AB&mode=vector"), res);
+  const data = JSON.parse(res.body);
+  assert.equal(data.mode, "vector");
+  assert.equal(data.items.length, 1, "keyword hit + vector fill merged");
+  assert.equal(data.items[0].title, "猫");
+});
+
+test("search falls back to keyword when embedder disabled or unavailable", async () => {
+  // embedder that resolves null (disabled provider)
+  const embedder = { embed: async () => null, reindexMissing: async () => ({ indexed: 0, skipped: 0 }) };
+  const { routes, service } = setupWithEmbedder(embedder);
+  service.saveWithDedupe({ type: "preference", title: "语言", content: "中文交流" });
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/search");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/search?q=%E4%B8%AD%E6%96%87"), res);
+  const data = JSON.parse(res.body);
+  assert.equal(data.mode, "keyword");
+  assert.equal(data.items.length, 1);
+});
+
+test("vector-reindex calls embedder and returns counts", async () => {
+  const embedder = { reindexMissing: async () => ({ indexed: 2, skipped: 1 }) };
+  const { routes } = setupWithEmbedder(embedder);
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/vector-reindex");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/vector-reindex"), res);
+  const data = JSON.parse(res.body);
+  assert.equal(data.indexed, 2);
+  assert.equal(data.skipped, 1);
 });

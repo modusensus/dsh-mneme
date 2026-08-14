@@ -73,3 +73,29 @@ test("removeCommand removes by id and returns false for missing", () => {
   assert.equal(settings.listCommands().length, 0);
   store.close();
 });
+
+test("vector config defaults to undefined and round-trips", () => {
+  const { store, settings } = setup();
+  assert.equal(settings.getVectorConfig(), undefined);
+  const saved = settings.setVectorConfig({
+    enabled: true,
+    baseUrl: " https://api.openai.com/v1/ ",
+    apiKey: " sk-123 ",
+    model: "text-embedding-3-small"
+  });
+  assert.equal(saved.enabled, true);
+  assert.equal(saved.baseUrl, "https://api.openai.com/v1", "trims baseUrl");
+  assert.equal(saved.apiKey, "sk-123", "trims apiKey");
+  assert.equal(saved.model, "text-embedding-3-small");
+  const read = settings.getVectorConfig();
+  assert.equal(read.enabled, true);
+  assert.equal(read.model, "text-embedding-3-small");
+  store.close();
+});
+
+test("vector config disabled value is stored as false", () => {
+  const { store, settings } = setup();
+  settings.setVectorConfig({ enabled: false, baseUrl: "x", apiKey: "k", model: "m" });
+  assert.equal(settings.getVectorConfig().enabled, false);
+  store.close();
+});

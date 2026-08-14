@@ -8,6 +8,7 @@ import { createDreamScheduler } from "./dream.js";
 import { createApi } from "./api.js";
 import { createSettings } from "./settings.js";
 import { createCommandManager } from "./commands.js";
+import { createEmbedder } from "./embedding.js";
 import { Config } from "./config.js";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -38,6 +39,11 @@ export const apply = (ctx, config) => {
   // User-configurable settings (profile, rules) and custom commands share the
   // same SQLite file but live in dedicated tables, isolated from memories.
   const settings = createSettings(store.db);
+
+  // Vector search: embedder calls the configured OpenAI-compatible embeddings
+  // endpoint on writes and for queries. service re-embeds after each write.
+  const embedder = createEmbedder({ store, settings, logger: ctx.logger });
+  service.setEmbedder(embedder);
 
   // Custom commands: register persisted commands into the DSH command registry
   // on boot; add/remove re-register live through the API.
@@ -96,7 +102,7 @@ export const apply = (ctx, config) => {
       add: () => { throw new Error("commands unavailable"); },
       remove: () => false,
       list: () => []
-    });
+    }, embedder);
     disposers.push(api.dispose);
   }
 

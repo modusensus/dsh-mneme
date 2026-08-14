@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS memories (
   forgotten   INTEGER NOT NULL DEFAULT 0,
   archived    INTEGER NOT NULL DEFAULT 0,
   source      TEXT,
+  embedding   TEXT,
   created_at  TEXT NOT NULL,
   updated_at  TEXT NOT NULL
 );
@@ -64,10 +65,13 @@ export function createStore(path) {
   db.exec("PRAGMA journal_mode = WAL;");
   db.exec(SCHEMA);
 
-  // Schema migration: add archived column to legacy databases (idempotent)
+  // Schema migrations for legacy databases (idempotent).
   const columns = db.prepare("PRAGMA table_info(memories)").all().map((c) => c.name);
   if (!columns.includes("archived")) {
     db.exec("ALTER TABLE memories ADD COLUMN archived INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!columns.includes("embedding")) {
+    db.exec("ALTER TABLE memories ADD COLUMN embedding TEXT");
   }
 
   // Per-instance monotonic timestamp guard: consecutive writes within the same
@@ -117,10 +121,13 @@ export function createStore(path) {
     const now = nowIso();
     const tags = JSON.stringify(memory.tags ?? []);
     const importance = Number.isInteger(memory.importance) ? memory.importance : 3;
+    const embedding = Array.isArray(memory.embedding) && memory.embedding.length
+      ? JSON.stringify(memory.embedding)
+      : null;
     db.prepare(
-      `INSERT INTO memories (id, type, title, content, tags, importance, forgotten, source, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`
-    ).run(id, type, memory.title, memory.content, tags, importance, memory.source ?? null, now, now);
+      `INSERT INTO memories (id, type, title, content, tags, importance, forgotten, source, embedding, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`
+    ).run(id, type, memory.title, memory.content, tags, importance, memory.source ?? null, embedding, now, now);
     return getById(id);
   }
 
@@ -133,8 +140,11 @@ export function createStore(path) {
       throw new Error("tags must be an array");
     }
     const now = nowIso();
+    const embedding = patch.embedding !== undefined
+      ? (Array.isArray(patch.embedding) && patch.embedding.length ? JSON.stringify(patch.embedding) : null)
+      : existing.embedding ?? null;
     db.prepare(
-      `UPDATE memories SET type=?, title=?, content=?, tags=?, importance=?, source=?, updated_at=? WHERE id=?`
+      `UPDATE memories SET type=?, title=?, content=?, tags=?, importance=?, source=?, embedding=?, updated_at=? WHERE id=?`
     ).run(
       type,
       patch.title ?? existing.title,
@@ -142,6 +152,7 @@ export function createStore(path) {
       JSON.stringify(patch.tags ?? existing.tags),
       Number.isInteger(patch.importance) ? patch.importance : existing.importance,
       patch.source !== undefined ? patch.source : (existing.source ?? null),
+      embedding,
       now,
       id
     );
@@ -190,6 +201,27 @@ export function createStore(path) {
     return rows.map(toRow);
   }
 
+  /** Set (or clear with null) the embedding vector of a memory. */
+  function setEmbedding(id, vector) {
+    const json = Array.isArray(vector) && vector.length ? JSON.stringify(vector) : null;
+    db.prepare("UPDATE memories SET embedding = ? WHERE id = ?").run(json, id);
+  }
+
+  function embeddedCount() {
+    return db.prepare(
+      "SELECT count(*) AS c FROM memories WHERE embedding IS NOT NULL AND embedding != ''"
+    ).get().c;
+  }
+
+  /** Candidate rows still missing an embedding, for incremental re-indexing. */
+  function needsEmbedding(limit = 50) {
+    return db.prepare(
+      `SELECT id, title, content FROM memories
+       WHERE embedding IS NULL OR embedding = ''
+       ORDER BY updated_at DESC LIMIT ?`
+    ).all(limit);
+  }
+
   function search(query, { limit = 20, includeArchived = false } = {}) {
     const q = String(query).trim();
     if (!q) return [];
@@ -212,6 +244,49 @@ export function createStore(path) {
     return rows.map(toRow);
   }
 
+  // --- vector search ------------------------------------------------------
+
+  function cosine(a, b) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length || !a.length) return 0;
+    let dot = 0;
+    let na = 0;
+    let nb = 0;
+    for (let i = 0; i < a.length; i++) {
+      dot += a[i] * b[i];
+      na += a[i] * a[i];
+      nb += b[i] * b[i];
+    }
+    if (na === 0 || nb === 0) return 0;
+    return dot / (Math.sqrt(na) * Math.sqrt(nb));
+  }
+
+  /**
+   * Brute-force cosine similarity over embedded rows. Returns rows decorated
+   * with a `score` (0..1). Only rows with a stored embedding participate.
+   */
+  function searchVector(vector, { limit = 20, includeArchived = false, threshold = 0 } = {}) {
+    if (!Array.isArray(vector) || !vector.length) return [];
+    const archivedFilter = includeArchived ? "" : "archived = 0 AND ";
+    const rows = db.prepare(
+      `SELECT * FROM memories
+       WHERE ${archivedFilter}forgotten = 0 AND embedding IS NOT NULL AND embedding != ''`
+    ).all();
+    const scored = [];
+    for (const row of rows) {
+      let v;
+      try {
+        v = JSON.parse(row.embedding);
+      } catch {
+        continue;
+      }
+      const score = cosine(vector, v);
+      if (score >= threshold) scored.push({ row, score });
+    }
+    scored.sort((a, b) => b.score - a.score);
+    const { limit: lim } = sanitizePage(limit, 0, 20);
+    return scored.slice(0, lim).map(({ row, score }) => ({ ...toRow(row), score }));
+  }
+
   return {
     db,
     count,
@@ -224,6 +299,10 @@ export function createStore(path) {
     list,
     all,
     search,
+    setEmbedding,
+    embeddedCount,
+    needsEmbedding,
+    searchVector,
     close() {
       db.close();
     }
