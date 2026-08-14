@@ -76,7 +76,7 @@ dsh-mneme/
 │   └── service.js        # 服务层编排（注入候选/去重/镜像同步）
 ├── lib/                  # DSH 加载目录：scripts/sync-lib.js 从 src 逐字节拷贝
 │   └── client.js         # Web GUI 记忆面板（单文件，仅存在于 lib）
-└── test/                 # 140+ node:test 测试
+└── test/                 # 152+ node:test 测试
 ```
 
 ### 3.2 技术底座
@@ -236,6 +236,8 @@ CREATE TABLE custom_commands (
 | Markdown 同步 | 双向同步、人工修改优先 | node:test |
 | 工具层 | memory_save/search/list 行为 | node:test（mock ctx） |
 | autoDream | 决策清单校验、合并/归档/裁决 | node:test |
+| autoDream 审计 | 每次裁决入 `dream_runs`（快照 digest + 决策 + outcome + receipt），幂等重放 | node:test |
+| 三轴线压测 | 长会话检索 Recall@k、冲突仲裁可重放、多 Agent 并发 | scripts/stress-dsh.js（mock LLM） |
 | 向量搜索 | embeddings 调用、降级回退 | node:test |
 | 集成验证 | 启动 DSH web profile，插件加载、工具可用、面板渲染 | 手动 + Playwright |
 
@@ -250,7 +252,8 @@ CREATE TABLE custom_commands (
 7. ✅ 用户画像/规则每轮注入，自定义指令可注册触发
 8. ✅ 向量搜索配置后可用，未配置时自动降级 LIKE 子串搜索
 9. ✅ autoDream 自动巩固（去重/合并/归档/冲突裁决）
-10. ✅ 140+ node:test 测试全部通过，CI 自动运行
+10. ✅ 152 个 node:test 测试全部通过（含审计与三轴线压测不变量），CI 自动运行
+11. ✅ 每次 autoDream 裁决写入审计（输入快照 digest + 决策清单 + 逐 id 去向 + receipt），可回放定位静默错误
 
 ## 10. 风险与缓解
 
@@ -266,6 +269,6 @@ CREATE TABLE custom_commands (
 
 - **Rerank 重排**：向量初筛 + 重排精排（如 `gte-rerank-v2`），提升语义检索准确率
 - **embedding 端点可配置**：支持换用本地开源模型（如 text-embedding-3-small）
-- **长会话压测**：检索准确率（Recall@k、陈旧记忆率）、冲突裁决可重放仲裁集、多 Agent 并发
-- **来源链**：autoDream 合并结论带 parent 引用 + digest，可回源验证
+- ✅ **长会话压测（已实现）**：`npm run stress` —— 检索准确率（Recall@k、陈旧残留率）、冲突裁决可重放仲裁集、多 Agent 并发（丢更新/重复合并/事务恢复）
+- ✅ **来源链 / 裁决审计（已实现）**：每次 autoDream 裁决写入 `dream_runs`（输入快照 sha256 digest + 决策清单 + 逐 id 去向 + receipt `dsh-mneme:run:<id>:<status>:<hash>:<count>:<applied>`），conflict 胜者带来源注释，可回放验证；合并/冲突应用已幂等（重复应用无累积副作用）
 - **分层记忆**：原始事件层 / 摘要层 / 规则层分离，召回按层回退

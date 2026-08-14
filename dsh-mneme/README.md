@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Awesome](https://awesome-dsh-plugin.com/badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
-[![tests](https://img.shields.io/badge/tests-140%20passed-success)](https://github.com/modusensus/dsh-mneme)
+[![tests](https://img.shields.io/badge/tests-152%20passed-success)](https://github.com/modusensus/dsh-mneme)
 
 > 给 DeepSeek Harness 的跨会话记忆插件：让 Agent 记住你、记住项目、自动整理记忆。**Mneme**（Μνήμη）——希腊记忆女神 Mnemosyne 之名，掌管记忆与梦境，正如 autoDream 在后台巩固记忆。
 
@@ -42,6 +42,7 @@
   - `conflict`：裁决矛盾信息，胜者保留、败者归档并追加溯源注释
 - **摘要生成**：整理后生成"记忆库总览"（单一实例），作为下次会话的优先注入
 - **Fail-safe**：非法 LLM 输出（未知 id / 非法 action / 跨类型合并 / 越界 importance）拒绝整单，绝不破坏记忆库
+- **裁决审计**：每次运行写入 `dream_runs` 审计表（输入快照 sha256 digest + 完整输入快照 + 决策清单 + 逐 id 去向 + receipt），可离线回放；merge / conflict 幂等应用，重放/并发重复执行无累积副作用
 
 ### Web 记忆面板
 
@@ -179,7 +180,8 @@ src/
 lib/
 ├── client.js         # Web 面板（手写 ModuleLoader bundle）
 └── *.js              # src 的同步分发产物
-test/                 # 140 个 node:test 测试
+test/                 # 152 个 node:test 测试（含审计与三轴线压测不变量）
+scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压测 · sync-lib.js 同步
 ```
 
 ## 🧪 开发
@@ -187,9 +189,12 @@ test/                 # 140 个 node:test 测试
 ```bash
 cd dsh-mneme
 npm install        # 安装 peer 依赖（以 devDependencies 形式，用于本地测试）
-npm test           # 运行 140 个测试（--test-isolation=none 用于受限沙箱，禁止子进程 spawn）
+npm test           # 运行 152 个测试（--test-isolation=none 用于受限沙箱，禁止子进程 spawn）
+npm run stress     # 三轴线压测：长会话检索 / 冲突仲裁 / 多 Agent 并发（离线 mock LLM）
 npm run sync       # 把 src/ 同步到 lib/（发布时由 prepack 钩子自动执行）
 ```
+
+> 压测（`npm run stress`）三条轴线：**长会话检索**（Recall@k、陈旧残留率）、**冲突裁决**（可重放仲裁集：审计快照 hash + receipt + 幂等回放）、**多 Agent 并发**（丢更新、重复合并、事务/崩溃恢复）。每次 autoDream 运行都会写入审计表 `dream_runs`（输入快照 digest + 决策清单 + 逐 id 去向 + receipt），让高通过率下也能定位静默错误。
 
 > 注：`npm test` 使用 `--test-isolation=none` 适配受限沙箱；普通环境可直接 `node --test`。
 > `lib/` 是 `src/` 的同步分发产物（`npm run sync`），其中 `lib/client.js` 为手写 Web 面板源码，不受同步影响。
