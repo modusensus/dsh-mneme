@@ -1,4 +1,4 @@
-export function createInjector(ctx, service, config) {
+export function createInjector(ctx, service, settings, config) {
   const maxItems = config.maxInjectedItems ?? 5;
   const threshold = config.importanceThreshold ?? 3;
 
@@ -11,12 +11,37 @@ export function createInjector(ctx, service, config) {
     return lines.join("\n");
   }
 
-  return ctx.systemPrompt.context({
-    name: "memory",
-    order: 90,
-    text: () => {
-      const candidates = service.injectCandidates({ maxItems, threshold });
-      return render(candidates);
+  // User profile + rules: injected ahead of the memory block because they are
+  // always-relevant instructions the agent should follow every turn.
+  function renderUserSettings() {
+    const profile = settings.getProfile().trim();
+    const rules = settings.getRules();
+    if (!profile && !rules.length) return "";
+    const lines = ["[用户设置] 来自 dsh-mneme 的用户画像与规则："];
+    if (profile) lines.push(`- 用户画像：${profile}`);
+    for (const rule of rules) lines.push(`- 规则：${rule}`);
+    return lines.join("\n");
+  }
+
+  const disposers = [
+    ctx.systemPrompt.context({
+      name: "memory",
+      order: 90,
+      text: () => {
+        const candidates = service.injectCandidates({ maxItems, threshold });
+        return render(candidates);
+      }
+    }),
+    ctx.systemPrompt.context({
+      name: "user-settings",
+      order: 85,
+      text: renderUserSettings
+    })
+  ];
+
+  return () => {
+    for (const dispose of disposers) {
+      if (typeof dispose === "function") dispose();
     }
-  });
+  };
 }

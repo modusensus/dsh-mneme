@@ -6,13 +6,15 @@ import { createInjector } from "./inject.js";
 import { createSummarizer } from "./summarize.js";
 import { createDreamScheduler } from "./dream.js";
 import { createApi } from "./api.js";
+import { createSettings } from "./settings.js";
+import { createCommandManager } from "./commands.js";
 import { Config } from "./config.js";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
 export const name = "dsh-mneme";
-export const inject = ["tools", "systemPrompt", "webServer", "llm", "agentDefaultModel"];
+export const inject = ["tools", "systemPrompt", "webServer", "llm", "agentDefaultModel", "commands"];
 export { Config };
 
 // Arrow (not function declaration): cordis 4 treats any apply with a
@@ -32,6 +34,18 @@ export const apply = (ctx, config) => {
   const store = createStore(join(memoryDir, "memory.db"));
   const mirror = createMirror(memoryDir);
   const service = createService({ store, mirror, config: cfg });
+
+  // User-configurable settings (profile, rules) and custom commands share the
+  // same SQLite file but live in dedicated tables, isolated from memories.
+  const settings = createSettings(store.db);
+
+  // Custom commands: register persisted commands into the DSH command registry
+  // on boot; add/remove re-register live through the API.
+  let commands = null;
+  if (ctx.commands) {
+    commands = createCommandManager({ ctx, settings, logger: ctx.logger });
+    commands.sync();
+  }
 
   // Human edits in mirror files win on every sync; merge them back first.
   // TYPE_FILE maps each memory type to its mirror filename. Read every type's
@@ -67,7 +81,7 @@ export const apply = (ctx, config) => {
   const disposers = [];
 
   ctx.inject(["systemPrompt"], (promptCtx) => {
-    if (cfg.autoInject) disposers.push(createInjector(promptCtx, service, cfg));
+    if (cfg.autoInject) disposers.push(createInjector(promptCtx, service, settings, cfg));
   });
 
   ctx.inject(["tools"], (toolsCtx) => {
@@ -78,7 +92,11 @@ export const apply = (ctx, config) => {
   disposers.push(summarizer.dispose);
 
   if (ctx.webServer) {
-    const api = createApi(ctx, service);
+    const api = createApi(ctx, service, settings, commands ?? {
+      add: () => { throw new Error("commands unavailable"); },
+      remove: () => false,
+      list: () => []
+    });
     disposers.push(api.dispose);
   }
 
@@ -89,6 +107,7 @@ export const apply = (ctx, config) => {
     for (const dispose of disposers) {
       if (typeof dispose === "function") dispose();
     }
+    commands?.dispose();
     if (dream) await dream.dispose();
     store.close();
   };
