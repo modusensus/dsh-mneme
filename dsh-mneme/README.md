@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![dsh-plugin](https://img.shields.io/badge/dsh-plugin-awesome-orange)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
-[![tests](https://img.shields.io/badge/tests-108%20passed-success)](https://github.com/modusensus/dsh-mneme)
+[![tests](https://img.shields.io/badge/tests-129%20passed-success)](https://github.com/modusensus/dsh-mneme)
 
 > 给 DeepSeek Harness 的跨会话记忆插件：让 Agent 记住你、记住项目、自动整理记忆。**Mneme**（Μνήμη）——希腊记忆女神 Mnemosyne 之名，掌管记忆与梦境，正如 autoDream 在后台巩固记忆。
 
@@ -46,6 +46,16 @@
 ### Web 记忆面板
 
 侧边栏"记忆"按钮 → 模态面板：按类型浏览、全文搜索、查看详情。
+
+### 用户设置（画像 / 规则）与自定义指令 ⚙️
+
+侧边栏"设置"按钮 → 设置面板：
+
+- **用户画像**：一段自由文本描述用户自己（角色、背景、偏好），**每轮注入**到系统提示，让 Agent 始终遵循
+- **规则**：Agent 必须遵守的行为规则列表（如"回答先给结论"），同样每轮注入
+- **自定义指令**：注册斜杠命令（`/名称`），触发时把用户定义的指令内容交给 Agent。命令持久化到 SQLite，启动时自动注册到 DSH 命令表，增删实时生效
+
+> 画像与规则通过独立的 `[用户设置]` 注入区块（优先级高于记忆库），即使记忆为空也会注入。
 
 ## 📦 安装
 
@@ -150,7 +160,7 @@ src/
 lib/
 ├── client.js         # Web 面板（手写 ModuleLoader bundle）
 └── *.js              # src 的同步分发产物
-test/                 # 108 个 node:test 测试
+test/                 # 129 个 node:test 测试
 ```
 
 ## 🧪 开发
@@ -158,7 +168,7 @@ test/                 # 108 个 node:test 测试
 ```bash
 cd dsh-mneme
 npm install        # 安装 peer 依赖（以 devDependencies 形式，用于本地测试）
-npm test           # 运行 108 个测试（--test-isolation=none 用于受限沙箱，禁止子进程 spawn）
+npm test           # 运行 129 个测试（--test-isolation=none 用于受限沙箱，禁止子进程 spawn）
 npm run sync       # 把 src/ 同步到 lib/（发布时由 prepack 钩子自动执行）
 ```
 

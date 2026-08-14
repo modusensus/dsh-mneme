@@ -4,6 +4,7 @@ import { EventEmitter } from "node:events";
 import { createStore } from "../src/store.js";
 import { createService } from "../src/service.js";
 import { createApi } from "../src/api.js";
+import { createSettings } from "../src/settings.js";
 
 class FakeRes extends EventEmitter {
   constructor() { super(); this.statusCode = 200; this.body = ""; }
@@ -11,13 +12,29 @@ class FakeRes extends EventEmitter {
   end(text) { this.body = text ?? ""; this.emit("end"); return this; }
 }
 
-function req(path, method = "GET") {
-  return { url: path, method, headers: {} };
+function req(path, method = "GET", body = null) {
+  const r = new EventEmitter();
+  r.url = path;
+  r.method = method;
+  r.headers = {};
+  if (body !== null) {
+    process.nextTick(() => {
+      r.emit("data", Buffer.from(JSON.stringify(body)));
+      r.emit("end");
+    });
+  }
+  return r;
 }
 
 function setup() {
   const store = createStore(":memory:");
   const service = createService({ store, mirror: null, config: {} });
+  const settings = createSettings(store.db);
+  const commands = {
+    add: (def) => settings.addCommand(def),
+    remove: (id) => settings.removeCommand(id),
+    list: () => settings.listCommands()
+  };
   const routes = [];
   const ctx = {
     webServer: {
@@ -27,8 +44,8 @@ function setup() {
       }
     }
   };
-  const api = createApi(ctx, service);
-  return { store, service, routes, api };
+  const api = createApi(ctx, service, settings, commands);
+  return { store, service, routes, api, settings };
 }
 
 function findHandler(routes, path) {
@@ -126,10 +143,80 @@ test("handler errors return 500 json instead of leaking to host", async () => {
     search() { throw new Error("boom"); },
     toApiList() { return []; }
   };
-  createApi(ctx, service);
+  createApi(ctx, service, {}, { add: () => { throw new Error("x"); }, remove: () => false, list: () => [] });
   const route = routes.find((r) => r.path === "/api/dsh-mneme/list");
   const res = new FakeRes();
   await route.handler(req("/api/dsh-mneme/list"), res);
   assert.equal(res.statusCode, 500);
   assert.deepEqual(JSON.parse(res.body), { error: "internal" });
+});
+
+test("GET /api/dsh-mneme/profile returns stored profile", async () => {
+  const { routes, settings } = setup();
+  settings.setProfile("我是前端");
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/profile");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/profile"), res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(JSON.parse(res.body).profile, "我是前端");
+});
+
+test("PUT /api/dsh-mneme/profile saves profile", async () => {
+  const { routes, settings } = setup();
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/profile");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/profile", "PUT", { profile: "新画像" }), res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(JSON.parse(res.body).profile, "新画像");
+  assert.equal(settings.getProfile(), "新画像");
+});
+
+test("GET /api/dsh-mneme/rules returns stored rules", async () => {
+  const { routes, settings } = setup();
+  settings.setRules(["规则1", "规则2"]);
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/rules");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/rules"), res);
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(JSON.parse(res.body).rules, ["规则1", "规则2"]);
+});
+
+test("PUT /api/dsh-mneme/rules saves rules", async () => {
+  const { routes, settings } = setup();
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/rules");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/rules", "PUT", { rules: ["a", "b"] }), res);
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(settings.getRules(), ["a", "b"]);
+});
+
+test("GET /api/dsh-mneme/commands lists commands", async () => {
+  const { routes, settings } = setup();
+  settings.addCommand({ name: "agenda", instruction: "x" });
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/commands");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/commands"), res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(JSON.parse(res.body).commands.length, 1);
+});
+
+test("POST /api/dsh-mneme/commands adds a command; DELETE removes", async () => {
+  const { routes } = setup();
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/commands");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/commands", "POST", { name: "fmt", description: "d", instruction: "格式化" }), res);
+  assert.equal(res.statusCode, 200);
+  const { command } = JSON.parse(res.body);
+  assert.equal(command.name, "fmt");
+  const del = new FakeRes();
+  await route.handler(req(`/api/dsh-mneme/commands?id=${command.id}`, "DELETE"), del);
+  assert.equal(JSON.parse(del.body).removed, true);
+});
+
+test("POST /api/dsh-mneme/commands rejects invalid name with 400", async () => {
+  const { routes } = setup();
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/commands");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/commands", "POST", { name: "Bad Name", instruction: "x" }), res);
+  assert.equal(res.statusCode, 400);
 });

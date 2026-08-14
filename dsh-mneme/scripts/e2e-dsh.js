@@ -19,10 +19,14 @@ const ctx = new Context();
 const registeredTools = [];
 const injectContexts = [];
 const apiRoutes = [];
+const registeredCommands = new Map();
 let llmCalls = [];
 
 ctx.provide("tools", {
   register(def) { registeredTools.push(def); return () => {}; }
+});
+ctx.provide("commands", {
+  register(def) { registeredCommands.set(def.name, def); return () => registeredCommands.delete(def.name); }
 });
 ctx.provide("systemPrompt", {
   context(def) { injectContexts.push(def); return () => {}; }
@@ -101,8 +105,8 @@ console.log(`记忆目录：${memDir}\n`);
 console.log("【1】插件装载");
 const checks = [];
 checks.push(["注册 6 个模型工具", registeredTools.length === 6]);
-checks.push(["注册 1 个注入上下文", injectContexts.length === 1 && injectContexts[0].name === "memory"]);
-checks.push(["注册 3 条 API 路由", apiRoutes.length === 3]);
+checks.push(["注册 2 个注入上下文", injectContexts.length === 2 && injectContexts[0].name === "memory"]);
+checks.push(["注册 6 条 API 路由", apiRoutes.length === 6]);
 for (const [label, ok] of checks) console.log(`  ${ok ? "✅" : "❌"} ${label}`);
 if (!checks.every(([, ok]) => ok)) { console.log("\n装载检查失败，中止。"); process.exit(1); }
 console.log(`  工具：${registeredTools.map((t) => t.name).join(", ")}\n`);
@@ -164,6 +168,43 @@ const res = { writeHead(code, h) { this.statusCode = code; this.headers = h; ret
 await listRoute.handler({ url: "/api/dsh-mneme/list?type=project" }, res);
 const payload = JSON.parse(res.body);
 console.log(`  HTTP ${res.statusCode}，project 条目 ${payload.items.length} 条\n`);
+
+// 8. 用户画像 / 规则 / 自定义命令
+console.log("【8】用户画像 / 规则 / 自定义命令");
+function apiReq(path, method = "GET", body = null) {
+  const listeners = {};
+  const r = {
+    url: path, method, headers: {},
+    on(ev, fn) { listeners[ev] = fn; return r; },
+    emit(ev, data) { listeners[ev]?.(data); return r; }
+  };
+  if (body !== null) {
+    process.nextTick(() => { r.emit("data", Buffer.from(JSON.stringify(body))); r.emit("end"); });
+  }
+  return r;
+}
+function apiRes() { return { statusCode: 0, body: "", writeHead(code) { this.statusCode = code; return this; }, end(body) { this.body = body; } }; }
+
+const profileRoute = apiRoutes.find((r) => r.path === "/api/dsh-mneme/profile");
+const rp = apiRes();
+await profileRoute.handler(apiReq("/api/dsh-mneme/profile", "PUT", { profile: "我是后端开发者，擅长 Node.js" }), rp);
+const rulesRoute = apiRoutes.find((r) => r.path === "/api/dsh-mneme/rules");
+const rr = apiRes();
+await rulesRoute.handler(apiReq("/api/dsh-mneme/rules", "PUT", { rules: ["回答时先给结论", "使用简体中文"] }), rr);
+const userSettings = injectContexts.find((c) => c.name === "user-settings").text({});
+console.log(`  注入含用户画像：${userSettings.includes("后端开发者") ? "✅" : "❌"}`);
+console.log(`  注入含规则：${userSettings.includes("先给结论") ? "✅" : "❌"}`);
+const cmdRoute = apiRoutes.find((r) => r.path === "/api/dsh-mneme/commands");
+const rc = apiRes();
+await cmdRoute.handler(apiReq("/api/dsh-mneme/commands", "POST", { name: "review", description: "审查代码", instruction: "请按项目规范审查当前代码" }), rc);
+const cmdRegistered = registeredCommands.has("review");
+console.log(`  自定义命令 /review 已注册：${cmdRegistered ? "✅" : "❌"}`);
+if (cmdRegistered) {
+  const handler = registeredCommands.get("review").handler;
+  const result = await handler({ agent: {}, rawInput: "", signal: null });
+  console.log(`  命令触发返回：${result.text.slice(0, 24)}…`);
+}
+console.log("");
 
 // ---------------------------------------------------------------- 汇总
 console.log("══════ 汇总 ══════");
