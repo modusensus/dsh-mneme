@@ -52,8 +52,11 @@
   "scripts": {
     "sync": "node scripts/sync-lib.js",
     "prepack": "npm run sync",
-    "test": "node --test --test-isolation=none test/*.test.js",
+    "test": "node --test test/*.test.js",
     "e2e": "node scripts/e2e-dsh.js",
     "stress": "node scripts/stress-dsh.js"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.2.0"
   }
 }

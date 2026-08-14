@@ -76,6 +76,19 @@
 > ⚠️ 密钥仅保存在本机 `~/.dsh/memory/memory.db` 的 `user_settings` 表，不会上传，也不会写入代码仓库。
 > 需要 embedding 而非 rerank 模型：如阿里云 `text-embedding-v3` 可用，`qwen3-vl-rerank` 是 rerank 模型（不走 `/embeddings`）。
 
+### 语义增强（Semantic）🧠
+
+v0.2 起新增**完全离线的语义记忆引擎**（本地模型 + 精排 + 聚类）：
+
+- **本地 Embedding**：三后端可选——ONNX（`Xenova/bge-small-zh-v1.5`，离线）/ Ollama / OpenAI 兼容，失败自动逐级降级，最差回退关键词搜索
+- **Rerank 精排**：`Xenova/bge-reranker-base` 对召回候选交叉编码精排，提升 Top-K 准确率
+- **autoDream 语义增强**：对记忆向量聚类（`clusterMemories`），自动发现主题相近 / 疑似矛盾的记忆，巩固更精准
+- **搜索流水线**：混合召回（关键词 + 向量）→ Rerank → Top-K
+
+配置只需在 `cordis.patch.yml` 里设置 `embedProvider`（默认 `openai`，保持 v0.1 行为；改为 `local` 即离线）。升级无需迁移数据。
+
+> 📖 详见 [语义增强架构](docs/SEMANTIC.md) · [本地模型部署指南](docs/LOCAL_MODEL.md) · [从 v0.1 升级说明](docs/MIGRATION.md)
+
 ## 📦 安装
 
 ### 前置条件
@@ -206,6 +219,9 @@ npm run sync       # 把 src/ 同步到 lib/（发布时由 prepack 钩子自动
 - [记忆库设计](../docs/superpowers/specs/2026-08-13-dsh-mneme-design.md)
 - [autoDream 设计](../docs/superpowers/specs/2026-08-13-dsh-mneme-autodream-design.md)
 - [实施计划](../docs/superpowers/plans/2026-08-13-dsh-memory-autodream.md)
+- [语义增强架构](docs/SEMANTIC.md)
+- [本地模型部署指南](docs/LOCAL_MODEL.md)
+- [从 v0.1 升级说明](docs/MIGRATION.md)
 
 ## 📜 License
 
