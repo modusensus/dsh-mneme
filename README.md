@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo.png" alt="dsh-mneme" width="140" />
+</p>
+
 # dsh-mneme
 
 [![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
