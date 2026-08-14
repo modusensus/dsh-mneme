@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo.png" alt="dsh-mneme" width="140" />
+</p>
+
 <h1 align="center">dsh-mneme</h1>
 
 <p align="center">
