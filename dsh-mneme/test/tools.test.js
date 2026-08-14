@@ -5,7 +5,7 @@ import { createStore } from "../src/store.js";
 import { createService } from "../src/service.js";
 import { createTools } from "../src/tools.js";
 
-function setup() {
+function setup(embedder) {
   const store = createStore(":memory:");
   const service = createService({ store, mirror: null, config: {} });
   const registered = [];
@@ -17,7 +17,7 @@ function setup() {
       }
     }
   };
-  const tools = createTools(ctx, service, {});
+  const tools = createTools(ctx, service, {}, embedder);
   return { store, service, tools, registered };
 }
 
@@ -188,4 +188,46 @@ test("execution results validate against their declared output schemas", async (
 
   const delRes = await byName("memory_delete").execute({ id: saved.id });
   assert.deepEqual(validateJsonSchemaValue(byName("memory_delete").output.schema, delRes), []);
+});
+
+test("memory_search semantic mode merges vector recalls", async () => {
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config: {} });
+  const registered = [];
+  const ctx = { tools: { register(def) { registered.push(def); return () => {}; } } };
+  const embedder = { embed: async () => [1, 0, 0] };
+  createTools(ctx, service, {}, embedder);
+
+  const v = service.saveWithDedupe({ type: "preference", title: "猫", content: "喜欢猫" });
+  store.setEmbedding(v.memory.id, [1, 0, 0]);
+  service.saveWithDedupe({ type: "preference", title: "狗", content: "喜欢狗" });
+
+  const search = registered.find((t) => t.name === "memory_search");
+  // literal query matches only 猫; vector recall also surfaces it via embedding
+  const res = await search.execute({ query: "猫", semantic: true });
+  assert.ok(res.items.some((m) => m.title === "猫"), "vector + keyword merged result contains the hit");
+  // mode=vector keeps keyword items too (dedup merge)
+  const res2 = await search.execute({ query: "猫", mode: "vector" });
+  assert.ok(res2.items.some((m) => m.title === "猫"));
+});
+
+test("memory_search falls back to keyword when embedder unavailable or returns null", async () => {
+  // No embedder passed → plain keyword search still works.
+  const { registered, service } = setup();
+  service.saveWithDedupe({ type: "preference", title: "语言", content: "中文交流" });
+  const search = registered.find((t) => t.name === "memory_search");
+  const res = await search.execute({ query: "中文", semantic: true });
+  assert.equal(res.items.length, 1);
+  assert.equal(res.items[0].title, "语言");
+
+  // Embedder that resolves null (provider disabled) → keyword fallback.
+  const store = createStore(":memory:");
+  const service2 = createService({ store, mirror: null, config: {} });
+  const registered2 = [];
+  const ctx = { tools: { register(def) { registered2.push(def); return () => {}; } } };
+  createTools(ctx, service2, {}, { embed: async () => null });
+  service2.saveWithDedupe({ type: "preference", title: "语言", content: "中文交流" });
+  const search2 = registered2.find((t) => t.name === "memory_search");
+  const res2 = await search2.execute({ query: "中文", semantic: true });
+  assert.equal(res2.items.length, 1);
 });

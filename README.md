@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![dsh-plugin](https://img.shields.io/badge/dsh-plugin-awesome-orange)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
-[![tests](https://img.shields.io/badge/tests-129%20passed-success)](https://github.com/modusensus/dsh-mneme)
+[![tests](https://img.shields.io/badge/tests-136%20passed-success)](https://github.com/modusensus/dsh-mneme)
 
 > 给 DeepSeek Harness 的跨会话记忆插件：让 Agent 记住你、记住项目、自动整理记忆。**Mneme**（Μνήμη）——希腊记忆女神 Mnemosyne 之名，掌管记忆与梦境，正如 autoDream 在后台巩固记忆。
 
@@ -15,9 +15,10 @@
 - **6 个模型工具**：`memory_save` / `memory_search` / `memory_list` / `memory_update` / `memory_delete` / `memory_forget`
 - **自动注入 + 会话摘要**：新会话自动带入相关记忆，会话结束自动提炼偏好 / 决策 / 教训
 - **autoDream 🧠**：后台自动去重 / 合并 / 归档 / 冲突裁决（fail-safe 校验），越用越精炼
-- **Web 记忆面板**：侧边栏浏览、全文搜索、查看详情
+- **Web 记忆面板**：官方设置面板内嵌，按类型浏览、全文搜索 + 语义（向量）搜索
 - **用户设置**：用户画像 + 行为规则，每轮注入系统提示
 - **自定义指令**：注册斜杠命令（/名称），触发时交给 Agent
+- **向量搜索**：接入 OpenAI 兼容 embeddings API，语义匹配字面不同但意思相近的记忆
 
 ## 📦 安装（DSH）
 
@@ -40,7 +41,7 @@ docs/        设计文档与实施计划
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 129 个测试
+npm test          # 136 个测试
 npm run sync      # src → lib 同步（发布时自动执行）
 ```
 

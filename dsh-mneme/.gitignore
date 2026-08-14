@@ -1,2 +1,26 @@
+# dependencies
 node_modules/
+
+# build / logs
 *.log
+.DS_Store
+
+# secrets & credentials — NEVER commit these
+.env
+.env.*
+!.env.example
+*.secret
+*credential*
+*credentials.json
+id_rsa*
+*.pem
+*.key
+*.p12
+
+# runtime/local data
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+memory.db

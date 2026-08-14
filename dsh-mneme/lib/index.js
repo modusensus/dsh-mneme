@@ -91,7 +91,7 @@ export const apply = (ctx, config) => {
   });
 
   ctx.inject(["tools"], (toolsCtx) => {
-    disposers.push(createTools(toolsCtx, service, cfg));
+    disposers.push(createTools(toolsCtx, service, cfg, embedder));
   });
 
   const summarizer = createSummarizer(ctx, service, cfg);

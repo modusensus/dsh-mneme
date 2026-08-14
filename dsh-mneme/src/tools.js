@@ -21,7 +21,7 @@ const MEMORY_ITEM_SCHEMA = {
   }
 };
 
-export function createTools(ctx, service, config) {
+export function createTools(ctx, service, config, embedder) {
   const tools = [
     defineTool({
       name: "memory_save",
@@ -63,10 +63,12 @@ export function createTools(ctx, service, config) {
 
     defineTool({
       name: "memory_search",
-      description: "Full-text search the cross-session memory store. Use when you need past context: how a problem was solved, user preferences, project decisions. Returns matching entries with source and timestamps.",
+      description: "Search the cross-session memory store. Use when you need past context: how a problem was solved, user preferences, project decisions. Substring-matches title/content/tags, and optionally augments results with semantic (vector) recall when an embeddings provider is configured. Returns matching entries with source and timestamps.",
       parameters: {
         query: { type: "string", required: true, description: "Search text; substring match over title/content/tags" },
-        limit: { type: "integer", description: "Max results (default 20)" }
+        limit: { type: "integer", description: "Max results (default 20)" },
+        mode: { type: "string", enum: ["auto", "keyword", "vector"], description: "auto (default) = keyword hits first + vector fill when enabled; keyword = text only; vector = semantic recall first (falls back to keyword)" },
+        semantic: { type: "boolean", description: "Shorthand: enable semantic (vector) recall (same as mode=vector when true)" }
       },
       output: {
         schema: {
@@ -82,7 +84,25 @@ export function createTools(ctx, service, config) {
         render: (_args, value) => TEXT_OUTPUT(`Found ${value.items.length} memory entr${value.items.length === 1 ? "y" : "ies"}.`)
       },
       async execute(args) {
-        const rows = service.toApiList(service.search(args.query, { limit: args.limit ?? 20 }));
+        const limit = args.limit ?? 20;
+        const rows = service.toApiList(service.search(args.query, { limit }));
+        const wantVector = args.mode === "vector" || args.semantic === true || args.mode === "auto";
+        if (wantVector && embedder) {
+          try {
+            const vector = await embedder.embed(args.query);
+            if (vector) {
+              const scored = service.toApiList(service.searchVector(vector, { limit }));
+              const seen = new Set(rows.map((m) => m.id));
+              for (const m of scored) {
+                if (rows.length >= limit) break;
+                if (!seen.has(m.id)) {
+                  seen.add(m.id);
+                  rows.push(m);
+                }
+              }
+            }
+          } catch { /* vector unavailable: keep keyword results */ }
+        }
         return { items: rows };
       }
     }),

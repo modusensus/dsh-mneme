@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![dsh-plugin](https://img.shields.io/badge/dsh-plugin-awesome-orange)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
-[![tests](https://img.shields.io/badge/tests-129%20passed-success)](https://github.com/modusensus/dsh-mneme)
+[![tests](https://img.shields.io/badge/tests-136%20passed-success)](https://github.com/modusensus/dsh-mneme)
 
 > 给 DeepSeek Harness 的跨会话记忆插件：让 Agent 记住你、记住项目、自动整理记忆。**Mneme**（Μνήμη）——希腊记忆女神 Mnemosyne 之名，掌管记忆与梦境，正如 autoDream 在后台巩固记忆。
 
@@ -22,7 +22,7 @@
 | 工具 | 功能 |
 |------|------|
 | `memory_save` | 记录一条记忆（自动按标题去重合并） |
-| `memory_search` | 全文搜索（中文子串友好） |
+| `memory_search` | 全文搜索（中文子串友好，可启用向量语义搜索） |
 | `memory_list` | 按类型分页列出 |
 | `memory_update` | 修改已有记忆 |
 | `memory_delete` | 删除记忆 |
@@ -45,17 +45,35 @@
 
 ### Web 记忆面板
 
-侧边栏"记忆"按钮 → 模态面板：按类型浏览、全文搜索、查看详情。
+官方设置面板 → 「记忆库设置」→「记忆」标签：按类型浏览、全文搜索；启用向量搜索后可用「语义」切换做向量召回。
 
 ### 用户设置（画像 / 规则）与自定义指令 ⚙️
 
-侧边栏"设置"按钮 → 设置面板：
+官方设置面板 → 「记忆库设置」标签：
 
 - **用户画像**：一段自由文本描述用户自己（角色、背景、偏好），**每轮注入**到系统提示，让 Agent 始终遵循
 - **规则**：Agent 必须遵守的行为规则列表（如"回答先给结论"），同样每轮注入
 - **自定义指令**：注册斜杠命令（`/名称`），触发时把用户定义的指令内容交给 Agent。命令持久化到 SQLite，启动时自动注册到 DSH 命令表，增删实时生效
 
 > 画像与规则通过独立的 `[用户设置]` 注入区块（优先级高于记忆库），即使记忆为空也会注入。
+
+### 向量搜索（语义搜索）🔎
+
+可选能力：接入 OpenAI 兼容的 embeddings API，让搜索能命中**字面不同但语义相近**的记忆。
+
+**配置**：官方设置 → 「记忆库设置」→ 滚动到底部「向量搜索」区块：
+
+| 字段 | 说明 |
+|------|------|
+| `启用向量搜索` | 总开关；开启后记忆面板出现「语义」切换 |
+| `API 地址 (Base URL)` | OpenAI 兼容端点，如 `https://api.openai.com/v1`；也支持 SiliconFlow、智谱、本地 Ollama 等 |
+| `API Key` | 对应服务的密钥 |
+| `模型名` | embedding 模型，如 `text-embedding-3-small`、`text-embedding-v3`、`bge-m3` 等 |
+
+保存配置后点「重建索引」，为已有记忆批量补建向量（新写入的记忆会自动嵌入）。之后在记忆面板输入查询并点「语义」，即可用向量召回语义相关结果；向量服务不可用时自动回退全文搜索。
+
+> ⚠️ 密钥仅保存在本机 `~/.dsh/memory/memory.db` 的 `user_settings` 表，不会上传，也不会写入代码仓库。
+> 需要 embedding 而非 rerank 模型：如阿里云 `text-embedding-v3` 可用，`qwen3-vl-rerank` 是 rerank 模型（不走 `/embeddings`）。
 
 ## 📦 安装
 
@@ -138,7 +156,7 @@ dsh web
 │  autoDream：阈值调度 → LLM 决策清单               │
 │            → 校验（fail-safe）→ 应用 → 摘要       │
 ├─────────────────────────────────────────────────┤
-│  Web 面板：侧边栏入口 + 浏览/搜索/详情            │
+│  Web 面板：设置面板内嵌 + 浏览/搜索（含向量）    │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -155,12 +173,13 @@ src/
 ├── summarize.js      # 会话结束 LLM 摘要
 ├── dream.js          # autoDream 调度 + runDream（LLM 决策 + 摘要）
 ├── dream/decisions.js# 决策校验（fail-safe）+ 决策应用
+├── embedding.js      # OpenAI 兼容 embeddings 客户端 + 向量检索
 ├── api.js            # HTTP 路由（Web 面板数据通道）
 └── index.js          # 插件接线
 lib/
 ├── client.js         # Web 面板（手写 ModuleLoader bundle）
 └── *.js              # src 的同步分发产物
-test/                 # 129 个 node:test 测试
+test/                 # 136 个 node:test 测试
 ```
 
 ## 🧪 开发
@@ -168,7 +187,7 @@ test/                 # 129 个 node:test 测试
 ```bash
 cd dsh-mneme
 npm install        # 安装 peer 依赖（以 devDependencies 形式，用于本地测试）
-npm test           # 运行 129 个测试（--test-isolation=none 用于受限沙箱，禁止子进程 spawn）
+npm test           # 运行 136 个测试（--test-isolation=none 用于受限沙箱，禁止子进程 spawn）
 npm run sync       # 把 src/ 同步到 lib/（发布时由 prepack 钩子自动执行）
 ```
 
