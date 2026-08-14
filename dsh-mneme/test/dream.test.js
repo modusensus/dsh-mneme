@@ -353,6 +353,35 @@ test("dispose clears pending timer and blocks future scheduling", async () => {
   store.close();
 });
 
+test("dispose awaits an in-flight run so the store can close safely", async () => {
+  const { store, service } = dreamSetup();
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  let entered = false;
+  let finished = false;
+  const dream = createDreamScheduler({
+    onRun: async () => { entered = true; await gate; finished = true; },
+    thresholdCount: 1, thresholdChars: 0, delayMs: 0,
+    logger: { warn: () => {} }
+  });
+  service.saveWithDedupe({ type: "project", title: "a", content: "x" });
+  assert.equal(dream.maybeSchedule(service), true, "scheduled");
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(entered, true, "run started");
+
+  const disposeP = dream.dispose();
+  let settled = false;
+  disposeP.then(() => { settled = true; });
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(settled, false, "dispose must not resolve while a run is in flight");
+  assert.equal(finished, false, "run still pending");
+
+  release();
+  await disposeP;
+  assert.equal(finished, true, "run completed before dispose resolved");
+  store.close();
+});
+
 test("runDream stores summary and applies decisions", async () => {
   const { store, service } = dreamSetup();
   // seed 2 memories so snapshot is non-empty and decisions cover them

@@ -4,6 +4,8 @@ import { mkdtempSync, readFileSync, writeFileSync, rmSync, existsSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createMirror } from "../src/mirror.js";
+import { createStore } from "../src/store.js";
+import { createService } from "../src/service.js";
 
 const TYPE_FILE = { preference: "preferences.md", project: "projects.md", decision: "decisions.md", history: "history.md" };
 
@@ -154,6 +156,35 @@ test("sync with empty array deletes stale mirror files", () => {
     for (const type of Object.keys(TYPE_FILE)) {
       assert.ok(!existsSync(join(dir, TYPE_FILE[type])), `${type} file removed`);
     }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("startup merge keeps human edits across multiple type files (read-all-then-merge)", () => {
+  const dir = tempDir();
+  try {
+    const store = createStore(join(dir, "memory.db"));
+    const mirror = createMirror(dir);
+    const service = createService({ store, mirror, config: {} });
+    service.saveWithDedupe({ type: "preference", title: "语言", content: "机器内容" });
+    service.saveWithDedupe({ type: "project", title: "项目", content: "机器内容" });
+    // human edits BOTH mirror files before the startup merge
+    for (const [file, to] of [["preferences.md", "人工偏好"], ["projects.md", "人工项目"]]) {
+      const p = join(dir, file);
+      writeFileSync(p, readFileSync(p, "utf8").replace("机器内容", to), "utf8");
+    }
+    // replicate index.js startup: read EVERY type's edits first, then merge
+    // (a per-type read-then-merge loop would let the first syncMirror
+    // overwrite the unread type's file and lose the edit)
+    const byType = new Map();
+    for (const type of Object.keys(TYPE_FILE)) byType.set(type, mirror.readHumanEdits(type));
+    for (const [type, edits] of byType) if (edits.length) service.mergeHumanEdits(type, edits);
+    const prefs = service.list({ type: "preference", includeForgotten: true });
+    const projects = service.list({ type: "project", includeForgotten: true });
+    assert.ok(prefs.some((m) => m.content.includes("人工偏好")), "preference edit survives");
+    assert.ok(projects.some((m) => m.content.includes("人工项目")), "project edit survives");
+    store.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
