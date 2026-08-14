@@ -89,22 +89,29 @@ export function applyDecisions(decisions, service, logger = null) {
       } else if (d.action === "merge") {
         const keeper = service.getById(d.keepSource);
         if (!keeper || keeper.archived) continue;
+        const sources = d.ids.filter((id) => id !== d.keepSource);
+        // Idempotent replay: if every other source is already archived, this
+        // merge already landed — skip so a replayed/concurrent decision never
+        // double-counts or re-applies (guard against duplicate merges).
+        if (sources.every((id) => service.getById(id)?.archived)) continue;
         service.update(d.keepSource, {
           title: d.title,
           content: d.content,
           importance: d.importance ?? Math.max(keeper.importance, ...d.ids.map((id) => service.getById(id)?.importance ?? 1))
         });
-        for (const id of d.ids) {
-          if (id !== d.keepSource) {
-            const mem = service.getById(id);
-            if (mem && !mem.archived) { service.setArchived(id, true); }
-          }
+        for (const id of sources) {
+          const mem = service.getById(id);
+          if (mem && !mem.archived) { service.setArchived(id, true); }
         }
         applied++;
       } else if (d.action === "conflict") {
         const winner = service.getById(d.winner);
         const loser = service.getById(d.loser);
         if (!winner || !loser) continue;
+        // Idempotent replay: an already-archived loser means the conflict was
+        // already adjudicated — skip so the provenance note is never
+        // re-appended and the loser is not re-archived.
+        if (loser.archived) continue;
         service.update(d.winner, {
           content: `${winner.content}\n\n（已否决旧信息：${[...loser.content].slice(0, 100).join("")}）`
         });

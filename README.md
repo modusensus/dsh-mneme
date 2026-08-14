@@ -12,7 +12,7 @@
   <a href="https://github.com/awesome-dsh-plugin/awesome-dsh-plugin"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="Awesome"></a>
   <a href="https://github.com/modusensus/dsh-mneme/actions"><img src="https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/test.yml" alt="CI"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-24%2B-blue" alt="node"></a>
-  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-140%20passed-success" alt="tests"></a>
+  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-152%20passed-success" alt="tests"></a>
 </p>
 
 > **记忆主权，归还于你** —— 记忆不再是黑盒，而是你读得懂、改得动的 Markdown。
@@ -53,7 +53,8 @@ docs/        设计文档与实施计划
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 140 个测试
+npm test          # 152 个测试
+npm run stress    # 三轴线压测（长会话检索 / 冲突仲裁 / 多 Agent 并发）
 npm run sync      # src → lib 同步（发布时自动执行）
 ```
 
