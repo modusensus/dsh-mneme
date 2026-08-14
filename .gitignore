@@ -1,3 +1,35 @@
+# dependencies
 node_modules/
+
+# build / logs
 *.log
 .DS_Store
+dist/
+build/
+coverage/
+
+# secrets & credentials — NEVER commit these
+.env
+.env.*
+!.env.example
+*.secret
+*credential*
+*credentials.json
+id_rsa*
+*.pem
+*.key
+*.p12
+*.pfx
+
+# runtime/local data (memory.db lives in ~/.dsh, but guard anyway)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+memory.db
+
+# editor / OS
+.vscode/
+.idea/
+*.swp
