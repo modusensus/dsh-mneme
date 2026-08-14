@@ -106,7 +106,7 @@ console.log("【1】插件装载");
 const checks = [];
 checks.push(["注册 6 个模型工具", registeredTools.length === 6]);
 checks.push(["注册 2 个注入上下文", injectContexts.length === 2 && injectContexts[0].name === "memory"]);
-checks.push(["注册 6 条 API 路由", apiRoutes.length === 6]);
+checks.push(["注册 8 条 API 路由", apiRoutes.length === 8]);
 for (const [label, ok] of checks) console.log(`  ${ok ? "✅" : "❌"} ${label}`);
 if (!checks.every(([, ok]) => ok)) { console.log("\n装载检查失败，中止。"); process.exit(1); }
 console.log(`  工具：${registeredTools.map((t) => t.name).join(", ")}\n`);
