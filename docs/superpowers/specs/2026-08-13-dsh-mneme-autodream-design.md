@@ -19,13 +19,13 @@ dsh-mneme 提供了记忆的**存储**（SQLite+Markdown）、**工具**（6 个
 | 冲突处理 | A. LLM 自动裁决 + 归档败者（winner 保留、loser archived，可溯源） |
 | 摘要注入 | A. 整理后生成 type=summary 记忆存库，注入时优先使用 |
 | 归档语义 | A. 独立 archived 状态字段（与 forgotten 分开，可查可恢复） |
-| 阈值默认值 | A. 记忆数 > 10 或 总字符数 > 5000（均可配置） |
+| 阈值默认值 | A. 记忆数 >= 10 或 总字符数 >= 5000（均可配置） |
 
 ## 3. 总体架构
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│ 触发层：写入后检查阈值（记忆数 > 10 或总长 > 5000）    │
+│ 触发层：写入后检查阈值（记忆数 >= 10 或总长 >= 5000）│
 │   → 达标则异步排队（不阻塞写入）                       │
 ├─────────────────────────────────────────────────────┤
 │ 执行层（空闲时跑）：                                  │
@@ -41,6 +41,8 @@ dsh-mneme 提供了记忆的**存储**（SQLite+Markdown）、**工具**（6 个
 │   + 少量高重要性条目                                  │
 └─────────────────────────────────────────────────────┘
 ```
+
+> **注意**：autoDream 快照仅排除 `archived` 与 `summary`，**不排除 `forgotten`**（与注入/搜索路径不同——后者会排除 forgotten）。因此 dream 整理时会把被用户手动抑制注入（forgotten）的记忆也一并纳入快照。
 
 ### 3.1 数据模型扩展
 
@@ -132,7 +134,7 @@ src/
 ```
 写入路径（saveWithDedupe / update / mergeHumanEdits 之后）
   → dream.maybeSchedule()
-     记忆数 > dreamThresholdCount 或 总字符数 > dreamThresholdChars
+     记忆数 >= dreamThresholdCount 或 总字符数 >= dreamThresholdChars
      且无在途整理、无 pending 定时器
      → setTimeout(dreamDelayMs) 延迟执行（连续写入合并为一次整理）
   → 延迟到期后执行整理（async）
@@ -142,7 +144,7 @@ src/
 ### 5.2 防死循环
 
 - 整理完成后记录 `lastDreamAt` 与整理后记忆快照（count/chars）
-- 下次触发条件：**新写入使总量超过上次整理后的基线 + 阈值**（即 `当前 > 上次整理后快照 + 阈值` 或 `当前 > 阈值` 且上次整理已让总量低于阈值）
+- 下次触发条件：**新写入使总量达到或超过上次整理后的基线 + 阈值**（即 `当前 >= 上次整理后快照 + 阈值` 或 `当前 >= 阈值` 且上次整理已让总量低于阈值）
 - 简化实现：整理后若总量仍超阈值，记录 `nextThreshold = 当前总量`，下次需超过 `nextThreshold` 才再次触发
 
 ### 5.3 并发与失败
@@ -188,7 +190,7 @@ dreamDelayMs: z.natural().min(0).max(60000).default(2000),         // 异步延�
 |----|------|
 | store 迁移 | 旧库（无 archived 列）打开后自动 ALTER，archived 默认 0 |
 | store 归档 | setArchived / list 排除 archived / includeArchived 选项 / count 排除 |
-| 阈值判断 | maybeSchedule：< 阈值不触发、> 阈值排队、整理后基线重置、节流 |
+| 阈值判断 | maybeSchedule：< 阈值不触发、>= 阈值排队、整理后基线重置、节流 |
 | 决策应用 | merge（keepSource 更新 + 其余归档）、archive、conflict（winner 留 loser 归档 + 溯源）、keep 无操作 |
 | 决策校验 | 未知 id、keepSource 不在 ids、非法 action、id 重复决策 → 拒绝整个清单 |
 | 摘要生成 | 整理后 summary 存在且单一实例（重复整理不产生多条）；summary 排除出整理范围 |

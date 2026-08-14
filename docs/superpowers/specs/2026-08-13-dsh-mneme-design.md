@@ -22,9 +22,9 @@ DSH 是 Cordis 插件架构的 Agent 框架。当前会话数据以 JSONL 事件
 |--------|------|
 | 记忆内容范围 | 全部：用户画像 + 项目知识 + 历史对话检索 + 规则 |
 | 访问方式 | 双通道：自动注入 + 工具调用 |
-| 存储技术 | 混合：SQLite（索引+搜索）+ Markdown（人类可读镜像） |
+| 存储技术 | 混合：SQLite（存储 + LIKE 子串搜索）+ Markdown（人类可读镜像） |
 | 写入策略 | 主动判断 + 会话结束自动摘要（LLM 提炼） |
-| 搜索能力 | FTS5 全文搜索 + 可选 OpenAI 兼容 embeddings 向量语义搜索 |
+| 搜索能力 | LIKE 子串搜索（中英文子串扫描、用户输入转义处理）+ 可选 OpenAI 兼容 embeddings 向量语义搜索 |
 | 界面范围 | Web GUI 侧边栏"记忆"面板：浏览/搜索/详情 |
 | 用户设置 | 用户画像 + 行为规则，每轮注入系统提示 |
 | 自定义指令 | 注册斜杠命令（/名称），触发时交给 Agent |
@@ -35,7 +35,7 @@ DSH 是 Cordis 插件架构的 Agent 框架。当前会话数据以 JSONL 事件
 ```
 ┌─────────────────────────────────────────────────┐
 │  Layer 1: 记忆引擎（服务层）                      │
-│  SQLite 主存储 (FTS5全文搜索) + Markdown 镜像     │
+│  SQLite 主存储 (LIKE 子串搜索) + Markdown 镜像    │
 │  数据文件: ~/.dsh/memory/memory.db + *.md        │
 ├─────────────────────────────────────────────────┤
 │  Layer 2: 模型接口（工具 + 自动注入）              │
@@ -60,8 +60,8 @@ dsh-mneme/
 ├── package.json          # 插件清单（name, main, peerDeps, dsh.bundle）
 ├── cordis.patch.yml      # Cordis 补丁
 ├── src/
-│   ├── index.ts          # 插件入口：注册工具、注入、摘要、设置、命令
-│   ├── store.js          # SQLite + FTS5 存储实现
+│   ├── index.js          # 插件入口：注册工具、注入、摘要、设置、命令
+│   ├── store.js          # SQLite + LIKE 子串搜索存储实现
 │   ├── mirror.js         # Markdown 镜像同步（双向、人工优先）
 │   ├── tools.js          # memory_save / search / list / update / delete / forget
 │   ├── inject.js         # 会话启动时的记忆注入
@@ -71,19 +71,19 @@ dsh-mneme/
 │   ├── embedding.js      # OpenAI 兼容 embeddings 向量语义搜索
 │   ├── settings.js       # 用户画像 + 行为规则 + 自定义指令存储
 │   ├── commands.js       # 自定义斜杠命令注册
-│   ├── api.js            # 设置/命令的增删改查 API
-│   ├── config.js         # 插件配置
-│   ├── service.js        # 服务层编排
-│   └── client/           # Web GUI 记忆面板
-├── lib/                  # 编译输出（DSH 加载用）
+│   ├── api.js            # 设置/命令增删改查 + /vector-config 向量配置 API
+│   ├── config.js         # 插件配置（扁平键）
+│   └── service.js        # 服务层编排（注入候选/去重/镜像同步）
+├── lib/                  # DSH 加载目录：scripts/sync-lib.js 从 src 逐字节拷贝
+│   └── client.js         # Web GUI 记忆面板（单文件，仅存在于 lib）
 └── test/                 # 140+ node:test 测试
 ```
 
 ### 3.2 技术底座
 
-- **存储**：Node 24 内置 `node:sqlite`（自带 FTS5，DSH 会话搜索插件同款），零额外原生依赖
+- **存储**：Node 24 内置 `node:sqlite`（LIKE 子串搜索，中英文子串扫描、用户输入转义），零额外原生依赖
 - **LLM 摘要**：复用 DSH 已有的模型通道（`dsh-llm`）
-- **向量搜索**：调用外部 OpenAI 兼容 `/embeddings` 端点（支持 OpenAI、SiliconFlow、智谱、本地 Ollama 等），失败自动降级为关键词搜索
+- **向量搜索**：向量配置通过 Web/API 的 `/api/dsh-mneme/vector-config` 端点存到 SQLite `user_settings` 表（不在插件配置）；调用外部 OpenAI 兼容 `/embeddings` 端点（支持 OpenAI、SiliconFlow、智谱、本地 Ollama 等），失败自动降级为 LIKE 子串搜索
 - **插件框架**：Cordis（DSH 同源）
 
 ## 4. 数据模型
@@ -92,7 +92,7 @@ dsh-mneme/
 
 ```
 ~/.dsh/memory/
-├── memory.db           # SQLite 主存储（含 FTS5 索引 + settings/commands 表）
+├── memory.db           # SQLite 主存储（memories + user_settings/custom_commands 表）
 ├── *.md                # 各类型记忆的 Markdown 镜像（人类可读、可编辑）
 ```
 
@@ -105,19 +105,20 @@ CREATE TABLE memories (
   type        TEXT NOT NULL,         -- preference | project | decision | history | summary
   title       TEXT NOT NULL,         -- 简短标题
   content     TEXT NOT NULL,         -- 记忆正文
-  tags        TEXT DEFAULT '[]',     -- JSON 数组 ["dsh","插件"]
-  importance  INTEGER DEFAULT 3,     -- 1-5，注入优先级
+  tags        TEXT NOT NULL DEFAULT '[]', -- JSON 数组 ["dsh","插件"]
+  importance  INTEGER NOT NULL DEFAULT 3, -- 1-5，注入优先级
+  forgotten   INTEGER NOT NULL DEFAULT 0, -- 1 = 已忘记（不再注入，可恢复）
+  archived    INTEGER NOT NULL DEFAULT 0, -- 1 = 已归档（搜索结果排除）
   source      TEXT,                  -- 来源（session id / 手动）
-  status      TEXT DEFAULT 'active', -- active | archived | forgotten
+  embedding   TEXT,                  -- 向量序列化（可选，供向量语义搜索）
   created_at  TEXT NOT NULL,         -- ISO 时间
   updated_at  TEXT NOT NULL
 );
+CREATE INDEX idx_memories_type ON memories(type);
+CREATE INDEX idx_memories_importance ON memories(importance);
 
--- FTS5 全文搜索索引（中文友好：unicode61 + trigram）
-CREATE VIRTUAL TABLE memories_fts USING fts5(
-  title, content, tags,
-  content='memories', content_rowid='rowid'
-);
+-- 无 FTS5：搜索为 LIKE 子串扫描（title/content/tags，通配符 % _ \ 转义使输入按字面
+-- 匹配；中英文子串都支持，记忆库通常较小，全表扫描足够快）
 
 -- 用户设置表（画像/规则）
 CREATE TABLE user_settings (
@@ -153,31 +154,31 @@ CREATE TABLE custom_commands (
 
 ### 4.5 检索策略
 
-- FTS5 `unicode61` + `trigram` tokenizer（中英文混合友好，DSH 会话搜索同款）
-- 排序：`importance` 降序 + FTS5 相关度
-- **可选向量语义搜索**：配置 OpenAI 兼容 embeddings 端点后，语义匹配字面不同但意思相近的记忆；无配置/失败时自动回退关键词搜索
+- **LIKE 子串匹配**：对 title/content/tags 做子串扫描，通配符（% _ \）转义后输入按字面匹配，中英文子串都支持（无 FTS5）
+- 排序：标题命中优先，然后 `importance` 降序 + `updated_at` 倒序
+- **可选向量语义搜索**：通过 `/api/dsh-mneme/vector-config` 配置 embeddings 端点（存 user_settings 表）后，语义匹配字面不同但意思相近的记忆；无配置/失败时自动回退 LIKE 子串搜索
 
 ## 5. 模型接口设计
 
 ### 5.1 通道 1：自动注入
 
 **会话启动时**（每次新会话/恢复会话）：
-1. 读取全部 `preference` 类型条目 + `importance >= threshold` 的高优先级条目
-2. 以"记忆摘要"块注入系统提示开头
+1. 候选集：`summary` 优先，其次全部 `preference`，再按 `importance >= threshold` 的高优先级条目（`history` 不注入，forgotten/archived 排除）
+2. 按优先级排序后截取前 `maxInjectedItems` 条（默认 5），以"记忆摘要"块注入系统提示开头
 
 **会话进行中**：工作区路径命中 `project` 记忆关键词时，追加相关片段。
 
 **会话结束时**（`session/event` 提交时触发，参考 `dsh-session-title` 插件模式）：
 1. LLM 对本次会话生成 2-3 条结构化摘要（学到什么、决定了什么、用户偏好新信息）
 2. 写入 `history` 类型 + 按内容分类写入 `project` / `decision` / `preference`
-3. **去重合并**：与已有条目相似度高的（FTS5 检索 + LLM 判断）合并更新而非新增
+3. **去重合并**：同类型下标题相同的条目合并更新而非新增（service 层 saveWithDedupe）
 
 ### 5.2 通道 2：工具
 
 | 工具 | 功能 |
 |------|------|
 | `memory_save` | 主动记录一条记忆（类型、内容、标签、重要性） |
-| `memory_search` | 全文搜索 + 向量语义搜索记忆库，返回相关条目 |
+| `memory_search` | LIKE 子串搜索 + 向量语义搜索记忆库，返回相关条目 |
 | `memory_list` | 按类型列出记忆（分页） |
 | `memory_update` | 修改已有记忆 |
 | `memory_delete` | 删除记忆 |
@@ -200,7 +201,7 @@ CREATE TABLE custom_commands (
 - **入口**：GUI 侧边栏"记忆"入口（参考 `dsh-client-ui-*` slot 机制）
 - **功能**：
   - 📋 列表：按类型标签页浏览，显示标题、内容摘要、重要性、更新时间
-  - 🔍 搜索：全文搜索 + 语义（向量）搜索
+  - 🔍 搜索：LIKE 子串搜索 + 语义（向量）搜索
   - 👁️ 详情：点击查看完整内容
   - ✏️ 编辑/删除：基础操作（可只读降级）
   - ⚙️ 设置：用户画像 / 行为规则 / 自定义指令管理
@@ -211,27 +212,27 @@ CREATE TABLE custom_commands (
 - id: dsh-mneme
   name: dsh-mneme
   config:
-    memoryDir: ~/.dsh/memory        # 存储目录（默认）
-    autoInject: true                # 会话启动自动注入
-    autoSummarize: true             # 会话结束自动摘要
-    maxInjectedItems: 5             # 最多注入几条
-    importanceThreshold: 3          # 注入的最低重要性
-    # 向量搜索（可选）
-    embeddings:
-      baseUrl: ""                   # OpenAI 兼容 /embeddings 端点
-      apiKey: ""                    # API key
-      model: ""                     # 模型名（如 text-embedding-3-small）
-    # autoDream（可选）
-    dream:
-      threshold: 10                 # 记忆数超过即触发巩固
-      auto: true                    # 后台自动巩固
+    memoryDir: ~/.dsh/memory         # 存储目录（默认）
+    autoInject: true                 # 会话启动自动注入
+    autoSummarize: true              # 会话结束自动摘要
+    maxInjectedItems: 5              # 最多注入几条（默认 5）
+    importanceThreshold: 3           # 注入的最低重要性（1-5）
+    autoDream: true                  # 后台自动巩固（autoDream）
+    dreamThresholdCount: 10          # 记忆数超过即触发巩固
+    dreamThresholdChars: 5000        # 累计字数超过即触发巩固
+    dreamDelayMs: 2000               # 写入后静默延迟（毫秒）
+    dreamProvider: ""                # autoDream 使用的模型通道
+    dreamModel: ""                   # autoDream 使用的模型名
+
+# 注意：配置键全部扁平，无嵌套 embeddings 块。向量搜索配置通过 Web/API 的
+# /api/dsh-mneme/vector-config 端点存到 SQLite user_settings 表，不在插件配置中。
 ```
 
 ## 8. 测试策略
 
 | 层 | 测试 | 工具 |
 |----|------|------|
-| 存储单元 | SQLite CRUD、FTS5 中文搜索、去重 | node:test |
+| 存储单元 | SQLite CRUD、LIKE 中英文子串搜索、去重 | node:test |
 | Markdown 同步 | 双向同步、人工修改优先 | node:test |
 | 工具层 | memory_save/search/list 行为 | node:test（mock ctx） |
 | autoDream | 决策清单校验、合并/归档/裁决 | node:test |
@@ -247,7 +248,7 @@ CREATE TABLE custom_commands (
 5. ✅ 会话结束时自动生成摘要入库
 6. ✅ Markdown 镜像文件可读、可手工编辑
 7. ✅ 用户画像/规则每轮注入，自定义指令可注册触发
-8. ✅ 向量搜索配置后可用，未配置时自动降级关键词
+8. ✅ 向量搜索配置后可用，未配置时自动降级 LIKE 子串搜索
 9. ✅ autoDream 自动巩固（去重/合并/归档/冲突裁决）
 10. ✅ 140+ node:test 测试全部通过，CI 自动运行
 
@@ -255,9 +256,9 @@ CREATE TABLE custom_commands (
 
 | 风险 | 缓解 |
 |------|------|
-| 中文分词效果 | 使用 `trigram` tokenizer（DSH 会话搜索验证过的方案） |
+| 中文搜索准确率 | LIKE 子串扫描对中英文子串匹配直观可靠；记忆库通常较小，全表扫描开销可忽略 |
 | 记忆膨胀/噪声 | 去重合并 + importance 分级 + forget 降权 + autoDream 巩固 |
-| 向量搜索依赖外部 API | 未配置/失败时自动降级关键词搜索，不阻断读写 |
+| 向量搜索依赖外部 API | 未配置/失败时自动降级 LIKE 子串搜索，不阻断读写 |
 | 插件与 DSH 版本兼容 | 跟随 `@deepseek-ai/cordis` peerDependencies 版本 |
 | node:sqlite 实验性 | DSH 会话搜索插件已在使用，Node 24 稳定 |
 
