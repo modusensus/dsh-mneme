@@ -2,7 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![dsh-plugin](https://img.shields.io/badge/dsh-plugin-awesome-orange)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
+[![Awesome](https://awesome.re/badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
 [![tests](https://img.shields.io/badge/tests-136%20passed-success)](https://github.com/modusensus/dsh-mneme)
 
 > 给 DeepSeek Harness 的跨会话记忆插件：让 Agent 记住你、记住项目、自动整理记忆。**Mneme**（Μνήμη）——希腊记忆女神 Mnemosyne 之名，掌管记忆与梦境，正如 autoDream 在后台巩固记忆。
