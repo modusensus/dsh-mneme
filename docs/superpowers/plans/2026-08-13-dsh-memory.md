@@ -14,7 +14,7 @@
 
 ```
 D:\deepseek harness\
-├── docs/superpowers/specs/2026-08-13-dsh-memory-design.md   # approved design
+├── docs/superpowers/specs/2026-08-13-dsh-mneme-design.md   # approved design
 ├── dsh-memory/                                                # THE PLUGIN
 │   ├── package.json
 │   ├── .gitignore

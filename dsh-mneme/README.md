@@ -2,8 +2,8 @@
 
 [![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Awesome](https://awesome.re/badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
-[![tests](https://img.shields.io/badge/tests-136%20passed-success)](https://github.com/modusensus/dsh-mneme)
+[![Awesome](https://awesome-dsh-plugin.com/badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
+[![tests](https://img.shields.io/badge/tests-140%20passed-success)](https://github.com/modusensus/dsh-mneme)
 
 > 给 DeepSeek Harness 的跨会话记忆插件：让 Agent 记住你、记住项目、自动整理记忆。**Mneme**（Μνήμη）——希腊记忆女神 Mnemosyne 之名，掌管记忆与梦境，正如 autoDream 在后台巩固记忆。
 
@@ -179,7 +179,7 @@ src/
 lib/
 ├── client.js         # Web 面板（手写 ModuleLoader bundle）
 └── *.js              # src 的同步分发产物
-test/                 # 136 个 node:test 测试
+test/                 # 140 个 node:test 测试
 ```
 
 ## 🧪 开发
@@ -187,7 +187,7 @@ test/                 # 136 个 node:test 测试
 ```bash
 cd dsh-mneme
 npm install        # 安装 peer 依赖（以 devDependencies 形式，用于本地测试）
-npm test           # 运行 136 个测试（--test-isolation=none 用于受限沙箱，禁止子进程 spawn）
+npm test           # 运行 140 个测试（--test-isolation=none 用于受限沙箱，禁止子进程 spawn）
 npm run sync       # 把 src/ 同步到 lib/（发布时由 prepack 钩子自动执行）
 ```
 
@@ -198,8 +198,8 @@ npm run sync       # 把 src/ 同步到 lib/（发布时由 prepack 钩子自动
 
 > 设计文档位于仓库根 `docs/`，链接以 `../docs/` 相对路径指向（GitHub 上从本目录打开可正常跳转）。
 
-- [记忆库设计](../docs/superpowers/specs/2026-08-13-dsh-memory-design.md)
-- [autoDream 设计](../docs/superpowers/specs/2026-08-13-dsh-memory-autodream-design.md)
+- [记忆库设计](../docs/superpowers/specs/2026-08-13-dsh-mneme-design.md)
+- [autoDream 设计](../docs/superpowers/specs/2026-08-13-dsh-mneme-autodream-design.md)
 - [实施计划](../docs/superpowers/plans/2026-08-13-dsh-memory-autodream.md)
 
 ## 📜 License
