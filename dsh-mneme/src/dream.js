@@ -1,4 +1,5 @@
 import { validateDecisions, applyDecisions } from "./dream/decisions.js";
+import { clusterMemories, findPotentialConflicts } from "./dream/clustering.js";
 import { createHash, randomUUID } from "node:crypto";
 export { validateDecisions, applyDecisions };
 
@@ -122,7 +123,66 @@ function resolveRoute(ctx, config, logger) {
   return undefined;
 }
 
-export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChars = 5000, delayMs = 2000, logger }) {
+// ------------------------------------------------------- semantic enhancement
+// Best-effort: any failure here degrades to plain consolidation. The dream
+// path must never be broken by an unavailable embedder/index.
+
+/** Backfill + return vectors for every memory; null when impossible. */
+async function collectVectors(memories, semantic) {
+  const { embedder, vectorIndex } = semantic;
+  if (!embedder || !vectorIndex || typeof embedder.embedSingle !== "function") return null;
+  const vectors = new Array(memories.length);
+  const missing = [];
+  for (let i = 0; i < memories.length; i++) {
+    const cached = vectorIndex.getEmbedding?.(memories[i].id);
+    if (cached) vectors[i] = cached;
+    else missing.push(i);
+  }
+  if (missing.length) {
+    const texts = missing.map((i) => [memories[i].title, memories[i].content].filter(Boolean).join("\n"));
+    const rows = await embedder.embed(texts);
+    missing.forEach((mi, j) => {
+      if (rows[j]?.length) {
+        vectors[mi] = rows[j];
+        vectorIndex.saveEmbedding(memories[mi].id, rows[j]);
+      }
+    });
+  }
+  return vectors.some((v) => !v) ? null : vectors;
+}
+
+/**
+ * Rebuild the vector index after dream decisions so the store and the index
+ * stay in sync: merged-away/archived/conflict-loser rows lose their vectors,
+ * the merge keeper gets a fresh one.
+ */
+async function maintainIndexAfterDream(decisions, service, semantic) {
+  const { embedder, vectorIndex } = semantic;
+  if (!embedder || !vectorIndex || typeof embedder.embedSingle !== "function") return;
+  const rebuild = new Map();
+  for (const d of decisions ?? []) {
+    if (d.action === "merge") {
+      for (const id of d.ids ?? []) {
+        if (id !== d.keepSource) vectorIndex.deleteEmbedding(id);
+      }
+      if (d.keepSource) {
+        const keeper = service.getById(d.keepSource);
+        if (keeper) rebuild.set(keeper.id, [keeper.title, keeper.content].filter(Boolean).join("\n"));
+      }
+    } else if (d.action === "archive" || d.action === "conflict") {
+      for (const id of d.ids ?? [d.loser]) vectorIndex.deleteEmbedding(id);
+    }
+  }
+  for (const [id, text] of rebuild) {
+    try {
+      const v = await embedder.embedSingle(text);
+      if (v?.length) vectorIndex.saveEmbedding(id, v);
+    } catch { /* best-effort */ }
+  }
+  if (embedder.modelHash) vectorIndex.markModel?.(embedder.modelHash, embedder.dimension);
+}
+
+export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChars = 5000, delayMs = 2000, logger, semantic = null }) {
   let pendingTimer = null;
   let running = false;
   let disposed = false;
@@ -243,9 +303,37 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       return finish({ ok: false, error: "no llm route", summary: false });
     }
 
-    const listText = [...snapshot.values()].map((m) =>
-      `id=${m.id} | type=${m.type} | importance=${m.importance} | updated=${m.updated_at} | title=${m.title} | content=${m.content}`
-    ).join("\n");
+    let listText;
+    if (semantic?.embedder && semantic?.vectorIndex) {
+      try {
+        const vectors = await collectVectors(memories, semantic);
+        if (vectors) {
+          const k = Math.min(10, Math.max(1, Math.floor(Math.sqrt(memories.length / 2))));
+          const clusters = clusterMemories(memories, vectors, k);
+          const conflicts = findPotentialConflicts(memories, vectors, 0.85);
+          const conflictIds = new Set(conflicts.flatMap((c) => [c.a.id, c.b.id]));
+          const parts = [];
+          clusters.forEach((cluster, ci) => {
+            parts.push(`# 聚类 ${ci + 1}`);
+            for (const m of cluster) {
+              parts.push(
+                `id=${m.id} | type=${m.type} | importance=${m.importance} | updated=${m.updated_at} | title=${m.title} | content=${m.content}` +
+                (conflictIds.has(m.id) ? " | [潜在冲突]" : "")
+              );
+            }
+          });
+          listText = parts.join("\n");
+          logger?.info?.(`[dsh-mneme] dream semantic pre-group: ${clusters.length} clusters, ${conflicts.length} conflict pairs`);
+        }
+      } catch (error) {
+        logger?.warn?.(`[dsh-mneme] dream semantic pre-group failed: ${String(error)}`);
+      }
+    }
+    if (!listText) {
+      listText = [...snapshot.values()].map((m) =>
+        `id=${m.id} | type=${m.type} | importance=${m.importance} | updated=${m.updated_at} | title=${m.title} | content=${m.content}`
+      ).join("\n");
+    }
 
     let decisionText;
     try {
@@ -290,6 +378,15 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     const applied = applyDecisions(decisions, service, logger);
     const outcome = buildOutcome(decisions);
 
+    // Keep the vector index consistent with the post-dream store state.
+    if (semantic?.embedder && semantic?.vectorIndex) {
+      try {
+        await maintainIndexAfterDream(decisions, service, semantic);
+      } catch (error) {
+        logger?.warn?.(`[dsh-mneme] dream index maintenance failed: ${String(error)}`);
+      }
+    }
+
     // Summary generation (second LLM call). A throwing stream is reported as
     // a failed run; summary:false marks a run that produced no summary.
     let summaryText;
@@ -312,6 +409,17 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     if (summaryText !== undefined && summaryText.trim()) {
       service.saveWithDedupe({ type: "summary", title: "记忆库总览", content: summaryText.trim(), importance: 5, source: "dream" });
       summaryStored = true;
+      // Re-embed the fresh summary so the index stays in sync with the store.
+      if (semantic?.embedder && semantic?.vectorIndex) {
+        try {
+          const summary = service.all().find((m) => m.type === "summary");
+          if (summary) {
+            const v = await semantic.embedder.embedSingle([summary.title, summary.content].filter(Boolean).join("\n"));
+            if (v?.length) semantic.vectorIndex.saveEmbedding(summary.id, v);
+            if (semantic.embedder.modelHash) semantic.vectorIndex.markModel?.(semantic.embedder.modelHash, semantic.embedder.dimension);
+          }
+        } catch { /* best-effort */ }
+      }
     }
     return finish({ ok: true, applied, decisions, outcome, summary: summaryStored });
   }
