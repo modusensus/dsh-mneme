@@ -1,3 +1,5 @@
+<p align="center"><strong><a href="README.md">中文</a> | <a href="README_EN.md">English</a></strong></p>
+
 <p align="center">
   <img src="logo.png" alt="dsh-mneme" width="140" />
 </p>

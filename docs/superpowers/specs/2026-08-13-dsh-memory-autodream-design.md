@@ -1,12 +1,12 @@
-# dsh-memory autoDream 自动记忆整理模块 — 设计文档
+# dsh-mneme autoDream 自动记忆巩固模块 — 设计文档
 
-- **日期**：2026-08-13
-- **状态**：已获用户批准（分节确认）
-- **前置**：dsh-memory 记忆库插件 v0.1 已交付（见 `2026-08-13-dsh-memory-design.md`）
+- **日期**：2026-08-13（初稿）／2026-08-14（更新为当前实现）
+- **状态**：已发布（dsh-mneme v0.1.x 内置）
+- **前置**：dsh-mneme 记忆库插件已交付（见 `2026-08-13-dsh-memory-design.md`）
 
 ## 1. 背景与目标
 
-dsh-memory v0.1 提供了记忆的**存储**（SQLite+Markdown）、**工具**（6 个模型工具）、**注入**（会话开局动态上下文）与**摘要**（会话结束提炼）。但记忆库会随使用增长：条目膨胀、信息重复、内容矛盾、注入上下文越来越长。
+dsh-mneme 提供了记忆的**存储**（SQLite+Markdown）、**工具**（6 个模型工具）、**注入**（会话开局动态上下文）与**摘要**（会话结束提炼）。但记忆库会随使用增长：条目膨胀、信息重复、内容矛盾、注入上下文越来越长。
 
 本模块为记忆库增加**自动巩固（consolidation）**能力——参考 Claude 官方 Dream 机制（[文档](https://platform.claude.com/docs/en/managed-agents/dreams.md)：会话间隙对记忆做巩固压缩）与 cc-haha / Claude Code 的 autoDream 实现（consolidation prompt 输出"保留/合并/删除"决策），在记忆库超阈值时自动执行：分组归并、去重替换、冲突裁决、摘要生成。
 
