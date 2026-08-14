@@ -32,6 +32,19 @@ Unlike plugins that lock memory inside a database, Mneme writes memory as **Mark
 - **Custom commands**: register slash commands (/name), routed to the agent when triggered
 - **Vector search**: OpenAI-compatible embeddings API for semantic matching of differently-worded but related memories
 
+## 🔮 Semantic Enhancement (local-first)
+
+A fully-offline semantic memory engine (v0.2+):
+
+- **Local embedding** with three interchangeable backends — ONNX (`Xenova/bge-small-zh-v1.5`, offline) / Ollama / OpenAI-compatible — degrading automatically, falling back to keyword search at worst
+- **Rerank** (`Xenova/bge-reranker-base`) cross-encoder re-ranking of recall candidates for sharper Top-K
+- **autoDream semantic boost**: vector clustering (`clusterMemories`) surfaces topically-close or potentially conflicting memories for more precise consolidation
+- **Search pipeline**: hybrid recall (keyword + vector) → rerank → Top-K
+
+Configure via `embedProvider` in `cordis.patch.yml` (default `openai` keeps v0.1 behavior; switch to `local` for fully offline). No data migration needed.
+
+> See [semantic architecture](dsh-mneme/docs/SEMANTIC.md) · [local model guide](dsh-mneme/docs/LOCAL_MODEL.md) · [v0.1 migration](dsh-mneme/docs/MIGRATION.md)
+
 ## 📦 Install (DSH)
 
 ```bash
@@ -65,6 +78,9 @@ npm run sync      # src → lib sync (runs automatically on publish)
 | Full plugin docs (features / install / config / architecture) | [dsh-mneme/README.md](dsh-mneme/README.md) |
 | Plugin design | [docs/superpowers/specs/2026-08-13-dsh-mneme-design.md](docs/superpowers/specs/2026-08-13-dsh-mneme-design.md) |
 | autoDream design | [docs/superpowers/specs/2026-08-13-dsh-mneme-autodream-design.md](docs/superpowers/specs/2026-08-13-dsh-mneme-autodream-design.md) |
+| Semantic architecture | [dsh-mneme/docs/SEMANTIC.md](dsh-mneme/docs/SEMANTIC.md) |
+| Local model guide | [dsh-mneme/docs/LOCAL_MODEL.md](dsh-mneme/docs/LOCAL_MODEL.md) |
+| v0.1 migration | [dsh-mneme/docs/MIGRATION.md](dsh-mneme/docs/MIGRATION.md) |
 | Implementation plan (core) | [docs/superpowers/plans/2026-08-13-dsh-memory.md](docs/superpowers/plans/2026-08-13-dsh-memory.md) |
 | Implementation plan (autoDream) | [docs/superpowers/plans/2026-08-13-dsh-memory-autodream.md](docs/superpowers/plans/2026-08-13-dsh-memory-autodream.md) |
 
