@@ -6,6 +6,17 @@ export function createService({ store, mirror, config, onWrite }) {
   // passed in the constructor). Fired on the same write events as onWrite.
   let dreamHook = null;
 
+  // Optional vector embedder, installed via setEmbedder after creation. After
+  // any content write it fire-and-forgets a re-embed of the row so vector
+  // search stays in sync; failures are swallowed inside the embedder.
+  let embedder = null;
+
+  function scheduleEmbed(memory) {
+    if (embedder && memory?.id) {
+      try { embedder.schedule(memory); } catch { /* ignore */ }
+    }
+  }
+
   /**
    * Fire-and-forget write notification; errors are swallowed to keep write
    * paths clean. The store mutation has already committed, so a throwing
@@ -38,6 +49,7 @@ export function createService({ store, mirror, config, onWrite }) {
       });
       syncMirror();
       notifyWrite();
+      scheduleEmbed(merged);
       return { action: "merged", memory: merged };
     }
     const created = store.save({
@@ -50,6 +62,7 @@ export function createService({ store, mirror, config, onWrite }) {
     });
     syncMirror();
     notifyWrite();
+    scheduleEmbed(created);
     return { action: "created", memory: created };
   }
 
@@ -126,8 +139,11 @@ export function createService({ store, mirror, config, onWrite }) {
     mergeHumanEdits,
     toApiList,
     setDreamHook(fn) { dreamHook = fn; },
+    setEmbedder(emb) { embedder = emb; },
     // passthroughs used by tools and api layers; mutations keep the mirror in sync
     search: (q, o) => store.search(q, o),
+    searchVector: (v, o) => store.searchVector(v, o),
+    embeddedCount: () => store.embeddedCount(),
     list: (o) => store.list(o),
     all: () => store.all(),
     count: (type) => store.count(type),
@@ -141,6 +157,7 @@ export function createService({ store, mirror, config, onWrite }) {
       const updated = store.update(id, p);
       syncMirror();
       notifyWrite();
+      scheduleEmbed(updated);
       return updated;
     },
     setForget: (id, f) => {

@@ -115,6 +115,28 @@ export function createSettings(db) {
     removeCommand(id) {
       const result = db.prepare("DELETE FROM custom_commands WHERE id = ?").run(id);
       return result.changes > 0;
+    },
+
+    /** Vector-search provider config (OpenAI-compatible embeddings endpoint). */
+    getVectorConfig() {
+      const raw = getSetting("vector");
+      if (!raw) return undefined;
+      try {
+        const cfg = JSON.parse(raw);
+        return typeof cfg === "object" && cfg !== null ? cfg : undefined;
+      } catch {
+        return undefined;
+      }
+    },
+    setVectorConfig({ enabled, baseUrl, apiKey, model }) {
+      const cfg = {
+        enabled: enabled === true || enabled === 1,
+        baseUrl: String(baseUrl ?? "").trim().replace(/\/+$/, ""),
+        apiKey: String(apiKey ?? "").trim(),
+        model: String(model ?? "").trim()
+      };
+      setSetting("vector", JSON.stringify(cfg));
+      return cfg;
     }
   };
 }

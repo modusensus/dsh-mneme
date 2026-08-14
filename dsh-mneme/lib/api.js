@@ -23,7 +23,7 @@ function parseBody(text) {
   }
 }
 
-export function createApi(ctx, service, settings, commands) {
+export function createApi(ctx, service, settings, commands, embedder) {
   const disposers = [];
 
   const register = (route) => {
@@ -64,8 +64,49 @@ export function createApi(ctx, service, settings, commands) {
         const url = new URL(req.url, "http://localhost");
         const q = url.searchParams.get("q") ?? "";
         const limit = Number(url.searchParams.get("limit") ?? 20);
-        const items = service.toApiList(service.search(q, { limit }));
-        sendJson(res, 200, { items });
+        // mode: auto (default) | keyword | vector
+        const mode = url.searchParams.get("mode") ?? "auto";
+        const query = q.trim();
+        if (!query) {
+          sendJson(res, 200, { items: [], mode: "keyword" });
+          return;
+        }
+        // Keyword results (existing behavior) always computed; used as a
+        // fallback and as the primary ranking when vector is unavailable.
+        const keyword = service.toApiList(service.search(query, { limit }));
+        if (mode === "keyword" || !embedder) {
+          sendJson(res, 200, { items: keyword, mode: "keyword" });
+          return;
+        }
+        const cfg = settings.getVectorConfig();
+        if (mode === "vector" && !cfg?.enabled) {
+          sendJson(res, 200, { items: keyword, mode: "keyword", error: "vector-disabled" });
+          return;
+        }
+        // Try vector search; on any failure fall back to keyword results.
+        return embedder.embed(query).then(async (vector) => {
+          let items = keyword;
+          let used = "keyword";
+          if (vector) {
+            const scored = service.toApiList(service.searchVector(vector, { limit }));
+            // Merge: keyword exact hits first (they are the user's literal
+            // words), then vector results fill the remaining slots, deduped.
+            const seen = new Set(keyword.map((m) => m.id));
+            const merged = [...keyword];
+            for (const m of scored) {
+              if (merged.length >= limit) break;
+              if (!seen.has(m.id)) {
+                seen.add(m.id);
+                merged.push(m);
+              }
+            }
+            items = merged;
+            used = "vector";
+          }
+          sendJson(res, 200, { items, mode: used });
+        }).catch(() => {
+          sendJson(res, 200, { items: keyword, mode: "keyword" });
+        });
       } catch {
         sendJson(res, 500, { error: "internal" });
       }
@@ -106,6 +147,54 @@ export function createApi(ctx, service, settings, commands) {
           });
         }
         sendJson(res, 200, { rules: settings.getRules() });
+      } catch {
+        sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
+  // --- vector search config ---
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/vector-config",
+    handler(req, res) {
+      try {
+        if (req.method === "PUT" || req.method === "POST") {
+          return readBody(req).then((text) => {
+            const body = parseBody(text);
+            const cfg = settings.setVectorConfig({
+              enabled: body.enabled,
+              baseUrl: body.baseUrl,
+              apiKey: body.apiKey,
+              model: body.model
+            });
+            sendJson(res, 200, { config: cfg });
+          });
+        }
+        sendJson(res, 200, { config: settings.getVectorConfig() ?? { enabled: false, baseUrl: "", apiKey: "", model: "" } });
+      } catch {
+        sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
+  // --- vector re-index (backfill embeddings for rows missing them) ---
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/vector-reindex",
+    handler(req, res) {
+      try {
+        if (!embedder) {
+          sendJson(res, 200, { indexed: 0, skipped: 0, error: "vector-unavailable" });
+          return;
+        }
+        const url = new URL(req.url, "http://localhost");
+        const limit = Number(url.searchParams.get("limit") ?? 100);
+        embedder.reindexMissing(limit).then((result) => {
+          sendJson(res, 200, result);
+        }).catch(() => {
+          sendJson(res, 200, { indexed: 0, skipped: 0, error: "vector-failed" });
+        });
       } catch {
         sendJson(res, 500, { error: "internal" });
       }
