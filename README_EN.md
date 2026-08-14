@@ -12,7 +12,7 @@
   <a href="https://github.com/awesome-dsh-plugin/awesome-dsh-plugin"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="Awesome"></a>
   <a href="https://github.com/modusensus/dsh-mneme/actions"><img src="https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/test.yml" alt="CI"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-24%2B-blue" alt="node"></a>
-  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-152%20passed-success" alt="tests"></a>
+  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-198%20passed-success" alt="tests"></a>
 </p>
 
 > **Memory sovereignty, returned to you** — memory is no longer a black box, but Markdown you can read and edit.
@@ -30,7 +30,7 @@ Unlike plugins that lock memory inside a database, Mneme writes memory as **Mark
 - **Web memory panel**: embedded in the official settings panel — browse by type, full-text + semantic (vector) search
 - **User settings**: user profile + behavior rules, injected into system prompt every turn
 - **Custom commands**: register slash commands (/name), routed to the agent when triggered
-- **Vector search**: OpenAI-compatible embeddings API for semantic matching of differently-worded but related memories
+- **Vector search**: OpenAI-compatible embeddings API for semantic matching of differently-worded but related memories, plus fully-offline local backends (v0.2+)
 
 ## 🔮 Semantic Enhancement (local-first)
 
@@ -66,7 +66,7 @@ docs/        design docs & implementation plans
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 152 tests
+npm test          # 198 tests
 npm run stress    # three-axis stress test (long-session retrieval / conflict arbitration / concurrent agents)
 npm run sync      # src → lib sync (runs automatically on publish)
 ```

@@ -12,7 +12,7 @@
   <a href="https://github.com/awesome-dsh-plugin/awesome-dsh-plugin"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="Awesome"></a>
   <a href="https://github.com/modusensus/dsh-mneme/actions"><img src="https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/test.yml" alt="CI"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-24%2B-blue" alt="node"></a>
-  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-152%20passed-success" alt="tests"></a>
+  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-198%20passed-success" alt="tests"></a>
 </p>
 
 > **记忆主权，归还于你** —— 记忆不再是黑盒，而是你读得懂、改得动的 Markdown。
@@ -31,6 +31,19 @@
 - **用户设置**：用户画像 + 行为规则，每轮注入系统提示
 - **自定义指令**：注册斜杠命令（/名称），触发时交给 Agent
 - **向量搜索**：接入 OpenAI 兼容 embeddings API，语义匹配字面不同但意思相近的记忆
+
+## 🔮 语义增强（完全离线，v0.2+）
+
+**完全离线的语义记忆引擎**——embedding、rerank、搜索全在本地，零 API 成本：
+
+- **本地 Embedding**：三后端可选——ONNX（`Xenova/bge-small-zh-v1.5`，离线）/ Ollama / OpenAI 兼容，失败自动逐级降级，最差回退关键词搜索
+- **Rerank 精排**：`Xenova/bge-reranker-base` 对召回候选交叉编码精排，提升 Top-K 准确率
+- **autoDream 语义增强**：对记忆向量聚类（`clusterMemories`），自动发现主题相近 / 疑似矛盾的记忆，巩固更精准
+- **搜索流水线**：混合召回（关键词 + 向量）→ Rerank → Top-K
+
+在 `cordis.patch.yml` 中配置 `embedProvider`（默认 `openai` 保持 v0.1 行为，切到 `local` 即完全离线）。无需数据迁移。
+
+> 详见 [语义架构](dsh-mneme/docs/SEMANTIC.md) · [本地模型部署指南](dsh-mneme/docs/LOCAL_MODEL.md) · [v0.1 迁移说明](dsh-mneme/docs/MIGRATION.md)
 
 ## 📦 安装（DSH）
 
@@ -53,7 +66,7 @@ docs/        设计文档与实施计划
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 152 个测试
+npm test          # 198 个测试
 npm run stress    # 三轴线压测（长会话检索 / 冲突仲裁 / 多 Agent 并发）
 npm run sync      # src → lib 同步（发布时自动执行）
 ```
@@ -63,6 +76,9 @@ npm run sync      # src → lib 同步（发布时自动执行）
 | 文档 | 路径 |
 |------|------|
 | 插件完整文档（功能 / 安装 / 配置 / 架构） | [dsh-mneme/README.md](dsh-mneme/README.md) |
+| 语义架构 | [dsh-mneme/docs/SEMANTIC.md](dsh-mneme/docs/SEMANTIC.md) |
+| 本地模型部署指南 | [dsh-mneme/docs/LOCAL_MODEL.md](dsh-mneme/docs/LOCAL_MODEL.md) |
+| v0.1 迁移说明 | [dsh-mneme/docs/MIGRATION.md](dsh-mneme/docs/MIGRATION.md) |
 | 插件设计 | [docs/superpowers/specs/2026-08-13-dsh-mneme-design.md](docs/superpowers/specs/2026-08-13-dsh-mneme-design.md) |
 | autoDream 设计 | [docs/superpowers/specs/2026-08-13-dsh-mneme-autodream-design.md](docs/superpowers/specs/2026-08-13-dsh-mneme-autodream-design.md) |
 | 实施计划（核心插件） | [docs/superpowers/plans/2026-08-13-dsh-memory.md](docs/superpowers/plans/2026-08-13-dsh-memory.md) |
