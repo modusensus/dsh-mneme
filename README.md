@@ -15,7 +15,7 @@
   <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-140%20passed-success" alt="tests"></a>
 </p>
 
-> **把记忆主权还给人的记忆插件** —— 记忆不再是黑盒,而是你读得懂、改得动的 Markdown。
+> **记忆主权，归还于你** —— 记忆不再是黑盒，而是你读得懂、改得动的 Markdown。
 
 `dsh-mneme` 是一个 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) 插件，为 Agent 提供持久的跨会话记忆能力。**Mneme**（Μνήμη）——希腊记忆女神 Mnemosyne 之名，掌管记忆与梦境，正如 autoDream 在后台巩固记忆。
 
@@ -62,9 +62,10 @@ npm run sync      # src → lib 同步（发布时自动执行）
 | 文档 | 路径 |
 |------|------|
 | 插件完整文档（功能 / 安装 / 配置 / 架构） | [dsh-mneme/README.md](dsh-mneme/README.md) |
-| 记忆库设计 | [docs/superpowers/specs/2026-08-13-dsh-memory-design.md](docs/superpowers/specs/2026-08-13-dsh-memory-design.md) |
-| autoDream 设计 | [docs/superpowers/specs/2026-08-13-dsh-memory-autodream-design.md](docs/superpowers/specs/2026-08-13-dsh-memory-autodream-design.md) |
-| 实施计划 | [docs/superpowers/plans/2026-08-13-dsh-memory-autodream.md](docs/superpowers/plans/2026-08-13-dsh-memory-autodream.md) |
+| 插件设计 | [docs/superpowers/specs/2026-08-13-dsh-mneme-design.md](docs/superpowers/specs/2026-08-13-dsh-mneme-design.md) |
+| autoDream 设计 | [docs/superpowers/specs/2026-08-13-dsh-mneme-autodream-design.md](docs/superpowers/specs/2026-08-13-dsh-mneme-autodream-design.md) |
+| 实施计划（核心插件） | [docs/superpowers/plans/2026-08-13-dsh-memory.md](docs/superpowers/plans/2026-08-13-dsh-memory.md) |
+| 实施计划（autoDream） | [docs/superpowers/plans/2026-08-13-dsh-memory-autodream.md](docs/superpowers/plans/2026-08-13-dsh-memory-autodream.md) |
 
 ## 📜 License
 

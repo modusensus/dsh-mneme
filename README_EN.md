@@ -19,7 +19,7 @@
 
 `dsh-mneme` is a [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) plugin that gives agents persistent cross-session memory. **Mneme** (Μνήμη) — named after Mnemosyne, the Greek goddess of memory who governs memory and dreams, just as autoDream consolidates memories in the background.
 
-Unlike plugins that lock memory inside a database, Mneme writes memory as **Markdown you can read** — you always hold the memory. You can see it, edit it, delete it. Memory shouldn't be decided by the agent alone.
+Unlike plugins that lock memory inside a database, Mneme writes memory as **Markdown you can read** — memory sovereignty stays with you: you can see it, edit it, delete it. Memory shouldn't be decided by the agent alone.
 
 ## ✨ Features
 
@@ -62,9 +62,10 @@ npm run sync      # src → lib sync (runs automatically on publish)
 | Doc | Path |
 |-----|------|
 | Full plugin docs (features / install / config / architecture) | [dsh-mneme/README.md](dsh-mneme/README.md) |
-| Memory design | [docs/superpowers/specs/2026-08-13-dsh-memory-design.md](docs/superpowers/specs/2026-08-13-dsh-memory-design.md) |
-| autoDream design | [docs/superpowers/specs/2026-08-13-dsh-memory-autodream-design.md](docs/superpowers/specs/2026-08-13-dsh-memory-autodream-design.md) |
-| Implementation plan | [docs/superpowers/plans/2026-08-13-dsh-memory-autodream.md](docs/superpowers/plans/2026-08-13-dsh-memory-autodream.md) |
+| Plugin design | [docs/superpowers/specs/2026-08-13-dsh-mneme-design.md](docs/superpowers/specs/2026-08-13-dsh-mneme-design.md) |
+| autoDream design | [docs/superpowers/specs/2026-08-13-dsh-mneme-autodream-design.md](docs/superpowers/specs/2026-08-13-dsh-mneme-autodream-design.md) |
+| Implementation plan (core) | [docs/superpowers/plans/2026-08-13-dsh-memory.md](docs/superpowers/plans/2026-08-13-dsh-memory.md) |
+| Implementation plan (autoDream) | [docs/superpowers/plans/2026-08-13-dsh-memory-autodream.md](docs/superpowers/plans/2026-08-13-dsh-memory-autodream.md) |
 
 ## 📜 License
 
