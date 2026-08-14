@@ -1,9 +1,11 @@
+<p align="center"><strong>中文 | <a href="docs/SEMANTIC.md">English（语义增强）</a></strong></p>
+
 # dsh-mneme
 
 [![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Awesome](https://awesome-dsh-plugin.com/badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
-[![tests](https://img.shields.io/badge/tests-152%20passed-success)](https://github.com/modusensus/dsh-mneme)
+[![tests](https://img.shields.io/badge/tests-198%20passed-success)](https://github.com/modusensus/dsh-mneme)
 
 > 给 DeepSeek Harness 的跨会话记忆插件：让 Agent 记住你、记住项目、自动整理记忆。**Mneme**（Μνήμη）——希腊记忆女神 Mnemosyne 之名，掌管记忆与梦境，正如 autoDream 在后台巩固记忆。
 
@@ -154,6 +156,15 @@ dsh web
 | `dreamThresholdChars` | `5000` | 触发整理的总字符阈值 |
 | `dreamDelayMs` | `2000` | 整理异步延迟（去抖） |
 | `dreamProvider` / `dreamModel` | 空 | dream 的 LLM 路由回退（默认用 agent 默认模型） |
+| `embedProvider` | `openai` | 语义后端：`openai`（默认，兼容 v0.1）/ `local`（ONNX 离线）/ `ollama` |
+| `localEmbedModel` | `Xenova/bge-small-zh-v1.5` | 本地 ONNX embedding 模型 |
+| `localEmbedDimension` | `512` | 本地 embedding 向量维度 |
+| `localEmbedBatchSize` | `8` | 本地 embedding 批大小（1-64） |
+| `ollamaBaseUrl` | `http://localhost:11434` | Ollama 服务地址 |
+| `ollamaModel` | `nomic-embed-text` | Ollama embedding 模型 |
+| `rerankEnabled` | `true` | 是否启用 Rerank 精排 |
+| `rerankModel` | `Xenova/bge-reranker-base` | Rerank 交叉编码模型 |
+| `rerankScoreThreshold` | `0.1` | Rerank 分数阈值（低于丢弃） |
 
 ## 🏗️ 架构
 
@@ -193,7 +204,7 @@ src/
 lib/
 ├── client.js         # Web 面板（手写 ModuleLoader bundle）
 └── *.js              # src 的同步分发产物
-test/                 # 152 个 node:test 测试（含审计与三轴线压测不变量）
+test/                 # 198 个 node:test 测试（含审计与三轴线压测不变量）
 scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压测 · sync-lib.js 同步
 ```
 
@@ -202,7 +213,7 @@ scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压
 ```bash
 cd dsh-mneme
 npm install        # 安装 peer 依赖（以 devDependencies 形式，用于本地测试）
-npm test           # 运行 152 个测试（--test-isolation=none 用于受限沙箱，禁止子进程 spawn）
+npm test           # 运行 198 个测试
 npm run stress     # 三轴线压测：长会话检索 / 冲突仲裁 / 多 Agent 并发（离线 mock LLM）
 npm run sync       # 把 src/ 同步到 lib/（发布时由 prepack 钩子自动执行）
 ```
