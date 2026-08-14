@@ -2,6 +2,12 @@
 
 All notable changes to dsh-mneme are documented here.
 
+## [Unreleased]
+
+- autoDream 裁决审计：每次运行写入 `dream_runs`（输入快照 sha256 digest + 完整输入快照 + LLM 决策清单 + 逐 id 去向 + receipt `dsh-mneme:run:<id>:<status>:<hash>:<count>:<applied>`），可离线回放、定位静默错误
+- 幂等决策应用：merge / conflict 重复应用无累积副作用（来源注释不重复追加），防并发/重放下的重复合并
+- 三轴线压测 `npm run stress`：长会话检索（Recall@k、陈旧残留率）/ 冲突裁决（可重放仲裁集）/ 多 Agent 并发（丢更新、重复合并、事务/崩溃恢复）
+
 ## [0.1.6] - 2026-08-14
 
 - Vector (semantic) search via OpenAI-compatible embeddings endpoint, with automatic fallback to LIKE keyword search on failure

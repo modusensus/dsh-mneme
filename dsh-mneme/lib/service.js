@@ -169,6 +169,12 @@ export function createService({ store, mirror, config, onWrite }) {
       const updated = store.setArchived(id, f);
       syncMirror();
       return updated;
-    }
+    },
+    // autoDream audit trail: passthroughs deliberately bypass write hooks —
+    // an audit write is bookkeeping, and notifyWrite would loop back into the
+    // dream scheduler that just recorded the run.
+    saveDreamRun: (run) => store.saveDreamRun(run),
+    getDreamRun: (id) => store.getDreamRun(id),
+    listDreamRuns: (opts) => store.listDreamRuns(opts)
   };
 }

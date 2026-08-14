@@ -18,6 +18,28 @@ CREATE TABLE IF NOT EXISTS memories (
 );
 CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(type);
 CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance);
+
+-- autoDream audit trail: one row per consolidation run, capturing the exact
+-- input snapshot digest + the LLM decision list + per-id outcome + a compact
+-- receipt. This makes every decision replayable so silent consolidation errors
+-- (high pass rate but wrong merge/conflict) can be located after the fact.
+CREATE TABLE IF NOT EXISTS dream_runs (
+  id             TEXT PRIMARY KEY,
+  created_at     TEXT NOT NULL,
+  status         TEXT NOT NULL,          -- ok | failed
+  error          TEXT,
+  provider       TEXT,
+  model          TEXT,
+  snapshot_hash  TEXT NOT NULL,
+  input_count    INTEGER NOT NULL,
+  input          TEXT,                   -- JSON: full input snapshot (id/type/title/content/importance/updated_at)
+  decisions      TEXT,                   -- JSON: raw LLM decision list
+  outcome        TEXT,                   -- JSON: { byId: {id: action} }
+  applied        INTEGER NOT NULL DEFAULT 0,
+  summary_stored INTEGER NOT NULL DEFAULT 0,
+  receipt        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_dream_runs_created ON dream_runs(created_at);
 `;
 
 const TYPES = new Set(["preference", "project", "decision", "history", "summary"]);
@@ -57,6 +79,26 @@ function toRow(row) {
     source: row.source ?? undefined,
     created_at: row.created_at,
     updated_at: row.updated_at
+  };
+}
+
+function toDreamRun(row) {
+  if (!row) return undefined;
+  return {
+    id: row.id,
+    created_at: row.created_at,
+    status: row.status,
+    error: row.error ?? undefined,
+    provider: row.provider ?? undefined,
+    model: row.model ?? undefined,
+    snapshot_hash: row.snapshot_hash,
+    input_count: row.input_count,
+    input: row.input ? JSON.parse(row.input) : undefined,
+    decisions: row.decisions ? JSON.parse(row.decisions) : undefined,
+    outcome: row.outcome ? JSON.parse(row.outcome) : undefined,
+    applied: row.applied,
+    summary_stored: row.summary_stored === 1,
+    receipt: row.receipt
   };
 }
 
@@ -287,6 +329,60 @@ export function createStore(path) {
     return scored.slice(0, lim).map(({ row, score }) => ({ ...toRow(row), score }));
   }
 
+  // --- autoDream audit trail ----------------------------------------------
+
+  /**
+   * Persist one autoDream run. The audit row is machine-verifiable but never
+   * triggers write hooks (it is bookkeeping, not a memory mutation): dream
+   * records its own runs, and a notify here would loop back into the dream
+   * scheduler. Writes are idempotent on run id (replay overwrites, never
+   * duplicates) so the same logical run can be re-applied for verification.
+   */
+  function saveDreamRun(run) {
+    const id = run.id ?? randomUUID();
+    const now = nowIso();
+    db.prepare(
+      `INSERT INTO dream_runs (id, created_at, status, error, provider, model, snapshot_hash,
+        input_count, input, decisions, outcome, applied, summary_stored, receipt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         created_at=excluded.created_at, status=excluded.status, error=excluded.error,
+         provider=excluded.provider, model=excluded.model, snapshot_hash=excluded.snapshot_hash,
+         input_count=excluded.input_count, input=excluded.input, decisions=excluded.decisions,
+         outcome=excluded.outcome, applied=excluded.applied, summary_stored=excluded.summary_stored,
+         receipt=excluded.receipt`
+    ).run(
+      id,
+      run.created_at ?? now,
+      run.status,
+      run.error ?? null,
+      run.provider ?? null,
+      run.model ?? null,
+      run.snapshot_hash,
+      run.input_count,
+      run.input !== undefined ? JSON.stringify(run.input) : null,
+      run.decisions !== undefined ? JSON.stringify(run.decisions) : null,
+      run.outcome !== undefined ? JSON.stringify(run.outcome) : null,
+      run.applied ?? 0,
+      run.summary_stored ? 1 : 0,
+      run.receipt
+    );
+    return getDreamRun(id);
+  }
+
+  function getDreamRun(id) {
+    const row = db.prepare("SELECT * FROM dream_runs WHERE id = ?").get(id);
+    return toDreamRun(row);
+  }
+
+  function listDreamRuns({ limit = 50, offset = 0 } = {}) {
+    const { limit: lim, offset: off } = sanitizePage(limit, offset, 50);
+    const rows = db.prepare(
+      "SELECT * FROM dream_runs ORDER BY created_at DESC, id LIMIT ? OFFSET ?"
+    ).all(lim, off);
+    return rows.map(toDreamRun);
+  }
+
   return {
     db,
     count,
@@ -303,6 +399,9 @@ export function createStore(path) {
     embeddedCount,
     needsEmbedding,
     searchVector,
+    saveDreamRun,
+    getDreamRun,
+    listDreamRuns,
     close() {
       db.close();
     }
