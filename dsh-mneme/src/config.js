@@ -11,5 +11,39 @@ export const Config = z.object({
   dreamThresholdChars: z.natural().min(100).max(100000).default(5000),
   dreamDelayMs: z.natural().min(0).max(60000).default(2000),
   dreamProvider: z.string(),
-  dreamModel: z.string()
+  dreamModel: z.string(),
+  dreamMaxTokens: z.natural().min(256).max(32768).default(4096),
+
+  // --- semantic: local embedding provider (v0.2) --------------------------
+  // "openai" keeps the legacy external-API path (settings vector config);
+  // "local" runs an ONNX model in-process; "ollama" calls a local Ollama.
+  embedProvider: z.union([z.const("openai"), z.const("local"), z.const("ollama")]).default("openai"),
+
+  // Local ONNX embedder (transformers.js / onnxruntime).
+  localEmbedModel: z.string().default("Xenova/bge-small-zh-v1.5"),
+  localEmbedDimension: z.natural().default(512),
+  localEmbedDevice: z.union([z.const("cpu"), z.const("gpu")]).default("cpu"),
+  localEmbedBatchSize: z.natural().min(1).max(64).default(8),
+
+  // Ollama embedder.
+  ollamaBaseUrl: z.string().default("http://localhost:11434"),
+  ollamaModel: z.string().default("nomic-embed-text"),
+
+  // Model download/cache.
+  embedModelCacheDir: z.string().default(""),
+  embedModelMirror: z.string().default("https://hf-mirror.com"),
+
+  // Vector search tuning.
+  vectorSearchTopK: z.natural().min(1).max(100).default(20),
+  vectorSearchThreshold: z.number().min(0).max(1).default(0.65),
+  hybridSearchVectorWeight: z.number().min(0).max(1).default(0.6),
+  hybridSearchKeywordWeight: z.number().min(0).max(1).default(0.4),
+
+  // --- semantic: rerank layer (v0.2) --------------------------------------
+  rerankEnabled: z.boolean().default(true),
+  rerankProvider: z.union([z.const("local"), z.const("none")]).default("local"),
+  rerankModel: z.string().default("Xenova/bge-reranker-base"),
+  rerankBatchSize: z.natural().min(1).max(64).default(8),
+  rerankMaxCandidates: z.natural().min(5).max(100).default(30),
+  rerankScoreThreshold: z.number().min(0).max(1).default(0.1)
 });
