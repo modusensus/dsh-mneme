@@ -9,6 +9,9 @@ import { createApi } from "./api.js";
 import { createSettings } from "./settings.js";
 import { createCommandManager } from "./commands.js";
 import { createEmbedder } from "./embedding.js";
+import { createEmbedderByProvider } from "./local-embedder.js";
+import { LocalReranker } from "./reranker.js";
+import { createVectorIndex } from "./vector-index.js";
 import { Config } from "./config.js";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -40,10 +43,62 @@ export const apply = (ctx, config) => {
   // same SQLite file but live in dedicated tables, isolated from memories.
   const settings = createSettings(store.db);
 
-  // Vector search: embedder calls the configured OpenAI-compatible embeddings
-  // endpoint on writes and for queries. service re-embeds after each write.
-  const embedder = createEmbedder({ store, settings, logger: ctx.logger });
-  service.setEmbedder(embedder);
+  // Semantic pipeline: a local/ollama embedder when configured, otherwise the
+  // legacy OpenAI-compatible embedder (settings-driven). The vector index wraps
+  // the store's embedding column and tracks the active model fingerprint. A
+  // slow embedder init (model download) never blocks plugin boot — failures
+  // degrade to keyword search.
+  const vectorIndex = createVectorIndex({ store, logger: ctx.logger });
+  service.setVectorIndex(vectorIndex);
+
+  let embedder = null;
+  let reranker = null;
+  if (cfg.embedProvider === "openai") {
+    embedder = createEmbedder({ store, settings, logger: ctx.logger });
+    service.setEmbedder(embedder);
+  } else {
+    try {
+      embedder = createEmbedderByProvider(cfg.embedProvider, {
+        model: cfg.embedProvider === "ollama" ? cfg.ollamaModel : cfg.localEmbedModel,
+        dimension: cfg.localEmbedDimension,
+        device: cfg.localEmbedDevice,
+        batchSize: cfg.localEmbedBatchSize,
+        cacheDir: cfg.embedModelCacheDir,
+        baseUrl: cfg.ollamaBaseUrl,
+        logger: ctx.logger
+      });
+      service.setEmbedder(embedder);
+      embedder.init().catch((error) => {
+        ctx.logger?.warn?.(`[dsh-mneme] embedder init failed, search degrades to keyword: ${String(error)}`);
+        service.setEmbedder(null);
+      });
+    } catch (error) {
+      ctx.logger?.warn?.(`[dsh-mneme] embedder unavailable, search degrades to keyword: ${String(error)}`);
+    }
+  }
+
+  // Cross-encoder rerank over recall candidates. Best-effort: a failed model
+  // load only disables reranking, never search itself.
+  if (cfg.rerankEnabled && cfg.rerankProvider === "local") {
+    try {
+      reranker = new LocalReranker({
+        model: cfg.rerankModel,
+        batchSize: cfg.rerankBatchSize,
+        maxCandidates: cfg.rerankMaxCandidates,
+        scoreThreshold: cfg.rerankScoreThreshold,
+        device: cfg.localEmbedDevice,
+        cacheDir: cfg.embedModelCacheDir,
+        logger: ctx.logger
+      });
+      service.setReranker(reranker);
+      reranker.init().catch((error) => {
+        ctx.logger?.warn?.(`[dsh-mneme] reranker init failed, rerank disabled: ${String(error)}`);
+        service.setReranker(null);
+      });
+    } catch (error) {
+      ctx.logger?.warn?.(`[dsh-mneme] reranker unavailable, rerank disabled: ${String(error)}`);
+    }
+  }
 
   // Custom commands: register persisted commands into the DSH command registry
   // on boot; add/remove re-register live through the API.
@@ -79,6 +134,7 @@ export const apply = (ctx, config) => {
       thresholdChars: cfg.dreamThresholdChars,
       delayMs: cfg.dreamDelayMs,
       logger: ctx.logger,
+      semantic: { embedder, vectorIndex },
       onRun: () => (dream ? dream.runDream(ctx, service, cfg) : Promise.resolve({ ok: true, skipped: true }))
     });
     service.setDreamHook(() => dream.maybeSchedule(service));
@@ -102,7 +158,7 @@ export const apply = (ctx, config) => {
       add: () => { throw new Error("commands unavailable"); },
       remove: () => false,
       list: () => []
-    }, embedder);
+    }, embedder, { vectorIndex, reranker });
     disposers.push(api.dispose);
   }
 
