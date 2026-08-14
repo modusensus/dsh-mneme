@@ -63,12 +63,13 @@ export function createTools(ctx, service, config, embedder) {
 
     defineTool({
       name: "memory_search",
-      description: "Search the cross-session memory store. Use when you need past context: how a problem was solved, user preferences, project decisions. Substring-matches title/content/tags, and optionally augments results with semantic (vector) recall when an embeddings provider is configured. Returns matching entries with source and timestamps.",
+      description: "Search the cross-session memory store. Use when you need past context: how a problem was solved, user preferences, project decisions. Substring-matches title/content/tags, and augments results with semantic (vector) recall + optional rerank when an embeddings provider is configured. Returns matching entries with source and timestamps.",
       parameters: {
         query: { type: "string", required: true, description: "Search text; substring match over title/content/tags" },
         limit: { type: "integer", description: "Max results (default 20)" },
-        mode: { type: "string", enum: ["auto", "keyword", "vector"], description: "auto (default) = keyword hits first + vector fill when enabled; keyword = text only; vector = semantic recall first (falls back to keyword)" },
-        semantic: { type: "boolean", description: "Shorthand: enable semantic (vector) recall (same as mode=vector when true)" }
+        mode: { type: "string", enum: ["auto", "keyword", "vector", "hybrid"], description: "auto (default) = keyword hits first + vector fill when enabled; keyword = text only; vector = semantic recall first (falls back to keyword); hybrid = vector leads, keyword fills remaining slots" },
+        semantic: { type: "boolean", description: "Shorthand: enable semantic (vector) recall (same as mode=vector when true)" },
+        rerank: { type: "boolean", description: "Run cross-encoder rerank over candidates when a local reranker is configured (default true)" }
       },
       output: {
         schema: {
@@ -85,25 +86,13 @@ export function createTools(ctx, service, config, embedder) {
       },
       async execute(args) {
         const limit = args.limit ?? 20;
-        const rows = service.toApiList(service.search(args.query, { limit }));
-        const wantVector = args.mode === "vector" || args.semantic === true || args.mode === "auto";
-        if (wantVector && embedder) {
-          try {
-            const vector = await embedder.embed(args.query);
-            if (vector) {
-              const scored = service.toApiList(service.searchVector(vector, { limit }));
-              const seen = new Set(rows.map((m) => m.id));
-              for (const m of scored) {
-                if (rows.length >= limit) break;
-                if (!seen.has(m.id)) {
-                  seen.add(m.id);
-                  rows.push(m);
-                }
-              }
-            }
-          } catch { /* vector unavailable: keep keyword results */ }
-        }
-        return { items: rows };
+        const mode = args.semantic === true && !args.mode ? "vector" : args.mode ?? "auto";
+        const rows = await service.searchMemories(args.query, {
+          mode,
+          topK: limit,
+          useRerank: args.rerank !== false
+        });
+        return { items: service.toApiList(rows) };
       }
     }),
 

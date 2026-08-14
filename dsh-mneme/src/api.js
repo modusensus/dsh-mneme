@@ -23,7 +23,7 @@ function parseBody(text) {
   }
 }
 
-export function createApi(ctx, service, settings, commands, embedder) {
+export function createApi(ctx, service, settings, commands, embedder, semantic = null) {
   const disposers = [];
 
   const register = (route) => {
@@ -64,7 +64,7 @@ export function createApi(ctx, service, settings, commands, embedder) {
         const url = new URL(req.url, "http://localhost");
         const q = url.searchParams.get("q") ?? "";
         const limit = Number(url.searchParams.get("limit") ?? 20);
-        // mode: auto (default) | keyword | vector
+        // mode: auto (default) | keyword | vector | hybrid
         const mode = url.searchParams.get("mode") ?? "auto";
         const query = q.trim();
         if (!query) {
@@ -89,19 +89,31 @@ export function createApi(ctx, service, settings, commands, embedder) {
           let used = "keyword";
           if (vector) {
             const scored = service.toApiList(service.searchVector(vector, { limit }));
-            // Merge: keyword exact hits first (they are the user's literal
-            // words), then vector results fill the remaining slots, deduped.
-            const seen = new Set(keyword.map((m) => m.id));
-            const merged = [...keyword];
-            for (const m of scored) {
-              if (merged.length >= limit) break;
-              if (!seen.has(m.id)) {
-                seen.add(m.id);
-                merged.push(m);
+            if (mode === "hybrid") {
+              // hybrid: vector recalls lead, keyword fills remaining slots
+              const seen = new Set(scored.map((m) => m.id));
+              const merged = [...scored.slice(0, limit)];
+              for (const m of keyword) {
+                if (merged.length >= limit) break;
+                if (!seen.has(m.id)) { seen.add(m.id); merged.push(m); }
               }
+              items = merged;
+              used = "vector";
+            } else {
+              // auto/vector: keyword exact hits first (the user's literal
+              // words), then vector results fill the remaining slots, deduped.
+              const seen = new Set(keyword.map((m) => m.id));
+              const merged = [...keyword];
+              for (const m of scored) {
+                if (merged.length >= limit) break;
+                if (!seen.has(m.id)) {
+                  seen.add(m.id);
+                  merged.push(m);
+                }
+              }
+              items = merged;
+              used = "vector";
             }
-            items = merged;
-            used = "vector";
           }
           sendJson(res, 200, { items, mode: used });
         }).catch(() => {
@@ -201,6 +213,26 @@ export function createApi(ctx, service, settings, commands, embedder) {
     }
   });
 
+  // --- semantic pipeline status (model, index, reranker) ---
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/semantic",
+    handler(req, res) {
+      try {
+        const stats = semantic?.vectorIndex?.getStats?.() ?? null;
+        sendJson(res, 200, {
+          embedProvider: embedder ? (embedder.constructor?.name ?? "unknown") : null,
+          modelHash: embedder?.modelHash ?? null,
+          dimension: embedder?.dimension ?? null,
+          reranker: semantic?.reranker ? "ready" : null,
+          index: stats
+        });
+      } catch {
+        sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
   // --- custom commands ---
   register({
     kind: "exact",
@@ -237,7 +269,7 @@ export function createApi(ctx, service, settings, commands, embedder) {
   });
 
   return {
-    routes: 6,
+    routes: 7,
     dispose: () => {
       for (const dispose of disposers) dispose();
     }
