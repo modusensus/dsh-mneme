@@ -10,7 +10,7 @@
   <a href="https://github.com/awesome-dsh-plugin/awesome-dsh-plugin"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="Awesome"></a>
   <a href="https://github.com/modusensus/dsh-mneme/actions"><img src="https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/test.yml" alt="CI"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-24%2B-blue" alt="node"></a>
-  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-236%20passed-success" alt="tests"></a>
+  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-258%20passed-success" alt="tests"></a>
 </p>
 
 <p align="center"><strong><a href="#中文">中文</a> | <a href="#english">English</a></strong></p>
@@ -32,7 +32,7 @@
 - **🧠 记忆主权**：SQLite + 可人工编辑的 Markdown 镜像，双向同步——记忆透明、可审查、归你所有
 - **autoDream 梦境巩固**：后台自动去重 / 合并 / 归档 / 冲突裁决 / 自我修正（fail-safe 校验），越用越精炼
 - **反思更新（v0.2.1）**：autoDream 可直接修正单条过时/错误记忆；失败追踪表记录纠正历史，为自进化积累数据
-- **6 个模型工具**：`memory_save` / `memory_search` / `memory_list` / `memory_update` / `memory_delete` / `memory_forget`
+- **7 个模型工具**：`memory_save` / `memory_search` / `memory_list` / `memory_update` / `memory_delete` / `memory_forget` / `memory_archive`
 - **自动注入 + 会话摘要**：新会话自动带入相关记忆，会话结束自动提炼偏好 / 决策 / 教训
 - **Web 记忆面板**：官方设置面板内嵌，按类型浏览、全文搜索 + 语义（向量）搜索
 - **用户设置 + 自定义指令**：用户画像、行为规则每轮注入；注册斜杠命令
@@ -73,7 +73,7 @@ docs/        设计文档与实施计划
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 236 个测试
+npm test          # 258 个测试
 npm run stress    # 三轴线压测（长会话检索 / 冲突仲裁 / 多 Agent 并发）
 npm run sync      # src → lib 同步（发布时自动执行）
 ```
@@ -98,10 +98,11 @@ npm run sync      # src → lib 同步（发布时自动执行）
 
 | 版本 | 核心主题 | 一句话 | 实施周期 |
 |------|---------|--------|---------|
-| **v0.2.1** | 反思更新 | ✅ 已完成（update 决策 + failure_memories 表，236 测试） | — |
-| **v0.2.2** | 流水线补全 | ✅ 已完成（专项测试 + 审查修复，236 测试） | — |
-| **v0.2.4** | 安全加固 | ✅ 已完成（API 鉴权 apiToken + apiKey 掩码 + timing-safe，236 测试） | — |
-| **v0.2.5** | 轻量结构化 | 实体注释标记（零 schema 变更，验证可行性） | 2-3 天 |
+| **v0.2.1** | 反思更新 | ✅ 已完成（update 决策 + failure_memories 表，258 测试） | — |
+| **v0.2.2** | 流水线补全 | ✅ 已完成（专项测试 + 审查修复，258 测试） | — |
+| **v0.2.4** | 安全加固 | ✅ 已完成（API 鉴权 apiToken + apiKey 掩码 + timing-safe，258 测试） | — |
+| **v0.2.5** | 安全审计修复 | ✅ 已完成（CAS + 事务化应用 + reconcile 审计 + reranker opt-in + 归档恢复，258 测试） | — |
+| **v0.2.6** | 轻量结构化 | 实体注释标记（零 schema 变更，验证可行性） | 2-3 天 |
 | **v0.3.0** | 记忆基因 | 正式 entities/attrs/relations 三表 + 时间轴 | 1 周 |
 | **v0.3.1** | 系统级睡眠 | Sleep 调度器 + 分层压缩 + 模式发现 | 3-5 天 |
 | **v0.4.0** | 反思性成长 | 纠错双向回流 + 规则演进 + 自适应参数 | 1-2 周 |
@@ -128,7 +129,7 @@ Unlike plugins that lock memory inside a database, Mneme writes memory as **huma
 - **🧠 Memory sovereignty**: SQLite + human-editable Markdown mirror, two-way sync — memory is transparent, auditable, and yours
 - **autoDream consolidation**: background dedup / merge / archive / conflict resolution / self-correction (fail-safe validation), refined with use
 - **Reflection update (v0.2.1)**: autoDream can correct stale/wrong single memories; a failure-tracking table records correction history for future self-evolution
-- **6 model tools**: `memory_save` / `memory_search` / `memory_list` / `memory_update` / `memory_delete` / `memory_forget`
+- **7 model tools**: `memory_save` / `memory_search` / `memory_list` / `memory_update` / `memory_delete` / `memory_forget` / `memory_archive`
 - **Auto-injection + session summary**: relevant memories injected at session start, preferences / decisions / lessons distilled at session end
 - **Web memory panel**: embedded in the official settings panel — browse by type, full-text + semantic (vector) search
 - **User settings + custom commands**: user profile and behavior rules injected every turn; register slash commands
@@ -169,7 +170,7 @@ docs/        design docs & implementation plans
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 236 tests
+npm test          # 258 tests
 npm run stress    # three-axis stress test (long-session retrieval / conflict arbitration / concurrent agents)
 npm run sync      # src → lib sync (runs automatically on publish)
 ```
@@ -194,10 +195,11 @@ npm run sync      # src → lib sync (runs automatically on publish)
 
 | Version | Core theme | One-liner | Timeline |
 |---------|------------|-----------|----------|
-| **v0.2.1** | Reflection update | ✅ Done (update decision + failure_memories, 236 tests) | — |
-| **v0.2.2** | Pipeline completion | ✅ Done (specialized tests + review fixes, 236 tests) | — |
-| **v0.2.4** | Security hardening | ✅ Done (API auth apiToken + apiKey masking + timing-safe, 236 tests) | — |
-| **v0.2.5** | Lightweight structure | Entity comment markers (zero schema change, feasibility check) | 2-3 days |
+| **v0.2.1** | Reflection update | ✅ Done (update decision + failure_memories, 258 tests) | — |
+| **v0.2.2** | Pipeline completion | ✅ Done (specialized tests + review fixes, 258 tests) | — |
+| **v0.2.4** | Security hardening | ✅ Done (API auth apiToken + apiKey masking + timing-safe, 258 tests) | — |
+| **v0.2.5** | Security audit fixes | ✅ Done (CAS + transactional apply + reconcile audit + reranker opt-in + archive restore, 258 tests) | — |
+| **v0.2.6** | Lightweight structure | Entity comment markers (zero schema change, feasibility check) | 2-3 days |
 | **v0.3.0** | Memory genome | Formal entities/attrs/relations tables + timeline | 1 week |
 | **v0.3.1** | System-level sleep | Sleep scheduler + tiered compression + pattern discovery | 3-5 days |
 | **v0.4.0** | Reflective growth | Correction feedback loop + rule evolution + adaptive params | 1-2 weeks |

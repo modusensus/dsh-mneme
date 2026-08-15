@@ -4,6 +4,18 @@ All notable changes to dsh-mneme are documented here.
 
 ## [Unreleased]
 
+- **安全审计修复（v0.2.5）**
+  - 并发安全：CAS 冲突守卫——过期快照不再覆盖并发写入（防丢更新）
+  - 事务化决策应用：merge/archive 原子提交，receipt 反映已提交子步骤，部分提交 = reconcile（绝不虚报 ok）
+  - 压测硬断言：lost-update 与多步原子性失败即非零退出（`npm run stress`）
+  - 运行时人工编辑三方合并（three-way），不再静默覆盖
+  - 新增 `memory_archive` 工具（第 7 个模型工具）+ `memory_list include_archived`，归档可恢复
+  - reranker 改为 opt-in：`rerankEnabled=false`、`rerankProvider=none` 默认（裸装不加载 onnxruntime）
+  - npm `files` 纳入 scripts/test，tarball 内可直接跑压测
+  - 测试 236 → **258**（+22）
+
+- **安全加固（v0.2.4）**：API 鉴权 `apiToken`（写操作与密钥端点要求 Bearer 校验）+ `apiKey` 掩码回传 + timing-safe token 比对
+
 - **审查修复补丁（v0.2.3）**
   - failure 记录增加 `before` JSON 快照（title/content/importance 变更可追溯，不只 content）
   - vector-index `rebuildIndex` guard 改为检查 `embedSingle`（修复 embed/embedSingle 不一致导致的静默跳过）
