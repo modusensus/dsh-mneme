@@ -10,7 +10,7 @@
   <a href="https://github.com/awesome-dsh-plugin/awesome-dsh-plugin"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="Awesome"></a>
   <a href="https://github.com/modusensus/dsh-mneme/actions"><img src="https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/test.yml" alt="CI"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-24%2B-blue" alt="node"></a>
-  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-198%20passed-success" alt="tests"></a>
+  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-212%20passed-success" alt="tests"></a>
 </p>
 
 <p align="center"><strong><a href="#中文">中文</a> | <a href="#english">English</a></strong></p>
@@ -30,7 +30,8 @@
 ## ✨ 特性一览
 
 - **🧠 记忆主权**：SQLite + 可人工编辑的 Markdown 镜像，双向同步——记忆透明、可审查、归你所有
-- **autoDream 梦境巩固**：后台自动去重 / 合并 / 归档 / 冲突裁决（fail-safe 校验），越用越精炼
+- **autoDream 梦境巩固**：后台自动去重 / 合并 / 归档 / 冲突裁决 / 自我修正（fail-safe 校验），越用越精炼
+- **反思更新（v0.2.1）**：autoDream 可直接修正单条过时/错误记忆；失败追踪表记录纠正历史，为自进化积累数据
 - **6 个模型工具**：`memory_save` / `memory_search` / `memory_list` / `memory_update` / `memory_delete` / `memory_forget`
 - **自动注入 + 会话摘要**：新会话自动带入相关记忆，会话结束自动提炼偏好 / 决策 / 教训
 - **Web 记忆面板**：官方设置面板内嵌，按类型浏览、全文搜索 + 语义（向量）搜索
@@ -72,7 +73,7 @@ docs/        设计文档与实施计划
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 198 个测试
+npm test          # 212 个测试
 npm run stress    # 三轴线压测（长会话检索 / 冲突仲裁 / 多 Agent 并发）
 npm run sync      # src → lib 同步（发布时自动执行）
 ```
@@ -89,6 +90,7 @@ npm run sync      # src → lib 同步（发布时自动执行）
 | autoDream 设计 | [docs/superpowers/specs/2026-08-13-dsh-mneme-autodream-design.md](docs/superpowers/specs/2026-08-13-dsh-mneme-autodream-design.md) |
 | 实施计划（核心插件） | [docs/superpowers/plans/2026-08-13-dsh-memory.md](docs/superpowers/plans/2026-08-13-dsh-memory.md) |
 | 实施计划（autoDream） | [docs/superpowers/plans/2026-08-13-dsh-memory-autodream.md](docs/superpowers/plans/2026-08-13-dsh-memory-autodream.md) |
+| 演进计划书（v0.2.1+） | [docs/superpowers/plans/2026-08-15-dsh-mneme-reflection-update.md](docs/superpowers/plans/2026-08-15-dsh-mneme-reflection-update.md) |
 
 ## 🗺️ 未来版本展望 · Roadmap
 
@@ -123,7 +125,8 @@ Unlike plugins that lock memory inside a database, Mneme writes memory as **huma
 ## ✨ Features
 
 - **🧠 Memory sovereignty**: SQLite + human-editable Markdown mirror, two-way sync — memory is transparent, auditable, and yours
-- **autoDream consolidation**: background dedup / merge / archive / conflict resolution (fail-safe validation), refined with use
+- **autoDream consolidation**: background dedup / merge / archive / conflict resolution / self-correction (fail-safe validation), refined with use
+- **Reflection update (v0.2.1)**: autoDream can correct stale/wrong single memories; a failure-tracking table records correction history for future self-evolution
 - **6 model tools**: `memory_save` / `memory_search` / `memory_list` / `memory_update` / `memory_delete` / `memory_forget`
 - **Auto-injection + session summary**: relevant memories injected at session start, preferences / decisions / lessons distilled at session end
 - **Web memory panel**: embedded in the official settings panel — browse by type, full-text + semantic (vector) search
@@ -165,7 +168,7 @@ docs/        design docs & implementation plans
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 198 tests
+npm test          # 212 tests
 npm run stress    # three-axis stress test (long-session retrieval / conflict arbitration / concurrent agents)
 npm run sync      # src → lib sync (runs automatically on publish)
 ```
@@ -182,6 +185,7 @@ npm run sync      # src → lib sync (runs automatically on publish)
 | autoDream design | [docs/superpowers/specs/2026-08-13-dsh-mneme-autodream-design.md](docs/superpowers/specs/2026-08-13-dsh-mneme-autodream-design.md) |
 | Implementation plan (core) | [docs/superpowers/plans/2026-08-13-dsh-memory.md](docs/superpowers/plans/2026-08-13-dsh-memory.md) |
 | Implementation plan (autoDream) | [docs/superpowers/plans/2026-08-13-dsh-memory-autodream.md](docs/superpowers/plans/2026-08-13-dsh-memory-autodream.md) |
+| Evolution plan (v0.2.1+) | [docs/superpowers/plans/2026-08-15-dsh-mneme-reflection-update.md](docs/superpowers/plans/2026-08-15-dsh-mneme-reflection-update.md) |
 
 ## 🗺️ Roadmap
 
