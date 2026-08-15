@@ -42,13 +42,16 @@ CREATE TABLE IF NOT EXISTS dream_runs (
 CREATE INDEX IF NOT EXISTS idx_dream_runs_created ON dream_runs(created_at);
 
 -- failure_memories: records user corrections / reflection failures. Captures
--- what a memory was ("actual") vs what the user changed it to ("expected")
+-- what a memory was (actual) vs what the user changed it to (expected)
 -- so later reflection passes can mine recurring correction patterns.
+-- before holds a JSON snapshot of the pre-change title/content/importance,
+-- so a title-only or importance-only correction is still traceable.
 CREATE TABLE IF NOT EXISTS failure_memories (
   id           TEXT PRIMARY KEY,
   query        TEXT,
   expected     TEXT,
   actual       TEXT,
+  before       TEXT,
   failure_type TEXT NOT NULL,
   memory_id    TEXT,
   created_at   TEXT NOT NULL
@@ -405,13 +408,14 @@ export function createStore(path) {
    * Like the dream audit trail this is bookkeeping: it never triggers write
    * hooks, so reflection mining of failures cannot loop back into the writer.
    */
-  function saveFailure({ id, query, expected, actual, failure_type, memory_id }) {
+  function saveFailure({ id, query, expected, actual, before, failure_type, memory_id }) {
     const now = nowIso();
+    const beforeJson = before && typeof before === "object" ? JSON.stringify(before) : (before ?? null);
     db.prepare(
-      `INSERT INTO failure_memories (id, query, expected, actual, failure_type, memory_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(id ?? randomUUID(), query ?? null, expected ?? null, actual ?? null, failure_type, memory_id ?? null, now);
-    return { id, query, expected, actual, failure_type, memory_id, created_at: now };
+      `INSERT INTO failure_memories (id, query, expected, actual, before, failure_type, memory_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(id ?? randomUUID(), query ?? null, expected ?? null, actual ?? null, beforeJson, failure_type, memory_id ?? null, now);
+    return { id, query, expected, actual, before: before ?? null, failure_type, memory_id, created_at: now };
   }
 
   function listFailures({ limit = 50, offset = 0, since, memory_id, failure_type } = {}) {
@@ -423,7 +427,12 @@ export function createStore(path) {
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     const lim = Number.isInteger(limit) && limit > 0 ? limit : 50;
     const off = Number.isInteger(offset) && offset > 0 ? offset : 0;
-    return db.prepare(`SELECT * FROM failure_memories ${where} ORDER BY created_at DESC, id LIMIT ? OFFSET ?`).all(...params, lim, off);
+    return db.prepare(`SELECT * FROM failure_memories ${where} ORDER BY created_at DESC, id LIMIT ? OFFSET ?`).all(...params, lim, off)
+      .map((row) => {
+        let before;
+        try { before = row.before ? JSON.parse(row.before) : null; } catch { before = null; }
+        return { ...row, before };
+      });
   }
 
   /** Delete failure rows older than `before` (ISO string). Returns count removed. */

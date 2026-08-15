@@ -36,6 +36,11 @@ export const apply = (ctx, config) => {
   mkdirSync(memoryDir, { recursive: true });
 
   const store = createStore(join(memoryDir, "memory.db"));
+  // Prune reflection failure rows older than 90 days on boot (best-effort, so
+  // the failure table never grows unbounded).
+  try {
+    store.deleteOldFailures(new Date(Date.now() - 90 * 86400000).toISOString());
+  } catch { /* non-fatal */ }
   const mirror = createMirror(memoryDir);
   const service = createService({ store, mirror, config: cfg });
 

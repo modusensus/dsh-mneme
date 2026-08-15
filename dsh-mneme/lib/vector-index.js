@@ -73,7 +73,7 @@ export function createVectorIndex({ store, logger }) {
 
     /** Re-embed every row missing an embedding. Returns indexed count. */
     async rebuildIndex(embedder, { limit = 1000 } = {}) {
-      if (!embedder || typeof embedder.embed !== "function") return { indexed: 0, skipped: 0 };
+      if (!embedder || typeof embedder.embedSingle !== "function") return { indexed: 0, skipped: 0 };
       const rows = store.needsEmbedding(limit);
       let indexed = 0;
       for (const row of rows) {

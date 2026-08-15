@@ -137,13 +137,22 @@ test("rebuildIndex handles a throwing embedder without failing the batch", async
   assert.equal(vectorIndex.getStats().embeddedCount, 1);
 });
 
-test("rebuildIndex guard: embedder without embed() is ignored", async () => {
+test("rebuildIndex guard: embedder without embedSingle() is ignored", async () => {
   const { store, vectorIndex } = setup();
   addMemory(store, { title: "缺向量", content: "A" });
-  const bare = { embedSingle: async () => [1, 0, 0], modelHash: "mock#bare", dimension: 3 };
+  const bare = { embed: async () => [1, 0, 0], modelHash: "mock#bare", dimension: 3 };
   const result = await vectorIndex.rebuildIndex(bare, { limit: 100 });
-  assert.deepEqual(result, { indexed: 0, skipped: 0 }, "guard returns early when embed() is missing");
+  assert.deepEqual(result, { indexed: 0, skipped: 0 }, "guard returns early when embedSingle() is missing");
   assert.equal(vectorIndex.modelHash(), undefined, "no model marked");
+});
+
+test("rebuildIndex works with embedSingle-only embedder", async () => {
+  const { store, vectorIndex } = setup();
+  addMemory(store, { title: "缺向量", content: "A" });
+  const single = { embedSingle: async () => [1, 0, 0], modelHash: "mock#single", dimension: 3 };
+  const result = await vectorIndex.rebuildIndex(single, { limit: 100 });
+  assert.ok(result.indexed >= 1, "embedSingle-only embedder should rebuild");
+  assert.equal(vectorIndex.modelHash(), "mock#single", "model marked after successful rebuild");
 });
 
 test("getStats reports embedded/total counts and model metadata", () => {
