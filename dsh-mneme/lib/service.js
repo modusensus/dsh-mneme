@@ -302,6 +302,7 @@ export function createService({ store, mirror, config, onWrite }) {
           query: ctx.query ?? null,
           expected: updated.content,
           actual: old.content,
+          before: { title: old.title, content: old.content, importance: old.importance },
           failure_type: "user_correction",
           memory_id: id
         });
