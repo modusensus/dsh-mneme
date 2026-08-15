@@ -4,6 +4,12 @@ All notable changes to dsh-mneme are documented here.
 
 ## [Unreleased]
 
+- **流水线补全（v0.2.2）**
+  - reflection 修复：failure 记录检查 title/importance 变化（不只 content）；支持 query 上下文（memory_update 加 `reason` 参数）；update 校验失败不污染 claimed；`failure_memories` 清理（`deleteOldFailures`）
+  - 专项测试补全：`vector-index.test.js`（modelHash 漂移/重建/增量）+ `service-search.test.js`（hybrid/auto/rerank 端到端）
+  - api.js `/search` 的 mode 参数文档化
+  - 测试 212 → **232**
+
 - **反思更新（v0.2.1）**：`update` 决策 + 失败追踪
   - autoDream 新增 `update` 决策类型：修正单条记忆的过时/错误内容（单 id、必须实际变化、非 summary、24h 保护、每次 ≤2）
   - 审计记录 update 的 `_before` 快照；update 后向量索引同步
