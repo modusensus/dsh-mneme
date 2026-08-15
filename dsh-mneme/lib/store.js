@@ -426,6 +426,11 @@ export function createStore(path) {
     return db.prepare(`SELECT * FROM failure_memories ${where} ORDER BY created_at DESC, id LIMIT ? OFFSET ?`).all(...params, lim, off);
   }
 
+  /** Delete failure rows older than `before` (ISO string). Returns count removed. */
+  function deleteOldFailures(before) {
+    return db.prepare("DELETE FROM failure_memories WHERE created_at < ?").run(before).changes;
+  }
+
   function getFailureStats({ since } = {}) {
     const clause = since ? "WHERE created_at >= ?" : "";
     const params = since ? [since] : [];
@@ -459,6 +464,7 @@ export function createStore(path) {
     saveFailure,
     listFailures,
     getFailureStats,
+    deleteOldFailures,
     close() {
       db.close();
     }

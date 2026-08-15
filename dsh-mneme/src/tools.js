@@ -133,7 +133,8 @@ export function createTools(ctx, service, config, embedder) {
         content: { type: "string" },
         type: { type: "string", enum: ["preference", "project", "decision", "history"] },
         tags: { type: "array", items: { type: "string" } },
-        importance: { type: "integer", description: "1-5" }
+        importance: { type: "integer", description: "1-5" },
+        reason: { type: "string", description: "Optional context for the correction (what the user actually said/wanted), recorded for reflection" }
       },
       output: {
         schema: {
@@ -160,7 +161,7 @@ export function createTools(ctx, service, config, embedder) {
           type: args.type,
           tags: args.tags,
           importance: args.importance
-        });
+        }, { query: args.reason });
         return { memory: { id: memory.id, title: memory.title, content: memory.content } };
       }
     }),

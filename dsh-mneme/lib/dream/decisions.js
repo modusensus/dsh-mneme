@@ -30,6 +30,36 @@ export function validateDecisions(decisions, snapshot, options = {}) {
       errors.push(`${at}: ${d.action} needs non-empty ids`);
       continue;
     }
+    // update-specific field validation runs BEFORE claiming ids, so a failing
+    // update never pollutes the claimed set (which drives the "every id must
+    // appear in a decision" check below).
+    if (d.action === "update") {
+      // 只能更新单条
+      if (!Array.isArray(d.ids) || d.ids.length !== 1) {
+        errors.push(`${at}: update must target exactly one id`);
+        continue;
+      }
+      // 必须产生实际变化
+      const mem = snapshot.get(d.ids[0]);
+      const hasChange = (d.title !== undefined && d.title !== mem?.title)
+        || (d.content !== undefined && d.content !== mem?.content)
+        || (d.importance !== undefined && d.importance !== mem?.importance);
+      if (!hasChange) {
+        errors.push(`${at}: update must change at least one field`);
+        continue;
+      }
+      // 不能更新 summary
+      if (mem?.type === "summary") {
+        errors.push(`${at}: cannot update summary via update action`);
+        continue;
+      }
+      // 保护期：新建记忆不可立即被 update（可配置）
+      const ageHours = (Date.now() - new Date(mem?.created_at).getTime()) / 3600000;
+      if (ageHours < minAgeHours) {
+        errors.push(`${at}: memory too young (< ${minAgeHours}h)`);
+        continue;
+      }
+    }
     for (const id of ids) {
       const mem = snapshot.get(id);
       if (!mem) {
@@ -57,33 +87,6 @@ export function validateDecisions(decisions, snapshot, options = {}) {
       const mergeTypes = new Set(d.ids.map((id) => snapshot.get(id)?.type));
       if (mergeTypes.size > 1) {
         errors.push(`${at}: merge ids span multiple types (${[...mergeTypes].join(", ")})`);
-      }
-    }
-    if (d.action === "update") {
-      // 只能更新单条
-      if (!Array.isArray(d.ids) || d.ids.length !== 1) {
-        errors.push(`${at}: update must target exactly one id`);
-        continue;
-      }
-      // 必须产生实际变化
-      const mem = snapshot.get(d.ids[0]);
-      const hasChange = (d.title !== undefined && d.title !== mem?.title)
-        || (d.content !== undefined && d.content !== mem?.content)
-        || (d.importance !== undefined && d.importance !== mem?.importance);
-      if (!hasChange) {
-        errors.push(`${at}: update must change at least one field`);
-        continue;
-      }
-      // 不能更新 summary
-      if (mem?.type === "summary") {
-        errors.push(`${at}: cannot update summary via update action`);
-        continue;
-      }
-      // 保护期：新建记忆不可立即被 update（可配置）
-      const ageHours = (Date.now() - new Date(mem?.created_at).getTime()) / 3600000;
-      if (ageHours < minAgeHours) {
-        errors.push(`${at}: memory too young (< ${minAgeHours}h)`);
-        continue;
       }
     }
   }
