@@ -223,6 +223,45 @@ export function createStore(path) {
     db.prepare("DELETE FROM memories WHERE id = ?").run(id);
   }
 
+  /**
+   * Atomic compare-and-set update: applies `patch` only when the row still
+   * carries `expectedUpdatedAt` (the version token read by the caller). Returns
+   * the updated memory on success, or undefined when the row changed since the
+   * caller read it — the caller must re-read and retry. The version guard lives
+   * in the UPDATE's WHERE clause, so a concurrent read-modify-write across
+   * connections cannot silently overwrite a newer value (lost update).
+   */
+  function compareAndUpdate(id, expectedUpdatedAt, patch) {
+    const existing = getById(id);
+    if (!existing) throw new Error(`memory not found: ${id}`);
+    const type = patch.type ?? existing.type;
+    if (!TYPES.has(type)) throw new Error(`invalid memory type: ${type}`);
+    if (patch.tags !== undefined && !Array.isArray(patch.tags)) {
+      throw new Error("tags must be an array");
+    }
+    const now = nowIso();
+    const embedding = patch.embedding !== undefined
+      ? (Array.isArray(patch.embedding) && patch.embedding.length ? JSON.stringify(patch.embedding) : null)
+      : existing.embedding ?? null;
+    const result = db.prepare(
+      `UPDATE memories SET type=?, title=?, content=?, tags=?, importance=?, source=?, embedding=?, updated_at=?
+       WHERE id=? AND updated_at=?`
+    ).run(
+      type,
+      patch.title ?? existing.title,
+      patch.content ?? existing.content,
+      JSON.stringify(patch.tags ?? existing.tags),
+      Number.isInteger(patch.importance) ? patch.importance : existing.importance,
+      patch.source !== undefined ? patch.source : (existing.source ?? null),
+      embedding,
+      now,
+      id,
+      expectedUpdatedAt
+    );
+    if (result.changes === 0) return undefined; // CAS miss: a concurrent write won
+    return getById(id);
+  }
+
   function setForget(id, forgotten) {
     db.prepare("UPDATE memories SET forgotten = ?, updated_at = ? WHERE id = ?")
       .run(forgotten === true || forgotten === 1 ? 1 : 0, nowIso(), id);
@@ -457,6 +496,7 @@ export function createStore(path) {
     getById,
     save,
     update,
+    compareAndUpdate,
     remove,
     setForget,
     setArchived,

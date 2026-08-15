@@ -98,11 +98,12 @@ export function createTools(ctx, service, config, embedder) {
 
     defineTool({
       name: "memory_list",
-      description: "List memory entries by type, high-importance first, then newest, paginated.",
+      description: "List memory entries by type, high-importance first, then newest, paginated. Set include_archived=true to also list archived (hidden) entries so they can be located and restored.",
       parameters: {
         type: { type: "string", enum: ["preference", "project", "decision", "history"], description: "Filter by type; omit for all" },
         limit: { type: "integer", description: "Page size (default 50)" },
-        offset: { type: "integer", description: "Page offset (default 0)" }
+        offset: { type: "integer", description: "Page offset (default 0)" },
+        include_archived: { type: "boolean", description: "Include archived (hidden) entries so they can be found and restored (default false)" }
       },
       output: {
         schema: {
@@ -119,8 +120,14 @@ export function createTools(ctx, service, config, embedder) {
         render: (_args, value) => TEXT_OUTPUT(`${value.items.length} memory entries (of ${value.total}).`)
       },
       async execute(args) {
-        const rows = service.toApiList(service.list({ type: args.type, limit: args.limit ?? 50, offset: args.offset ?? 0 }));
-        return { items: rows, total: service.count(args.type) };
+        const includeArchived = args.include_archived === true;
+        const rows = service.toApiList(service.list({
+          type: args.type,
+          limit: args.limit ?? 50,
+          offset: args.offset ?? 0,
+          includeArchived
+        }));
+        return { items: rows, total: service.count(args.type, { includeArchived }) };
       }
     }),
 
@@ -219,6 +226,42 @@ export function createTools(ctx, service, config, embedder) {
         }
         const memory = service.setForget(args.id, args.forgotten ?? true);
         return { memory: { id: memory.id, forgotten: memory.forgotten } };
+      }
+    }),
+
+    defineTool({
+      name: "memory_archive",
+      description:
+        "Archive a memory (hide it from active lists, search, injection and dream consolidation) or restore it. " +
+        "Archived entries stay in storage and are recoverable: pass archived=false to restore, and use memory_list with " +
+        "include_archived=true to find archived entries.",
+      parameters: {
+        id: { type: "string", required: true, description: "Memory id" },
+        archived: { type: "boolean", description: "Archive (true, default) or restore (false) the entry" }
+      },
+      output: {
+        schema: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            memory: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                id: { type: "string", required: true },
+                archived: { type: "boolean", required: true }
+              }
+            }
+          }
+        },
+        render: (_args, value) => TEXT_OUTPUT(`Memory ${value.memory.id} ${value.memory.archived ? "archived" : "restored"}.`)
+      },
+      async execute(args) {
+        if (service.getById(args.id) === undefined) {
+          throw new Error("memory not found");
+        }
+        const memory = service.setArchived(args.id, args.archived ?? true);
+        return { memory: { id: memory.id, archived: memory.archived } };
       }
     })
   ];

@@ -92,10 +92,16 @@ export function createMirror(dir) {
         if (lastSep) body = body.slice(0, lastSep.index);
         body = body.trim();
 
+        // The machine-written "更新时间" line records the store's updated_at at
+        // render time — the version token for detecting a concurrent store write
+        // during a three-way merge of human edits (see service.syncMirror).
+        const block = text.slice(blockStart, blockEnd);
+        const updatedMatch = block.match(/- \*\*更新时间\*\*: ([^\n]+)/);
         edits.push({
           id: anchor[1],
           title: titleMatch ? unescape(titleMatch[1]).trim() : undefined,
-          content: body
+          content: body,
+          updated_at: updatedMatch ? updatedMatch[1].trim() : undefined
         });
 
         const lineEnd = text.indexOf("\n", blockStart);

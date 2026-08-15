@@ -215,7 +215,7 @@ test("replaying a recorded decision list is idempotent", async () => {
 
   // replay the exact recorded decision list → no-op (idempotent)
   const replayed = applyDecisions(run.decisions, service);
-  assert.equal(replayed, 0, "already-applied decisions re-apply nothing");
+  assert.equal(replayed.applied, 0, "already-applied decisions re-apply nothing");
   assert.equal(store.getById(a.id).archived, true);
   assert.equal(store.getById(b.id).content, store.getById(b.id).content);
   store.close();
@@ -240,4 +240,51 @@ test("re-applying a decision many times has no cumulative side effects", async (
   assert.equal(store.getById(m2.id).title, "甲乙", "keeper merged");
   assert.equal(store.getById(m1.id).archived, true, "merge source archived once");
   store.close();
+});
+
+// ---------------------------------------------------------------- reconcile (item ②)
+
+test("runDream records status reconcile, not a fake ok, when a target changed during the run", async () => {
+  const { store, service, dream } = setup();
+  const { memory: a } = service.saveWithDedupe({ type: "project", title: "旧", content: "A", importance: 3 });
+  const { memory: b } = service.saveWithDedupe({ type: "project", title: "新", content: "B", importance: 4 });
+  // The "LLM call" mutates a target while producing the decision list —
+  // simulating a concurrent human/agent edit inside the run window.
+  const ctx = mockCtx({
+    onConsolidation: () => {
+      service.update(b.id, { content: "并发编辑" });
+      return JSON.stringify([
+        { action: "merge", ids: [a.id, b.id], title: "合并", content: "合并内容", importance: 4, keepSource: b.id }
+      ]);
+    }
+  });
+  const result = await dream.runDream(ctx, service, {});
+  assert.equal(result.ok, false, "partial commit is not ok");
+  assert.equal(result.status, "reconcile", "explicit reconcile status");
+  assert.equal(result.applied, 0, "conflicting merge not applied");
+
+  const run = store.listDreamRuns()[0];
+  assert.equal(run.status, "reconcile", "audit row records reconcile");
+  assert.equal(run.applied, 0);
+  const parsed = parseReceipt(run.receipt);
+  assert.equal(parsed.status, "reconcile", "receipt records reconcile, never ok");
+  assert.equal(parsed.applied, 0);
+  // outcome is derived from what actually committed: the merge is NOT claimed
+  assert.equal(run.outcome.byId[b.id], undefined, "keeper not claimed as merge-keep");
+  assert.equal(run.outcome.byId[a.id], undefined, "source not claimed as merge-archived");
+  assert.equal(run.outcome.conflicts.length, 1, "conflict recorded in the audit row");
+  // the concurrent edit survived
+  assert.equal(store.getById(b.id).content, "并发编辑");
+  store.close();
+});
+
+test("buildOutcome over actually-committed sub-steps never claims a rolled-back merge", () => {
+  const committed = [
+    { action: "keep", ids: ["k"] },
+    { action: "merge", ids: ["m1", "m2"], keepSource: "m1", title: "t", content: "c" }
+  ];
+  const outcome = buildOutcome(committed);
+  assert.equal(outcome.byId.m1, "merge-keep");
+  assert.equal(outcome.byId.m2, "merge-archived");
+  assert.equal(outcome.byId.k, "keep");
 });

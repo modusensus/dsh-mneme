@@ -49,8 +49,11 @@ export const Config = z.object({
   hybridSearchKeywordWeight: z.number().min(0).max(1).default(0.4),
 
   // --- semantic: rerank layer (v0.2) --------------------------------------
-  rerankEnabled: z.boolean().default(true),
-  rerankProvider: z.union([z.const("local"), z.const("none")]).default("local"),
+  // Opt-in by default (item ⑥): the local cross-encoder pulls in onnxruntime
+  // (transformers.js) at init, so a bare install must not load it. Only an
+  // explicit rerankEnabled=true + rerankProvider="local" constructs LocalReranker.
+  rerankEnabled: z.boolean().default(false),
+  rerankProvider: z.union([z.const("local"), z.const("none")]).default("none"),
   rerankModel: z.string().default("Xenova/bge-reranker-base"),
   rerankBatchSize: z.natural().min(1).max(64).default(8),
   rerankMaxCandidates: z.natural().min(5).max(100).default(30),

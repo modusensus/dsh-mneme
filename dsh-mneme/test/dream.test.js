@@ -136,7 +136,7 @@ test("applyDecisions merges: keepSource updated, others archived", () => {
   const { store, service } = dreamSetup();
   const { memory: a } = service.saveWithDedupe({ type: "project", title: "插件", content: "旧", importance: 3 });
   const { memory: b } = service.saveWithDedupe({ type: "project", title: "插件2", content: "新细节", importance: 4 });
-  const applied = applyDecisions([
+  const { applied } = applyDecisions([
     { action: "merge", ids: [a.id, b.id], title: "插件总览", content: "合并内容", importance: 5, keepSource: b.id }
   ], service);
   assert.equal(applied, 1);
@@ -173,7 +173,7 @@ test("applyDecisions archive and keep", () => {
 test("applyDecisions returns count and never throws on unknown id (skip)", () => {
   const { store, service } = dreamSetup();
   const { memory: k } = service.saveWithDedupe({ type: "preference", title: "语言", content: "中文" });
-  const applied = applyDecisions([{ action: "archive", ids: ["ghost"], reason: "x" }], service);
+  const { applied } = applyDecisions([{ action: "archive", ids: ["ghost"], reason: "x" }], service);
   assert.equal(applied, 0);
   assert.equal(store.getById(k.id).archived, false);
 });
@@ -191,11 +191,12 @@ test("applyDecisions catch path: throwing decision is skipped, logged, and later
   };
   const warnings = [];
   const logger = { warn: (msg) => warnings.push(msg) };
-  const applied = applyDecisions([
+  const { applied, failures } = applyDecisions([
     { action: "archive", ids: [a.id], reason: "x" },
     { action: "archive", ids: [b.id], reason: "y" }
   ], service, logger);
   assert.equal(applied, 1, "throwing decision not counted, surviving decision counted");
+  assert.equal(failures.length, 1, "thrown decision reported as a failure");
   assert.equal(store.getById(a.id).archived, false, "throwing decision left no partial effect");
   assert.equal(store.getById(b.id).archived, true, "later decision still applied");
   assert.equal(warnings.length, 1, "logger called once");
@@ -205,7 +206,7 @@ test("applyDecisions catch path: throwing decision is skipped, logged, and later
 test("applyDecisions conflict with missing loser skips cleanly", () => {
   const { store, service } = dreamSetup();
   const { memory: w } = service.saveWithDedupe({ type: "decision", title: "截止", content: "8月20日", importance: 4 });
-  const applied = applyDecisions([{ action: "conflict", winner: w.id, loser: "ghost", reason: "x" }], service);
+  const { applied } = applyDecisions([{ action: "conflict", winner: w.id, loser: "ghost", reason: "x" }], service);
   assert.equal(applied, 0);
   assert.equal(store.getById(w.id).archived, false, "winner untouched");
   assert.ok(!store.getById(w.id).content.includes("已否决"), "no provenance note appended");
@@ -213,7 +214,7 @@ test("applyDecisions conflict with missing loser skips cleanly", () => {
 
 test("applyDecisions merge with missing keeper skips cleanly", () => {
   const { store, service } = dreamSetup();
-  const applied = applyDecisions([
+  const { applied } = applyDecisions([
     { action: "merge", ids: ["ghost"], keepSource: "ghost", title: "t", content: "c" }
   ], service);
   assert.equal(applied, 0);
@@ -224,7 +225,7 @@ test("applyDecisions merge without importance falls back to max source importanc
   const { store, service } = dreamSetup();
   const { memory: a } = service.saveWithDedupe({ type: "project", title: "插件", content: "旧", importance: 3 });
   const { memory: b } = service.saveWithDedupe({ type: "project", title: "插件2", content: "新细节", importance: 4 });
-  const applied = applyDecisions([
+  const { applied } = applyDecisions([
     { action: "merge", ids: [a.id, b.id], title: "插件总览", content: "合并内容", keepSource: b.id }
   ], service);
   assert.equal(applied, 1);
@@ -447,5 +448,79 @@ test("runDream fails safe on invalid decisions", async () => {
   assert.equal(lang.archived, false, "original memory not archived");
   assert.equal(lang.content, "中文", "original memory content untouched");
   assert.ok(warnings.length >= 1, "failure was logged");
+  store.close();
+});
+
+// --- item ①: CAS guard against concurrent edits ----------------------------
+
+test("applyDecisions CAS: merge onto a concurrently-edited target is skipped as a conflict, not applied", () => {
+  const { store, service } = dreamSetup();
+  const { memory: a } = service.saveWithDedupe({ type: "project", title: "插件", content: "旧", importance: 3 });
+  const { memory: b } = service.saveWithDedupe({ type: "project", title: "插件2", content: "新细节", importance: 4 });
+  // snapshot captured before the "LLM call"; a concurrent edit lands meanwhile
+  const snapshot = new Map([a.id, b.id].map((id) => [id, store.getById(id)]));
+  service.update(a.id, { content: "并发编辑" });
+  const { applied, conflicts, committed } = applyDecisions([
+    { action: "merge", ids: [a.id, b.id], title: "插件总览", content: "合并内容", importance: 5, keepSource: b.id }
+  ], service, null, snapshot);
+  assert.equal(applied, 0, "decision skipped entirely");
+  assert.equal(conflicts.length, 1, "recorded as a CAS conflict");
+  assert.equal(committed.length, 0, "nothing committed");
+  assert.equal(store.getById(a.id).content, "并发编辑", "concurrent edit preserved");
+  assert.equal(store.getById(b.id).archived, false, "source not archived");
+  assert.equal(store.getById(b.id).title, "插件2", "keeper untouched");
+  store.close();
+});
+
+test("applyDecisions CAS: update to a concurrently-edited memory is skipped as a conflict", () => {
+  const { store, service } = dreamSetup();
+  const { memory: m } = service.saveWithDedupe({ type: "preference", title: "语言", content: "喜欢 Python" });
+  const snapshot = new Map([[m.id, store.getById(m.id)]]);
+  service.update(m.id, { content: "并发改动" });
+  const { applied, conflicts } = applyDecisions(
+    [{ action: "update", ids: [m.id], content: "喜欢 Rust" }],
+    service, null, snapshot
+  );
+  assert.equal(applied, 0);
+  assert.equal(conflicts.length, 1);
+  assert.equal(store.getById(m.id).content, "并发改动", "concurrent edit wins");
+  store.close();
+});
+
+test("applyDecisions without a snapshot skips the CAS guard (replay path unchanged)", () => {
+  const { store, service } = dreamSetup();
+  const { memory: a } = service.saveWithDedupe({ type: "project", title: "插件", content: "旧", importance: 3 });
+  service.update(a.id, { content: "并发编辑" }); // concurrent edit
+  const { applied, conflicts } = applyDecisions([
+    { action: "archive", ids: [a.id], reason: "x" }
+  ], service);
+  assert.equal(applied, 1, "snapshotless replay applies (no CAS guard)");
+  assert.equal(conflicts.length, 0);
+  assert.equal(store.getById(a.id).archived, true);
+  store.close();
+});
+
+// --- item ②: per-decision transaction atomicity ----------------------------
+
+test("applyDecisions merge is atomic: a throwing archive step rolls back the keeper update too", () => {
+  const { store, service } = dreamSetup();
+  const { memory: a } = service.saveWithDedupe({ type: "project", title: "甲", content: "旧甲", importance: 3 });
+  const { memory: b } = service.saveWithDedupe({ type: "project", title: "乙", content: "旧乙", importance: 4 });
+  const originalSetArchived = service.setArchived;
+  service.setArchived = (id, archived) => {
+    if (id === a.id) throw new Error("archive boom");
+    return originalSetArchived.call(service, id, archived);
+  };
+  const warnings = [];
+  const { applied, failures, committed } = applyDecisions([
+    { action: "merge", ids: [a.id, b.id], title: "甲乙", content: "合并", importance: 4, keepSource: b.id }
+  ], service, { warn: (m) => warnings.push(m) });
+  assert.equal(applied, 0, "merge not committed");
+  assert.equal(failures.length, 1, "reported as a failure");
+  assert.equal(committed.length, 0, "outcome must not claim a merge that rolled back");
+  assert.equal(store.getById(b.id).title, "乙", "keeper title untouched by the rolled-back update");
+  assert.equal(store.getById(b.id).content, "旧乙", "keeper content untouched");
+  assert.equal(store.getById(a.id).archived, false, "source not archived");
+  assert.ok(warnings.length >= 1, "failure logged");
   store.close();
 });

@@ -155,3 +155,44 @@ test("write methods invoke onWrite hook when provided", () => {
   svc.setArchived(svc.all()[0].id, true);
   assert.equal(called, 2, "setArchived does not hook (not a content write)");
 });
+
+// --- transactions (item ②) + compare-and-set (item ①/③) --------------------
+
+test("service.transaction rolls back every step when the body throws", () => {
+  const { store, service } = setup();
+  let threw = false;
+  try {
+    service.transaction(() => {
+      service.saveWithDedupe({ type: "project", title: "原子A", content: "x" });
+      service.saveWithDedupe({ type: "project", title: "原子B", content: "y" });
+      throw new Error("boom");
+    });
+  } catch { threw = true; }
+  assert.equal(threw, true, "error propagates");
+  assert.equal(store.count(), 0, "no partial writes after rollback");
+  assert.ok(!store.all().some((m) => m.title === "原子A"), "step A rolled back");
+  assert.ok(!store.all().some((m) => m.title === "原子B"), "step B rolled back");
+  store.close();
+});
+
+test("service.transaction commits all steps atomically on success", () => {
+  const { store, service } = setup();
+  service.transaction(() => {
+    service.saveWithDedupe({ type: "project", title: "甲", content: "x" });
+    service.saveWithDedupe({ type: "project", title: "乙", content: "y" });
+  });
+  assert.equal(store.count(), 2, "both steps committed");
+  store.close();
+});
+
+test("service.compareAndUpdate rejects a stale version token (no lost update)", () => {
+  const { store, service } = setup();
+  const { memory: m } = service.saveWithDedupe({ type: "history", title: "计数器", content: "count=0" });
+  const baseline = service.getById(m.id);
+  const first = service.compareAndUpdate(m.id, baseline.updated_at, { content: "count=1" });
+  assert.ok(first, "current version CAS succeeds");
+  const stale = service.compareAndUpdate(m.id, baseline.updated_at, { content: "count=2" });
+  assert.equal(stale, undefined, "stale version CAS misses without writing");
+  assert.equal(service.getById(m.id).content, "count=1", "increment not lost");
+  store.close();
+});

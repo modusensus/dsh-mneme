@@ -173,8 +173,8 @@ dsh web
 | `vectorSearchThreshold` | `0.65` | 向量搜索相似度阈值 |
 | `hybridSearchVectorWeight` | `0.6` | 混合搜索向量权重 |
 | `hybridSearchKeywordWeight` | `0.4` | 混合搜索关键词权重 |
-| `rerankEnabled` | `true` | 是否启用 Rerank 精排 |
-| `rerankProvider` | `local` | Rerank 后端：`local` / `none` |
+| `rerankEnabled` | `false` | 是否启用 Rerank 精排（显式开启才加载本地 onnxruntime 模型） |
+| `rerankProvider` | `none` | Rerank 后端：`local` / `none`（默认 `none`） |
 | `rerankModel` | `Xenova/bge-reranker-base` | Rerank 交叉编码模型 |
 | `rerankBatchSize` | `8` | Rerank 批大小 |
 | `rerankMaxCandidates` | `30` | Rerank 最大候选数 |
