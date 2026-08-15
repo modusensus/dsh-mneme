@@ -98,7 +98,7 @@ npm run sync      # src → lib 同步（发布时自动执行）
 
 | 版本 | 核心主题 | 一句话 | 实施周期 |
 |------|---------|--------|---------|
-| **v0.2.1** | 反思更新 | `update` 决策 + `failure_memories` 表 | 2-3 天 |
+| **v0.2.1** | 反思更新 | ✅ 已完成（update 决策 + failure_memories 表，212 测试） | — |
 | **v0.2.2** | 流水线补全 | 补测试 + reranker/clustering 专项覆盖 | 2-3 天 |
 | **v0.2.3** | 轻量结构化 | 实体注释标记（零 schema 变更，验证可行性） | 2-3 天 |
 | **v0.3.0** | 记忆基因 | 正式 entities/attrs/relations 三表 + 时间轴 | 1 周 |
@@ -193,7 +193,7 @@ npm run sync      # src → lib sync (runs automatically on publish)
 
 | Version | Core theme | One-liner | Timeline |
 |---------|------------|-----------|----------|
-| **v0.2.1** | Reflection update | `update` decision + `failure_memories` table | 2-3 days |
+| **v0.2.1** | Reflection update | ✅ Done (update decision + failure_memories, 212 tests) | — |
 | **v0.2.2** | Pipeline completion | Tests + reranker/clustering coverage | 2-3 days |
 | **v0.2.3** | Lightweight structure | Entity comment markers (zero schema change, feasibility check) | 2-3 days |
 | **v0.3.0** | Memory genome | Formal entities/attrs/relations tables + timeline | 1 week |
