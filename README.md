@@ -100,7 +100,8 @@ npm run sync      # src → lib 同步（发布时自动执行）
 |------|---------|--------|---------|
 | **v0.2.1** | 反思更新 | ✅ 已完成（update 决策 + failure_memories 表，236 测试） | — |
 | **v0.2.2** | 流水线补全 | ✅ 已完成（专项测试 + 审查修复，236 测试） | — |
-| **v0.2.4** | 轻量结构化 | 实体注释标记（零 schema 变更，验证可行性） | 2-3 天 |
+| **v0.2.4** | 安全加固 | ✅ 已完成（API 鉴权 apiToken + apiKey 掩码 + timing-safe，236 测试） | — |
+| **v0.2.5** | 轻量结构化 | 实体注释标记（零 schema 变更，验证可行性） | 2-3 天 |
 | **v0.3.0** | 记忆基因 | 正式 entities/attrs/relations 三表 + 时间轴 | 1 周 |
 | **v0.3.1** | 系统级睡眠 | Sleep 调度器 + 分层压缩 + 模式发现 | 3-5 天 |
 | **v0.4.0** | 反思性成长 | 纠错双向回流 + 规则演进 + 自适应参数 | 1-2 周 |
@@ -195,7 +196,8 @@ npm run sync      # src → lib sync (runs automatically on publish)
 |---------|------------|-----------|----------|
 | **v0.2.1** | Reflection update | ✅ Done (update decision + failure_memories, 236 tests) | — |
 | **v0.2.2** | Pipeline completion | ✅ Done (specialized tests + review fixes, 236 tests) | — |
-| **v0.2.4** | Lightweight structure | Entity comment markers (zero schema change, feasibility check) | 2-3 days |
+| **v0.2.4** | Security hardening | ✅ Done (API auth apiToken + apiKey masking + timing-safe, 236 tests) | — |
+| **v0.2.5** | Lightweight structure | Entity comment markers (zero schema change, feasibility check) | 2-3 days |
 | **v0.3.0** | Memory genome | Formal entities/attrs/relations tables + timeline | 1 week |
 | **v0.3.1** | System-level sleep | Sleep scheduler + tiered compression + pattern discovery | 3-5 days |
 | **v0.4.0** | Reflective growth | Correction feedback loop + rule evolution + adaptive params | 1-2 weeks |
