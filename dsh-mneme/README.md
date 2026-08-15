@@ -158,16 +158,31 @@ dsh web
 | `dreamThresholdChars` | `5000` | 触发整理的总字符阈值 |
 | `dreamDelayMs` | `2000` | 整理异步延迟（去抖） |
 | `dreamProvider` / `dreamModel` | 空 | dream 的 LLM 路由回退（默认用 agent 默认模型） |
+| `dreamMaxTokens` | `4096` | dream LLM 调用最大 token 数 |
+| `apiToken` | 空 | 可选 API 鉴权 token；设置后写操作与密钥接口要求 `Authorization: Bearer <apiToken>` |
 | `embedProvider` | `openai` | 语义后端：`openai`（默认，兼容 v0.1）/ `local`（ONNX 离线）/ `ollama` |
 | `localEmbedModel` | `Xenova/bge-small-zh-v1.5` | 本地 ONNX embedding 模型 |
 | `localEmbedDimension` | `512` | 本地 embedding 向量维度 |
+| `localEmbedDevice` | `cpu` | 本地推理设备：`cpu` / `gpu` |
 | `localEmbedBatchSize` | `8` | 本地 embedding 批大小（1-64） |
 | `ollamaBaseUrl` | `http://localhost:11434` | Ollama 服务地址 |
 | `ollamaModel` | `nomic-embed-text` | Ollama embedding 模型 |
+| `embedModelCacheDir` | 空 | 模型缓存目录（空 = transformers 默认缓存） |
+| `embedModelMirror` | `https://hf-mirror.com` | 模型下载镜像源 |
+| `vectorSearchTopK` | `20` | 向量搜索返回 Top-K |
+| `vectorSearchThreshold` | `0.65` | 向量搜索相似度阈值 |
+| `hybridSearchVectorWeight` | `0.6` | 混合搜索向量权重 |
+| `hybridSearchKeywordWeight` | `0.4` | 混合搜索关键词权重 |
 | `rerankEnabled` | `true` | 是否启用 Rerank 精排 |
+| `rerankProvider` | `local` | Rerank 后端：`local` / `none` |
 | `rerankModel` | `Xenova/bge-reranker-base` | Rerank 交叉编码模型 |
+| `rerankBatchSize` | `8` | Rerank 批大小 |
+| `rerankMaxCandidates` | `30` | Rerank 最大候选数 |
 | `rerankScoreThreshold` | `0.1` | Rerank 分数阈值（低于丢弃） |
-| `apiToken` | 空 | 可选 API 鉴权 token；设置后写操作与密钥接口要求 `Authorization: Bearer <apiToken>` |
+| `reflectionUpdateEnabled` | `true` | update 决策总开关 |
+| `reflectionFailureTracking` | `true` | 失败追踪总开关 |
+| `reflectionUpdateMaxPerRun` | `2` | 每次整理最多 update 数 |
+| `reflectionUpdateMinAgeHours` | `24` | 新建记忆保护期（小时） |
 
 > 🔐 **API 安全**：DSH 无内置鉴权且默认仅监听 `127.0.0.1`。插件 API 默认开放（便于 Web 面板即装即用）。如需防护（如局域网暴露），在配置中设置 `apiToken`：写操作（画像/规则/命令）与密钥端点（`vector-config`、`vector-reindex`）需携带 `Authorization: Bearer <token>`（前端设置面板可填入同一 token），只读的 `list` / `search` / `semantic` 保持开放。`/api/dsh-mneme/vector-config` 返回的 `apiKey` 已掩码（`sk-***…`），存储仍保留明文供调用；前端回传空或掩码值表示"不改 key"。
 
@@ -225,7 +240,6 @@ npm run sync       # 把 src/ 同步到 lib/（发布时由 prepack 钩子自动
 
 > 压测（`npm run stress`）三条轴线：**长会话检索**（Recall@k、陈旧残留率）、**冲突裁决**（可重放仲裁集：审计快照 hash + receipt + 幂等回放）、**多 Agent 并发**（丢更新、重复合并、事务/崩溃恢复）。每次 autoDream 运行都会写入审计表 `dream_runs`（输入快照 digest + 决策清单 + 逐 id 去向 + receipt），让高通过率下也能定位静默错误。
 
-> 注：`npm test` 使用 `--test-isolation=none` 适配受限沙箱；普通环境可直接 `node --test`。
 > `lib/` 是 `src/` 的同步分发产物（`npm run sync`），其中 `lib/client.js` 为手写 Web 面板源码，不受同步影响。
 
 ## 📄 设计文档

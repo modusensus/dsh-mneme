@@ -1,4 +1,5 @@
 import { URL } from "node:url";
+import { timingSafeEqual } from "node:crypto";
 
 function sendJson(res, status, payload) {
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
@@ -21,7 +22,10 @@ function isAuthorized(req, apiToken) {
   if (!apiToken) return true;
   const raw = req.headers?.authorization ?? req.headers?.["x-dsh-mneme-token"] ?? "";
   const token = raw.startsWith("Bearer ") ? raw.slice(7).trim() : raw.trim();
-  return token !== "" && token === apiToken;
+  if (token === "" || token.length !== apiToken.length) return false;
+  // Constant-time comparison: avoid leaking the token via timing when the API
+  // is exposed beyond loopback.
+  return timingSafeEqual(Buffer.from(token), Buffer.from(apiToken));
 }
 
 /**
@@ -188,12 +192,15 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
         if (req.method === "PUT" || req.method === "POST") {
           return readBody(req).then((text) => {
             const body = parseBody(text);
-            // An empty or masked apiKey means "keep the existing one": the
-            // client only sends a real key when the user actually changed it.
+            // An empty apiKey, or one that already looks masked (round-trips
+            // through maskApiKey unchanged), means "keep the existing key".
+            // Only a fresh, unmasked key is treated as a real replacement.
             const prev = settings.getVectorConfig();
-            const key = typeof body.apiKey === "string" && body.apiKey.trim() && !body.apiKey.includes("***")
-              ? body.apiKey.trim()
-              : (prev?.apiKey ?? "");
+            const incoming = typeof body.apiKey === "string" ? body.apiKey.trim() : "";
+            const isMaskedOrEmpty = incoming === "" || maskApiKey(incoming) === incoming;
+            const key = isMaskedOrEmpty
+              ? (prev?.apiKey ?? "")
+              : incoming;
             const cfg = settings.setVectorConfig({
               enabled: body.enabled,
               baseUrl: body.baseUrl,
