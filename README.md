@@ -90,6 +90,19 @@ npm run sync      # src → lib 同步（发布时自动执行）
 | 实施计划（核心插件） | [docs/superpowers/plans/2026-08-13-dsh-memory.md](docs/superpowers/plans/2026-08-13-dsh-memory.md) |
 | 实施计划（autoDream） | [docs/superpowers/plans/2026-08-13-dsh-memory-autodream.md](docs/superpowers/plans/2026-08-13-dsh-memory-autodream.md) |
 
+## 🗺️ 未来版本展望 · Roadmap
+
+> 计划基于社区反馈持续演进，实施周期为估算值。
+
+| 版本 | 内容 | 实施周期 |
+|------|------|---------|
+| **v0.2.1** | autoDream 自我反思：新增 `update` 决策类型 + 安全门控，让整理不仅能合并/归档，还能自我修正 | 3-5 天 |
+| **v0.2.2** | api.js 对接新语义流水线 + 测试补全 | 2-3 天 |
+| **v0.2.3** | 记忆活跃度与自动衰减：被召回多的记忆 importance 上升，长期不用的自动 archive | 1-2 天 |
+| **v0.3.0** | 轻量级知识图谱：实体关系提取 + 跨记忆查询 | 待评估 |
+| **v0.4.0** | 多 Workspace 隔离与协作（等 DSH 支持后） | 待评估 |
+| **v0.5.0** | 自进化记忆策略：用户反馈闭环 + 兴趣漂移分析 | 待评估 |
+
 ## 📜 License
 
 MIT
@@ -168,6 +181,19 @@ npm run sync      # src → lib sync (runs automatically on publish)
 | autoDream design | [docs/superpowers/specs/2026-08-13-dsh-mneme-autodream-design.md](docs/superpowers/specs/2026-08-13-dsh-mneme-autodream-design.md) |
 | Implementation plan (core) | [docs/superpowers/plans/2026-08-13-dsh-memory.md](docs/superpowers/plans/2026-08-13-dsh-memory.md) |
 | Implementation plan (autoDream) | [docs/superpowers/plans/2026-08-13-dsh-memory-autodream.md](docs/superpowers/plans/2026-08-13-dsh-memory-autodream.md) |
+
+## 🗺️ Roadmap
+
+> Plans evolve with community feedback; timelines are estimates.
+
+| Version | Scope | Timeline |
+|---------|-------|----------|
+| **v0.2.1** | autoDream self-reflection: new `update` decision type + safety gating — consolidation can not only merge/archive but self-correct | 3-5 days |
+| **v0.2.2** | Wire api.js to the new semantic pipeline + test coverage | 2-3 days |
+| **v0.2.3** | Memory activity & automatic decay: frequently-recalled memories gain importance, long-idle ones auto-archive | 1-2 days |
+| **v0.3.0** | Lightweight knowledge graph: entity-relation extraction + cross-memory query | TBD |
+| **v0.4.0** | Multi-Workspace isolation & collaboration (once DSH supports it) | TBD |
+| **v0.5.0** | Self-evolving memory strategy: user feedback loop + interest drift analysis | TBD |
 
 ## 📜 License
 
