@@ -94,13 +94,15 @@ npm run sync      # src → lib 同步（发布时自动执行）
 
 > 计划基于社区反馈持续演进，实施周期为估算值。
 
-| 版本 | 代号 | 内容 | 实施周期 |
-|------|------|------|---------|
-| **v0.2.1** | `reflection` | update 决策 + failure 追踪 + 配置开关系统 | 2-3 天 |
-| **v0.2.2** | `entity` | 轻量实体抽取（`<!-- dsh-mneme-meta -->` 注释标记） | 2-3 天 |
-| **v0.2.3** | `sleep` | 睡眠模式（凌晨归档降级 + 定时整理） | 2-3 天 |
-| **v0.3.0** | `structure` | 注释标记迁移到正式三表（entities / attrs / relations） | 2-3 天 |
-| **v0.3.1** | `evolution` | 反思回流（从 failure 提取规律，自动调参） | 2-3 天 |
+| 版本 | 核心主题 | 一句话 | 实施周期 |
+|------|---------|--------|---------|
+| **v0.2.1** | 反思更新 | `update` 决策 + `failure_memories` 表 | 2-3 天 |
+| **v0.2.2** | 流水线补全 | 补测试 + reranker/clustering 专项覆盖 | 2-3 天 |
+| **v0.2.3** | 轻量结构化 | 实体注释标记（零 schema 变更，验证可行性） | 2-3 天 |
+| **v0.3.0** | 记忆基因 | 正式 entities/attrs/relations 三表 + 时间轴 | 1 周 |
+| **v0.3.1** | 系统级睡眠 | Sleep 调度器 + 分层压缩 + 模式发现 | 3-5 天 |
+| **v0.4.0** | 反思性成长 | 纠错双向回流 + 规则演进 + 自适应参数 | 1-2 周 |
+| **v0.5.0+** | 自进化记忆 | 兴趣漂移 + 跨 workspace（等 DSH 支持） | 远期 |
 
 ## 📜 License
 
@@ -185,13 +187,15 @@ npm run sync      # src → lib sync (runs automatically on publish)
 
 > Plans evolve with community feedback; timelines are estimates.
 
-| Version | Codename | Scope | Timeline |
-|---------|----------|-------|----------|
-| **v0.2.1** | `reflection` | `update` decision + failure tracking + config toggle system | 2-3 days |
-| **v0.2.2** | `entity` | Lightweight entity extraction (`<!-- dsh-mneme-meta -->` comment markers) | 2-3 days |
-| **v0.2.3** | `sleep` | Sleep mode (late-night archive degradation + scheduled consolidation) | 2-3 days |
-| **v0.3.0** | `structure` | Migrate comment markers to formal three tables (entities / attrs / relations) | 2-3 days |
-| **v0.3.1** | `evolution` | Reflection loop (extract patterns from failures, auto-tune params) | 2-3 days |
+| Version | Core theme | One-liner | Timeline |
+|---------|------------|-----------|----------|
+| **v0.2.1** | Reflection update | `update` decision + `failure_memories` table | 2-3 days |
+| **v0.2.2** | Pipeline completion | Tests + reranker/clustering coverage | 2-3 days |
+| **v0.2.3** | Lightweight structure | Entity comment markers (zero schema change, feasibility check) | 2-3 days |
+| **v0.3.0** | Memory genome | Formal entities/attrs/relations tables + timeline | 1 week |
+| **v0.3.1** | System-level sleep | Sleep scheduler + tiered compression + pattern discovery | 3-5 days |
+| **v0.4.0** | Reflective growth | Correction feedback loop + rule evolution + adaptive params | 1-2 weeks |
+| **v0.5.0+** | Self-evolving memory | Interest drift + cross-workspace (when DSH supports it) | Long-term |
 
 ## 📜 License
 
