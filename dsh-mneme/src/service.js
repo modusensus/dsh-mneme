@@ -51,12 +51,32 @@ export function createService({ store, mirror, config, onWrite }) {
    * useRerank runs the cross-encoder over the merged list when a reranker is
    * installed; results carry an extra `score` when reranked.
    */
+  // Weighted blend factor for hybrid search; exposed so callers can tune it.
+  const DEFAULT_HYBRID_WEIGHTS = { vector: 0.6, keyword: 0.4 };
+
+  /**
+   * Give a keyword-hit row a relevance score in [0,1]: title hits score
+   * higher than content hits, then scaled by importance (1-5). This lets
+   * keyword results participate in weighted hybrid blends.
+   */
+  function scoreKeyword(row, q) {
+    const ql = q.toLowerCase();
+    const title = (row.title ?? "").toLowerCase();
+    const content = (row.content ?? "").toLowerCase();
+    const titleHit = title.includes(ql);
+    const base = titleHit ? 1 : content.includes(ql) ? 0.6 : 0.3;
+    return base * (0.5 + (row.importance ?? 3) / 10);
+  }
+
   async function searchMemories(query, { mode = "auto", topK = 20, threshold, useRerank = true } = {}) {
     const q = String(query ?? "").trim();
     if (!q) return [];
     const lim = topK > 0 ? topK : 20;
 
-    const keyword = store.search(q, { limit: lim });
+    // Keyword results, decorated with a score so they can be weight-blended
+    // with vector results and reported uniformly.
+    const rawKeyword = store.search(q, { limit: lim });
+    const keyword = rawKeyword.map((m) => ({ ...m, score: scoreKeyword(m, q) }));
     const wantVector = mode === "vector" || mode === "hybrid" || (mode === "auto" && !!embedder);
     let vector = [];
     if (wantVector && embedder) {
@@ -67,23 +87,44 @@ export function createService({ store, mirror, config, onWrite }) {
           : embedder.embed.bind(embedder);
         const qv = await embedSingle(q);
         if (qv?.length) {
-          vector = vectorIndex
+          const hits = vectorIndex
             ? vectorIndex.search(qv, { limit: lim * 2, threshold: threshold ?? 0 })
             : store.searchVector(qv, { limit: lim * 2, threshold: threshold ?? 0 });
+          vector = hits.map((m) => ({ ...m, vector: true }));
         }
       } catch { /* vector unavailable: keep keyword results */ }
     }
+
+    // Hybrid blending weights from config when provided.
+    const wv = config?.hybridSearchVectorWeight ?? DEFAULT_HYBRID_WEIGHTS.vector;
+    const wk = config?.hybridSearchKeywordWeight ?? DEFAULT_HYBRID_WEIGHTS.keyword;
 
     let merged;
     if (mode === "keyword") {
       merged = keyword;
     } else if (mode === "vector" || mode === "hybrid") {
-      // semantic-first: vector recalls lead, keyword fills remaining slots
-      merged = vector.length ? vector.slice(0, lim) : keyword;
-      const seen = new Set(merged.map((m) => m.id));
+      // semantic-first: vector recalls lead, keyword fills remaining slots.
+      // Weighted blend when both sides scored the same memory; otherwise
+      // vector order leads (it is the semantic signal), keyword backfills.
+      const byId = new Map();
+      for (const m of vector) {
+        const rec = byId.get(m.id);
+        byId.set(m.id, rec ? { ...rec, score: Math.max(rec.score ?? 0, m.score ?? 0) } : m);
+      }
       for (const m of keyword) {
-        if (merged.length >= lim) break;
-        if (!seen.has(m.id)) { seen.add(m.id); merged.push(m); }
+        const rec = byId.get(m.id);
+        if (rec) {
+          // Same memory from both sides: blend the scores.
+          byId.set(m.id, { ...rec, score: (rec.score ?? 0) * wv + (m.score ?? 0) * wk });
+        } else {
+          byId.set(m.id, m);
+        }
+      }
+      const ranked = [...byId.values()].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+      merged = ranked.slice(0, lim);
+      if (merged.length < lim && !merged.length) {
+        // Vector unavailable entirely: fall back to plain keyword.
+        merged = keyword.slice(0, lim);
       }
     } else {
       // auto: keyword leads, vector fills remaining slots (legacy behavior)
