@@ -74,6 +74,7 @@ export class LocalReranker {
     this.pipeline = null;
     this._batchScorer = null;
     this._queryVec = null;
+    this._queryKey = null;
   }
 
   /** Load the model; throws when no strategy can be bound. */
@@ -140,10 +141,15 @@ export class LocalReranker {
     } else {
       // Feature extraction: mean-pool the concatenated pair and compare with
       // the query embedding via cosine. Degraded but model-agnostic.
+      // The query vector is cached per query string, so a new query always
+      // recomputes it instead of reusing a stale vector from the previous call.
+      this._queryVec = null;
+      this._queryKey = null;
       this._batchScorer = async (query, passages) => {
-        if (!this._queryVec) {
+        if (this._queryKey !== query) {
           const t = await this.pipeline([query], { pooling: "mean", normalize: true });
           this._queryVec = tensorToRows(t)[0];
+          this._queryKey = query;
         }
         const t = await this.pipeline(passages.map((p) => `${query}\n${p}`), {
           pooling: "mean",
@@ -199,5 +205,6 @@ export class LocalReranker {
     }
     this.pipeline = null;
     this._queryVec = null;
+    this._queryKey = null;
   }
 }

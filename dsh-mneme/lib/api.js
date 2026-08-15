@@ -26,6 +26,13 @@ function parseBody(text) {
 export function createApi(ctx, service, settings, commands, embedder, semantic = null) {
   const disposers = [];
 
+  // Ensure the service has an embedder when the API layer was handed one
+  // (tests wire the embedder through the API instead of index.js). Without
+  // this, /api/dsh-mneme/search would silently degrade to keyword-only.
+  if (embedder && typeof service.setEmbedder === "function") {
+    service.setEmbedder(embedder);
+  }
+
   const register = (route) => {
     disposers.push(ctx.webServer.register(route));
   };
@@ -66,58 +73,24 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
         const limit = Number(url.searchParams.get("limit") ?? 20);
         // mode: auto (default) | keyword | vector | hybrid
         const mode = url.searchParams.get("mode") ?? "auto";
+        const rerank = url.searchParams.get("rerank") !== "false";
         const query = q.trim();
         if (!query) {
           sendJson(res, 200, { items: [], mode: "keyword" });
           return;
         }
-        // Keyword results (existing behavior) always computed; used as a
-        // fallback and as the primary ranking when vector is unavailable.
-        const keyword = service.toApiList(service.search(query, { limit }));
-        if (mode === "keyword" || !embedder) {
-          sendJson(res, 200, { items: keyword, mode: "keyword" });
-          return;
-        }
-        const cfg = settings.getVectorConfig();
-        if (mode === "vector" && !cfg?.enabled) {
-          sendJson(res, 200, { items: keyword, mode: "keyword", error: "vector-disabled" });
-          return;
-        }
-        // Try vector search; on any failure fall back to keyword results.
-        return embedder.embed(query).then(async (vector) => {
-          let items = keyword;
-          let used = "keyword";
-          if (vector) {
-            const scored = service.toApiList(service.searchVector(vector, { limit }));
-            if (mode === "hybrid") {
-              // hybrid: vector recalls lead, keyword fills remaining slots
-              const seen = new Set(scored.map((m) => m.id));
-              const merged = [...scored.slice(0, limit)];
-              for (const m of keyword) {
-                if (merged.length >= limit) break;
-                if (!seen.has(m.id)) { seen.add(m.id); merged.push(m); }
-              }
-              items = merged;
-              used = "vector";
-            } else {
-              // auto/vector: keyword exact hits first (the user's literal
-              // words), then vector results fill the remaining slots, deduped.
-              const seen = new Set(keyword.map((m) => m.id));
-              const merged = [...keyword];
-              for (const m of scored) {
-                if (merged.length >= limit) break;
-                if (!seen.has(m.id)) {
-                  seen.add(m.id);
-                  merged.push(m);
-                }
-              }
-              items = merged;
-              used = "vector";
-            }
-          }
-          sendJson(res, 200, { items, mode: used });
+        // Route through the unified semantic pipeline; any vector/rerank
+        // failure degrades to keyword results inside searchMemories. The
+        // returned promise lets the test double await the async search.
+        return Promise.resolve(
+          service.searchMemories(query, { mode, topK: limit, useRerank: rerank })
+        ).then((rows) => {
+          // mode reflects what actually happened: rows marked `vector` came
+          // through the semantic path, everything else is keyword fallback.
+          const used = rows.some((m) => m.vector === true) ? "vector" : "keyword";
+          sendJson(res, 200, { items: service.toApiList(rows), mode: used });
         }).catch(() => {
-          sendJson(res, 200, { items: keyword, mode: "keyword" });
+          sendJson(res, 200, { items: service.toApiList(service.search(query, { limit })), mode: "keyword" });
         });
       } catch {
         sendJson(res, 500, { error: "internal" });
@@ -202,7 +175,13 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
         }
         const url = new URL(req.url, "http://localhost");
         const limit = Number(url.searchParams.get("limit") ?? 100);
-        embedder.reindexMissing(limit).then((result) => {
+        // Unified re-index entry: works for both the legacy OpenAI embedder and
+        // the new local/ollama backends (which have no reindexMissing method).
+        const viaIndex = semantic?.vectorIndex && semantic?.vectorIndex.rebuildIndex;
+        const task = viaIndex
+          ? semantic.vectorIndex.rebuildIndex(embedder, { limit })
+          : embedder.reindexMissing ? embedder.reindexMissing(limit) : Promise.resolve({ indexed: 0, skipped: 0, error: "vector-unavailable" });
+        task.then((result) => {
           sendJson(res, 200, result);
         }).catch(() => {
           sendJson(res, 200, { indexed: 0, skipped: 0, error: "vector-failed" });
