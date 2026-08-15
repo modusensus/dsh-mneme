@@ -96,9 +96,9 @@ npm run sync      # src → lib 同步（发布时自动执行）
 
 | 版本 | 内容 | 实施周期 |
 |------|------|---------|
-| **v0.2.1** | autoDream 自我反思：新增 `update` 决策类型 + 安全门控，让整理不仅能合并/归档，还能自我修正 | 3-5 天 |
-| **v0.2.2** | api.js 对接新语义流水线 + 测试补全 | 2-3 天 |
-| **v0.2.3** | 记忆活跃度与自动衰减：被召回多的记忆 importance 上升，长期不用的自动 archive | 1-2 天 |
+| **v0.2.1** | autoDream 自我反思 + 可靠审计：新增 `update` 决策类型 + 安全门控（自我修正）；`policy_epoch` 裁决规则版本，规则升级后旧裁决降级为历史证据；召回层 receipt 记录实际召回的候选、相似度、阈值 | 3-5 天 |
+| **v0.2.2** | api.js 对接新语义流水线 + 测试补全；per-record 收据链：merge 计数前值/后值、conflict 各方收据，增强可重放性 | 2-3 天 |
+| **v0.2.3** | 记忆活跃度与自动衰减：被召回多的记忆 importance 上升，长期不用的自动 archive；冲突冻结选项（可配置"冻结待人工确认"，而非自动合并） | 1-2 天 |
 | **v0.3.0** | 轻量级知识图谱：实体关系提取 + 跨记忆查询 | 待评估 |
 | **v0.4.0** | 多 Workspace 隔离与协作（等 DSH 支持后） | 待评估 |
 | **v0.5.0** | 自进化记忆策略：用户反馈闭环 + 兴趣漂移分析 | 待评估 |
@@ -188,9 +188,9 @@ npm run sync      # src → lib sync (runs automatically on publish)
 
 | Version | Scope | Timeline |
 |---------|-------|----------|
-| **v0.2.1** | autoDream self-reflection: new `update` decision type + safety gating — consolidation can not only merge/archive but self-correct | 3-5 days |
-| **v0.2.2** | Wire api.js to the new semantic pipeline + test coverage | 2-3 days |
-| **v0.2.3** | Memory activity & automatic decay: frequently-recalled memories gain importance, long-idle ones auto-archive | 1-2 days |
+| **v0.2.1** | autoDream self-reflection + reliable audit: new `update` decision type + safety gating (self-correction); `policy_epoch` adjudication rule version — after rule upgrades, old adjudications degrade to historical evidence; recall-layer receipt recording actual candidates, similarity, threshold | 3-5 days |
+| **v0.2.2** | Wire api.js to the new semantic pipeline + test coverage; per-record receipt chain: merge counter before/after values, conflict party receipts, enhanced replayability | 2-3 days |
+| **v0.2.3** | Memory activity & automatic decay: frequently-recalled memories gain importance, long-idle ones auto-archive; conflict freeze option (configurable "freeze pending human confirmation" instead of auto-merge) | 1-2 days |
 | **v0.3.0** | Lightweight knowledge graph: entity-relation extraction + cross-memory query | TBD |
 | **v0.4.0** | Multi-Workspace isolation & collaboration (once DSH supports it) | TBD |
 | **v0.5.0** | Self-evolving memory strategy: user feedback loop + interest drift analysis | TBD |
