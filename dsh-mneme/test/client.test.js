@@ -24,3 +24,21 @@ test("client bundle is lib-only with no src counterpart", () => {
   assert.equal(existsSync(join(root, "src/client.js")), false, "src/ must not contain client.js");
   assert.equal(existsSync(join(root, "lib/client.js")), true, "lib/client.js must exist");
 });
+
+// Both panels render in two modes: a portal modal (styles.panel, full chrome)
+// and an embedded settings-section variant. The embedded variant must drop the
+// modal-only chrome (background, radius, padding, shadow) — the settings host
+// already provides its own surface, so reusing the modal panel style makes the
+// section render as a floating card with an inset box and shadow inside the
+// settings page.
+test("embedded variant drops the modal panel chrome", () => {
+  const branches = clientSource.match(/embedded \? \{[^}]+\}/g);
+  assert.ok(branches, "panels must branch on the embedded flag");
+  assert.equal(branches.length, 2, "both MemoryPanel and SettingsPanel must branch");
+  for (const branch of branches) {
+    assert.equal(branch.includes("styles.panel"), false, "embedded branch must not reuse the modal panel style");
+    for (const chrome of ["boxShadow", "background", "borderRadius", "padding"]) {
+      assert.equal(branch.includes(chrome), false, `embedded branch must not carry ${chrome}`);
+    }
+  }
+});
