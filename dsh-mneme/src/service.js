@@ -284,15 +284,22 @@ export function createService({ store, mirror, config, onWrite }) {
       syncMirror();
       notifyWrite();
     },
-    update: (id, p) => {
+    update: (id, p, ctx = {}) => {
       const old = store.getById(id);
       const updated = store.update(id, p);
-      // Record a user correction (only when content actually changed and the
-      // reflection failure tracker is enabled): expected = what it became,
-      // actual = what it was before. Feeds later reflection/evolution passes.
-      if (old && updated && config.reflectionFailureTracking && old.content !== updated.content) {
+      // Record a user correction when any meaningful field changed and the
+      // reflection failure tracker is enabled. expected = what it became,
+      // actual = what it was before; query (when provided) captures the
+      // user's original intent so later reflection can reason about recall.
+      const hasMeaningfulChange = old && updated && (
+        old.content !== updated.content ||
+        old.title !== updated.title ||
+        old.importance !== updated.importance
+      );
+      if (hasMeaningfulChange && config.reflectionFailureTracking) {
         store.saveFailure({
           id: randomUUID(),
+          query: ctx.query ?? null,
           expected: updated.content,
           actual: old.content,
           failure_type: "user_correction",
