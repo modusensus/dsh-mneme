@@ -131,7 +131,7 @@ async function axis2ConflictArbitration() {
   const winnerBefore = store.list({ type: sets[0].winner.type }).find((m) => m.title === sets[0].winner.title).content;
   const replayed = applyDecisions(audit.decisions, service);
   const winnerAfter = store.list({ type: sets[0].winner.type }).find((m) => m.title === sets[0].winner.title).content;
-  const idempotent = replayed === 0 && winnerBefore === winnerAfter;
+  const idempotent = replayed.applied === 0 && winnerBefore === winnerAfter;
   console.log(`  ${pass(idempotent)} 决策清单重放幂等（repeat 无副作用，来源链不重复追加）`);
   console.log(`  ${pass(before.length === 64)} 快照哈希稳定（${before.length} hex 位）`);
 
@@ -165,26 +165,48 @@ async function axis3Concurrency() {
   const noDupes = dupes.length === 1;
   console.log(`  ${pass(noDupes)} 重复合并：${agents} 个 agent 同标题并发保存 → 活跃 ${dupes.length} 条（期望 1）`);
 
-  // --- 丢更新：双连接 read-modify-write 竞态演示
+  // --- 丢更新：CAS 原子递增（硬断言：陈旧版本必须被拒，增量不得丢失）
   const sB = createStore(path);
   const svB = createService({ store: sB, mirror: null, config: {} });
   svA.saveWithDedupe({ type: "history", title: "计数器", content: "count=0", importance: 3 });
   const counterId = svA.list({ type: "history" })[0].id;
-  // 两位 agent 各自读 baseline → 依次写回（经典无锁 RMW 竞态）
-  const readA = svA.getById(counterId).content; // count=0
-  const readB = svB.getById(counterId).content; // count=0
-  svA.update(counterId, { content: bump(readA) }); // count=1
-  svB.update(counterId, { content: bump(readB) }); // count=1 → 覆盖 A 的增量
-  const lostResult = svB.getById(counterId).content;
-  const lostUpdate = lostResult === "count=1" && "count=2" !== lostResult;
-  console.log(`  ${pass(lostUpdate)} 丢更新演示：2 agent 各 +1 → 最终 ${lostResult}（期望 count=2）——无锁 RMW 会丢增量`);
-  // 串行化修复：写前重读最新值
+  svA.update(counterId, { content: "count=0" });
+  const baseline = svA.getById(counterId); // updated_at=T, count=0
+  // Agent A 持最新版本 → CAS 成功（count=1）
+  const aOk = svA.compareAndUpdate(counterId, baseline.updated_at, { content: bump(baseline.content) });
+  // Agent B 仍持过期版本 T → CAS 必须被拒；若被接受即丢更新
+  const bStale = svB.compareAndUpdate(counterId, baseline.updated_at, { content: bump("count=0") });
+  const casRejected = aOk !== undefined && bStale === undefined;
+  // B 重读最新值重试 → 两个 +1 都落地
+  if (bStale === undefined) {
+    const cur = svB.getById(counterId);
+    svB.compareAndUpdate(counterId, cur.updated_at, { content: bump(cur.content) });
+  }
+  const casResult = svB.getById(counterId).content;
+  const noLostUpdate = casRejected && casResult === "count=2";
+  console.log(`  ${pass(noLostUpdate)} CAS 并发递增：陈旧版本被拒=${casRejected}，重读重试后 → ${casResult}（期望 count=2，硬断言）`);
+  // 串行化修复（无 CAS 时的人工约定）：写前重读最新值
   svA.update(counterId, { content: "count=0" });
   svA.update(counterId, { content: bump(svA.getById(counterId).content) });
   svB.update(counterId, { content: bump(svB.getById(counterId).content) });
   const fixedResult = svB.getById(counterId).content;
   const fixed = fixedResult === "count=2";
   console.log(`  ${pass(fixed)} 串行重读修复：写前重读最新 → ${fixedResult}（期望 count=2）`);
+
+  // --- 多步原子性：事务中途抛错 → 全部回滚（硬断言，无半成品）
+  let txThrew = false;
+  try {
+    svB.transaction(() => {
+      svB.saveWithDedupe({ type: "project", title: "原子A", content: "x" });
+      svB.saveWithDedupe({ type: "project", title: "原子B", content: "y" });
+      throw new Error("boom");
+    });
+  } catch { txThrew = true; }
+  const allNow = svB.all();
+  const atomic = txThrew
+    && !allNow.some((m) => m.title === "原子A")
+    && !allNow.some((m) => m.title === "原子B");
+  console.log(`  ${pass(atomic)} 多步原子性：事务中途抛错 → 原子A/原子B 全部回滚（期望均不存在，硬断言）`);
 
   // --- 事务/崩溃恢复：已提交写入在异常后 + reopen 后完整保留
   const svC = createService({ store: sB, mirror: null, config: {} }); // 复用同一文件连接
@@ -208,7 +230,7 @@ async function axis3Concurrency() {
   console.log(`  ${pass(recovered.filter((m) => m.title === "已提交A").length === 1)} 无半成品残留（已提交A 仅 1 条）`);
 
   sR.close();
-  return { noDupes, lostUpdate, fixed, recoveryOk };
+  return { noDupes, noLostUpdate, atomic, fixed, recoveryOk };
 }
 
 // ---------------------------------------------------------------- 汇总
@@ -224,8 +246,10 @@ console.log("");
 console.log("══════ 压测汇总 ══════");
 console.log(`  轴线1 长会话检索：Recall@5=${(a1.recall5 * 100).toFixed(1)}%  Recall@10=${(a1.recall10 * 100).toFixed(1)}%  陈旧残留=${(a1.staleResidual * 100).toFixed(1)}%  （${a1.runs} 次 autoDream 全部入审计）`);
 console.log(`  轴线2 冲突裁决：仲裁正确率=${(a2.arbRate * 100).toFixed(0)}%  重放幂等=${a2.idempotent ? "是" : "否"}`);
-console.log(`  轴线3 多 Agent 并发：去重=${a3.noDupes ? "✅" : "❌"}  丢更新演示=${a3.lostUpdate ? "✅(揭示风险)" : "❌"}  串行修复=${a3.fixed ? "✅" : "❌"}  崩溃恢复=${a3.recoveryOk ? "✅" : "❌"}`);
-const allOk = a1.recall5 >= 0.95 && a1.staleResidual === 0 && a2.arbRate === 1 && a2.idempotent && a3.noDupes && a3.fixed && a3.recoveryOk;
+console.log(`  轴线3 多 Agent 并发：去重=${a3.noDupes ? "✅" : "❌"}  CAS无丢更新=${a3.noLostUpdate ? "✅" : "❌"}  多步原子=${a3.atomic ? "✅" : "❌"}  串行修复=${a3.fixed ? "✅" : "❌"}  崩溃恢复=${a3.recoveryOk ? "✅" : "❌"}`);
+// 丢更新与多步原子性都是硬断言：任一失败 → 非零退出，绝不把风险标成通过
+const allOk = a1.recall5 >= 0.95 && a1.staleResidual === 0 && a2.arbRate === 1 && a2.idempotent
+  && a3.noDupes && a3.noLostUpdate && a3.atomic && a3.fixed && a3.recoveryOk;
 console.log(`  结论：${allOk ? "全部通过 ✅" : "存在失败项 ❌"}`);
 console.log("══════ 压测结束 ══════");
 process.exit(allOk ? 0 : 1);

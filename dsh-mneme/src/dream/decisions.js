@@ -102,79 +102,191 @@ export function validateDecisions(decisions, snapshot, options = {}) {
   return { ok: errors.length === 0, errors };
 }
 
+/** Marker thrown when a decision target changed since the run snapshot. */
+export class CasConflictError extends Error {
+  constructor(action, ids, reason) {
+    super(`cas conflict: ${action} targets changed since snapshot (${reason})`);
+    this.name = "CasConflictError";
+    this.action = action;
+    this.ids = ids;
+  }
+}
+
+function decisionIds(d) {
+  return d.action === "conflict" ? [d.winner, d.loser] : (d.ids ?? []);
+}
+
 /**
- * Apply a validated decision list to the service. Caller must validate first.
- *
- * Note: merge is intentionally non-atomic — the keeper is updated before the
- * other sources are archived, so a failure between the two never loses content.
- *
- * @param decisions - validated decision list.
- * @param service - memory service (saveWithDedupe/getById/update/setArchived).
- * @param logger - optional logger ({ warn }); per-decision failures are logged.
- * @returns number of applied decisions (archive counts each archived memory as one).
+ * CAS guard (item ①): every target memory must still match what the run
+ * snapshot captured — otherwise the decision was computed against stale state
+ * and applying it would overwrite a concurrent edit. Snapshotless replays skip
+ * the guard entirely (per-action idempotency checks handle those). Throws
+ * CasConflictError on the first mismatch; the caller's transaction rolls back.
  */
-export function applyDecisions(decisions, service, logger = null) {
-  let applied = 0;
-  for (const [i, d] of decisions.entries()) {
-    try {
-      if (d.action === "keep") continue;
-      if (d.action === "archive") {
-        for (const id of d.ids) {
-          const mem = service.getById(id);
-          if (mem && !mem.archived) { service.setArchived(id, true); applied++; }
-        }
-      } else if (d.action === "merge") {
-        const keeper = service.getById(d.keepSource);
-        if (!keeper || keeper.archived) continue;
-        const sources = d.ids.filter((id) => id !== d.keepSource);
-        // Idempotent replay: if every other source is already archived, this
-        // merge already landed — skip so a replayed/concurrent decision never
-        // double-counts or re-applies (guard against duplicate merges).
-        if (sources.every((id) => service.getById(id)?.archived)) continue;
-        service.update(d.keepSource, {
-          title: d.title,
-          content: d.content,
-          importance: d.importance ?? Math.max(keeper.importance, ...d.ids.map((id) => service.getById(id)?.importance ?? 1))
-        });
-        for (const id of sources) {
-          const mem = service.getById(id);
-          if (mem && !mem.archived) { service.setArchived(id, true); }
-        }
-        applied++;
-      } else if (d.action === "conflict") {
-        const winner = service.getById(d.winner);
-        const loser = service.getById(d.loser);
-        if (!winner || !loser) continue;
-        // Idempotent replay: an already-archived loser means the conflict was
-        // already adjudicated — skip so the provenance note is never
-        // re-appended and the loser is not re-archived.
-        if (loser.archived) continue;
-        service.update(d.winner, {
-          content: `${winner.content}\n\n（已否决旧信息：${[...loser.content].slice(0, 100).join("")}）`
-        });
-        service.setArchived(d.loser, true);
-        applied++;
-      } else if (d.action === "update") {
-        const id = d.ids[0];
-        const mem = service.getById(id);
-        if (!mem || mem.archived) continue;
-        // 幂等检查：如果字段已与目标一致则跳过
-        const same = (d.title === undefined || d.title === mem.title)
-          && (d.content === undefined || d.content === mem.content)
-          && (d.importance === undefined || d.importance === mem.importance);
-        if (same) continue;
-        service.update(id, {
-          title: d.title ?? mem.title,
-          content: d.content ?? mem.content,
-          importance: d.importance ?? mem.importance
-        });
-        applied++;
-      }
-    } catch (error) {
-      // Skip individual bad decision; never corrupt the store. The optional
-      // logger makes the failure visible instead of failing silently.
-      logger?.warn?.(`dsh-mneme dream: failed to apply ${d.action} at index ${i}: ${error.message}`);
+function casGuard(service, snapshot, ids) {
+  if (!snapshot) return;
+  for (const id of ids) {
+    const expect = snapshot.get(id);
+    if (!expect) continue; // not in snapshot: validated elsewhere, skip guard
+    const current = service.getById(id);
+    if (!current) {
+      throw new CasConflictError("deleted", [id], `memory ${id} was removed`);
+    }
+    const changed = expect.updated_at !== undefined
+      ? current.updated_at !== expect.updated_at
+      : current.content !== expect.content || current.title !== expect.title;
+    if (changed) {
+      throw new CasConflictError(
+        "changed",
+        [id],
+        `memory ${id} was concurrently modified (expected updated_at=${expect.updated_at}, got ${current.updated_at})`
+      );
     }
   }
-  return applied;
+}
+
+/**
+ * Apply a validated decision list to the service. Caller must validate first.
+ * Each decision runs inside its own SQLite transaction (item ②): the multi-step
+ * mutation of a decision is atomic, so a merge can never leave "keeper updated
+ * but source not archived" or vice versa — a throwing sub-step rolls the whole
+ * decision back.
+ *
+ * @param decisions - validated decision list.
+ * @param service - memory service (saveWithDedupe/getById/update/setArchived/transaction).
+ * @param logger - optional logger ({ warn }); per-decision failures are logged.
+ * @param snapshot - optional Map<id, memory> captured before the LLM call; when
+ *   provided, every decision target is CAS-checked against it and a decision
+ *   computed from stale state is skipped and reported as a conflict instead of
+ *   overwriting concurrent writes (item ①).
+ * @returns {{ applied: number, conflicts: Array, failures: Array, committed: Array }}
+ *   applied    - number of decisions/memories actually committed (archive counts
+ *                each archived memory as one, merge/conflict/update count one).
+ *   conflicts  - decisions skipped because a target changed since the snapshot.
+ *   failures   - decisions that threw mid-transaction (fully rolled back).
+ *   committed  - the decisions that actually landed, for outcome/receipt based
+ *                on real committed sub-steps rather than the raw LLM list.
+ */
+export function applyDecisions(decisions, service, logger = null, snapshot = null) {
+  let applied = 0;
+  const conflicts = [];
+  const failures = [];
+  const committed = [];
+  for (const [i, d] of decisions.entries()) {
+    try {
+      // keep is a confirmed no-op: it commits nothing but still records the
+      // per-id disposition so the outcome covers every snapshot memory.
+      if (d.action === "keep") {
+        committed.push({ action: "keep", ids: d.ids });
+        continue;
+      }
+      const outcome = applyOne(d, service, snapshot);
+      if (outcome === "skipped") continue;
+      applied += outcome.applied;
+      committed.push(outcome.committed);
+    } catch (error) {
+      if (error instanceof CasConflictError) {
+        conflicts.push({ index: i, action: d.action, ids: error.ids, reason: error.message });
+        logger?.warn?.(`dsh-mneme dream: ${error.message}`);
+      } else {
+        failures.push({ index: i, action: d.action, ids: decisionIds(d), reason: error.message });
+        logger?.warn?.(`dsh-mneme dream: failed to apply ${d.action} at index ${i}: ${error.message}`);
+      }
+    }
+  }
+  return { applied, conflicts, failures, committed };
+}
+
+function applyOne(d, service, snapshot) {
+  switch (d.action) {
+    case "archive": return applyArchive(d, service, snapshot);
+    case "merge": return applyMerge(d, service, snapshot);
+    case "conflict": return applyConflict(d, service, snapshot);
+    default: return applyUpdate(d, service, snapshot);
+  }
+}
+
+function applyArchive(d, service, snapshot) {
+  const targets = d.ids.filter((id) => {
+    const mem = service.getById(id);
+    return mem && !mem.archived; // existing, not-yet-archived rows only
+  });
+  if (targets.length === 0) return "skipped"; // all already archived: idempotent replay
+  service.transaction(() => {
+    casGuard(service, snapshot, d.ids);
+    for (const id of d.ids) {
+      const mem = service.getById(id);
+      if (mem && !mem.archived) service.setArchived(id, true);
+    }
+  });
+  return { applied: targets.length, committed: { action: "archive", ids: targets } };
+}
+
+function applyMerge(d, service, snapshot) {
+  const sources = d.ids.filter((id) => id !== d.keepSource);
+  // Idempotent replay: if every other source is already archived, this merge
+  // already landed — skip so a replayed/concurrent decision never double-counts
+  // or re-applies (guard against duplicate merges).
+  if (sources.every((id) => service.getById(id)?.archived)) return "skipped";
+  service.transaction(() => {
+    casGuard(service, snapshot, d.ids);
+    const keeper = service.getById(d.keepSource);
+    if (!keeper || keeper.archived) return; // missing keeper: no write, still a clean commit
+    service.update(d.keepSource, {
+      title: d.title,
+      content: d.content,
+      importance: d.importance ?? Math.max(keeper.importance, ...d.ids.map((id) => service.getById(id)?.importance ?? 1))
+    });
+    for (const id of sources) {
+      const mem = service.getById(id);
+      if (mem && !mem.archived) service.setArchived(id, true);
+    }
+  });
+  return {
+    applied: 1,
+    committed: { action: "merge", ids: d.ids, keepSource: d.keepSource, title: d.title, content: d.content, importance: d.importance }
+  };
+}
+
+function applyConflict(d, service, snapshot) {
+  const winner = service.getById(d.winner);
+  const loser = service.getById(d.loser);
+  if (!winner || !loser) return "skipped";
+  // Idempotent replay: an already-archived loser means the conflict was already
+  // adjudicated — skip so the provenance note is never re-appended and the loser
+  // is not re-archived.
+  if (loser.archived) return "skipped";
+  service.transaction(() => {
+    casGuard(service, snapshot, [d.winner, d.loser]);
+    const winnerNow = service.getById(d.winner);
+    const loserNow = service.getById(d.loser);
+    if (!winnerNow || !loserNow || loserNow.archived) return;
+    service.update(d.winner, {
+      content: `${winnerNow.content}\n\n（已否决旧信息：${[...loserNow.content].slice(0, 100).join("")}）`
+    });
+    service.setArchived(d.loser, true);
+  });
+  return { applied: 1, committed: { action: "conflict", winner: d.winner, loser: d.loser } };
+}
+
+function applyUpdate(d, service, snapshot) {
+  const id = d.ids[0];
+  const mem = service.getById(id);
+  if (!mem || mem.archived) return "skipped";
+  // 幂等检查：如果字段已与目标一致则跳过
+  const same = (d.title === undefined || d.title === mem.title)
+    && (d.content === undefined || d.content === mem.content)
+    && (d.importance === undefined || d.importance === mem.importance);
+  if (same) return "skipped";
+  service.transaction(() => {
+    casGuard(service, snapshot, [id]);
+    const cur = service.getById(id);
+    if (!cur || cur.archived) return;
+    service.update(id, {
+      title: d.title ?? cur.title,
+      content: d.content ?? cur.content,
+      importance: d.importance ?? cur.importance
+    });
+  });
+  return { applied: 1, committed: { action: "update", ids: [id], title: d.title, content: d.content, importance: d.importance } };
 }

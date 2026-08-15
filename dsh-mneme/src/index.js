@@ -83,7 +83,9 @@ export const apply = (ctx, config) => {
   }
 
   // Cross-encoder rerank over recall candidates. Best-effort: a failed model
-  // load only disables reranking, never search itself.
+  // load only disables reranking, never search itself. Explicit opt-in only
+  // (rerankEnabled defaults to false): constructing LocalReranker is what pulls
+  // in onnxruntime, so the default config never loads it (item ⑥).
   if (cfg.rerankEnabled && cfg.rerankProvider === "local") {
     try {
       reranker = new LocalReranker({

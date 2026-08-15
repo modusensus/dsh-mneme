@@ -189,3 +189,61 @@ test("startup merge keeps human edits across multiple type files (read-all-then-
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// --- item ④: runtime human edits are reconciled on sync (not only at startup)
+
+test("runtime human edit survives the next sync (human wins, no silent overwrite)", () => {
+  const dir = tempDir();
+  try {
+    const store = createStore(join(dir, "memory.db"));
+    const mirror = createMirror(dir);
+    const service = createService({ store, mirror, config: {} });
+    service.saveWithDedupe({ type: "preference", title: "语言", content: "机器内容" });
+    // human edits the mirror file AFTER the initial sync
+    const file = join(dir, "preferences.md");
+    writeFileSync(file, readFileSync(file, "utf8").replace("机器内容", "人类编辑内容"), "utf8");
+    // the next unrelated store write triggers syncMirror → must merge the edit back
+    service.saveWithDedupe({ type: "project", title: "无关", content: "x" });
+    const prefs = service.list({ type: "preference", includeArchived: true });
+    const m = prefs.find((p) => p.title === "语言");
+    assert.equal(m.content, "人类编辑内容", "human edit merged back into the store");
+    store.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("concurrent human edit + store update produces a three-way conflict marker, no side lost", () => {
+  const dir = tempDir();
+  try {
+    const store = createStore(join(dir, "memory.db"));
+    const mirror = createMirror(dir);
+    const service = createService({ store, mirror, config: {} });
+    const { memory: m } = service.saveWithDedupe({ type: "preference", title: "语言", content: "机器内容" });
+    // human edits the file…
+    const file = join(dir, "preferences.md");
+    writeFileSync(file, readFileSync(file, "utf8").replace("机器内容", "人类编辑内容"), "utf8");
+    // …while the store is concurrently updated → next sync sees both sides changed
+    service.update(m.id, { content: "并发机器版本" });
+    const updated = service.getById(m.id);
+    assert.ok(updated.content.includes("人类编辑内容"), "human edit is kept as the head");
+    assert.ok(updated.content.includes("并发机器版本"), "store's concurrent version is preserved");
+    assert.ok(updated.content.includes("并发冲突"), "conflict marker appended");
+    store.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("readHumanEdits records the machine-written updated_at as the version token", () => {
+  const dir = tempDir();
+  try {
+    const mirror = createMirror(dir);
+    mirror.sync([sampleMemory("preference", { id: "m1", content: "机器内容", updated_at: "2026-03-01T00:00:00.000Z" })]);
+    const m1 = mirror.readHumanEdits("preference").find((e) => e.id === "m1");
+    assert.ok(m1, "detects m1");
+    assert.equal(m1.updated_at, "2026-03-01T00:00:00.000Z", "updated_at captured for three-way merge");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

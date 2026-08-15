@@ -121,7 +121,7 @@ test("update application changes the memory content", () => {
   const snap = makeSnapshot(store);
   const decisions = [{ action: "update", ids: [mem.id], content: "喜欢 Rust" }];
   assert.equal(validateDecisions(decisions, snap).ok, true);
-  const applied = applyDecisions(decisions, service);
+  const { applied } = applyDecisions(decisions, service);
   assert.equal(applied, 1);
   const updated = store.getById(mem.id);
   assert.equal(updated.content, "喜欢 Rust");
@@ -134,7 +134,7 @@ test("update application is idempotent on replay", () => {
   const decisions = [{ action: "update", ids: [mem.id], content: "喜欢 Rust" }];
   applyDecisions(decisions, service);
   const appliedAgain = applyDecisions(decisions, service);
-  assert.equal(appliedAgain, 0, "replay of an already-applied update should be a no-op");
+  assert.equal(appliedAgain.applied, 0, "replay of an already-applied update should be a no-op");
 });
 
 test("update application preserves unspecified fields", () => {

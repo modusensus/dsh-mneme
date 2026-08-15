@@ -261,3 +261,33 @@ test("save/update preserve archived flag", () => {
   assert.equal(updated.archived, true, "update keeps archived");
   store.close();
 });
+
+// --- compare-and-set update (item ①/③) ------------------------------------
+
+test("compareAndUpdate applies when the version token still matches", () => {
+  const store = openMemory();
+  const saved = store.save({ type: "project", title: "t", content: "count=0" });
+  const before = store.getById(saved.id);
+  const updated = store.compareAndUpdate(saved.id, before.updated_at, { content: "count=1" });
+  assert.ok(updated, "CAS with the current version succeeds");
+  assert.equal(updated.content, "count=1");
+  assert.notEqual(updated.updated_at, before.updated_at, "version token advances");
+  store.close();
+});
+
+test("compareAndUpdate rejects a stale version token without writing", () => {
+  const store = openMemory();
+  const saved = store.save({ type: "project", title: "t", content: "count=0" });
+  const stale = store.getById(saved.id).updated_at;
+  store.update(saved.id, { content: "count=1" }); // concurrent write wins
+  const result = store.compareAndUpdate(saved.id, stale, { content: "count=2" });
+  assert.equal(result, undefined, "stale CAS is a miss");
+  assert.equal(store.getById(saved.id).content, "count=1", "no lost update");
+  store.close();
+});
+
+test("compareAndUpdate on unknown id throws like update", () => {
+  const store = openMemory();
+  assert.throws(() => store.compareAndUpdate("ghost", "any", { content: "x" }), /not found/);
+  store.close();
+});

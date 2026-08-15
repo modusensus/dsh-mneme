@@ -65,7 +65,10 @@ export function parseReceipt(receipt) {
   const parts = receipt.split(":");
   if (parts.length !== 8 || parts[0] !== "dsh-mneme" || parts[1] !== "run") return undefined;
   const [, , runId, status, snapshotHash, inputCount, applied, summaryStored] = parts;
-  if (!runId || !/^(ok|failed)$/.test(status)) return undefined;
+  // reconcile = decisions validated but one or more did not commit (CAS
+  // conflict / transaction rollback) — the store diverges from the decision
+  // list and the run must be reconciled, never reported as a fake ok.
+  if (!runId || !/^(ok|failed|reconcile)$/.test(status)) return undefined;
   const count = Number(inputCount);
   const appliedN = Number(applied);
   if (!Number.isInteger(count) || !Number.isInteger(appliedN)) return undefined;
@@ -282,7 +285,11 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     // (e.g. summary step failed after consolidation), so the partial write is
     // replayable too.
     const finish = (result) => {
-      const status = result.ok ? "ok" : "failed";
+      // status is derived from what actually committed: ok only when the full
+      // decision list landed; reconcile when decisions were validated but some
+      // did not commit (CAS conflict / rollback); failed on any LLM/validation
+      // error. No fake "ok" for a partial commit.
+      const status = result.status ?? (result.ok ? "ok" : "failed");
       const applied = result.applied ?? 0;
       const summaryStored = result.summary ?? false;
       const receipt = buildReceipt({ runId, status, snapshotHash, inputCount: snapshot.size, applied, summaryStored });
@@ -407,7 +414,10 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       }
     }
 
-    const applied = applyDecisions(decisions, service, logger);
+    // CAS-guarded, per-decision-transactional apply against the run snapshot:
+    // a target changed during the LLM call is skipped and reported as a
+    // conflict instead of being overwritten (item ①).
+    const { applied, conflicts, failures, committed } = applyDecisions(decisions, service, logger, snapshot);
     // Attach the pre-update snapshot to the audit copy of each update decision
     // so the recorded row shows the before/after delta, not just the target.
     const auditDecisions = decisions.map((d) =>
@@ -415,7 +425,13 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
         ? { ...d, _before: updateSnapshots[d.ids[0]] }
         : d
     );
-    const outcome = buildOutcome(decisions);
+    // Outcome is derived from the ACTUALLY committed sub-steps, never from the
+    // raw LLM decision list — a merge whose archive step rolled back must not
+    // claim "merge-archived" (item ②). Conflicts/failures ride along so the
+    // audit row records why the run diverged.
+    const outcome = { ...buildOutcome(committed), conflicts, failures };
+    // Decisions validated but not fully committed → reconcile (not ok).
+    const partial = conflicts.length > 0 || failures.length > 0;
 
     // Keep the vector index consistent with the post-dream store state.
     if (semantic?.embedder && semantic?.vectorIndex) {
@@ -460,7 +476,16 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
         } catch { /* best-effort */ }
       }
     }
-    return finish({ ok: true, applied, decisions: auditDecisions, outcome, summary: summaryStored });
+    return finish({
+      ok: !partial,
+      status: partial ? "reconcile" : "ok",
+      applied,
+      decisions: auditDecisions,
+      outcome,
+      conflicts,
+      failures,
+      summary: summaryStored
+    });
   }
 
   return { maybeSchedule, runDream, dispose };

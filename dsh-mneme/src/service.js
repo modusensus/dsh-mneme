@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { TYPE_FILE } from "./mirror.js";
 
 const INJECT_TYPES = new Set(["preference", "project", "decision", "summary"]);
 
@@ -15,7 +16,14 @@ export function createService({ store, mirror, config, onWrite }) {
   let vectorIndex = null;
   let reranker = null;
 
+  // Transaction nesting depth. Inside service.transaction the per-mutation side
+  // effects (mirror render, write notify, re-embed) are deferred so a ROLLBACK
+  // never leaves the mirror file diverged from the database; transaction()
+  // replays them exactly once against the committed state.
+  let txDepth = 0;
+
   function scheduleEmbed(memory) {
+    if (txDepth > 0) return; // deferred to the transaction's commit
     if (embedder && memory?.id) {
       try { embedder.schedule(memory); } catch { /* ignore */ }
     }
@@ -152,11 +160,37 @@ export function createService({ store, mirror, config, onWrite }) {
    * state toggles, not content writes, so they never notify.
    */
   function notifyWrite() {
+    if (txDepth > 0) return; // deferred to the transaction's commit
     if (onWrite) {
       try { onWrite(); } catch { /* ignore */ }
     }
     if (dreamHook) {
       try { dreamHook(); } catch { /* ignore */ }
+    }
+  }
+
+  /**
+   * Run several store mutations atomically (SQLite BEGIN/COMMIT/ROLLBACK) and
+   * fire the deferred side effects once against the committed state. A throwing
+   * body rolls the whole batch back — no partial writes, no diverged mirror.
+   * Errors propagate to the caller. NOTE: the commit path re-renders the mirror
+   * and notifies subscribers, but re-embedding is left to the caller (the dream
+   * flow re-embeds through maintainIndexAfterDream).
+   */
+  function transaction(fn) {
+    store.db.exec("BEGIN");
+    txDepth++;
+    try {
+      const result = fn();
+      store.db.exec("COMMIT");
+      return result;
+    } catch (error) {
+      try { store.db.exec("ROLLBACK"); } catch { /* store may be closed */ }
+      throw error;
+    } finally {
+      txDepth--;
+      syncMirror();
+      notifyWrite();
     }
   }
 
@@ -253,12 +287,62 @@ export function createService({ store, mirror, config, onWrite }) {
   }
 
   /**
-   * Re-render the human-editable mirror after any store mutation. Only
+   * Three-way merge of in-flight human mirror edits before a re-render.
+   * Runs on every syncMirror, so a human edit made between two store writes is
+   * never silently overwritten by the next sync (human priority is not limited
+   * to startup). Per edited entry:
+   *   - file changed only → human wins; the edit is merged back into the store.
+   *   - file AND store changed → real three-way conflict: keep the human edit
+   *     and append a marker preserving the store's concurrent version, so no
+   *     side is dropped.
+   *   - store changed only → store wins (the file is simply re-rendered).
+   * Only title/content are taken (structure fields stay machine-owned, matching
+   * mergeHumanEdits). Returns the memory list to render.
+   */
+  function reconcileHumanEdits(memories) {
+    if (!mirror) return memories;
+    const byType = new Map();
+    for (const m of memories) {
+      if (!byType.has(m.type)) byType.set(m.type, []);
+      byType.get(m.type).push(m);
+    }
+    const result = [];
+    for (const type of Object.keys(TYPE_FILE)) {
+      const list = byType.get(type) ?? [];
+      if (list.length === 0) continue;
+      const editsById = new Map(mirror.readHumanEdits(type).map((e) => [e.id, e]));
+      for (const m of list) {
+        const edit = editsById.get(m.id);
+        if (!edit) { result.push(m); continue; }
+        const humanChanged = (typeof edit.title === "string" && edit.title !== m.title)
+          || (typeof edit.content === "string" && edit.content !== m.content);
+        if (!humanChanged) { result.push(m); continue; }
+        // Store changed since the file was last rendered (file records the
+        // store's updated_at at render time) AND the file was hand-edited.
+        const storeChanged = edit.updated_at !== undefined && m.updated_at !== edit.updated_at;
+        if (storeChanged) {
+          const marker = `\n\n> ⚠️ 并发冲突：人工编辑 vs 记忆库并发更新（${m.updated_at}）\n> 记忆库版本：${m.content}`;
+          store.update(m.id, { title: edit.title, content: `${edit.content}${marker}` });
+        } else {
+          store.update(m.id, { title: edit.title, content: edit.content });
+        }
+        const merged = store.getById(m.id);
+        scheduleEmbed(merged);
+        result.push(merged);
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Re-render the human-editable mirror after any store mutation, merging any
+   * in-flight human edits first (never silently overwriting them). Only
    * non-forgotten memories are mirrored: forgotten entries must not reach the
    * human-editable file (a human "edit" could otherwise resurrect them).
    */
   function syncMirror() {
-    if (mirror) mirror.sync(store.list({ limit: 500, includeForgotten: false }));
+    if (txDepth > 0 || !mirror) return; // deferred to the transaction's commit
+    mirror.sync(reconcileHumanEdits(store.list({ limit: 500, includeForgotten: false })));
   }
 
   return {
@@ -266,6 +350,7 @@ export function createService({ store, mirror, config, onWrite }) {
     injectCandidates,
     mergeHumanEdits,
     toApiList,
+    transaction,
     setDreamHook(fn) { dreamHook = fn; },
     setEmbedder(emb) { embedder = emb; },
     setVectorIndex(vi) { vectorIndex = vi; },
@@ -277,7 +362,7 @@ export function createService({ store, mirror, config, onWrite }) {
     embeddedCount: () => store.embeddedCount(),
     list: (o) => store.list(o),
     all: () => store.all(),
-    count: (type) => store.count(type),
+    count: (type, opts) => store.count(type, opts),
     getById: (id) => store.getById(id),
     remove: (id) => {
       store.remove(id);
@@ -291,6 +376,35 @@ export function createService({ store, mirror, config, onWrite }) {
       // reflection failure tracker is enabled. expected = what it became,
       // actual = what it was before; query (when provided) captures the
       // user's original intent so later reflection can reason about recall.
+      const hasMeaningfulChange = old && updated && (
+        old.content !== updated.content ||
+        old.title !== updated.title ||
+        old.importance !== updated.importance
+      );
+      if (hasMeaningfulChange && config.reflectionFailureTracking) {
+        store.saveFailure({
+          id: randomUUID(),
+          query: ctx.query ?? null,
+          expected: updated.content,
+          actual: old.content,
+          before: { title: old.title, content: old.content, importance: old.importance },
+          failure_type: "user_correction",
+          memory_id: id
+        });
+      }
+      syncMirror();
+      notifyWrite();
+      scheduleEmbed(updated);
+      return updated;
+    },
+    // Compare-and-set update: applies the patch only when the row still carries
+    // `expectedUpdatedAt`. Returns undefined on a miss (no write) so the caller
+    // can re-read and retry — the primitive that prevents lost updates across
+    // concurrent read-modify-write (see scripts/stress-dsh.js axis 3).
+    compareAndUpdate: (id, expectedUpdatedAt, patch, ctx = {}) => {
+      const old = store.getById(id);
+      const updated = store.compareAndUpdate(id, expectedUpdatedAt, patch);
+      if (updated === undefined) return undefined; // CAS miss: no write, no side effects
       const hasMeaningfulChange = old && updated && (
         old.content !== updated.content ||
         old.title !== updated.title ||

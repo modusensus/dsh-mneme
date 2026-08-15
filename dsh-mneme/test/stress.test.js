@@ -100,7 +100,7 @@ test("arbitration set is replayable: deterministic, correct, idempotent replay",
   assert.equal(audit.decisions.length, sets.length, "raw decisions persisted");
 
   // re-applying the recorded decision list is a no-op (idempotent replay)
-  assert.equal(applyDecisions(audit.decisions, service), 0, "replay applies nothing");
+  assert.equal(applyDecisions(audit.decisions, service).applied, 0, "replay applies nothing");
   store.close();
 });
 
@@ -154,4 +154,56 @@ test("concurrent agents: no duplicate merge, lost-update reproduced then fixed, 
   assert.ok(sR.all().some((m) => m.title === "已提交"), "committed write survives reopen");
   assert.equal(sR.all().filter((m) => m.title === "已提交").length, 1, "no partial residue");
   sR.close();
+});
+
+// ---------------------------------------------------------------- CAS + atomicity (item ③)
+
+test("CAS concurrent increments: stale version rejected, retry lands both increments", () => {
+  const path = tmpPath("dsh-mneme-stress-cas-");
+  const sA = createStore(path);
+  const svA = createService({ store: sA, mirror: null, config: {} });
+  const sB = createStore(path);
+  const svB = createService({ store: sB, mirror: null, config: {} });
+
+  svA.saveWithDedupe({ type: "history", title: "计数器", content: "count=0", importance: 3 });
+  const id = svA.list({ type: "history" })[0].id;
+  svA.update(id, { content: "count=0" });
+  const baseline = svA.getById(id); // updated_at=T, count=0
+
+  const aOk = svA.compareAndUpdate(id, baseline.updated_at, { content: bump("count=0") });
+  assert.ok(aOk, "current-version CAS lands");
+  const bStale = svB.compareAndUpdate(id, baseline.updated_at, { content: bump("count=0") });
+  assert.equal(bStale, undefined, "stale-version CAS rejected — no lost update");
+
+  const cur = svB.getById(id);
+  svB.compareAndUpdate(id, cur.updated_at, { content: bump(cur.content) });
+  assert.equal(svB.getById(id).content, "count=2", "re-read + retry keeps both increments");
+  sA.close();
+  sB.close();
+});
+
+test("multi-step transaction is atomic: a mid-way throw rolls back every step", () => {
+  const path = tmpPath("dsh-mneme-stress-atomic-");
+  const s = createStore(path);
+  const sv = createService({ store: s, mirror: null, config: {} });
+
+  assert.throws(
+    () => sv.transaction(() => {
+      sv.saveWithDedupe({ type: "project", title: "原子A", content: "x" });
+      sv.saveWithDedupe({ type: "project", title: "原子B", content: "y" });
+      throw new Error("boom");
+    }),
+    /boom/
+  );
+  assert.ok(!s.all().some((m) => m.title === "原子A"), "atomicA fully rolled back");
+  assert.ok(!s.all().some((m) => m.title === "原子B"), "atomicB fully rolled back");
+
+  // a clean transaction commits both steps
+  sv.transaction(() => {
+    sv.saveWithDedupe({ type: "project", title: "完整A", content: "x" });
+    sv.saveWithDedupe({ type: "project", title: "完整B", content: "y" });
+  });
+  assert.equal(s.all().filter((m) => m.title === "完整A").length, 1, "committed step A");
+  assert.equal(s.all().filter((m) => m.title === "完整B").length, 1, "committed step B");
+  s.close();
 });
