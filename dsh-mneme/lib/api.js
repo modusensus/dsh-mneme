@@ -71,7 +71,15 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
         const url = new URL(req.url, "http://localhost");
         const q = url.searchParams.get("q") ?? "";
         const limit = Number(url.searchParams.get("limit") ?? 20);
-        // mode: auto (default) | keyword | vector | hybrid
+        // mode selects the recall strategy (defaults to auto):
+        //   auto    (default) keyword first, vector fills remaining slots
+        //   hybrid  vector first, keyword fills remaining slots; scores of
+        //           memories hit by both sides are weight-blended
+        //   vector  vector only, falls back to keyword when the vector path
+        //           is unavailable (no embedder or a throwing one)
+        //   keyword literal text only; never queries the embedder
+        // rerank=false disables the cross-encoder reorder for this request;
+        // the response `mode` field reports which path actually produced rows.
         const mode = url.searchParams.get("mode") ?? "auto";
         const rerank = url.searchParams.get("rerank") !== "false";
         const query = q.trim();
