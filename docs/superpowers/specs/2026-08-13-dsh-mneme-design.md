@@ -76,7 +76,7 @@ dsh-mneme/
 │   └── service.js        # 服务层编排（注入候选/去重/镜像同步）
 ├── lib/                  # DSH 加载目录：scripts/sync-lib.js 从 src 逐字节拷贝
 │   └── client.js         # Web GUI 记忆面板（单文件，仅存在于 lib）
-└── test/                 # 152+ node:test 测试
+└── test/                 # 236+ node:test 测试
 ```
 
 ### 3.2 技术底座
@@ -252,7 +252,7 @@ CREATE TABLE custom_commands (
 7. ✅ 用户画像/规则每轮注入，自定义指令可注册触发
 8. ✅ 向量搜索配置后可用，未配置时自动降级 LIKE 子串搜索
 9. ✅ autoDream 自动巩固（去重/合并/归档/冲突裁决）
-10. ✅ 152 个 node:test 测试全部通过（含审计与三轴线压测不变量），CI 自动运行
+10. ✅ 236 个 node:test 测试全部通过（含审计、三轴线压测不变量与 API 鉴权），CI 自动运行
 11. ✅ 每次 autoDream 裁决写入审计（输入快照 digest + 决策清单 + 逐 id 去向 + receipt），可回放定位静默错误
 
 ## 10. 风险与缓解
