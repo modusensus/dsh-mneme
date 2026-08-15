@@ -5,6 +5,35 @@ function sendJson(res, status, payload) {
   res.end(JSON.stringify(payload));
 }
 
+/**
+ * Mask an API key for client display: keep a recognizable prefix and suffix,
+ * hide the middle. Empty keys stay empty; short keys are fully hidden.
+ * The mask only exists in the API layer — storage keeps the real key.
+ */
+function maskApiKey(key) {
+  if (!key) return "";
+  if (key.length <= 8) return "***";
+  return `${key.slice(0, 3)}***${key.slice(-4)}`;
+}
+
+/** True when the request carries the configured apiToken (or no token is set). */
+function isAuthorized(req, apiToken) {
+  if (!apiToken) return true;
+  const raw = req.headers?.authorization ?? req.headers?.["x-dsh-mneme-token"] ?? "";
+  const token = raw.startsWith("Bearer ") ? raw.slice(7).trim() : raw.trim();
+  return token !== "" && token === apiToken;
+}
+
+/**
+ * Reject a request with 401 when auth is enabled and the token is missing or
+ * wrong. Returns true when the request may proceed.
+ */
+function requireAuth(req, res, apiToken) {
+  if (isAuthorized(req, apiToken)) return true;
+  sendJson(res, 401, { error: "unauthorized" });
+  return false;
+}
+
 /** Collect the request body as text (tolerant of empty/invalid bodies). */
 function readBody(req) {
   return new Promise((resolve) => {
@@ -23,7 +52,7 @@ function parseBody(text) {
   }
 }
 
-export function createApi(ctx, service, settings, commands, embedder, semantic = null) {
+export function createApi(ctx, service, settings, commands, embedder, semantic = null, apiToken = "") {
   const disposers = [];
 
   // Ensure the service has an embedder when the API layer was handed one
@@ -113,6 +142,7 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
     handler(req, res) {
       try {
         if (req.method === "PUT" || req.method === "POST") {
+          if (!requireAuth(req, res, apiToken)) return;
           return readBody(req).then((text) => {
             const body = parseBody(text);
             settings.setProfile(typeof body.profile === "string" ? body.profile : "");
@@ -133,6 +163,7 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
     handler(req, res) {
       try {
         if (req.method === "PUT" || req.method === "POST") {
+          if (!requireAuth(req, res, apiToken)) return;
           return readBody(req).then((text) => {
             const body = parseBody(text);
             settings.setRules(Array.isArray(body.rules) ? body.rules : []);
@@ -152,19 +183,28 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
     path: "/api/dsh-mneme/vector-config",
     handler(req, res) {
       try {
+        // Secret-bearing endpoint: fully protected when apiToken is set.
+        if (!requireAuth(req, res, apiToken)) return;
         if (req.method === "PUT" || req.method === "POST") {
           return readBody(req).then((text) => {
             const body = parseBody(text);
+            // An empty or masked apiKey means "keep the existing one": the
+            // client only sends a real key when the user actually changed it.
+            const prev = settings.getVectorConfig();
+            const key = typeof body.apiKey === "string" && body.apiKey.trim() && !body.apiKey.includes("***")
+              ? body.apiKey.trim()
+              : (prev?.apiKey ?? "");
             const cfg = settings.setVectorConfig({
               enabled: body.enabled,
               baseUrl: body.baseUrl,
-              apiKey: body.apiKey,
+              apiKey: key,
               model: body.model
             });
-            sendJson(res, 200, { config: cfg });
+            sendJson(res, 200, { config: { ...cfg, apiKey: maskApiKey(cfg.apiKey) } });
           });
         }
-        sendJson(res, 200, { config: settings.getVectorConfig() ?? { enabled: false, baseUrl: "", apiKey: "", model: "" } });
+        const cfg = settings.getVectorConfig() ?? { enabled: false, baseUrl: "", apiKey: "", model: "" };
+        sendJson(res, 200, { config: { ...cfg, apiKey: maskApiKey(cfg.apiKey) } });
       } catch {
         sendJson(res, 500, { error: "internal" });
       }
@@ -177,6 +217,7 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
     path: "/api/dsh-mneme/vector-reindex",
     handler(req, res) {
       try {
+        if (!requireAuth(req, res, apiToken)) return;
         if (!embedder) {
           sendJson(res, 200, { indexed: 0, skipped: 0, error: "vector-unavailable" });
           return;
@@ -227,6 +268,7 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
     handler(req, res) {
       try {
         if (req.method === "POST") {
+          if (!requireAuth(req, res, apiToken)) return;
           return readBody(req).then((text) => {
             const body = parseBody(text);
             try {
@@ -242,6 +284,7 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
           });
         }
         if (req.method === "DELETE") {
+          if (!requireAuth(req, res, apiToken)) return;
           const url = new URL(req.url, "http://localhost");
           const id = url.searchParams.get("id");
           const removed = id ? commands.remove(id) : false;

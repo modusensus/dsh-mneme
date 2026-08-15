@@ -163,7 +163,7 @@ export const apply = (ctx, config) => {
       add: () => { throw new Error("commands unavailable"); },
       remove: () => false,
       list: () => []
-    }, embedder, { vectorIndex, reranker });
+    }, embedder, { vectorIndex, reranker }, cfg.apiToken);
     disposers.push(api.dispose);
   }
 

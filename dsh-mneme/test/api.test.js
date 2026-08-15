@@ -26,7 +26,7 @@ function req(path, method = "GET", body = null) {
   return r;
 }
 
-function setup(embedder) {
+function setup(embedder, apiToken = "") {
   const store = createStore(":memory:");
   const service = createService({ store, mirror: null, config: {} });
   const settings = createSettings(store.db);
@@ -44,8 +44,8 @@ function setup(embedder) {
       }
     }
   };
-  const api = createApi(ctx, service, settings, commands, embedder);
-  return { store, service, routes, api, settings };
+  const api = createApi(ctx, service, settings, commands, embedder, undefined, apiToken);
+  return { store, service, routes, api, settings, apiToken };
 }
 
 function findHandler(routes, path) {
@@ -289,4 +289,97 @@ test("vector-reindex calls embedder and returns counts", async () => {
   const data = JSON.parse(res.body);
   assert.equal(data.indexed, 2);
   assert.equal(data.skipped, 1);
+});
+
+test("vector-config masks apiKey; empty/masked key on PUT keeps existing", async () => {
+  const { routes, settings } = setup();
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/vector-config");
+
+  // PUT stores the real key but responds masked
+  const put = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/vector-config", "PUT", {
+    enabled: true, baseUrl: "https://api.openai.com/v1", apiKey: "sk-abcdefghijklmnop", model: "m1"
+  }), put);
+  const putBody = JSON.parse(put.body);
+  assert.equal(putBody.config.apiKey, "sk-***mnop", "PUT response masked");
+  assert.equal(settings.getVectorConfig().apiKey, "sk-abcdefghijklmnop", "storage keeps the real key");
+
+  // GET returns masked key, other fields intact
+  const get = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/vector-config"), get);
+  const getBody = JSON.parse(get.body);
+  assert.equal(getBody.config.apiKey, "sk-***mnop");
+  assert.equal(getBody.config.baseUrl, "https://api.openai.com/v1");
+  assert.equal(getBody.config.enabled, true);
+
+  // PUT with empty apiKey keeps the previous key
+  const put2 = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/vector-config", "PUT", {
+    enabled: true, baseUrl: "https://api.openai.com/v1", apiKey: "", model: "m2"
+  }), put2);
+  assert.equal(settings.getVectorConfig().apiKey, "sk-abcdefghijklmnop", "empty key keeps existing");
+  assert.equal(JSON.parse(put2.body).config.model, "m2");
+
+  // PUT with a masked apiKey (client round-trip) also keeps the previous key
+  const put3 = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/vector-config", "PUT", {
+    enabled: true, baseUrl: "https://api.openai.com/v1", apiKey: "sk-***mnop", model: "m3"
+  }), put3);
+  assert.equal(settings.getVectorConfig().apiKey, "sk-abcdefghijklmnop", "masked key keeps existing");
+});
+
+test("apiToken protects write/secret endpoints while read endpoints stay open", async () => {
+  const { routes } = setup(undefined, "secret-token");
+  const list = routes.find((r) => r.path === "/api/dsh-mneme/list");
+  const profile = routes.find((r) => r.path === "/api/dsh-mneme/profile");
+  const vec = routes.find((r) => r.path === "/api/dsh-mneme/vector-config");
+  const reindex = routes.find((r) => r.path === "/api/dsh-mneme/vector-reindex");
+
+  // read-only endpoint stays open without a token
+  const resList = new FakeRes();
+  await list.handler(req("/api/dsh-mneme/list"), resList);
+  assert.equal(resList.statusCode, 200, "list stays open");
+
+  // secret endpoint without token → 401
+  const resVec = new FakeRes();
+  await vec.handler(req("/api/dsh-mneme/vector-config"), resVec);
+  assert.equal(resVec.statusCode, 401, "vector-config GET requires token");
+
+  // write endpoint without token → 401
+  const resProfile = new FakeRes();
+  await profile.handler(req("/api/dsh-mneme/profile", "PUT", { profile: "x" }), resProfile);
+  assert.equal(resProfile.statusCode, 401, "profile PUT requires token");
+
+  // reindex without token → 401
+  const resReindex = new FakeRes();
+  await reindex.handler(req("/api/dsh-mneme/vector-reindex"), resReindex);
+  assert.equal(resReindex.statusCode, 401, "vector-reindex requires token");
+
+  // with a Bearer token everything is allowed
+  const authReq = (path, method = "GET", body = null) => {
+    const r = req(path, method, body);
+    r.headers = { authorization: "Bearer secret-token" };
+    return r;
+  };
+  const resVecOk = new FakeRes();
+  await vec.handler(authReq("/api/dsh-mneme/vector-config"), resVecOk);
+  assert.equal(resVecOk.statusCode, 200, "vector-config GET with token");
+  const resProfileOk = new FakeRes();
+  await profile.handler(authReq("/api/dsh-mneme/profile", "PUT", { profile: "hi" }), resProfileOk);
+  assert.equal(resProfileOk.statusCode, 200, "profile PUT with token");
+
+  // wrong token → 401
+  const bad = req("/api/dsh-mneme/vector-config");
+  bad.headers = { authorization: "Bearer wrong" };
+  const resBad = new FakeRes();
+  await vec.handler(bad, resBad);
+  assert.equal(resBad.statusCode, 401, "wrong token rejected");
+});
+
+test("no apiToken configured keeps all endpoints open", async () => {
+  const { routes } = setup();
+  const vec = routes.find((r) => r.path === "/api/dsh-mneme/vector-config");
+  const res = new FakeRes();
+  await vec.handler(req("/api/dsh-mneme/vector-config"), res);
+  assert.equal(res.statusCode, 200, "open when apiToken is unset");
 });
