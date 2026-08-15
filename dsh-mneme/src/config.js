@@ -14,6 +14,15 @@ export const Config = z.object({
   dreamModel: z.string(),
   dreamMaxTokens: z.natural().min(256).max(32768).default(4096),
 
+  // --- API protection ------------------------------------------------------
+  // Optional shared token for the plugin's HTTP API. Empty (default) keeps
+  // the API open (DSH binds to 127.0.0.1 and has no built-in auth); when set,
+  // sensitive endpoints (vector-config, vector-reindex, and all write ops on
+  // profile/rules/commands) require `Authorization: Bearer <apiToken>` (or
+  // `X-DSH-Mneme-Token`). Read-only list/search/semantic stay open so the
+  // Web panel keeps working without the token.
+  apiToken: z.string(),
+
   // --- semantic: local embedding provider (v0.2) --------------------------
   // "openai" keeps the legacy external-API path (settings vector config);
   // "local" runs an ONNX model in-process; "ollama" calls a local Ollama.

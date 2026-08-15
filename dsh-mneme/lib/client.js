@@ -9,6 +9,19 @@ window.__ModuleLoader__.load({
     let { useState, useEffect, useCallback, useRef } = react;
     let { createPortal } = reactDom;
 
+    // Unified API fetcher: attaches the optional apiToken (set in the settings
+    // panel, persisted in localStorage) as a Bearer header. When no token has
+    // been configured the header is omitted and the API stays open (default).
+    const API_TOKEN_KEY = "dsh-mneme-api-token";
+    function apiFetch(path, opts = {}) {
+      const token = (typeof window !== "undefined" && window.localStorage)
+        ? window.localStorage.getItem(API_TOKEN_KEY) || ""
+        : "";
+      const headers = { ...(opts.headers || {}) };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      return fetch(path, { ...opts, headers });
+    }
+
     const inject = ["slots", "locale"];
 
     const NS = "memory";
@@ -53,7 +66,12 @@ window.__ModuleLoader__.load({
         "memory.settings.vectorSaved": "配置已保存",
         "memory.settings.vectorReindex": "重建索引",
         "memory.settings.vectorReindexing": "索引中…",
-        "memory.settings.vectorReindexDone": "已索引 {n} 条"
+        "memory.settings.vectorReindexDone": "已索引 {n} 条",
+        "memory.settings.apiTokenTitle": "API Token（可选）",
+        "memory.settings.apiTokenHint": "设置后，写操作与密钥接口（画像/规则/命令/向量配置）需携带 Authorization: Bearer <token>；面板只读操作不受影响。清空并保存可关闭鉴权。",
+        "memory.settings.apiTokenPlaceholder": "留空 = 不鉴权（默认）",
+        "memory.settings.apiTokenSave": "保存 Token",
+        "memory.settings.apiTokenSaved": "Token 已保存"
       },
       en: {
         "memory.panel.title": "Memory",
@@ -94,7 +112,12 @@ window.__ModuleLoader__.load({
         "memory.settings.vectorSaved": "Config saved",
         "memory.settings.vectorReindex": "Reindex",
         "memory.settings.vectorReindexing": "Indexing…",
-        "memory.settings.vectorReindexDone": "Indexed {n} items"
+        "memory.settings.vectorReindexDone": "Indexed {n} items",
+        "memory.settings.apiTokenTitle": "API Token (optional)",
+        "memory.settings.apiTokenHint": "When set, write operations and secret endpoints (profile/rules/commands/vector config) require Authorization: Bearer <token>. Read-only panel calls stay open. Save empty to disable.",
+        "memory.settings.apiTokenPlaceholder": "Empty = no auth (default)",
+        "memory.settings.apiTokenSave": "Save Token",
+        "memory.settings.apiTokenSaved": "Token saved"
       }
     };
 
@@ -120,7 +143,7 @@ window.__ModuleLoader__.load({
       const abortRef = useRef(null);
 
       useEffect(() => {
-        fetch("/api/dsh-mneme/vector-config")
+        apiFetch("/api/dsh-mneme/vector-config")
           .then((res) => res.json())
           .then((d) => setVecEnabled(!!d.config?.enabled))
           .catch(() => {});
@@ -137,7 +160,7 @@ window.__ModuleLoader__.load({
           const url = query.trim()
             ? `/api/dsh-mneme/search?q=${encodeURIComponent(query.trim())}&mode=${semantic ? "vector" : "auto"}`
             : `/api/dsh-mneme/list?${params.toString()}`;
-          const res = await fetch(url, { signal: controller.signal });
+          const res = await apiFetch(url, { signal: controller.signal });
           const data = await res.json();
           setItems(data.items || []);
         } catch (error) {
@@ -224,14 +247,18 @@ window.__ModuleLoader__.load({
       const [vectorSaved, setVectorSaved] = react.useState(false);
       const [reindexing, setReindexing] = react.useState(false);
       const [reindexMsg, setReindexMsg] = react.useState("");
+      const [apiToken, setApiToken] = react.useState(() =>
+        (typeof window !== "undefined" && window.localStorage) ? window.localStorage.getItem("dsh-mneme-api-token") || "" : ""
+      );
+      const [apiTokenSaved, setApiTokenSaved] = react.useState(false);
 
       const load = react.useCallback(async () => {
         try {
           const [p, r, c, v] = await Promise.all([
-            fetch("/api/dsh-mneme/profile").then((res) => res.json()),
-            fetch("/api/dsh-mneme/rules").then((res) => res.json()),
-            fetch("/api/dsh-mneme/commands").then((res) => res.json()),
-            fetch("/api/dsh-mneme/vector-config").then((res) => res.json())
+            apiFetch("/api/dsh-mneme/profile").then((res) => res.json()),
+            apiFetch("/api/dsh-mneme/rules").then((res) => res.json()),
+            apiFetch("/api/dsh-mneme/commands").then((res) => res.json()),
+            apiFetch("/api/dsh-mneme/vector-config").then((res) => res.json())
           ]);
           setProfile(p.profile || "");
           setRules(Array.isArray(r.rules) ? r.rules : []);
@@ -244,7 +271,7 @@ window.__ModuleLoader__.load({
 
       async function saveProfile() {
         try {
-          await fetch("/api/dsh-mneme/profile", {
+          await apiFetch("/api/dsh-mneme/profile", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ profile })
@@ -255,7 +282,7 @@ window.__ModuleLoader__.load({
       }
 
       async function putRules(next) {
-        await fetch("/api/dsh-mneme/rules", {
+        await apiFetch("/api/dsh-mneme/rules", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ rules: next })
@@ -282,7 +309,7 @@ window.__ModuleLoader__.load({
         const instruction = newCmd.instruction.trim();
         if (!name || !instruction) return;
         try {
-          const res = await fetch("/api/dsh-mneme/commands", {
+          const res = await apiFetch("/api/dsh-mneme/commands", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ name, description: newCmd.description, instruction })
@@ -296,13 +323,13 @@ window.__ModuleLoader__.load({
       }
 
       async function removeCommand(id) {
-        await fetch(`/api/dsh-mneme/commands?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+        await apiFetch(`/api/dsh-mneme/commands?id=${encodeURIComponent(id)}`, { method: "DELETE" });
         setCommands(commands.filter((c) => c.id !== id));
       }
 
       async function saveVector() {
         try {
-          await fetch("/api/dsh-mneme/vector-config", {
+          await apiFetch("/api/dsh-mneme/vector-config", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(vector)
@@ -316,12 +343,21 @@ window.__ModuleLoader__.load({
         setReindexing(true);
         setReindexMsg("");
         try {
-          const res = await fetch("/api/dsh-mneme/vector-reindex");
+          const res = await apiFetch("/api/dsh-mneme/vector-reindex");
           const data = await res.json();
           const n = data.indexed ?? 0;
           setReindexMsg(t("memory.settings.vectorReindexDone").replace("{n}", String(n)));
         } catch { setReindexMsg(""); }
         setReindexing(false);
+      }
+
+      function saveToken() {
+        try {
+          if (apiToken.trim()) window.localStorage.setItem("dsh-mneme-api-token", apiToken.trim());
+          else window.localStorage.removeItem("dsh-mneme-api-token");
+          setApiTokenSaved(true);
+          setTimeout(() => setApiTokenSaved(false), 1500);
+        } catch { /* ignore */ }
       }
 
       const inputStyle = { ...styles.search, marginBottom: 8 };
@@ -341,6 +377,14 @@ window.__ModuleLoader__.load({
         sectionTab === "memory"
           ? h(MemoryPanel, { t, embedded: true })
           : h("div", { style: { overflowY: "auto" } },
+              // api token (optional)
+              h("div", { style: { ...labelStyle, marginTop: 20 } }, t("memory.settings.apiTokenTitle")),
+              h("div", { style: hintStyle }, t("memory.settings.apiTokenHint")),
+              h("div", { style: { display: "flex", gap: 6 } },
+                h("input", { style: { ...inputStyle, flex: 1, marginBottom: 0 }, type: "password", value: apiToken, placeholder: t("memory.settings.apiTokenPlaceholder"), onChange: (e) => setApiToken(e.target.value) }),
+                h("button", { style: styles.footerButton, onClick: saveToken }, t("memory.settings.apiTokenSave"))
+              ),
+              apiTokenSaved && h("div", { style: { fontSize: 12, color: "var(--dsw-alias-state-success, #2a7)" } }, t("memory.settings.apiTokenSaved")),
               // profile
               h("div", { style: labelStyle }, t("memory.settings.profile")),
               h("div", { style: hintStyle }, t("memory.settings.profileHint")),

@@ -167,6 +167,9 @@ dsh web
 | `rerankEnabled` | `true` | 是否启用 Rerank 精排 |
 | `rerankModel` | `Xenova/bge-reranker-base` | Rerank 交叉编码模型 |
 | `rerankScoreThreshold` | `0.1` | Rerank 分数阈值（低于丢弃） |
+| `apiToken` | 空 | 可选 API 鉴权 token；设置后写操作与密钥接口要求 `Authorization: Bearer <apiToken>` |
+
+> 🔐 **API 安全**：DSH 无内置鉴权且默认仅监听 `127.0.0.1`。插件 API 默认开放（便于 Web 面板即装即用）。如需防护（如局域网暴露），在配置中设置 `apiToken`：写操作（画像/规则/命令）与密钥端点（`vector-config`、`vector-reindex`）需携带 `Authorization: Bearer <token>`（前端设置面板可填入同一 token），只读的 `list` / `search` / `semantic` 保持开放。`/api/dsh-mneme/vector-config` 返回的 `apiKey` 已掩码（`sk-***…`），存储仍保留明文供调用；前端回传空或掩码值表示"不改 key"。
 
 ## 🏗️ 架构
 
