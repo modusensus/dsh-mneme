@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Awesome](https://awesome-dsh-plugin.com/badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
-[![tests](https://img.shields.io/badge/tests-198%20passed-success)](https://github.com/modusensus/dsh-mneme)
+[![tests](https://img.shields.io/badge/tests-212%20passed-success)](https://github.com/modusensus/dsh-mneme)
 
 > 给 DeepSeek Harness 的跨会话记忆插件：让 Agent 记住你、记住项目、自动整理记忆。**Mneme**（Μνήμη）——希腊记忆女神 Mnemosyne 之名，掌管记忆与梦境，正如 autoDream 在后台巩固记忆。
 
@@ -38,13 +38,15 @@
 ### autoDream 自动记忆整理 🧠
 
 - **触发**：记忆数 > 10 或总字符 > 5000 时，异步自动触发（不阻塞写入）
-- **决策清单式整理**：LLM 输出 `keep` / `merge` / `archive` / `conflict` 决策清单，服务端校验后逐条应用
+- **决策清单式整理**：LLM 输出 `keep` / `merge` / `archive` / `conflict` / `update` 决策清单，服务端校验后逐条应用
   - `merge`：合并主题相近的条目，保留信息最完整者
   - `archive`：归档过时/冗余条目（可恢复，不物理删除）
   - `conflict`：裁决矛盾信息，胜者保留、败者归档并追加溯源注释
+  - `update`（v0.2.1）：直接修正单条记忆的过时/错误内容（单 id / 必须实际变化 / 非 summary / 24h 保护 / 每次 ≤2）
+- **失败追踪（v0.2.1）**：用户纠正记忆时写入 `failure_memories` 表（旧值/新值），为后续自进化积累数据
 - **摘要生成**：整理后生成"记忆库总览"（单一实例），作为下次会话的优先注入
 - **Fail-safe**：非法 LLM 输出（未知 id / 非法 action / 跨类型合并 / 越界 importance）拒绝整单，绝不破坏记忆库
-- **裁决审计**：每次运行写入 `dream_runs` 审计表（输入快照 sha256 digest + 完整输入快照 + 决策清单 + 逐 id 去向 + receipt），可离线回放；merge / conflict 幂等应用，重放/并发重复执行无累积副作用
+- **裁决审计**：每次运行写入 `dream_runs` 审计表（输入快照 sha256 digest + 完整输入快照 + 决策清单 + 逐 id 去向 + receipt），可离线回放；merge / conflict / update 幂等应用，重放/并发重复执行无累积副作用；update 记录 `_before` 快照
 
 ### Web 记忆面板
 
@@ -204,7 +206,7 @@ src/
 lib/
 ├── client.js         # Web 面板（手写 ModuleLoader bundle）
 └── *.js              # src 的同步分发产物
-test/                 # 198 个 node:test 测试（含审计与三轴线压测不变量）
+test/                 # 212 个 node:test 测试（含审计与三轴线压测不变量）
 scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压测 · sync-lib.js 同步
 ```
 
@@ -213,7 +215,7 @@ scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压
 ```bash
 cd dsh-mneme
 npm install        # 安装 peer 依赖（以 devDependencies 形式，用于本地测试）
-npm test           # 运行 198 个测试
+npm test           # 运行 212 个测试
 npm run stress     # 三轴线压测：长会话检索 / 冲突仲裁 / 多 Agent 并发（离线 mock LLM）
 npm run sync       # 把 src/ 同步到 lib/（发布时由 prepack 钩子自动执行）
 ```
