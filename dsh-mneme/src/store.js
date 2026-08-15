@@ -40,6 +40,21 @@ CREATE TABLE IF NOT EXISTS dream_runs (
   receipt        TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_dream_runs_created ON dream_runs(created_at);
+
+-- failure_memories: records user corrections / reflection failures. Captures
+-- what a memory was ("actual") vs what the user changed it to ("expected")
+-- so later reflection passes can mine recurring correction patterns.
+CREATE TABLE IF NOT EXISTS failure_memories (
+  id           TEXT PRIMARY KEY,
+  query        TEXT,
+  expected     TEXT,
+  actual       TEXT,
+  failure_type TEXT NOT NULL,
+  memory_id    TEXT,
+  created_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_failure_memories_created ON failure_memories(created_at);
+CREATE INDEX IF NOT EXISTS idx_failure_memories_type ON failure_memories(failure_type);
 `;
 
 const TYPES = new Set(["preference", "project", "decision", "history", "summary"]);
@@ -383,6 +398,45 @@ export function createStore(path) {
     return rows.map(toDreamRun);
   }
 
+  // --- failure memories ----------------------------------------------------
+
+  /**
+   * Persist one failure record (user correction, failed expectation, etc.).
+   * Like the dream audit trail this is bookkeeping: it never triggers write
+   * hooks, so reflection mining of failures cannot loop back into the writer.
+   */
+  function saveFailure({ id, query, expected, actual, failure_type, memory_id }) {
+    const now = nowIso();
+    db.prepare(
+      `INSERT INTO failure_memories (id, query, expected, actual, failure_type, memory_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(id ?? randomUUID(), query ?? null, expected ?? null, actual ?? null, failure_type, memory_id ?? null, now);
+    return { id, query, expected, actual, failure_type, memory_id, created_at: now };
+  }
+
+  function listFailures({ limit = 50, offset = 0, since, memory_id, failure_type } = {}) {
+    const clauses = [];
+    const params = [];
+    if (since) { clauses.push("created_at >= ?"); params.push(since); }
+    if (memory_id) { clauses.push("memory_id = ?"); params.push(memory_id); }
+    if (failure_type) { clauses.push("failure_type = ?"); params.push(failure_type); }
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const lim = Number.isInteger(limit) && limit > 0 ? limit : 50;
+    const off = Number.isInteger(offset) && offset > 0 ? offset : 0;
+    return db.prepare(`SELECT * FROM failure_memories ${where} ORDER BY created_at DESC, id LIMIT ? OFFSET ?`).all(...params, lim, off);
+  }
+
+  function getFailureStats({ since } = {}) {
+    const clause = since ? "WHERE created_at >= ?" : "";
+    const params = since ? [since] : [];
+    const rows = db.prepare(
+      `SELECT failure_type, count(*) AS c FROM failure_memories ${clause} GROUP BY failure_type`
+    ).all(...params);
+    const stats = {};
+    for (const row of rows) stats[row.failure_type] = row.c;
+    return stats;
+  }
+
   return {
     db,
     count,
@@ -402,6 +456,9 @@ export function createStore(path) {
     saveDreamRun,
     getDreamRun,
     listDreamRuns,
+    saveFailure,
+    listFailures,
+    getFailureStats,
     close() {
       db.close();
     }

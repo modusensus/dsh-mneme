@@ -214,3 +214,43 @@ LocalEmbedder(ONNX) ──失败──► OllamaEmbedder ──失败──► O
 - 单元：`src/local-embedder.js` 三后端接口一致性、`clustering.js` 聚类正确性（node:test）
 - 降级链：mock 各后端抛错，断言逐级回退到 LIKE
 - 基准：`scripts/benchmark-embed.js`（嵌入延迟/吞吐）、`scripts/benchmark-rerank.js`（Rerank 延迟 vs 候选规模）
+
+## 9. 反思更新（v0.2.1 `update` 决策 + 失败追踪）
+
+### 9.1 `update` 决策类型
+
+autoDream 整理时，LLM 可输出第 5 种决策 `update`，直接修正单条记忆的过时/错误内容：
+
+- **约束**：`ids` 只能含一个 id；必须产生实际字段变化；不能更新 `summary`；新建 < 24h 的记忆不可 update
+- **频率限制**：每次 autoDream 最多 `reflectionUpdateMaxPerRun`（默认 2）个 update，超限整单拒绝
+- **幂等**：字段已与目标一致时跳过（可重放无副作用）
+- **审计**：`dream_runs` 记录 update 的 `_before` 快照，可回溯变更前内容
+- **向量同步**：update 后删除旧向量、按新内容重嵌入，保持索引一致
+
+### 9.2 失败追踪（failure_memories）
+
+`failure_memories` 表记录记忆纠正/失败事件，为后续反思进化积累数据：
+
+```sql
+CREATE TABLE failure_memories (
+  id TEXT PRIMARY KEY,
+  query TEXT,           -- 用户原始查询/意图（可选）
+  expected TEXT,        -- 期望结果
+  actual TEXT,          -- 实际结果
+  failure_type TEXT,    -- outdated / miss / wrong / user_correction
+  memory_id TEXT,       -- 关联的记忆 id
+  created_at TEXT NOT NULL
+);
+```
+
+- **触发**：用户调用 `memory_update` 且内容变化时，若 `reflectionFailureTracking` 开启则记录 `user_correction` 行（actual=旧值、expected=新值）
+- **查询**：`store.listFailures`（过滤/分页）、`store.getFailureStats`（按类型计数）
+
+### 9.3 配置项
+
+```javascript
+reflectionUpdateEnabled: true,       // update 决策总开关
+reflectionFailureTracking: true,     // 失败追踪总开关
+reflectionUpdateMaxPerRun: 2,        // 每次整理最多 update 数
+reflectionUpdateMinAgeHours: 24      // 新建记忆保护期（小时）
+```

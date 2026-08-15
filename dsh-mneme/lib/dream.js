@@ -10,7 +10,13 @@ const CONSOLIDATION_PROMPT = `你是记忆库整理助手。下面是全部记�
 1. 识别主题相近的条目 → 输出 merge（合并为更精炼的摘要，保留信息最完整的 id 作为 keepSource）
 2. 识别重复/过时信息 → 输出 archive
 3. 识别内容矛盾的条目 → 输出 conflict（根据时间新旧、来源完整性、信息具体程度判断 winner/loser）
-4. 无问题的条目 → 输出 keep
+4. 发现单条记忆中的信息已过时、错误或遗漏 → 输出 update（直接修正内容）
+   - update 的 ids 只能包含一个 id
+   - 必须提供修正后的 title 和/或 content
+   - 仅当内容确实需要修正时才使用，不要滥用
+   - 每次整理最多输出 2 个 update
+   - 24 小时内新建的记忆不可 update
+5. 无问题的条目 → 输出 keep
 
 规则：
 - 每条记忆至少出现在一个决策中
@@ -18,6 +24,7 @@ const CONSOLIDATION_PROMPT = `你是记忆库整理助手。下面是全部记�
 - 仅合并同类型条目（type 相同）
 - 不要编造 ids；只使用提供的 id
 - 重要性 1-5，合并后取最高
+- update 只能改一条，且要有实际变化
 - 只输出 JSON 数组，不要其他文字`;
 
 function totalChars(memories) {
@@ -83,6 +90,8 @@ export function buildOutcome(decisions) {
     } else if (d.action === "conflict") {
       byId[d.winner] = "conflict-winner";
       byId[d.loser] = "conflict-archived";
+    } else if (d.action === "update") {
+      for (const id of d.ids) byId[id] = "updated";
     }
   }
   return { byId };
@@ -171,6 +180,17 @@ async function maintainIndexAfterDream(decisions, service, semantic) {
       }
     } else if (d.action === "archive" || d.action === "conflict") {
       for (const id of d.ids ?? [d.loser]) vectorIndex.deleteEmbedding(id);
+    } else if (d.action === "update") {
+      const id = d.ids[0];
+      const mem = service.getById(id);
+      if (mem) {
+        vectorIndex.deleteEmbedding(id);
+        try {
+          const text = [mem.title, mem.content].filter(Boolean).join("\n");
+          const v = await embedder.embedSingle(text);
+          if (v?.length) vectorIndex.saveEmbedding(id, v);
+        } catch { /* best-effort */ }
+      }
     }
   }
   for (const [id, text] of rebuild) {
@@ -369,13 +389,32 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       logger?.warn?.("dsh-mneme dream: invalid decisions json");
       return finish({ ok: false, error: "invalid decisions json", summary: false });
     }
-    const { ok, errors } = validateDecisions(decisions, snapshot);
+    const { ok, errors } = validateDecisions(decisions, snapshot, {
+      maxUpdatePerRun: config.reflectionUpdateMaxPerRun,
+      minAgeHours: config.reflectionUpdateMinAgeHours
+    });
     if (!ok) {
       logger?.warn?.(`dsh-mneme dream: invalid decisions: ${errors.join("; ")}`);
       return finish({ ok: false, error: `invalid decisions: ${errors.length} errors`, summary: false });
     }
 
+    // Capture pre-update snapshots so the audit records what each update changed.
+    const updateSnapshots = {};
+    for (const d of decisions) {
+      if (d.action === "update") {
+        const mem = snapshot.get(d.ids[0]);
+        if (mem) updateSnapshots[d.ids[0]] = { title: mem.title, content: mem.content, importance: mem.importance };
+      }
+    }
+
     const applied = applyDecisions(decisions, service, logger);
+    // Attach the pre-update snapshot to the audit copy of each update decision
+    // so the recorded row shows the before/after delta, not just the target.
+    const auditDecisions = decisions.map((d) =>
+      d.action === "update" && updateSnapshots[d.ids[0]]
+        ? { ...d, _before: updateSnapshots[d.ids[0]] }
+        : d
+    );
     const outcome = buildOutcome(decisions);
 
     // Keep the vector index consistent with the post-dream store state.
@@ -403,7 +442,7 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       });
     } catch (error) {
       logger?.warn?.(`dsh-mneme dream: summary llm call failed: ${String(error)}`);
-      return finish({ ok: false, error: "llm failed", applied, decisions, outcome, summary: false });
+      return finish({ ok: false, error: "llm failed", applied, decisions: auditDecisions, outcome, summary: false });
     }
     let summaryStored = false;
     if (summaryText !== undefined && summaryText.trim()) {
@@ -421,7 +460,7 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
         } catch { /* best-effort */ }
       }
     }
-    return finish({ ok: true, applied, decisions, outcome, summary: summaryStored });
+    return finish({ ok: true, applied, decisions: auditDecisions, outcome, summary: summaryStored });
   }
 
   return { maybeSchedule, runDream, dispose };

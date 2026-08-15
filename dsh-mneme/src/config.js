@@ -45,5 +45,11 @@ export const Config = z.object({
   rerankModel: z.string().default("Xenova/bge-reranker-base"),
   rerankBatchSize: z.natural().min(1).max(64).default(8),
   rerankMaxCandidates: z.natural().min(5).max(100).default(30),
-  rerankScoreThreshold: z.number().min(0).max(1).default(0.1)
+  rerankScoreThreshold: z.number().min(0).max(1).default(0.1),
+
+  // --- reflection: update decision + failure tracking (v0.2.1) ------------
+  reflectionUpdateEnabled: z.boolean().default(true),
+  reflectionFailureTracking: z.boolean().default(true),
+  reflectionUpdateMaxPerRun: z.natural().min(0).max(5).default(2),
+  reflectionUpdateMinAgeHours: z.natural().min(0).max(168).default(24)
 });
