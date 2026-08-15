@@ -1,4 +1,4 @@
-const ACTIONS = new Set(["keep", "merge", "archive", "conflict"]);
+const ACTIONS = new Set(["keep", "merge", "archive", "conflict", "update"]);
 
 /**
  * Validate a dream decision list against a snapshot of eligible memories.
@@ -6,8 +6,10 @@ const ACTIONS = new Set(["keep", "merge", "archive", "conflict"]);
  * @param snapshot - Map<id, memory> of eligible (non-archived, non-summary) entries.
  * @returns {{ok: boolean, errors: string[]}}
  */
-export function validateDecisions(decisions, snapshot) {
+export function validateDecisions(decisions, snapshot, options = {}) {
   const errors = [];
+  const maxUpdatePerRun = options.maxUpdatePerRun ?? 2;
+  const minAgeHours = options.minAgeHours ?? 24;
   if (!Array.isArray(decisions) || decisions.length === 0) {
     return { ok: false, errors: ["decision list must be a non-empty array"] };
   }
@@ -57,6 +59,38 @@ export function validateDecisions(decisions, snapshot) {
         errors.push(`${at}: merge ids span multiple types (${[...mergeTypes].join(", ")})`);
       }
     }
+    if (d.action === "update") {
+      // 只能更新单条
+      if (!Array.isArray(d.ids) || d.ids.length !== 1) {
+        errors.push(`${at}: update must target exactly one id`);
+        continue;
+      }
+      // 必须产生实际变化
+      const mem = snapshot.get(d.ids[0]);
+      const hasChange = (d.title !== undefined && d.title !== mem?.title)
+        || (d.content !== undefined && d.content !== mem?.content)
+        || (d.importance !== undefined && d.importance !== mem?.importance);
+      if (!hasChange) {
+        errors.push(`${at}: update must change at least one field`);
+        continue;
+      }
+      // 不能更新 summary
+      if (mem?.type === "summary") {
+        errors.push(`${at}: cannot update summary via update action`);
+        continue;
+      }
+      // 保护期：新建记忆不可立即被 update（可配置）
+      const ageHours = (Date.now() - new Date(mem?.created_at).getTime()) / 3600000;
+      if (ageHours < minAgeHours) {
+        errors.push(`${at}: memory too young (< ${minAgeHours}h)`);
+        continue;
+      }
+    }
+  }
+  // Cap update churn: too many edits in one cycle signals a runaway model
+  const updateCount = decisions.filter((d) => d.action === "update").length;
+  if (updateCount > maxUpdatePerRun) {
+    errors.push(`too many update decisions: ${updateCount} > ${maxUpdatePerRun}`);
   }
   // Every snapshot id must appear in at least one decision
   for (const id of snapshot.keys()) {
@@ -116,6 +150,21 @@ export function applyDecisions(decisions, service, logger = null) {
           content: `${winner.content}\n\n（已否决旧信息：${[...loser.content].slice(0, 100).join("")}）`
         });
         service.setArchived(d.loser, true);
+        applied++;
+      } else if (d.action === "update") {
+        const id = d.ids[0];
+        const mem = service.getById(id);
+        if (!mem || mem.archived) continue;
+        // 幂等检查：如果字段已与目标一致则跳过
+        const same = (d.title === undefined || d.title === mem.title)
+          && (d.content === undefined || d.content === mem.content)
+          && (d.importance === undefined || d.importance === mem.importance);
+        if (same) continue;
+        service.update(id, {
+          title: d.title ?? mem.title,
+          content: d.content ?? mem.content,
+          importance: d.importance ?? mem.importance
+        });
         applied++;
       }
     } catch (error) {

@@ -4,6 +4,12 @@ All notable changes to dsh-mneme are documented here.
 
 ## [Unreleased]
 
+- **反思更新（v0.2.1）**：`update` 决策 + 失败追踪
+  - autoDream 新增 `update` 决策类型：修正单条记忆的过时/错误内容（单 id、必须实际变化、非 summary、24h 保护、每次 ≤2）
+  - 审计记录 update 的 `_before` 快照；update 后向量索引同步
+  - `failure_memories` 表：记录用户纠正（user_correction）+ 查询/统计接口
+  - 配置：`reflectionUpdateEnabled` / `reflectionFailureTracking` / `reflectionUpdateMaxPerRun` / `reflectionUpdateMinAgeHours`
+
 - **Semantic 升级（v0.2.0-semantic）**：完全离线语义记忆引擎
   - 本地 Embedding：`embedProvider: local`（ONNX bge-small-zh-v1.5，transformers.js/onnxruntime）或 `ollama`；原 `openai` 外部 API 保留为默认，向后兼容
   - 向量索引层：`vector_meta` 模型指纹追踪 + 索引统计（`/api/dsh-mneme/semantic`）

@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 const INJECT_TYPES = new Set(["preference", "project", "decision", "summary"]);
 
 export function createService({ store, mirror, config, onWrite }) {
@@ -283,7 +285,20 @@ export function createService({ store, mirror, config, onWrite }) {
       notifyWrite();
     },
     update: (id, p) => {
+      const old = store.getById(id);
       const updated = store.update(id, p);
+      // Record a user correction (only when content actually changed and the
+      // reflection failure tracker is enabled): expected = what it became,
+      // actual = what it was before. Feeds later reflection/evolution passes.
+      if (old && updated && config.reflectionFailureTracking && old.content !== updated.content) {
+        store.saveFailure({
+          id: randomUUID(),
+          expected: updated.content,
+          actual: old.content,
+          failure_type: "user_correction",
+          memory_id: id
+        });
+      }
       syncMirror();
       notifyWrite();
       scheduleEmbed(updated);
