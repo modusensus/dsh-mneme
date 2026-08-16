@@ -68,7 +68,7 @@ export function parseReceipt(receipt) {
   // reconcile = decisions validated but one or more did not commit (CAS
   // conflict / transaction rollback) — the store diverges from the decision
   // list and the run must be reconciled, never reported as a fake ok.
-  if (!runId || !/^(ok|failed|reconcile)$/.test(status)) return undefined;
+  if (!runId || !/^(ok|noop|degraded|reconcile|failed)$/.test(status)) return undefined;
   const count = Number(inputCount);
   const appliedN = Number(applied);
   if (!Number.isInteger(count) || !Number.isInteger(appliedN)) return undefined;
@@ -286,9 +286,11 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     // replayable too.
     const finish = (result) => {
       // status is derived from what actually committed: ok only when the full
-      // decision list landed; reconcile when decisions were validated but some
-      // did not commit (CAS conflict / rollback); failed on any LLM/validation
-      // error. No fake "ok" for a partial commit.
+      // decision list landed (or a summary was refreshed); noop when nothing
+      // changed; degraded when real changes landed without a summary;
+      // reconcile when decisions were validated but some did not commit (CAS
+      // conflict / rollback); failed on any LLM/validation error. No fake "ok"
+      // for an empty or partial run.
       const status = result.status ?? (result.ok ? "ok" : "failed");
       const applied = result.applied ?? 0;
       const summaryStored = result.summary ?? false;
@@ -432,6 +434,11 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     const outcome = { ...buildOutcome(committed), conflicts, failures };
     // Decisions validated but not fully committed → reconcile (not ok).
     const partial = conflicts.length > 0 || failures.length > 0;
+    // No decision landed (all-keep, or every decision skipped as an idempotent
+    // replay) → nothing substantive changed. Distinct from a success: such a
+    // run must never be reported as ok, or the audit claims work that never
+    // happened and the scheduler refreshes the baseline on a false positive.
+    const noChange = applied === 0 && committed.every((c) => c.action === "keep");
 
     // Keep the vector index consistent with the post-dream store state.
     if (semantic?.embedder && semantic?.vectorIndex) {
@@ -476,9 +483,30 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
         } catch { /* best-effort */ }
       }
     }
+    // Honest status assignment (never a fake ok):
+    //   reconcile — some decisions validated but did not commit (CAS/rollback).
+    //   noop      — nothing changed and no summary persisted: truly an empty
+    //               run. ok:false keeps the scheduler from moving the baseline.
+    //   ok        — either real changes landed, or a fresh summary was stored
+    //               (all-keep + summary is a substantive summary refresh).
+    //   degraded  — real consolidation landed but the summary came back empty/
+    //               missing: the store was absorbed (ok for the baseline) but
+    //               the run did not produce its full output (marked, not faked).
+    let status;
+    let okResult;
+    if (partial) {
+      status = "reconcile";
+      okResult = false;
+    } else if (noChange) {
+      status = summaryStored ? "ok" : "noop";
+      okResult = summaryStored;
+    } else {
+      status = summaryStored ? "ok" : "degraded";
+      okResult = true;
+    }
     return finish({
-      ok: !partial,
-      status: partial ? "reconcile" : "ok",
+      ok: okResult,
+      status,
       applied,
       decisions: auditDecisions,
       outcome,
