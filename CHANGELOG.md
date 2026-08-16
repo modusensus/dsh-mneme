@@ -4,6 +4,12 @@ All notable changes to dsh-mneme are documented here.
 
 ## [Unreleased]
 
+- **诚实审计修复（v0.2.7，F-03）**
+  - autoDream 决策无变更且 summary 为空时，不再误报 ok:true——新增 `noop` 状态（ok:false，baseline 不刷新），避免空跑循环
+  - 有变更但 summary 缺失 → `degraded`（ok:true 但如实标记 summary 缺失）
+  - parseReceipt 支持 ok/noop/degraded/reconcile/failed
+  - 测试 259 → **263**
+
 - **社区贡献 · 嵌入式面板 UI 改进（PR #2，@Liuxin4950）**
   - 记忆面板与设置面板的嵌入模式（settings.section 插槽）不再复用弹窗面板样式（去掉 boxShadow / background / borderRadius / padding），改为全宽平铺渲染，消除 DSH 设置页内多余的悬浮卡片与阴影
   - 弹窗（portal）模式保持原有面板样式不变；新增回归测试锁定 embedded 分支不携带 modal chrome
