@@ -10,7 +10,7 @@
   <a href="https://github.com/awesome-dsh-plugin/awesome-dsh-plugin"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="Awesome"></a>
   <a href="https://github.com/modusensus/dsh-mneme/actions"><img src="https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/test.yml" alt="CI"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-24%2B-blue" alt="node"></a>
-  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-404%20passed-success" alt="tests"></a>
+  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-429%20passed-success" alt="tests"></a>
 </p>
 
 <p align="center"><strong><a href="#中文">中文</a> | <a href="#english">English</a></strong></p>
@@ -120,7 +120,7 @@ entities ──→ entity_attrs ──→ entity_relations
 - **recall_runs 召回层**：检索场景可审计
 - **policy_epoch 规则版本**：规则升级后旧裁决降级为历史证据
 - **安全审计 peer 复验**：真实 npm 包隔离独立回归，7 项发布门槛 + F-03 诚实审计
-- **404 个测试 + 三轴压测**全绿
+- **429 个测试 + 三轴压测**全绿
 
 ## ⚙️ 配置（节选）
 
@@ -150,7 +150,7 @@ dsh web
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 404 个测试
+npm test          # 429 个测试
 npm run stress    # 三轴线压测
 npm run sync      # src → lib 同步
 ```
@@ -177,7 +177,7 @@ npm run sync      # src → lib 同步
 |------|------|--------|------|
 | **v0.3.0** | 记忆基因 | entities/attrs/relations 三表 + 时间轴 + LLM 抽取 | ✅ 404 测试 |
 | **v0.3.1** | Logger 统一 | ✅ 已完成（extractor/service 接入 DSH logger 体系，404 测试） | — |
-| **v0.3.2** | Mirror 健康状态 | ✅ 已完成（F-NEW-03：持久 dirty 状态 + 启动重渲染 + /health 端点，416 测试） | — |
+| **v0.3.2** | Mirror 健康状态 | ✅ 已完成（F-NEW-03：持久 dirty 状态 + 启动重渲染 + /health 端点，429 测试） | — |
 | **v0.3.3** | 系统级睡眠 | Sleep 调度器 + 分层压缩 + 模式发现 | 规划 |
 | **v0.4.0** | 反思性成长 | 纠错双向回流 + 规则演进 + 自适应参数 | 规划 |
 | **v0.5.0+** | 自进化记忆 | 兴趣漂移 + 跨 workspace | 远期 |
@@ -293,7 +293,7 @@ Every decision is replayable; every claim has evidence:
 - **recall_runs**: retrieval scenes auditable
 - **policy_epoch**: rule version — old rulings degrade to historical evidence after upgrades
 - **Security audit peer re-verification**: isolated regression on real npm tarballs, 7 release gates + F-03 honest audit
-- **404 tests + three-axis stress** all green
+- **429 tests + three-axis stress** all green
 
 ## ⚙️ Configuration (excerpt)
 
@@ -322,7 +322,7 @@ dsh web
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 404 tests
+npm test          # 429 tests
 npm run stress    # three-axis stress test
 npm run sync      # src → lib sync
 ```
@@ -349,7 +349,7 @@ Memory grows:
 |---------|-------|-----------|--------|
 | **v0.3.0** | Memory genome | entities/attrs/relations + timeline + LLM extraction | ✅ 404 tests |
 | **v0.3.1** | Logger unification | ✅ Done (extractor/service wired to DSH logger system, 404 tests) | — |
-| **v0.3.2** | Mirror health state | ✅ Done (F-NEW-03: persistent dirty state + startup re-render + /health endpoint, 416 tests) | — |
+| **v0.3.2** | Mirror health state | ✅ Done (F-NEW-03: persistent dirty state + startup re-render + /health endpoint, 429 tests) | — |
 | **v0.3.3** | System-level sleep | Sleep scheduler + tiered compression + pattern discovery | planned |
 | **v0.4.0** | Reflective growth | Correction feedback loop + rule evolution + adaptive params | planned |
 | **v0.5.0+** | Self-evolving memory | Interest drift + cross-workspace | long-term |

@@ -17,8 +17,9 @@ import { createSettings } from "../src/settings.js";
  *  - store.js 新增 mirror_state 表 + set/getMirrorState + markMirrorDirty/Clean
  *  - service.syncMirror 失败写 dirty（dirty=1+last_error+last_attempt）、成功写
  *    clean（dirty=0+last_error=null+success_at）；状态写入各自 try/catch 不向外抛
- *  - service.recoverMirror() 启动时 dirty 则尝试一次同步，失败保持 dirty 下次再试
- *  - api.js /api/dsh-mneme/health 返回 mirror 状态
+ *  - service.recoverMirror() 启动时 dirty 则做有界重试（最多 3 次）收敛镜像，
+ *    仍失败保持 dirty 下次再试；返回 { recovered, error }，绝不向外抛
+ *  - service.getMirrorHealth() 供 api.js /api/dsh-mneme/health 使用
  *  - index.js 启动时调 recoverMirror()
  *
  * 测试点由 Kimi K2.7 设计（TC-F-03-001~011）。
@@ -134,20 +135,22 @@ test("F-NEW-03: syncMirror 成功 → dirty=0+last_error=null+success_at，镜�
   }
 });
 
-// ── TC-F-03-006：recoverMirror dirty+成功 → 恢复 clean，恰好一次 ────────────
+// ── TC-F-03-006：recoverMirror dirty+成功 → 恢复 clean，首试即中恰好一次 ────
 
-test("F-NEW-03: recoverMirror dirty→成功恢复 clean，sync 恰好一次，镜像收敛", () => {
+test("F-NEW-03: recoverMirror dirty→成功恢复 clean，首试即中、镜像收敛、返回 recovered", () => {
   const { dir, mirrorDir, store, mirror, service } = setup();
   try {
     // 制造 dirty（失败一次）
     const { original } = throwingMirrorSync(mirror);
     service.saveWithDedupe({ type: "project", title: "启动恢复", content: "Dirty 数据", importance: 3 });
     assert.equal(service.getMirrorState().dirty, true, "前置：必须 dirty");
-    // 恢复后包计数，recoverMirror 应只调一次
+    // 恢复后包计数，recoverMirror 首次尝试即成功 → sync 恰好一次
     mirror.sync = original;
     const counter = countingSync(mirror);
-    assert.doesNotThrow(() => service.recoverMirror(), "recoverMirror 不得抛");
-    assert.equal(counter.calls(), 1, "recover 必须只尝试一次（有界）");
+    const result = service.recoverMirror();
+    assert.equal(result.recovered, true, "恢复成功必须返回 recovered=true");
+    assert.equal(result.error, null);
+    assert.equal(counter.calls(), 1, "首试即中：sync 必须只调一次");
     const state = service.getMirrorState();
     assert.equal(state.dirty, false, "恢复成功必须清 dirty");
     assert.equal(state.last_error, null);
@@ -160,26 +163,49 @@ test("F-NEW-03: recoverMirror dirty→成功恢复 clean，sync 恰好一次，�
   }
 });
 
-// ── TC-F-03-007：recoverMirror 失败保持 dirty，恰好一次，不抛 ───────────────
+// ── TC-F-03-007：recoverMirror 失败保持 dirty，有界重试后放弃，不抛 ─────────
 
-test("F-NEW-03: recoverMirror 仍失败 → dirty 保持 1、last_error/attempt 更新，不抛", () => {
+test("F-NEW-03: recoverMirror 仍失败 → dirty 保持、返回 recovered=false+error，不抛", () => {
   const { dir, store, mirror, service } = setup();
   try {
-    const { original, err } = throwingMirrorSync(mirror);
+    const { original } = throwingMirrorSync(mirror);
     try {
       service.saveWithDedupe({ type: "project", title: "再失败", content: "x", importance: 3 });
       const dirtyState = service.getMirrorState();
       assert.equal(dirtyState.dirty, true, "前置：必须 dirty");
-      const counter = countingSync(mirror); // 注意：仍抛错
-      // countingSync 换掉了 mock；需要保留抛错行为 —— 用原 mock 再次包计数
-      mirror.sync = () => { counter.calls(); throw new Error("still broken"); };
+      const counter = countingSync(mirror); // 包装的仍是抛错 mock → 每次尝试都失败
       assert.doesNotThrow(() => service.recoverMirror(), "recoverMirror 失败也不得抛");
       const after = service.getMirrorState();
       assert.equal(after.dirty, true, "失败后 dirty 必须保持，供下次启动再试");
-      assert.equal(after.last_error, "still broken", "last_error 须更新为新错误");
+      assert.ok(after.last_error, "last_error 须有值");
       assert.ok(after.last_attempt >= dirtyState.last_attempt, "last_attempt 须更新");
       assert.equal(after.success_at, null);
-      assert.ok(counter.calls() >= 1, "recover 只应尝试一次");
+      // 有界性：失败路径最多重试 MAX_ATTEMPTS(3) 次后放弃，不得无限循环
+      assert.ok(counter.calls() <= 3, `recover 失败必须是有界重试，实际 ${counter.calls()} 次`);
+    } finally {
+      mirror.sync = original;
+    }
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ── 有界性（Kimi 风险点 3）：recoverMirror 重试次数精确 ≤3 ──────────────────
+
+test("F-NEW-03: recoverMirror 失败路径恰好重试 3 次后放弃（有界不无限）", () => {
+  const { dir, store, mirror, service } = setup();
+  try {
+    const { original } = throwingMirrorSync(mirror);
+    try {
+      service.saveWithDedupe({ type: "project", title: "有界", content: "x", importance: 3 });
+      assert.equal(service.getMirrorState().dirty, true, "前置：必须 dirty");
+      const counter = countingSync(mirror);
+      const result = service.recoverMirror();
+      assert.equal(counter.calls(), 3, "失败路径必须恰好尝试 3 次（MAX_ATTEMPTS）");
+      assert.equal(result.recovered, false, "3 次耗尽仍失败 → recovered=false");
+      assert.ok(result.error, "必须携带失败原因 error");
+      assert.equal(service.getMirrorState().dirty, true, "放弃后 dirty 保持，下次启动再试");
     } finally {
       mirror.sync = original;
     }
@@ -191,18 +217,21 @@ test("F-NEW-03: recoverMirror 仍失败 → dirty 保持 1、last_error/attempt 
 
 // ── TC-F-03-008：recoverMirror 不 dirty 时 no-op ────────────────────────────
 
-test("F-NEW-03: recoverMirror 不 dirty → 不重渲染、状态不变", () => {
+test("F-NEW-03: recoverMirror 不 dirty → 不重渲染、状态不变、返回 recovered=true", () => {
   const { dir, store, mirror, service } = setup();
   try {
     const counter = countingSync(mirror);
-    assert.doesNotThrow(() => service.recoverMirror(), "空表 recoverMirror 不得抛");
+    const result = service.recoverMirror();
     assert.equal(counter.calls(), 0, "不 dirty 时必须 no-op，不调 sync");
+    assert.equal(result.recovered, true, "本来干净 → recovered=true 且不调 sync");
     const state = service.getMirrorState();
     assert.equal(state.dirty, false, "状态不得改变");
-    // 已有数据但 dirty=0 同样 no-op
+    // 已有数据但 dirty=0 同样 no-op（saveWithDedupe 自身会同步一次，记录基线）
     service.saveWithDedupe({ type: "project", title: "干净数据", content: "x", importance: 3 });
     assert.equal(service.getMirrorState().dirty, false);
-    assert.equal(counter.calls(), 0, "干净状态下 recoverMirror 不得触发同步");
+    const before = counter.calls();
+    service.recoverMirror();
+    assert.equal(counter.calls(), before, "干净状态下 recoverMirror 不得触发同步");
   } finally {
     store.close();
     rmSync(dir, { recursive: true, force: true });
