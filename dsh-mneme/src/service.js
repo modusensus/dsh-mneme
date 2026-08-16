@@ -479,6 +479,12 @@ export function createService({ store, mirror, config, onWrite }) {
     // audit write, never a write-hook-triggering memory mutation).
     saveReceipt: (r) => store.saveReceipt(r),
     getReceipt: (id) => store.getReceipt(id),
-    listReceipts: (opts) => store.listReceipts(opts)
+    listReceipts: (opts) => store.listReceipts(opts),
+    // Conflict freeze bookkeeping (same semantics as the audit passthroughs
+    // above: an audit write, never a write-hook-triggering memory mutation).
+    saveConflictPending: (r) => store.saveConflictPending(r),
+    listConflictPending: (opts) => store.listConflictPending(opts),
+    resolveConflictPending: (id, o) => store.resolveConflictPending(id, o),
+    countConflictPending: () => store.countConflictPending()
   };
 }

@@ -291,3 +291,70 @@ test("compareAndUpdate on unknown id throws like update", () => {
   assert.throws(() => store.compareAndUpdate("ghost", "any", { content: "x" }), /not found/);
   store.close();
 });
+
+// --- conflict freeze: pending manual review -------------------------------
+
+test("saveConflictPending inserts and listConflictPending excludes resolved by default", () => {
+  const store = openMemory();
+  const a = store.save({ type: "decision", title: "截止", content: "8月20日", importance: 4 });
+  const b = store.save({ type: "decision", title: "截止旧", content: "8月15日", importance: 4 });
+  const pending = store.saveConflictPending({ run_id: "run-1", memory_a: a.id, memory_b: b.id, reason: "日期更新" });
+  assert.ok(pending.id, "has id");
+  assert.equal(pending.run_id, "run-1");
+  assert.equal(pending.reason, "日期更新");
+  assert.ok(pending.created_at);
+  assert.equal(pending.resolved_at, undefined);
+
+  const list = store.listConflictPending();
+  assert.equal(list.length, 1);
+  assert.ok([list[0].memory_a, list[0].memory_b].includes(a.id), "pair holds both sides");
+  assert.ok([list[0].memory_a, list[0].memory_b].includes(b.id));
+
+  const resolved = store.resolveConflictPending(pending.id, { winner: a.id });
+  assert.ok(resolved.resolved_at, "resolution stamped");
+  assert.equal(resolved.resolved_winner, a.id);
+  assert.equal(store.listConflictPending().length, 0, "resolved excluded by default");
+  const all = store.listConflictPending({ includeResolved: true });
+  assert.equal(all.length, 1, "resolved visible with includeResolved");
+  assert.equal(all[0].resolved_winner, a.id);
+  store.close();
+});
+
+test("saveConflictPending dedupes the same pair regardless of order", () => {
+  const store = openMemory();
+  const a = store.save({ type: "decision", title: "截止", content: "x" });
+  const b = store.save({ type: "decision", title: "截止2", content: "y" });
+  const p1 = store.saveConflictPending({ memory_a: a.id, memory_b: b.id, reason: "r1" });
+  const p2 = store.saveConflictPending({ memory_a: b.id, memory_b: a.id, reason: "r2" });
+  assert.equal(p2.id, p1.id, "same pair re-detected returns the existing pending row");
+  assert.equal(p2.reason, "r1", "original reason preserved");
+  assert.equal(store.listConflictPending().length, 1, "never a duplicate queue entry");
+  store.close();
+});
+
+test("countConflictPending counts unresolved rows only; resolve unknown id is undefined", () => {
+  const store = openMemory();
+  const a = store.save({ type: "decision", title: "a", content: "x" });
+  const b = store.save({ type: "decision", title: "b", content: "y" });
+  const c = store.save({ type: "decision", title: "c", content: "z" });
+  store.saveConflictPending({ memory_a: a.id, memory_b: b.id, reason: "ab" });
+  const p2 = store.saveConflictPending({ memory_a: b.id, memory_b: c.id, reason: "bc" });
+  assert.equal(store.countConflictPending(), 2);
+  store.resolveConflictPending(p2.id, { winner: b.id });
+  assert.equal(store.countConflictPending(), 1, "resolved no longer pending");
+  assert.equal(store.resolveConflictPending("ghost"), undefined, "unknown id resolves to undefined");
+  store.close();
+});
+
+test("conflict_pending table persists across store reopen", () => {
+  const dir = mkdtempSync(join(tmpdir(), "dsh-mneme-conflict-"));
+  const path = join(dir, "memory.db");
+  const s1 = createStore(path);
+  s1.saveConflictPending({ run_id: "run-1", memory_a: "ma", memory_b: "mb", reason: "x" });
+  s1.close();
+  const s2 = createStore(path);
+  const pending = s2.listConflictPending();
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].reason, "x");
+  s2.close();
+});

@@ -100,6 +100,24 @@ CREATE TABLE IF NOT EXISTS receipt_chain (
 );
 CREATE INDEX IF NOT EXISTS idx_receipt_chain_record ON receipt_chain(record_id);
 CREATE INDEX IF NOT EXISTS idx_receipt_chain_run ON receipt_chain(run_id);
+
+-- conflict_pending: conflicts parked for manual review (conflict freeze mode,
+-- opt-in via config.conflictFreezeEnabled). When enabled, the dream layer does
+-- NOT auto-adjudicate winner/loser — the conflicting pair is parked here until
+-- a human reviews it. resolveConflictPending stamps resolved_at (plus the chosen
+-- winner) so the review action stays auditable. Like the other audit tables this
+-- is bookkeeping: it never triggers write hooks.
+CREATE TABLE IF NOT EXISTS conflict_pending (
+  id              TEXT PRIMARY KEY,
+  run_id          TEXT,
+  memory_a        TEXT NOT NULL,
+  memory_b        TEXT NOT NULL,
+  reason          TEXT,
+  created_at      TEXT NOT NULL,
+  resolved_at     TEXT,
+  resolved_winner TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_conflict_pending_unresolved ON conflict_pending(resolved_at);
 `;
 
 const TYPES = new Set(["preference", "project", "decision", "history", "summary"]);
@@ -180,6 +198,20 @@ function toReceipt(row) {
     count_after: row.count_after,
     policy_epoch: row.policy_epoch ?? 0,
     created_at: row.created_at
+  };
+}
+
+function toConflictPending(row) {
+  if (!row) return undefined;
+  return {
+    id: row.id,
+    run_id: row.run_id ?? undefined,
+    memory_a: row.memory_a,
+    memory_b: row.memory_b,
+    reason: row.reason ?? undefined,
+    created_at: row.created_at,
+    resolved_at: row.resolved_at ?? undefined,
+    resolved_winner: row.resolved_winner ?? undefined
   };
 }
 
@@ -702,6 +734,66 @@ export function createStore(path) {
     return db.prepare("DELETE FROM failure_memories WHERE created_at < ?").run(before).changes;
   }
 
+  // --- conflict freeze: pending manual review ------------------------------
+
+  /**
+   * Park a detected conflict for human review (conflict freeze mode). The pair
+   * order is normalized (sorted by id) so the same two memories are only ever
+   * pending once — a re-detection in a later dream run is a no-op, never a
+   * duplicate queue entry. Returns the pending row (freshly inserted, or the
+   * existing unresolved row when the pair is already pending).
+   */
+  function saveConflictPending({ run_id, memory_a, memory_b, reason }) {
+    const [a, b] = [memory_a, memory_b].sort();
+    const existing = db.prepare(
+      "SELECT * FROM conflict_pending WHERE memory_a = ? AND memory_b = ? AND resolved_at IS NULL LIMIT 1"
+    ).get(a, b);
+    if (existing) return toConflictPending(existing);
+    const id = randomUUID();
+    const now = nowIso();
+    db.prepare(
+      `INSERT INTO conflict_pending (id, run_id, memory_a, memory_b, reason, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(id, run_id ?? null, a, b, reason ?? null, now);
+    return toConflictPending(db.prepare("SELECT * FROM conflict_pending WHERE id = ?").get(id));
+  }
+
+  /**
+   * List pending conflicts, newest first. Unresolved rows only by default;
+   * pass includeResolved to include resolved ones (audit view).
+   */
+  function listConflictPending({ limit = 50, offset = 0, includeResolved = false } = {}) {
+    const { limit: lim, offset: off } = sanitizePage(limit, offset, 50);
+    const clauses = [];
+    const params = [];
+    if (!includeResolved) clauses.push("resolved_at IS NULL");
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const rows = db.prepare(
+      `SELECT * FROM conflict_pending ${where} ORDER BY created_at DESC, id LIMIT ? OFFSET ?`
+    ).all(...params, lim, off);
+    return rows.map(toConflictPending);
+  }
+
+  /**
+   * Mark a pending conflict as reviewed. winner (optional) records which side
+   * the human chose, keeping the resolution auditable. Returns the updated row,
+   * or undefined for an unknown id.
+   */
+  function resolveConflictPending(id, { winner } = {}) {
+    const row = db.prepare("SELECT * FROM conflict_pending WHERE id = ?").get(id);
+    if (!row) return undefined;
+    db.prepare("UPDATE conflict_pending SET resolved_at = ?, resolved_winner = ? WHERE id = ?")
+      .run(nowIso(), winner ?? null, id);
+    return toConflictPending(db.prepare("SELECT * FROM conflict_pending WHERE id = ?").get(id));
+  }
+
+  /** Number of unresolved (awaiting review) pending conflicts. */
+  function countConflictPending() {
+    return db.prepare(
+      "SELECT count(*) AS c FROM conflict_pending WHERE resolved_at IS NULL"
+    ).get().c;
+  }
+
   function getFailureStats({ since } = {}) {
     const clause = since ? "WHERE created_at >= ?" : "";
     const params = since ? [since] : [];
@@ -744,6 +836,10 @@ export function createStore(path) {
     listFailures,
     getFailureStats,
     deleteOldFailures,
+    saveConflictPending,
+    listConflictPending,
+    resolveConflictPending,
+    countConflictPending,
     close() {
       db.close();
     }

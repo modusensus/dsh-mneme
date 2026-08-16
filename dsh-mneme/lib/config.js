@@ -67,5 +67,12 @@ export const Config = z.object({
   reflectionUpdateEnabled: z.boolean().default(true),
   reflectionFailureTracking: z.boolean().default(true),
   reflectionUpdateMaxPerRun: z.natural().min(0).max(5).default(2),
-  reflectionUpdateMinAgeHours: z.natural().min(0).max(168).default(24)
+  reflectionUpdateMinAgeHours: z.natural().min(0).max(168).default(24),
+
+  // --- conflict freeze: manual review for conflicting memories (v0.2.1) ---
+  // Opt-in by default: when true, conflicting memories are not auto-merged
+  // and are marked as pending manual review instead.
+  conflictFreezeEnabled: z.boolean().default(false),
+  // Maximum number of frozen conflicts to keep pending for manual review.
+  conflictFreezeMaxPending: z.natural().min(1).max(1000).default(100),
 });
