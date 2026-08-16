@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo.png" alt="dsh-mneme" width="140" />
+  <img src="横幅.png" alt="dsh-mneme banner" width="100%" />
 </p>
 
 <h1 align="center">dsh-mneme</h1>
