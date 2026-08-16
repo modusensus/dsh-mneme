@@ -265,9 +265,6 @@ npm run sync       # 把 src/ 同步到 lib/（发布时由 prepack 钩子自动
 
 > 设计文档位于仓库根 `docs/`，链接以 `../docs/` 相对路径指向（GitHub 上从本目录打开可正常跳转）。
 
-- [记忆库设计](../docs/superpowers/specs/2026-08-13-dsh-mneme-design.md)
-- [autoDream 设计](../docs/superpowers/specs/2026-08-13-dsh-mneme-autodream-design.md)
-- [实施计划](../docs/superpowers/plans/2026-08-13-dsh-memory-autodream.md)
 - [实体结构化记忆设计](docs/ENTITIES.md)
 - [语义增强架构](docs/SEMANTIC.md)
 - [本地模型部署指南](docs/LOCAL_MODEL.md)
