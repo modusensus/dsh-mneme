@@ -545,3 +545,129 @@ test("applyDecisions merge is atomic: a throwing archive step rolls back the kee
   assert.ok(warnings.length >= 1, "failure logged");
   store.close();
 });
+
+// --- conflict freeze: manual review instead of auto-adjudication ----------
+
+function freezeCtx({ conflicts, includes = [], summaryText = "记忆库总览摘要" }) {
+  let calls = 0;
+  const warnings = [];
+  const ctx = {
+    warnings,
+    llm: {
+      stream: async function* () {
+        calls++;
+        const list = [...includes, ...conflicts];
+        yield { type: "text-delta", text: calls === 1 ? JSON.stringify(list) : summaryText };
+        yield { type: "finish", reason: { kind: "ok" } };
+      }
+    },
+    logger: { warn: (m) => warnings.push(m) }
+  };
+  return ctx;
+}
+
+test("runDream with conflictFreezeEnabled parks conflicts instead of adjudicating", async () => {
+  const { store, service } = dreamSetup();
+  const { memory: w } = service.saveWithDedupe({ type: "decision", title: "截止", content: "8月20日", importance: 4 });
+  const { memory: l } = service.saveWithDedupe({ type: "decision", title: "截止旧", content: "8月15日", importance: 4 });
+  const ctx = freezeCtx({ conflicts: [{ action: "conflict", winner: w.id, loser: l.id, reason: "日期更新，候选取新" }] });
+  const dream = createDreamScheduler({ thresholdCount: 1, thresholdChars: 0, delayMs: 0 });
+  const result = await dream.runDream(ctx, service, {
+    dreamProvider: "deepseek", dreamModel: "deepseek-chat", conflictFreezeEnabled: true
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.applied, 0, "no conflict applied");
+  assert.equal(result.frozen, 1, "one conflict frozen");
+  // pending row recorded for human review
+  const pending = store.listConflictPending();
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].reason, "日期更新，候选取新");
+  // neither side was auto-adjudicated
+  assert.equal(store.getById(l.id).archived, false, "loser NOT archived");
+  assert.equal(store.getById(w.id).archived, false, "winner NOT archived");
+  assert.ok(!store.getById(w.id).content.includes("已否决旧信息"), "no provenance note appended");
+  // audit outcome marks both sides pending
+  const run = store.listDreamRuns()[0];
+  assert.equal(run.outcome.byId[w.id], "conflict-pending");
+  assert.equal(run.outcome.byId[l.id], "conflict-pending");
+  assert.equal(run.status, "ok", "summary stored + freeze landed → ok");
+  assert.equal(store.listReceipts().length, 0, "no conflict receipt for a frozen (unapplied) conflict");
+  store.close();
+});
+
+test("runDream freeze keeps auto-adjudication when disabled (default)", async () => {
+  const { store, service } = dreamSetup();
+  const { memory: w } = service.saveWithDedupe({ type: "decision", title: "截止", content: "8月20日", importance: 4 });
+  const { memory: l } = service.saveWithDedupe({ type: "decision", title: "截止旧", content: "8月15日", importance: 4 });
+  const ctx = freezeCtx({ conflicts: [{ action: "conflict", winner: w.id, loser: l.id, reason: "更新" }] });
+  const dream = createDreamScheduler({ thresholdCount: 1, thresholdChars: 0, delayMs: 0 });
+  const result = await dream.runDream(ctx, service, { dreamProvider: "deepseek", dreamModel: "deepseek-chat" });
+  assert.equal(result.ok, true);
+  assert.equal(result.applied, 1, "conflict auto-adjudicated when freeze is off");
+  assert.equal(result.frozen, 0);
+  assert.equal(store.getById(l.id).archived, true, "loser archived");
+  assert.ok(store.getById(w.id).content.includes("已否决旧信息"), "provenance note appended");
+  assert.equal(store.listConflictPending().length, 0, "no pending rows in auto mode");
+  store.close();
+});
+
+test("runDream freeze applies non-conflict decisions while parking conflicts", async () => {
+  const { store, service } = dreamSetup();
+  const { memory: a } = service.saveWithDedupe({ type: "project", title: "插件", content: "旧", importance: 3 });
+  const { memory: b } = service.saveWithDedupe({ type: "project", title: "插件2", content: "新细节", importance: 4 });
+  const { memory: w } = service.saveWithDedupe({ type: "decision", title: "截止", content: "8月20日", importance: 4 });
+  const { memory: l } = service.saveWithDedupe({ type: "decision", title: "截止旧", content: "8月15日", importance: 4 });
+  const ctx = freezeCtx({
+    includes: [{ action: "merge", ids: [a.id, b.id], title: "插件总览", content: "合并内容", importance: 5, keepSource: b.id }],
+    conflicts: [{ action: "conflict", winner: w.id, loser: l.id, reason: "日期更新" }]
+  });
+  const dream = createDreamScheduler({ thresholdCount: 1, thresholdChars: 0, delayMs: 0 });
+  const result = await dream.runDream(ctx, service, {
+    dreamProvider: "deepseek", dreamModel: "deepseek-chat", conflictFreezeEnabled: true
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.applied, 1, "merge applied normally");
+  assert.equal(result.frozen, 1, "conflict frozen");
+  assert.equal(store.getById(b.id).title, "插件总览", "merge keeper updated");
+  assert.equal(store.getById(a.id).archived, true, "merge source archived");
+  assert.equal(store.getById(l.id).archived, false, "conflict loser untouched by the merge run");
+  const pending = store.listConflictPending();
+  assert.equal(pending.length, 1);
+  assert.ok(pending[0].reason.includes("日期更新"));
+  store.close();
+});
+
+test("runDream freeze respects conflictFreezeMaxPending cap and skips overflow", async () => {
+  const { store, service } = dreamSetup();
+  const { memory: w } = service.saveWithDedupe({ type: "decision", title: "截止", content: "8月20日", importance: 4 });
+  const { memory: l } = service.saveWithDedupe({ type: "decision", title: "截止旧", content: "8月15日", importance: 4 });
+  const ctx = freezeCtx({ conflicts: [{ action: "conflict", winner: w.id, loser: l.id, reason: "x" }] });
+  const dream = createDreamScheduler({ thresholdCount: 1, thresholdChars: 0, delayMs: 0 });
+  const result = await dream.runDream(ctx, service, {
+    dreamProvider: "deepseek", dreamModel: "deepseek-chat",
+    conflictFreezeEnabled: true, conflictFreezeMaxPending: 0
+  });
+  assert.equal(result.frozen, 0, "nothing frozen at capacity");
+  assert.equal(store.listConflictPending().length, 0, "no pending rows");
+  assert.ok(ctx.warnings.some((m) => m.includes("freeze queue full")), "capacity warning logged");
+  store.close();
+});
+
+test("runDream freeze store failure never blocks the run (fail-safe)", async () => {
+  const { store, service } = dreamSetup();
+  const { memory: w } = service.saveWithDedupe({ type: "decision", title: "截止", content: "8月20日", importance: 4 });
+  const { memory: l } = service.saveWithDedupe({ type: "decision", title: "截止旧", content: "8月15日", importance: 4 });
+  service.saveConflictPending = () => { throw new Error("pending store boom"); };
+  service.countConflictPending = () => { throw new Error("count boom"); };
+  const ctx = freezeCtx({ conflicts: [{ action: "conflict", winner: w.id, loser: l.id, reason: "x" }] });
+  const dream = createDreamScheduler({ thresholdCount: 1, thresholdChars: 0, delayMs: 0 });
+  const result = await dream.runDream(ctx, service, {
+    dreamProvider: "deepseek", dreamModel: "deepseek-chat", conflictFreezeEnabled: true
+  });
+  assert.equal(result.ok, true, "run completes despite freeze store failure");
+  assert.equal(result.frozen, 0, "nothing frozen");
+  assert.ok(ctx.warnings.length >= 1, "freeze failure logged");
+  assert.equal(store.getById(l.id).archived, false, "no side effects on memories");
+  assert.equal(store.getById(w.id).content, "8月20日", "winner untouched");
+  store.close();
+});

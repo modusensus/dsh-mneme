@@ -350,6 +350,10 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     const route = resolveRoute(ctx, config, logger);
     const runId = randomUUID();
     const snapshotHash = hashSnapshot([...snapshot.values()]);
+    // Conflict freeze (opt-in): when enabled, conflict decisions are parked for
+    // manual review instead of auto-adjudicated. Read once up front so the
+    // prompt hint and the apply-split agree on the same gate.
+    const freezeEnabled = config.conflictFreezeEnabled === true;
     // Every exit (success or failure) funnels through `finish`, which writes
     // the audit row + receipt. A record failure is logged, never thrown —
     // auditing must not break the consolidation path. Failed runs still
@@ -440,6 +444,12 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       ).join("\n");
     }
 
+    // Freeze-aware prompt: in freeze mode the conflict branch still outputs
+    // winner/loser (validation requires them) but they are treated as tentative
+    // candidates — the human makes the final call, not the model.
+    const consolidationPrompt = freezeEnabled
+      ? CONSOLIDATION_PROMPT + `\n\n当前为「冲突冻结」模式：检测到内容矛盾的条目时，仍请输出 conflict，并以 winner/loser 作为候选、reason 说明理由；冲突不会被自动裁决，而会冻结待人工确认。`
+      : CONSOLIDATION_PROMPT;
     let decisionText;
     try {
       decisionText = await streamText(ctx, {
@@ -448,7 +458,7 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
         purpose: "compaction",
         maxTokens: config.dreamMaxTokens ?? 4096,
         messages: [
-          { role: "system", content: [{ type: "text", text: CONSOLIDATION_PROMPT }] },
+          { role: "system", content: [{ type: "text", text: consolidationPrompt }] },
           { role: "user", content: [{ type: "text", text: listText }] }
         ]
       });
@@ -492,10 +502,46 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       }
     }
 
+    // Conflict freeze (opt-in): when enabled, conflict decisions are not
+    // auto-adjudicated — no winner kept, no loser archived. The pair is parked
+    // in conflict_pending for human review instead. Best-effort: a store
+    // failure here must never block the run (fail-safe — the memories are left
+    // untouched and nothing is arbitrated). The cap (conflictFreezeMaxPending)
+    // bounds the review queue; overflow is skipped with a warning.
+    let frozenCount = 0;
+    const frozenIds = [];
+    const applyList = freezeEnabled ? decisions.filter((d) => d.action !== "conflict") : decisions;
+    if (freezeEnabled) {
+      const conflictsToFreeze = decisions.filter((d) => d.action === "conflict");
+      if (conflictsToFreeze.length > 0) {
+        try {
+          const maxPending = Number.isInteger(config.conflictFreezeMaxPending) ? config.conflictFreezeMaxPending : 100;
+          const pendingNow = service.countConflictPending();
+          const budget = Math.max(0, maxPending - pendingNow);
+          const toFreeze = conflictsToFreeze.slice(0, budget);
+          if (conflictsToFreeze.length > budget) {
+            logger?.warn?.(`dsh-mneme dream: conflict freeze queue full (${pendingNow}/${maxPending}), skipped ${conflictsToFreeze.length - budget} conflict(s)`);
+          }
+          for (const d of toFreeze) {
+            try {
+              service.saveConflictPending({ run_id: runId, memory_a: d.winner, memory_b: d.loser, reason: d.reason });
+              frozenCount++;
+              frozenIds.push(d.winner, d.loser);
+            } catch (error) {
+              logger?.warn?.(`dsh-mneme dream: failed to freeze conflict ${d.winner}/${d.loser}: ${String(error)}`);
+            }
+          }
+        } catch (error) {
+          logger?.warn?.(`dsh-mneme dream: conflict freeze lookup failed: ${String(error)}`);
+        }
+      }
+    }
+
     // CAS-guarded, per-decision-transactional apply against the run snapshot:
     // a target changed during the LLM call is skipped and reported as a
-    // conflict instead of being overwritten (item ①).
-    const { applied, conflicts, failures, committed } = applyDecisions(decisions, service, logger, snapshot);
+    // conflict instead of being overwritten (item ①). Frozen conflicts are
+    // excluded from this list (they are parked, not applied).
+    const { applied, conflicts, failures, committed } = applyDecisions(applyList, service, logger, snapshot);
     // Per-record receipt chain: one row per actually-committed merge/conflict/
     // update verdict, stamped with the decision-basis digest + idempotency
     // counters (count_before → count_after). Written here, before the run audit
@@ -521,18 +567,25 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     // claim "merge-archived" (item ②). Conflicts/failures ride along so the
     // audit row records why the run diverged.
     const outcome = { ...buildOutcome(committed), conflicts, failures };
+    // Frozen conflicts were not adjudicated: mark both sides pending in the
+    // per-id outcome so the audit row shows they were parked, not skipped.
+    if (frozenIds.length) {
+      for (const id of frozenIds) outcome.byId[id] = "conflict-pending";
+    }
     // Decisions validated but not fully committed → reconcile (not ok).
     const partial = conflicts.length > 0 || failures.length > 0;
     // No decision landed (all-keep, or every decision skipped as an idempotent
     // replay) → nothing substantive changed. Distinct from a success: such a
     // run must never be reported as ok, or the audit claims work that never
     // happened and the scheduler refreshes the baseline on a false positive.
-    const noChange = applied === 0 && committed.every((c) => c.action === "keep");
+    // Frozen conflicts are substantive output (parked for review), so a run
+    // that only froze conflicts is not a noop.
+    const noChange = frozenCount === 0 && applied === 0 && committed.every((c) => c.action === "keep");
 
     // Keep the vector index consistent with the post-dream store state.
     if (semantic?.embedder && semantic?.vectorIndex) {
       try {
-        await maintainIndexAfterDream(decisions, service, semantic);
+        await maintainIndexAfterDream(applyList, service, semantic);
       } catch (error) {
         logger?.warn?.(`[dsh-mneme] dream index maintenance failed: ${String(error)}`);
       }
@@ -554,7 +607,7 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       });
     } catch (error) {
       logger?.warn?.(`dsh-mneme dream: summary llm call failed: ${String(error)}`);
-      return finish({ ok: false, error: "llm failed", applied, decisions: auditDecisions, outcome, summary: false });
+      return finish({ ok: false, error: "llm failed", applied, decisions: auditDecisions, outcome, frozen: frozenCount, summary: false });
     }
     let summaryStored = false;
     if (summaryText !== undefined && summaryText.trim()) {
@@ -601,6 +654,7 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       outcome,
       conflicts,
       failures,
+      frozen: frozenCount,
       summary: summaryStored
     });
   }
