@@ -296,6 +296,27 @@ test("failed run does not refresh baseline: next write re-triggers", async () =>
   store.close();
 });
 
+test("noop run (nothing changed) does not refresh baseline: next write re-triggers", async () => {
+  const { store, service } = dreamSetup();
+  let calls = 0;
+  const dream = createDreamScheduler({
+    onRun: async () => { calls++; return { ok: false, status: "noop", applied: 0, summary: false }; },
+    thresholdCount: 2, thresholdChars: 5000, delayMs: 5,
+    logger: { warn: () => {} }
+  });
+  service.saveWithDedupe({ type: "project", title: "a", content: "x".repeat(10) });
+  service.saveWithDedupe({ type: "project", title: "b", content: "y".repeat(10) });
+  assert.equal(dream.maybeSchedule(service), true, "scheduled");
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(calls, 1, "run attempted once");
+  // a noop is not a success: the baseline stays put so the accumulated writes
+  // are still owed and the next write re-schedules instead of being absorbed
+  assert.equal(dream.maybeSchedule(service), true, "noop keeps baseline, re-schedules");
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(calls, 2, "retried after noop");
+  store.close();
+});
+
 test("throwing run does not refresh baseline and is logged", async () => {
   const { store, service } = dreamSetup();
   const warnings = [];

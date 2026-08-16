@@ -288,3 +288,69 @@ test("buildOutcome over actually-committed sub-steps never claims a rolled-back 
   assert.equal(outcome.byId.m2, "merge-archived");
   assert.equal(outcome.byId.k, "keep");
 });
+
+// ---------------------------------------------------------------- noop & degraded (F-03)
+
+test("runDream records status noop when all decisions are keep and summary is empty", async () => {
+  const { store, service, dream } = setup();
+  const { memory: m } = service.saveWithDedupe({ type: "preference", title: "语言", content: "中文" });
+  const ctx = mockCtx({
+    onConsolidation: () => JSON.stringify([{ action: "keep", ids: [m.id] }]),
+    summaryText: ""
+  });
+  const result = await dream.runDream(ctx, service, {});
+  assert.equal(result.ok, false, "no-change + empty summary is not a success");
+  assert.equal(result.status, "noop", "explicit noop status");
+  assert.equal(result.applied, 0);
+  assert.equal(result.summary, false);
+
+  const run = store.listDreamRuns()[0];
+  assert.equal(run.status, "noop", "audit row records noop, never ok");
+  assert.equal(run.applied, 0);
+  assert.equal(run.summary_stored, false);
+  const parsed = parseReceipt(run.receipt);
+  assert.equal(parsed.status, "noop", "receipt records noop");
+  assert.equal(parsed.applied, 0);
+  assert.equal(parsed.summaryStored, false);
+  assert.equal(run.outcome.byId[m.id], "keep", "keep disposition still recorded for replay");
+  store.close();
+});
+
+test("runDream records status ok when all decisions are keep but a summary was stored", async () => {
+  const { store, service, dream } = setup();
+  const { memory: m } = service.saveWithDedupe({ type: "preference", title: "语言", content: "中文" });
+  const ctx = mockCtx({ onConsolidation: () => JSON.stringify([{ action: "keep", ids: [m.id] }]) });
+  const result = await dream.runDream(ctx, service, {});
+  assert.equal(result.status, "ok", "summary refresh is substantive output");
+  assert.equal(result.ok, true);
+  assert.equal(result.applied, 0);
+  assert.equal(result.summary, true);
+  const run = store.listDreamRuns()[0];
+  assert.equal(run.status, "ok");
+  assert.equal(parseReceipt(run.receipt).status, "ok");
+  assert.equal(parseReceipt(run.receipt).summaryStored, true);
+  store.close();
+});
+
+test("runDream records status degraded when changes land but the summary is empty", async () => {
+  const { store, service, dream } = setup();
+  const { memory: a } = service.saveWithDedupe({ type: "project", title: "旧", content: "A", importance: 3 });
+  const { memory: b } = service.saveWithDedupe({ type: "project", title: "新", content: "B", importance: 4 });
+  const ctx = mockCtx({
+    onConsolidation: () => JSON.stringify([
+      { action: "merge", ids: [a.id, b.id], title: "合并", content: "合并内容", importance: 4, keepSource: b.id }
+    ]),
+    summaryText: ""
+  });
+  const result = await dream.runDream(ctx, service, {});
+  assert.equal(result.status, "degraded", "real changes without a summary are not a clean ok");
+  assert.equal(result.ok, true, "consolidation landed so the baseline may advance");
+  assert.equal(result.applied, 1);
+  assert.equal(result.summary, false, "summary honestly reported missing");
+  const run = store.listDreamRuns()[0];
+  assert.equal(run.status, "degraded", "audit row records degraded");
+  assert.equal(run.summary_stored, false);
+  assert.equal(parseReceipt(run.receipt).status, "degraded");
+  assert.equal(parseReceipt(run.receipt).summaryStored, false);
+  store.close();
+});

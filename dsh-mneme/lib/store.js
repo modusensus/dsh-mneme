@@ -26,7 +26,7 @@ CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance);
 CREATE TABLE IF NOT EXISTS dream_runs (
   id             TEXT PRIMARY KEY,
   created_at     TEXT NOT NULL,
-  status         TEXT NOT NULL,          -- ok | failed
+  status         TEXT NOT NULL,          -- ok | noop | degraded | reconcile | failed
   error          TEXT,
   provider       TEXT,
   model          TEXT,
