@@ -37,10 +37,68 @@ export function createService({ store, mirror, config, onWrite, logger }) {
   // replays them exactly once against the committed state.
   let txDepth = 0;
 
+  // issue #6 (part 2): startup race defense. A local embedder (LocalEmbedder /
+  // Ollama) exposes an async init(), so between `setEmbedder` and init()
+  // resolving there is a window where embedSingle would throw "not initialized"
+  // and the re-embed would be silently dropped. When the embedder carries a
+  // `ready` flag we queue writes in embedPending until init sets ready=true,
+  // then flush them through the embedder's real interface. Embedders without a
+  // `ready` flag (legacy OpenAI, instantly usable) keep their old behavior.
+  let embedPending = [];
+  let embedReadyTimer = null;
+  const EMBED_PENDING_MAX = 100; // bound the queue; drop oldest beyond this
+  const EMBED_READY_POLL_MS = 100;
+  const EMBED_READY_POLL_LIMIT = 30; // ~3s ceiling; never poll forever
+
+  /** Flush the queued re-embeds once the embedder is ready. Fail-safe. */
+  function flushEmbedPending() {
+    if (!embedder || embedPending.length === 0) return;
+    const batch = embedPending.splice(0, embedPending.length);
+    for (const memory of batch) {
+      try {
+        if (!memory?.id) continue;
+        if (typeof embedder.schedule === "function") {
+          embedder.schedule(memory);
+        } else if (typeof embedder.embedSingle === "function") {
+          const text = [memory.title, memory.content].filter(Boolean).join("\n");
+          if (!text) continue;
+          embedder
+            .embedSingle(text)
+            .then((vec) => {
+              if (Array.isArray(vec) && vec.length) {
+                store.setEmbedding(memory.id, vec);
+              }
+            })
+            .catch((err) => {
+              logger?.warn?.("flushEmbedPending embedSingle failed:", err);
+            });
+        }
+      } catch (err) {
+        logger?.warn?.("flushEmbedPending failed:", err);
+      }
+    }
+  }
+
+  function stopEmbedReadyPolling() {
+    if (embedReadyTimer) {
+      clearInterval(embedReadyTimer);
+      embedReadyTimer = null;
+    }
+  }
+
   function scheduleEmbed(memory) {
     try {
       if (txDepth > 0) return; // deferred to the transaction's commit
       if (!embedder || !memory?.id) return;
+
+      // Readiness gate: embedder exposes `ready` (async init) and is not ready
+      // yet — queue instead of firing embedSingle into a half-built extractor.
+      const hasReady = "ready" in embedder;
+      if (hasReady && embedder.ready !== true) {
+        if (embedPending.length >= EMBED_PENDING_MAX) embedPending.shift();
+        embedPending.push(memory);
+        return;
+      }
 
       if (typeof embedder.schedule === "function") {
         embedder.schedule(memory);
@@ -681,7 +739,32 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     toApiList,
     transaction,
     setDreamHook(fn) { dreamHook = fn; },
-    setEmbedder(emb) { embedder = emb; },
+    setEmbedder(emb) {
+      embedder = emb;
+      if (!emb) {
+        // embedder removed (init failed in index.js): stop polling and drop
+        // queued re-embeds — search just degrades to keyword.
+        stopEmbedReadyPolling();
+        embedPending = [];
+        return;
+      }
+      if (emb.ready === true) {
+        flushEmbedPending();
+        return;
+      }
+      // Async-initializing embedder: poll `ready` until it flips, then flush.
+      if ("ready" in emb && embedReadyTimer === null) {
+        let attempts = 0;
+        embedReadyTimer = setInterval(() => {
+          attempts++;
+          if (emb.ready === true || attempts >= EMBED_READY_POLL_LIMIT) {
+            stopEmbedReadyPolling();
+            if (emb.ready === true) flushEmbedPending();
+            else embedPending = []; // init never landed: drop the queue
+          }
+        }, EMBED_READY_POLL_MS);
+      }
+    },
     setEntityExtractor(fn) { entityExtractor = fn; },
     setVectorIndex(vi) { vectorIndex = vi; },
     setReranker(rn) { reranker = rn; },

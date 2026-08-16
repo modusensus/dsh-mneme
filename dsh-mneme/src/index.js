@@ -80,11 +80,28 @@ export const apply = (ctx, config) => {
   const vectorIndex = createVectorIndex({ store, logger: ctx.logger });
   service.setVectorIndex(vectorIndex);
 
+  // Human edits in mirror files win on every sync; merge them back first.
+  // TYPE_FILE maps each memory type to its mirror filename. Read every type's
+  // edits up front: mergeHumanEdits re-renders ALL mirror files on success, so
+  // a per-type read-then-merge loop would overwrite edits in files not yet read
+  // (e.g. preferences.md merging would clobber unsynced projects.md edits).
+  const humanEdits = new Map();
+  for (const type of Object.keys(TYPE_FILE)) {
+    humanEdits.set(type, mirror.readHumanEdits(type));
+  }
+  const applyHumanEdits = () => {
+    for (const [type, edits] of humanEdits) {
+      if (edits.length) service.mergeHumanEdits(type, edits);
+    }
+  };
+
   let embedder = null;
   let reranker = null;
   if (cfg.embedProvider === "openai") {
     embedder = createEmbedder({ store, settings, logger: ctx.logger });
     service.setEmbedder(embedder);
+    // legacy OpenAI embedder is immediately usable
+    applyHumanEdits();
   } else {
     try {
       embedder = createEmbedderByProvider(cfg.embedProvider, {
@@ -97,12 +114,18 @@ export const apply = (ctx, config) => {
         logger: ctx.logger
       });
       service.setEmbedder(embedder);
-      embedder.init().catch((error) => {
-        ctx.logger?.warn?.(`[dsh-mneme] embedder init failed, search degrades to keyword: ${String(error)}`);
-        service.setEmbedder(null);
-      });
+      // issue #6: wait for extractor init before applying human edits, so
+      // scheduled embeddings see a ready embedder.
+      embedder.init()
+        .then(() => applyHumanEdits())
+        .catch((error) => {
+          ctx.logger?.warn?.(`[dsh-mneme] embedder init failed, search degrades to keyword: ${String(error)}`);
+          service.setEmbedder(null);
+          applyHumanEdits();
+        });
     } catch (error) {
       ctx.logger?.warn?.(`[dsh-mneme] embedder unavailable, search degrades to keyword: ${String(error)}`);
+      applyHumanEdits();
     }
   }
 
@@ -137,19 +160,6 @@ export const apply = (ctx, config) => {
   if (ctx.commands) {
     commands = createCommandManager({ ctx, settings, logger: ctx.logger });
     commands.sync();
-  }
-
-  // Human edits in mirror files win on every sync; merge them back first.
-  // TYPE_FILE maps each memory type to its mirror filename. Read every type's
-  // edits up front: mergeHumanEdits re-renders ALL mirror files on success, so
-  // a per-type read-then-merge loop would overwrite edits in files not yet read
-  // (e.g. preferences.md merging would clobber unsynced projects.md edits).
-  const humanEdits = new Map();
-  for (const type of Object.keys(TYPE_FILE)) {
-    humanEdits.set(type, mirror.readHumanEdits(type));
-  }
-  for (const [type, edits] of humanEdits) {
-    if (edits.length) service.mergeHumanEdits(type, edits);
   }
 
   // Dream scheduler: automatic consolidation + summary runs, triggered by

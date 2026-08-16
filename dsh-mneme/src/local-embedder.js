@@ -58,16 +58,21 @@ export class LocalEmbedder {
     // Test hook: replace the pipeline factory without touching modules.
     this.engineFactory = opts.engineFactory || defaultPipelineLoader;
     this.extractor = null;
+    // issue #6: readiness flag for the service's scheduleEmbed gate. False until
+    // init() succeeds, so "ready" in embedder is observable even pre-init.
+    this.ready = false;
   }
 
-  /** Load the model; throws when it cannot be loaded. */
+  /** Load the model; throws when it cannot be loaded. Idempotent. */
   async init() {
+    if (this.extractor) return this; // already initialized: no-op
     const options = {
       dtype: this.useDtype,
       device: this.device
     };
     if (this.cacheDir) options.cache_dir = this.cacheDir;
     this.extractor = await this.engineFactory("feature-extraction", this.model, options);
+    this.ready = true; // service reads this to flush queued re-embeds
     this.logger?.info?.(
       `[dsh-mneme] local embedder ready: ${this.model} (dim=${this._dimension}, device=${this.device})`
     );
@@ -107,6 +112,7 @@ export class LocalEmbedder {
       // best-effort: some engines free resources on GC
     }
     this.extractor = null;
+    this.ready = false;
   }
 }
 
