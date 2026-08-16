@@ -1,4 +1,5 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 
 export const TYPE_FILE = {
@@ -21,6 +22,13 @@ function unescape(text) {
 }
 
 function renderMemory(m) {
+  // last-rendered digest baseline: sha256(title \x00 content). service.js
+  // compares the file hash against this to tell "untouched by a human" (machine
+  // write wins) apart from a real human edit, so a not-yet-re-rendered store
+  // update is not misread as a concurrent human edit.
+  const digest = createHash("sha256")
+    .update(`${m.title}\x00${m.content}`)
+    .digest("hex");
   const lines = [];
   lines.push(`## ${esc(m.title)}`);
   lines.push("");
@@ -31,6 +39,7 @@ function renderMemory(m) {
   lines.push(`- **更新时间**: ${m.updated_at}`);
   if (m.source) lines.push(`- **来源**: ${esc(m.source)}`);
   lines.push("");
+  lines.push(`<!-- mirror-digest: ${digest} -->`);
   lines.push(m.content);
   lines.push("");
   lines.push("---");
@@ -86,7 +95,8 @@ export function createMirror(dir) {
         let body = text
           .slice(blockStart, blockEnd)
           .replace(/^- \*\*ID\*\*: `[^`]+`\n?/, "")
-          .replace(/^(- \*\*(类型|重要性|标签|更新时间|来源)\*\*:.*\n?)+/, "");
+          .replace(/^(- \*\*(类型|重要性|标签|更新时间|来源)\*\*:.*\n?)+/, "")
+          .replace(/^<!-- mirror-digest: [a-f0-9]+ -->\n?/m, "");
         const separators = [...body.matchAll(/^---\s*$/gm)];
         const lastSep = separators[separators.length - 1];
         if (lastSep) body = body.slice(0, lastSep.index);
@@ -97,11 +107,13 @@ export function createMirror(dir) {
         // during a three-way merge of human edits (see service.syncMirror).
         const block = text.slice(blockStart, blockEnd);
         const updatedMatch = block.match(/- \*\*更新时间\*\*: ([^\n]+)/);
+        const digestMatch = block.match(/<!-- mirror-digest: ([a-f0-9]+) -->/);
         edits.push({
           id: anchor[1],
           title: titleMatch ? unescape(titleMatch[1]).trim() : undefined,
           content: body,
-          updated_at: updatedMatch ? updatedMatch[1].trim() : undefined
+          updated_at: updatedMatch ? updatedMatch[1].trim() : undefined,
+          digest: digestMatch ? digestMatch[1] : undefined
         });
 
         const lineEnd = text.indexOf("\n", blockStart);

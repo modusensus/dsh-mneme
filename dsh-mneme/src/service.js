@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { TYPE_FILE } from "./mirror.js";
 
 const INJECT_TYPES = new Set(["preference", "project", "decision", "summary"]);
@@ -349,8 +349,21 @@ export function createService({ store, mirror, config, onWrite }) {
         const humanChanged = (typeof edit.title === "string" && edit.title !== m.title)
           || (typeof edit.content === "string" && edit.content !== m.content);
         if (!humanChanged) { result.push(m); continue; }
-        // Store changed since the file was last rendered (file records the
-        // store's updated_at at render time) AND the file was hand-edited.
+        // 判断文件是否被人工动过：digest 存在且匹配则无人触碰，否则视为人工动过。
+        // digest 是渲染时对 sha256(title \x00 content) 的记录；机器 store 更新后
+        // 镜像还没重渲染时读到旧内容，digest 仍匹配 → 机器 wins，不会误判为
+        // 并发人工编辑导致机器写丢失 + 伪冲突标记。
+        const digestMatches = typeof edit.digest === "string"
+          && typeof edit.title === "string"
+          && typeof edit.content === "string"
+          && createHash("sha256").update(`${edit.title}\x00${edit.content}`).digest("hex") === edit.digest;
+        if (digestMatches) {
+          // 无人触碰，机器 wins，走原样
+          result.push(m);
+          continue;
+        }
+        // 人工动过（digest 不存在=老文件/手工文件保守视为人工动过），走三方合并
+        // （保留现有 storeChanged 逻辑）
         const storeChanged = edit.updated_at !== undefined && m.updated_at !== edit.updated_at;
         if (storeChanged) {
           const marker = `\n\n> ⚠️ 并发冲突：人工编辑 vs 记忆库并发更新（${m.updated_at}）\n> 记忆库版本：${m.content}`;
