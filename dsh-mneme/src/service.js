@@ -38,9 +38,32 @@ export function createService({ store, mirror, config, onWrite, logger }) {
   let txDepth = 0;
 
   function scheduleEmbed(memory) {
-    if (txDepth > 0) return; // deferred to the transaction's commit
-    if (embedder && memory?.id) {
-      try { embedder.schedule(memory); } catch { /* ignore */ }
+    try {
+      if (txDepth > 0) return; // deferred to the transaction's commit
+      if (!embedder || !memory?.id) return;
+
+      if (typeof embedder.schedule === "function") {
+        embedder.schedule(memory);
+        return;
+      }
+
+      if (typeof embedder.embedSingle === "function") {
+        const text = [memory.title, memory.content].filter(Boolean).join("\n");
+        if (!text) return;
+
+        embedder
+          .embedSingle(text)
+          .then((vec) => {
+            if (Array.isArray(vec) && vec.length) {
+              store.setEmbedding(memory.id, vec);
+            }
+          })
+          .catch((err) => {
+            logger?.warn?.("scheduleEmbed embedSingle failed:", err);
+          });
+      }
+    } catch (err) {
+      logger?.warn?.("scheduleEmbed failed:", err);
     }
   }
 
