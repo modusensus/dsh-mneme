@@ -16,6 +16,13 @@ export function createService({ store, mirror, config, onWrite }) {
   let vectorIndex = null;
   let reranker = null;
 
+  // Optional recall recorder, installed via setRecallRecorder after creation.
+  // When searchMemories is called with recordRecall=true it receives the
+  // actual merged recall scene (candidates + scores + source + threshold) so
+  // the retrieval layer can be audited/replayed — the sibling of the dream
+  // judgment-layer audit trail (dream_runs).
+  let recallRecorder = null;
+
   // Transaction nesting depth. Inside service.transaction the per-mutation side
   // effects (mirror render, write notify, re-embed) are deferred so a ROLLBACK
   // never leaves the mirror file diverged from the database; transaction()
@@ -43,7 +50,7 @@ export function createService({ store, mirror, config, onWrite }) {
       const out = [];
       for (const s of scored) {
         const c = byId.get(s.id);
-        if (c) { out.push({ ...c, score: s.score }); if (out.length >= topK) break; }
+        if (c) { out.push({ ...c, score: s.score, source: "rerank" }); if (out.length >= topK) break; }
       }
       return out.length ? out : candidates.slice(0, topK);
     } catch {
@@ -78,15 +85,16 @@ export function createService({ store, mirror, config, onWrite }) {
     return base * (0.5 + (row.importance ?? 3) / 10);
   }
 
-  async function searchMemories(query, { mode = "auto", topK = 20, threshold, useRerank = true } = {}) {
+  async function searchMemories(query, { mode = "auto", topK = 20, threshold, useRerank = true, recordRecall = false } = {}) {
     const q = String(query ?? "").trim();
     if (!q) return [];
     const lim = topK > 0 ? topK : 20;
 
     // Keyword results, decorated with a score so they can be weight-blended
-    // with vector results and reported uniformly.
+    // with vector results and reported uniformly. source tracks where each
+    // candidate came from for the recall layer receipt.
     const rawKeyword = store.search(q, { limit: lim });
-    const keyword = rawKeyword.map((m) => ({ ...m, score: scoreKeyword(m, q) }));
+    const keyword = rawKeyword.map((m) => ({ ...m, score: scoreKeyword(m, q), source: "keyword" }));
     const wantVector = mode === "vector" || mode === "hybrid" || (mode === "auto" && !!embedder);
     let vector = [];
     if (wantVector && embedder) {
@@ -100,7 +108,7 @@ export function createService({ store, mirror, config, onWrite }) {
           const hits = vectorIndex
             ? vectorIndex.search(qv, { limit: lim * 2, threshold: threshold ?? 0 })
             : store.searchVector(qv, { limit: lim * 2, threshold: threshold ?? 0 });
-          vector = hits.map((m) => ({ ...m, vector: true }));
+          vector = hits.map((m) => ({ ...m, vector: true, source: "vector" }));
         }
       } catch { /* vector unavailable: keep keyword results */ }
     }
@@ -147,10 +155,34 @@ export function createService({ store, mirror, config, onWrite }) {
     }
 
     merged = merged.slice(0, lim);
-    if (useRerank && reranker && merged.length) {
-      return rerankCandidates(q, merged, lim);
+    const result = useRerank && reranker && merged.length
+      ? await rerankCandidates(q, merged, lim)
+      : merged;
+
+    // Recall layer receipt: with recordRecall on, hand the actual merged
+    // candidate list (id/title/content/score/source) to the injected recorder
+    // before returning, making the retrieval scene replayable — the sibling of
+    // the dream judgment-layer audit trail. Recorder failures must never break
+    // the search itself.
+    if (recordRecall && recallRecorder) {
+      try {
+        recallRecorder({
+          query: q,
+          mode,
+          topK: lim,
+          threshold: threshold ?? null,
+          candidates: result.map((m) => ({
+            id: m.id,
+            title: m.title,
+            content: m.content,
+            score: m.score ?? null,
+            source: m.source ?? "keyword"
+          })),
+          createdAt: new Date().toISOString()
+        });
+      } catch { /* recall receipt is best effort */ }
     }
-    return merged;
+    return result;
   }
 
   /**
@@ -355,6 +387,7 @@ export function createService({ store, mirror, config, onWrite }) {
     setEmbedder(emb) { embedder = emb; },
     setVectorIndex(vi) { vectorIndex = vi; },
     setReranker(rn) { reranker = rn; },
+    setRecallRecorder(fn) { recallRecorder = fn; },
     searchMemories,
     // passthroughs used by tools and api layers; mutations keep the mirror in sync
     search: (q, o) => store.search(q, o),
@@ -441,6 +474,11 @@ export function createService({ store, mirror, config, onWrite }) {
     // dream scheduler that just recorded the run.
     saveDreamRun: (run) => store.saveDreamRun(run),
     getDreamRun: (id) => store.getDreamRun(id),
-    listDreamRuns: (opts) => store.listDreamRuns(opts)
+    listDreamRuns: (opts) => store.listDreamRuns(opts),
+    // Per-record receipt chain (same bookkeeping semantics as saveDreamRun: an
+    // audit write, never a write-hook-triggering memory mutation).
+    saveReceipt: (r) => store.saveReceipt(r),
+    getReceipt: (id) => store.getReceipt(id),
+    listReceipts: (opts) => store.listReceipts(opts)
   };
 }

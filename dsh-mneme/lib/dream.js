@@ -101,6 +101,78 @@ export function buildOutcome(decisions) {
 }
 
 /**
+ * Content-addressed digest of the memories a verdict was decided against
+ * (id + title + content + importance), sorted by id so identical inputs always
+ * hash the same. This is the per-record "判定依据" fingerprint: a receipt whose
+ * digest cannot be reproduced from the involved memories is a bare claim, and a
+ * digest match with a divergent outcome pinpoints drift to the exact record.
+ */
+export function hashDecisionInput(memories) {
+  const canon = (memories ?? [])
+    .map((m) => [m.id, m.title, m.content, m.importance])
+    .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+    .map((p) => p.map((x) => String(x ?? "")).join(""))
+    .join("");
+  return createHash("sha256").update(canon).digest("hex");
+}
+
+/**
+ * Build the per-record receipts for a run's actually-committed mutable verdicts
+ * (merge/conflict/update) — one row per verdict in the receipt_chain. Inputs
+ * are drawn from the run snapshot (what the LLM actually arbitrated against),
+ * and the idempotency counters count_before → count_after come from the
+ * committed sub-step, so replaying the same decision must reproduce the same
+ * numbers. verdict starts "live"; a later policy_epoch upgrade will batch-mark
+ * older verdicts "historical" (a receipt_chain rewrite driven by the store's
+ * getLatestPolicyEpoch — out of scope for this pass), while "revoked" is
+ * reserved for verdicts later overturned by an explicit human decision.
+ */
+function buildRecordReceipts({ runId, committed, snapshot, policyEpoch }) {
+  const at = (id) => snapshot?.get?.(id);
+  const receipts = [];
+  for (const c of committed ?? []) {
+    const base = {
+      run_id: runId,
+      verdict: "live",
+      count_before: c.count_before,
+      count_after: c.count_after,
+      policy_epoch: policyEpoch,
+      created_at: new Date().toISOString()
+    };
+    if (c.action === "merge") {
+      receipts.push({
+        ...base,
+        receipt_id: randomUUID(),
+        record_id: c.keepSource,
+        kind: "merge",
+        input_digest: hashDecisionInput((c.ids ?? []).map(at).filter(Boolean)),
+        keep_source: c.keepSource,
+        sources: c.ids
+      });
+    } else if (c.action === "conflict") {
+      receipts.push({
+        ...base,
+        receipt_id: randomUUID(),
+        record_id: c.winner,
+        kind: "conflict",
+        input_digest: hashDecisionInput([at(c.winner), at(c.loser)].filter(Boolean)),
+        winner_id: c.winner,
+        loser_id: c.loser
+      });
+    } else if (c.action === "update") {
+      receipts.push({
+        ...base,
+        receipt_id: randomUUID(),
+        record_id: c.ids[0],
+        kind: "update",
+        input_digest: hashDecisionInput([at(c.ids[0])].filter(Boolean))
+      });
+    }
+  }
+  return receipts;
+}
+
+/**
  * Consume an LLM stream and return the accumulated text. Direct text-delta
  * accumulation covers both the real protocol ({type:"text-delta", index, text})
  * and looser test doubles ({type:"text-delta", text}); a terminal error/abort
@@ -304,6 +376,10 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
           model: route?.model,
           snapshot_hash: snapshotHash,
           input_count: snapshot.size,
+          // 裁决规则版本号：config.policyEpoch（默认 0）。规则升级后该行保留
+          // 当时的 epoch，旧裁决据此降级为历史证据（store 层 getLatestPolicyEpoch
+          // 只负责读取当前生效版本，写入由这里完成）。
+          policy_epoch: config.policyEpoch ?? 0,
           // Full input snapshot (canonical fields) so the exact arbitration
           // input can be rebuilt offline from the audit row alone — the
           // digest + decisions + outcome triple makes silent errors locatable
@@ -420,6 +496,19 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     // a target changed during the LLM call is skipped and reported as a
     // conflict instead of being overwritten (item ①).
     const { applied, conflicts, failures, committed } = applyDecisions(decisions, service, logger, snapshot);
+    // Per-record receipt chain: one row per actually-committed merge/conflict/
+    // update verdict, stamped with the decision-basis digest + idempotency
+    // counters (count_before → count_after). Written here, before the run audit
+    // row, so the verdict trail always precedes the run trail it belongs to.
+    // Bookkeeping: a write failure is logged and swallowed — it must never
+    // block the consolidation flow.
+    try {
+      for (const r of buildRecordReceipts({ runId, committed, snapshot, policyEpoch: config.policyEpoch ?? 0 })) {
+        service.saveReceipt(r);
+      }
+    } catch (error) {
+      logger?.warn?.(`dsh-mneme dream: failed to write per-record receipt: ${String(error)}`);
+    }
     // Attach the pre-update snapshot to the audit copy of each update decision
     // so the recorded row shows the before/after delta, not just the target.
     const auditDecisions = decisions.map((d) =>

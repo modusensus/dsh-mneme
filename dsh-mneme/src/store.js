@@ -37,9 +37,26 @@ CREATE TABLE IF NOT EXISTS dream_runs (
   outcome        TEXT,                   -- JSON: { byId: {id: action} }
   applied        INTEGER NOT NULL DEFAULT 0,
   summary_stored INTEGER NOT NULL DEFAULT 0,
-  receipt        TEXT NOT NULL
+  receipt        TEXT NOT NULL,
+  policy_epoch   INTEGER NOT NULL DEFAULT 0  -- 裁决规则版本：规则升级后旧裁决降级为历史证据
 );
 CREATE INDEX IF NOT EXISTS idx_dream_runs_created ON dream_runs(created_at);
+
+-- recall_runs: recall-layer receipt. One row per retrieval scene — the query,
+-- mode, top-k, threshold and the exact candidate list (id/title/content/score/
+-- source) that was returned — so retrieval behavior can be audited and
+-- replayed after the fact. Sibling of the dream judgment-layer audit trail.
+CREATE TABLE IF NOT EXISTS recall_runs (
+  id          TEXT PRIMARY KEY,
+  query       TEXT NOT NULL,
+  mode        TEXT NOT NULL,
+  top_k       INTEGER,
+  threshold   REAL,
+  candidates  TEXT NOT NULL,   -- JSON: 召回候选数组（含 id/title/content/score/source）
+  created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_recall_runs_created ON recall_runs(created_at);
+CREATE INDEX IF NOT EXISTS idx_recall_runs_query ON recall_runs(query);
 
 -- failure_memories: records user corrections / reflection failures. Captures
 -- what a memory was (actual) vs what the user changed it to (expected)
@@ -58,6 +75,31 @@ CREATE TABLE IF NOT EXISTS failure_memories (
 );
 CREATE INDEX IF NOT EXISTS idx_failure_memories_created ON failure_memories(created_at);
 CREATE INDEX IF NOT EXISTS idx_failure_memories_type ON failure_memories(failure_type);
+
+-- receipt_chain: per-record receipt chain. One row per mutable verdict
+-- (merge/conflict/update), carrying the input digest (the basis of the
+-- decision, content-addressed) and the idempotency check counters
+-- count_before → count_after. Replaying the same decision must reproduce the
+-- same result; a digest match with a divergent outcome pinpoints drift to the
+-- specific record/run. Sibling of the run-level dream audit trail.
+CREATE TABLE IF NOT EXISTS receipt_chain (
+  receipt_id   TEXT PRIMARY KEY,
+  run_id       TEXT NOT NULL,
+  record_id    TEXT NOT NULL,
+  kind         TEXT NOT NULL,         -- merge | conflict | update
+  input_digest TEXT NOT NULL,
+  winner_id    TEXT,
+  loser_id     TEXT,
+  keep_source  TEXT,
+  sources      TEXT,                  -- JSON: merge 全部参与 id 数组
+  verdict      TEXT NOT NULL,         -- live | revoked | historical
+  count_before INTEGER NOT NULL,
+  count_after  INTEGER NOT NULL,
+  policy_epoch INTEGER NOT NULL DEFAULT 0,
+  created_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_receipt_chain_record ON receipt_chain(record_id);
+CREATE INDEX IF NOT EXISTS idx_receipt_chain_run ON receipt_chain(run_id);
 `;
 
 const TYPES = new Set(["preference", "project", "decision", "history", "summary"]);
@@ -116,8 +158,51 @@ function toDreamRun(row) {
     outcome: row.outcome ? JSON.parse(row.outcome) : undefined,
     applied: row.applied,
     summary_stored: row.summary_stored === 1,
-    receipt: row.receipt
+    receipt: row.receipt,
+    policy_epoch: row.policy_epoch ?? 0
   };
+}
+
+function toReceipt(row) {
+  if (!row) return undefined;
+  return {
+    receipt_id: row.receipt_id,
+    run_id: row.run_id,
+    record_id: row.record_id,
+    kind: row.kind,
+    input_digest: row.input_digest,
+    winner_id: row.winner_id ?? undefined,
+    loser_id: row.loser_id ?? undefined,
+    keep_source: row.keep_source ?? undefined,
+    sources: parseJsonArray(row.sources),
+    verdict: row.verdict,
+    count_before: row.count_before,
+    count_after: row.count_after,
+    policy_epoch: row.policy_epoch ?? 0,
+    created_at: row.created_at
+  };
+}
+
+function toRecallRun(row) {
+  if (!row) return undefined;
+  return {
+    id: row.id,
+    query: row.query,
+    mode: row.mode,
+    topK: row.top_k,
+    threshold: row.threshold,
+    candidates: parseJsonArray(row.candidates),
+    created_at: row.created_at
+  };
+}
+
+function parseJsonArray(raw) {
+  try {
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
 }
 
 export function createStore(path) {
@@ -132,6 +217,12 @@ export function createStore(path) {
   }
   if (!columns.includes("embedding")) {
     db.exec("ALTER TABLE memories ADD COLUMN embedding TEXT");
+  }
+
+  // Legacy dream_runs without policy_epoch → backfill with the default epoch.
+  const dreamCols = db.prepare("PRAGMA table_info(dream_runs)").all().map((c) => c.name);
+  if (!dreamCols.includes("policy_epoch")) {
+    db.exec("ALTER TABLE dream_runs ADD COLUMN policy_epoch INTEGER NOT NULL DEFAULT 0");
   }
 
   // Per-instance monotonic timestamp guard: consecutive writes within the same
@@ -398,16 +489,17 @@ export function createStore(path) {
   function saveDreamRun(run) {
     const id = run.id ?? randomUUID();
     const now = nowIso();
+    const policyEpoch = Number.isInteger(run.policy_epoch) ? run.policy_epoch : 0;
     db.prepare(
       `INSERT INTO dream_runs (id, created_at, status, error, provider, model, snapshot_hash,
-        input_count, input, decisions, outcome, applied, summary_stored, receipt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        input_count, input, decisions, outcome, applied, summary_stored, receipt, policy_epoch)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          created_at=excluded.created_at, status=excluded.status, error=excluded.error,
          provider=excluded.provider, model=excluded.model, snapshot_hash=excluded.snapshot_hash,
          input_count=excluded.input_count, input=excluded.input, decisions=excluded.decisions,
          outcome=excluded.outcome, applied=excluded.applied, summary_stored=excluded.summary_stored,
-         receipt=excluded.receipt`
+         receipt=excluded.receipt, policy_epoch=excluded.policy_epoch`
     ).run(
       id,
       run.created_at ?? now,
@@ -422,7 +514,8 @@ export function createStore(path) {
       run.outcome !== undefined ? JSON.stringify(run.outcome) : null,
       run.applied ?? 0,
       run.summary_stored ? 1 : 0,
-      run.receipt
+      run.receipt,
+      policyEpoch
     );
     return getDreamRun(id);
   }
@@ -438,6 +531,136 @@ export function createStore(path) {
       "SELECT * FROM dream_runs ORDER BY created_at DESC, id LIMIT ? OFFSET ?"
     ).all(lim, off);
     return rows.map(toDreamRun);
+  }
+
+  /**
+   * Latest ruling-rule version seen on the audit trail. policy_epoch is a config
+   * value stamped onto each run by the caller; reading the newest row's epoch
+   * gives the current effective version, falling back to 0 (default) when the
+   * trail is empty. Rules upgrades leave older runs with their original epoch,
+   * so those decisions can be demoted to historical evidence.
+   */
+  function getLatestPolicyEpoch() {
+    const row = db.prepare(
+      "SELECT policy_epoch FROM dream_runs ORDER BY created_at DESC, id LIMIT 1"
+    ).get();
+    return row ? (row.policy_epoch ?? 0) : 0;
+  }
+
+  // --- per-record receipt chain --------------------------------------------
+
+  /**
+   * Persist one per-record receipt (a single merge/conflict/update verdict).
+   * The run-level dream audit trail answers "did this run happen and with what
+   * input"; the receipt chain drills down to each mutable verdict, carrying the
+   * input digest (decision basis) plus count_before → count_after idempotency
+   * checkpoints so replay drift can be located to the exact record/run. Like
+   * the dream trail this is bookkeeping: it never triggers write hooks. Writes
+   * are idempotent on receipt id (replay overwrites, never duplicates).
+   */
+  function saveReceipt(run) {
+    const id = run.receipt_id ?? randomUUID();
+    const now = nowIso();
+    const policyEpoch = Number.isInteger(run.policy_epoch) ? run.policy_epoch : 0;
+    db.prepare(
+      `INSERT INTO receipt_chain (receipt_id, run_id, record_id, kind, input_digest,
+        winner_id, loser_id, keep_source, sources, verdict, count_before, count_after,
+        policy_epoch, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(receipt_id) DO UPDATE SET
+         run_id=excluded.run_id, record_id=excluded.record_id, kind=excluded.kind,
+         input_digest=excluded.input_digest, winner_id=excluded.winner_id,
+         loser_id=excluded.loser_id, keep_source=excluded.keep_source,
+         sources=excluded.sources, verdict=excluded.verdict,
+         count_before=excluded.count_before, count_after=excluded.count_after,
+         policy_epoch=excluded.policy_epoch, created_at=excluded.created_at`
+    ).run(
+      id,
+      run.run_id,
+      run.record_id,
+      run.kind,
+      run.input_digest,
+      run.winner_id ?? null,
+      run.loser_id ?? null,
+      run.keep_source ?? null,
+      JSON.stringify(run.sources ?? []),
+      run.verdict,
+      run.count_before,
+      run.count_after,
+      policyEpoch,
+      run.created_at ?? now
+    );
+    return getReceipt(id);
+  }
+
+  function getReceipt(id) {
+    const row = db.prepare("SELECT * FROM receipt_chain WHERE receipt_id = ?").get(id);
+    return toReceipt(row);
+  }
+
+  function listReceipts({ limit = 50, offset = 0, run_id } = {}) {
+    const { limit: lim, offset: off } = sanitizePage(limit, offset, 50);
+    const clauses = [];
+    const params = [];
+    if (run_id) {
+      clauses.push("run_id = ?");
+      params.push(run_id);
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const rows = db.prepare(
+      `SELECT * FROM receipt_chain ${where} ORDER BY created_at DESC, receipt_id LIMIT ? OFFSET ?`
+    ).all(...params, lim, off);
+    return rows.map(toReceipt);
+  }
+
+  // --- recall-layer audit trail -------------------------------------------
+
+  /**
+   * Persist one recall run (the retrieval scene: query/mode/top-k/threshold +
+   * the exact candidate list handed to the caller). Like the dream audit trail
+   * this is bookkeeping, so it never triggers write hooks — a notify here would
+   * loop back into search itself. Writes are idempotent on run id (replay
+   * overwrites, never duplicates), matching saveDreamRun.
+   */
+  function saveRecallRun(run) {
+    const id = run.id ?? randomUUID();
+    db.prepare(
+      `INSERT INTO recall_runs (id, query, mode, top_k, threshold, candidates, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         query=excluded.query, mode=excluded.mode, top_k=excluded.top_k,
+         threshold=excluded.threshold, candidates=excluded.candidates,
+         created_at=excluded.created_at`
+    ).run(
+      id,
+      run.query,
+      run.mode,
+      run.topK ?? null,
+      run.threshold ?? null,
+      JSON.stringify(run.candidates ?? []),
+      run.created_at ?? nowIso()
+    );
+    return getRecallRun(id);
+  }
+
+  function getRecallRun(id) {
+    const row = db.prepare("SELECT * FROM recall_runs WHERE id = ?").get(id);
+    return toRecallRun(row);
+  }
+
+  function listRecallRuns({ limit = 50, offset = 0, query } = {}) {
+    const { limit: lim, offset: off } = sanitizePage(limit, offset, 50);
+    const clauses = [];
+    const params = [];
+    if (query) {
+      clauses.push("query LIKE ? ESCAPE '\\'");
+      params.push(`%${escapeLike(String(query))}%`);
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const rows = db.prepare(
+      `SELECT * FROM recall_runs ${where} ORDER BY created_at DESC, id LIMIT ? OFFSET ?`
+    ).all(...params, lim, off);
+    return rows.map(toRecallRun);
   }
 
   // --- failure memories ----------------------------------------------------
@@ -510,6 +733,13 @@ export function createStore(path) {
     saveDreamRun,
     getDreamRun,
     listDreamRuns,
+    getLatestPolicyEpoch,
+    saveReceipt,
+    getReceipt,
+    listReceipts,
+    saveRecallRun,
+    getRecallRun,
+    listRecallRuns,
     saveFailure,
     listFailures,
     getFailureStats,

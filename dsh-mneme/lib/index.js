@@ -44,6 +44,23 @@ export const apply = (ctx, config) => {
   const mirror = createMirror(memoryDir);
   const service = createService({ store, mirror, config: cfg });
 
+  // Recall-layer receipt: when searchMemories runs with recordRecall=true, the
+  // retrieval scene (query/mode/topK/threshold + candidates) is persisted to
+  // recall_runs for audit/replay — the sibling of the dream_runs judgment trail.
+  // Best-effort: a failed recall write must never break the search.
+  service.setRecallRecorder((recall) => {
+    try {
+      store.saveRecallRun({
+        query: recall.query,
+        mode: recall.mode,
+        topK: recall.topK,
+        threshold: recall.threshold ?? null,
+        candidates: recall.candidates ?? [],
+        created_at: recall.createdAt
+      });
+    } catch { /* non-fatal: recall recording is bookkeeping */ }
+  });
+
   // User-configurable settings (profile, rules) and custom commands share the
   // same SQLite file but live in dedicated tables, isolated from memories.
   const settings = createSettings(store.db);
