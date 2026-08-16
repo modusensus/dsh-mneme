@@ -4,6 +4,10 @@ All notable changes to dsh-mneme are documented here.
 
 ## [Unreleased]
 
+- **社区贡献 · 嵌入式面板 UI 改进（PR #2，@Liuxin4950）**
+  - 记忆面板与设置面板的嵌入模式（settings.section 插槽）不再复用弹窗面板样式（去掉 boxShadow / background / borderRadius / padding），改为全宽平铺渲染，消除 DSH 设置页内多余的悬浮卡片与阴影
+  - 弹窗（portal）模式保持原有面板样式不变；新增回归测试锁定 embedded 分支不携带 modal chrome
+
 - **安全审计修复（v0.2.5）**
   - 并发安全：CAS 冲突守卫——过期快照不再覆盖并发写入（防丢更新）
   - 事务化决策应用：merge/archive 原子提交，receipt 反映已提交子步骤，部分提交 = reconcile（绝不虚报 ok）
