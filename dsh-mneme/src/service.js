@@ -221,7 +221,11 @@ export function createService({ store, mirror, config, onWrite }) {
       throw error;
     } finally {
       txDepth--;
-      syncMirror();
+      try {
+        syncMirror();
+      } catch (error) {
+        console.warn("syncMirror failed after transaction:", error);
+      }
       notifyWrite();
     }
   }
@@ -293,6 +297,17 @@ export function createService({ store, mirror, config, onWrite }) {
       if (typeof edit.title === "string" && edit.title.trim()) patch.title = edit.title.trim();
       if (typeof edit.content === "string" && edit.content.trim()) patch.content = edit.content.trim();
       if (Object.keys(patch).length) {
+        // 启动回灌（F-NEW-01）：digest 存在且匹配 = 文件自渲染后无人触碰（旧机器
+        // 镜像），机器 wins，DB 的 New 必须保留，静默改回 Old 是 bug。
+        const digestMatches = typeof edit.digest === "string"
+          && typeof edit.title === "string"
+          && typeof edit.content === "string"
+          && createHash("sha256").update(`${edit.title}\x00${edit.content}`).digest("hex") === edit.digest;
+        if (digestMatches) continue;
+        // 文件 == store（无实际变化）时不覆盖，也不计入 applied。
+        const hasDiff = (patch.title !== undefined && existing.title !== patch.title)
+          || (patch.content !== undefined && existing.content !== patch.content);
+        if (!hasDiff) continue;
         store.update(edit.id, patch);
         applied++;
       }
@@ -387,7 +402,11 @@ export function createService({ store, mirror, config, onWrite }) {
    */
   function syncMirror() {
     if (txDepth > 0 || !mirror) return; // deferred to the transaction's commit
-    mirror.sync(reconcileHumanEdits(store.list({ limit: 500, includeForgotten: false })));
+    try {
+      mirror.sync(reconcileHumanEdits(store.list({ limit: 500, includeForgotten: false })));
+    } catch (error) {
+      console.warn("syncMirror failed:", error);
+    }
   }
 
   return {
