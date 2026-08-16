@@ -13,6 +13,7 @@ function mockEmbedder(overrides = {}) {
   return {
     embedSingle: async (text) => [1, 0, 0, 0],
     embed: async (texts) => texts.map(() => [1, 0, 0, 0]),
+    schedule: () => {}, // legacy path: scheduleEmbed uses schedule when present, so saveWithDedupe never calls embedSingle here
     modelHash: "mock#abc",
     dimension: DIM,
     ...overrides
