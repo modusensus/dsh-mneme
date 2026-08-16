@@ -483,17 +483,123 @@ export function createService({ store, mirror, config, onWrite, logger }) {
    * non-forgotten memories are mirrored: forgotten entries must not reach the
    * human-editable file (a human "edit" could otherwise resurrect them).
    */
+  // syncMirror: 同步 mirror，并在失败/成功时持久记录 dirty 状态；保证自身不抛出。
+  // 失败写 store.markMirrorDirty（dirty=1 + last_error + last_attempt），成功写
+  // store.markMirrorClean（dirty=0 + last_error=null + success_at）。状态写入用
+  // try/catch 包住，避免 db 关闭等场景下 syncMirror 自身再抛出（F-NEW-03）。
   function syncMirror() {
     if (txDepth > 0 || !mirror) return; // deferred to the transaction's commit
+    const now = new Date().toISOString();
     try {
       mirror.sync(reconcileHumanEdits(store.list({ limit: 500, includeForgotten: false })));
+      // 成功：写 clean 状态
+      try {
+        store.markMirrorClean(now);
+      } catch (stateError) {
+        // markMirrorClean 失败不能影响主要同步逻辑，仅记录日志
+        logger?.warn?.("syncMirror: markMirrorClean failed:", stateError);
+      }
     } catch (error) {
+      // 同步失败：写 dirty 状态
+      const errMsg = error?.message ?? String(error);
       logger?.warn?.("syncMirror failed:", error);
+      try {
+        store.markMirrorDirty(errMsg, now);
+      } catch (stateError) {
+        // markMirrorDirty 失败同样不能向外抛出
+        logger?.warn?.("syncMirror: markMirrorDirty failed:", stateError);
+      }
+    }
+  }
+
+  // recoverMirror: 启动/手动 reconcile 时根据持久 dirty 状态决定是否恢复同步
+  // （F-NEW-03）。dirty=true → 有界重试（最多 3 次，立即重试）重跑 syncMirror
+  // 收敛镜像；某次成功（dirty 变 0）立即停止。返回 { recovered, error } 供
+  // index.js 启动 / api.js health 判断。一切 fail-safe，绝不向外抛。
+  function recoverMirror() {
+    const MAX_ATTEMPTS = 3;
+    let lastError = null;
+    let recovered = false;
+
+    try {
+      const state = store.getMirrorState();
+      if (!state?.dirty) {
+        // 本来就干净：无需恢复，视为成功
+        return { recovered: true, error: null };
+      }
+
+      // dirty 状态：最多尝试 3 次 sync
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        try {
+          syncMirror(); // syncMirror 内部已 catch，不会向外抛
+          const currentState = store.getMirrorState();
+          if (!currentState?.dirty) {
+            // 成功：镜像已收敛为 clean
+            recovered = true;
+            lastError = null;
+            break;
+          }
+          // 仍 dirty：记录最后一次错误供重试耗尽后上报
+          lastError = currentState.last_error || `Sync attempt ${attempt + 1} left mirror dirty`;
+        } catch (syncError) {
+          // syncMirror 理论不抛，fail-safe 兜底
+          const errMsg = syncError?.message ?? String(syncError);
+          logger?.warn?.("recoverMirror: sync attempt failed:", errMsg);
+          lastError = errMsg;
+        }
+      }
+
+      if (!recovered) {
+        logger?.warn?.("dsh-mneme mirror: recover failed after", MAX_ATTEMPTS, "attempts");
+      } else {
+        logger?.warn?.("dsh-mneme mirror: recovered from dirty state");
+      }
+    } catch (error) {
+      // fail-safe：任何意外异常不向外抛
+      lastError = error?.message ?? String(error);
+      logger?.warn?.("dsh-mneme mirror: recover failed with unexpected error:", error);
+    }
+
+    return { recovered, error: recovered ? null : lastError };
+  }
+
+  // getMirrorHealth: 暴露 mirror 同步健康状态，供 api.js /health 使用
+  // （F-NEW-03）。把 DB 的 dirty 0/1 转成 boolean；fail-safe，绝不向外抛。
+  function getMirrorHealth() {
+    try {
+      const state = store.getMirrorState();
+      if (!state) {
+        // 无状态行：返回安全默认值
+        return {
+          dirty: false,
+          last_error: null,
+          last_attempt: null,
+          success_at: null
+        };
+      }
+      return {
+        dirty: Boolean(state.dirty),
+        last_error: state.last_error ?? null,
+        last_attempt: state.last_attempt ?? null,
+        success_at: state.success_at ?? null
+      };
+    } catch (error) {
+      // fail-safe：状态读取失败也不向外抛
+      logger?.warn?.("getMirrorHealth failed:", error);
+      return {
+        dirty: false,
+        last_error: error?.message ?? String(error),
+        last_attempt: null,
+        success_at: null
+      };
     }
   }
 
   return {
     saveWithDedupe,
+    recoverMirror,
+    getMirrorHealth,
+    getMirrorState: () => store.getMirrorState(),
     injectCandidates,
     mergeHumanEdits,
     toApiList,

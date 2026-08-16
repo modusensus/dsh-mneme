@@ -177,7 +177,8 @@ npm run sync      # src → lib 同步
 |------|------|--------|------|
 | **v0.3.0** | 记忆基因 | entities/attrs/relations 三表 + 时间轴 + LLM 抽取 | ✅ 404 测试 |
 | **v0.3.1** | Logger 统一 | ✅ 已完成（extractor/service 接入 DSH logger 体系，404 测试） | — |
-| **v0.3.2** | 系统级睡眠 | Sleep 调度器 + 分层压缩 + 模式发现 | 规划 |
+| **v0.3.2** | Mirror 健康状态 | ✅ 已完成（F-NEW-03：持久 dirty 状态 + 启动重渲染 + /health 端点，416 测试） | — |
+| **v0.3.3** | 系统级睡眠 | Sleep 调度器 + 分层压缩 + 模式发现 | 规划 |
 | **v0.4.0** | 反思性成长 | 纠错双向回流 + 规则演进 + 自适应参数 | 规划 |
 | **v0.5.0+** | 自进化记忆 | 兴趣漂移 + 跨 workspace | 远期 |
 
@@ -348,7 +349,8 @@ Memory grows:
 |---------|-------|-----------|--------|
 | **v0.3.0** | Memory genome | entities/attrs/relations + timeline + LLM extraction | ✅ 404 tests |
 | **v0.3.1** | Logger unification | ✅ Done (extractor/service wired to DSH logger system, 404 tests) | — |
-| **v0.3.2** | System-level sleep | Sleep scheduler + tiered compression + pattern discovery | planned |
+| **v0.3.2** | Mirror health state | ✅ Done (F-NEW-03: persistent dirty state + startup re-render + /health endpoint, 416 tests) | — |
+| **v0.3.3** | System-level sleep | Sleep scheduler + tiered compression + pattern discovery | planned |
 | **v0.4.0** | Reflective growth | Correction feedback loop + rule evolution + adaptive params | planned |
 | **v0.5.0+** | Self-evolving memory | Interest drift + cross-workspace | long-term |
 

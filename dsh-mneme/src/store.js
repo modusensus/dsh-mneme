@@ -164,6 +164,18 @@ CREATE TABLE IF NOT EXISTS entity_relations (
 CREATE INDEX IF NOT EXISTS idx_relations_from ON entity_relations(from_entity);
 CREATE INDEX IF NOT EXISTS idx_relations_to ON entity_relations(to_entity);
 CREATE INDEX IF NOT EXISTS idx_relations_type ON entity_relations(relation_type);
+
+-- mirror 渲染状态 (F-NEW-03): 单行持久记录 mirror 同步失败/成功状态，使
+-- syncMirror 失败不再只靠瞬时 console.warn —— dirty=1 提示镜像脏了需重渲染，
+-- last_error/last_attempt 记录失败原因与最近尝试，success_at 记录最近成功。
+-- 上层可据此在启动时重试、提供人工 reconcile 入口与健康状态查询。
+CREATE TABLE IF NOT EXISTS mirror_state (
+  id TEXT PRIMARY KEY,               -- 单一状态行（用 'main'）
+  dirty INTEGER NOT NULL DEFAULT 0,  -- 1=镜像脏了需重渲染
+  last_error TEXT,                   -- 最近失败原因
+  last_attempt TEXT,                 -- 最近尝试时间（ISO）
+  success_at TEXT                    -- 最近成功时间（ISO）
+);
 `;
 
 const TYPES = new Set(["preference", "project", "decision", "history", "summary"]);
@@ -320,6 +332,19 @@ function toRelation(row) {
     memory_id: row.memory_id ?? undefined,
     created_at: row.created_at,
     metadata
+  };
+}
+
+function toMirrorState(row) {
+  if (!row) {
+    return { dirty: false, last_error: null, last_attempt: null, success_at: null };
+  }
+  return {
+    id: row.id,
+    dirty: row.dirty === 1,
+    last_error: row.last_error,
+    last_attempt: row.last_attempt,
+    success_at: row.success_at
   };
 }
 
@@ -1084,6 +1109,69 @@ export function createStore(path) {
     ).all(entityId, entityId).map(toRelation);
   }
 
+  // --- mirror sync state (F-NEW-03) -----------------------------------------
+
+  /**
+   * Upsert the single mirror_state row (id='main'). patch accepts
+   * {dirty?, last_error?, last_attempt?, success_at?} — only the keys present
+   * on the object are written, everything else is left untouched. Returns the
+   * freshly read state row (default shape when absent).
+   */
+  function setMirrorState(patch) {
+    const ALLOWED = new Set(["dirty", "last_error", "last_attempt", "success_at"]);
+    const keys = Object.keys(patch).filter((key) =>
+      ALLOWED.has(key) && Object.prototype.hasOwnProperty.call(patch, key)
+    );
+    if (keys.length === 0) {
+      db.prepare(
+        "INSERT INTO mirror_state (id) VALUES ('main') ON CONFLICT(id) DO NOTHING"
+      ).run();
+      return getMirrorState();
+    }
+    // 列同时出现在 INSERT 与 ON CONFLICT 里（excluded.*），保证首次插入也写入
+    // patch 值，而不只是默认值；未传入的列保持不变（partial upsert）。
+    const cols = keys.join(", ");
+    const placeholders = keys.map(() => "?").join(", ");
+    const updates = keys.map((k) => `${k} = excluded.${k}`).join(", ");
+    const values = keys.map((key) =>
+      key === "dirty" ? (patch[key] ? 1 : 0) : patch[key]
+    );
+    db.prepare(
+      `INSERT INTO mirror_state (id, ${cols}) VALUES ('main', ${placeholders})
+       ON CONFLICT(id) DO UPDATE SET ${updates}`
+    ).run(...values);
+    return getMirrorState();
+  }
+
+  /** Current mirror state; default {dirty:0, last_error:null, last_attempt:null, success_at:null} when absent. */
+  function getMirrorState() {
+    const row = db.prepare("SELECT * FROM mirror_state WHERE id = 'main'").get();
+    return toMirrorState(row);
+  }
+
+  /** Convenience: mark the mirror dirty after a failed sync (dirty=1 + last_error + last_attempt). */
+  function markMirrorDirty(error, now) {
+    return setMirrorState({
+      dirty: 1,
+      last_error: error,
+      last_attempt: now ?? nowIso()
+    });
+  }
+
+  /** Convenience: mark the mirror clean after a successful sync (dirty=0 + last_error=null + success_at). */
+  function markMirrorClean(now) {
+    return setMirrorState({
+      dirty: 0,
+      last_error: null,
+      success_at: now ?? nowIso()
+    });
+  }
+
+  /** Convenience: clear only the dirty flag + last_error, leaving success_at untouched (manual reconcile / retry path). */
+  function clearMirrorDirty() {
+    return setMirrorState({ dirty: 0, last_error: null });
+  }
+
   return {
     db,
     count,
@@ -1132,6 +1220,11 @@ export function createStore(path) {
     saveRelation,
     migrateAttrsToMemory,
     getRelations,
+    setMirrorState,
+    getMirrorState,
+    markMirrorDirty,
+    markMirrorClean,
+    clearMirrorDirty,
     close() {
       db.close();
     }

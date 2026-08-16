@@ -268,6 +268,24 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
     }
   });
 
+  // --- health: mirror sync state (F-NEW-03) ---
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/health",
+    handler(req, res) {
+      try {
+        const state = service.getMirrorHealth?.() ?? null;
+        sendJson(res, 200, {
+          mirror: state
+            ? { dirty: state.dirty === true, last_error: state.last_error ?? null, last_attempt: state.last_attempt ?? null, success_at: state.success_at ?? null }
+            : null
+        });
+      } catch {
+        sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
   // --- custom commands ---
   register({
     kind: "exact",
