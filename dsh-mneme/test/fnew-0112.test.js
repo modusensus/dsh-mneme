@@ -201,27 +201,22 @@ test("F-NEW-02 e: COMMIT 后 mirror.sync 抛 ENOSPC → transaction 正常返回
   try {
     const store = createStore(dbPath);
     const mirror = createMirror(mirrorDir);
-    const service = createService({ store, mirror, config: {} });
+    const warns = [];
+    const logger = { warn: (...a) => warns.push(a) };
+    const service = createService({ store, mirror, config: {}, logger });
     const { original } = throwingMirrorSync(mirror);
 
-    let warns = 0;
     let committedId;
-    const origWarn = console.warn;
-    console.warn = (...a) => { warns++; origWarn(...a); };
-    try {
-      let result;
-      assert.doesNotThrow(() => {
-        result = service.transaction(() => {
-          const { memory } = service.saveWithDedupe({ type: "project", title: "原子", content: "已提交", importance: 3 });
-          committedId = memory.id;
-          return "tx-result";
-        });
-      }, "syncMirror 失败不得向外抛（已 COMMIT 不得被当成未提交）");
-      assert.equal(result, "tx-result", "transaction 必须返回 fn 的结果");
-    } finally {
-      console.warn = origWarn;
-    }
-    assert.ok(warns >= 1, "fail-safe 应走 console.warn 路径");
+    let result;
+    assert.doesNotThrow(() => {
+      result = service.transaction(() => {
+        const { memory } = service.saveWithDedupe({ type: "project", title: "原子", content: "已提交", importance: 3 });
+        committedId = memory.id;
+        return "tx-result";
+      });
+    }, "syncMirror 失败不得向外抛（已 COMMIT 不得被当成未提交）");
+    assert.equal(result, "tx-result", "transaction 必须返回 fn 的结果");
+    assert.ok(warns.length >= 1, "fail-safe 应走 logger.warn 路径");
     assert.equal(store.count(), 1, "DB 必须已提交");
     assert.equal(service.getById(committedId).content, "已提交");
 

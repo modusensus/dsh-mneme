@@ -140,7 +140,7 @@ async function resolveEntity(entity, store) {
   return created.id;
 }
 
-export async function extractEntities(memory, { store, config, callLLM }) {
+export async function extractEntities(memory, { store, config, callLLM, logger }) {
   try {
     if (!memory || !memory.content) {
       return { ok: false, error: "Invalid memory: missing content" };
@@ -181,7 +181,7 @@ export async function extractEntities(memory, { store, config, callLLM }) {
         resolvedEntities.push({ ...entity, entity_id: entityId });
       } catch (err) {
         skipCount++;
-        console.warn(`[extractor] Failed to resolve entity "${entity.name}":`, err.message);
+        logger?.warn?.(`[extractor] Failed to resolve entity "${entity.name}":`, err.message);
       }
     }
     
@@ -201,7 +201,7 @@ export async function extractEntities(memory, { store, config, callLLM }) {
           attrs.push(saved);
         } catch (err) {
           skipCount++;
-          console.warn(`[extractor] Failed to save attr "${attr.key}" for entity "${entity.name}":`, err.message);
+          logger?.warn?.(`[extractor] Failed to save attr "${attr.key}" for entity "${entity.name}":`, err.message);
         }
       }
     }
@@ -224,7 +224,7 @@ export async function extractEntities(memory, { store, config, callLLM }) {
         savedRelations.push(saved);
       } catch (err) {
         skipCount++;
-        console.warn(`[extractor] Failed to save relation "${rel.from} -> ${rel.to}":`, err.message);
+        logger?.warn?.(`[extractor] Failed to save relation "${rel.from} -> ${rel.to}":`, err.message);
       }
     }
     

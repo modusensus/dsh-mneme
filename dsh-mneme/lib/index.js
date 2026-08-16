@@ -43,7 +43,7 @@ export const apply = (ctx, config) => {
     store.deleteOldFailures(new Date(Date.now() - 90 * 86400000).toISOString());
   } catch { /* non-fatal */ }
   const mirror = createMirror(memoryDir);
-  const service = createService({ store, mirror, config: cfg });
+  const service = createService({ store, mirror, config: cfg, logger: ctx.logger });
 
   // Recall-layer receipt: when searchMemories runs with recordRecall=true, the
   // retrieval scene (query/mode/topK/threshold + candidates) is persisted to
@@ -196,7 +196,7 @@ export const apply = (ctx, config) => {
       return text;
     };
     service.setEntityExtractor((memory) =>
-      extractEntities(memory, { store, config: cfg, callLLM: streamEntityText })
+      extractEntities(memory, { store, config: cfg, callLLM: streamEntityText, logger: ctx.logger })
         .catch((err) => {
           ctx.logger?.warn?.(`[dsh-mneme] entity extraction failed: ${String(err)}`);
           return { ok: false, error: String(err) };

@@ -3,7 +3,7 @@ import { TYPE_FILE } from "./mirror.js";
 
 const INJECT_TYPES = new Set(["preference", "project", "decision", "summary"]);
 
-export function createService({ store, mirror, config, onWrite }) {
+export function createService({ store, mirror, config, onWrite, logger }) {
   // Optional dream scheduler hook, installed via setDreamHook after creation
   // (the scheduler holds a reference back to the service, so it cannot be
   // passed in the constructor). Fired on the same write events as onWrite.
@@ -56,10 +56,10 @@ export function createService({ store, mirror, config, onWrite }) {
     if (!config.entityExtractionEnabled || !entityExtractor) return;
     try {
       entityExtractor(memory).catch((err) => {
-        console.warn("entity extraction failed:", err);
+        logger?.warn?.("entity extraction failed:", err);
       });
     } catch (err) {
-      console.warn("entity extraction failed:", err);
+      logger?.warn?.("entity extraction failed:", err);
     }
   }
 
@@ -306,7 +306,7 @@ export function createService({ store, mirror, config, onWrite }) {
       try {
         syncMirror();
       } catch (error) {
-        console.warn("syncMirror failed after transaction:", error);
+        logger?.warn?.("syncMirror failed after transaction:", error);
       }
       notifyWrite();
     }
@@ -488,7 +488,7 @@ export function createService({ store, mirror, config, onWrite }) {
     try {
       mirror.sync(reconcileHumanEdits(store.list({ limit: 500, includeForgotten: false })));
     } catch (error) {
-      console.warn("syncMirror failed:", error);
+      logger?.warn?.("syncMirror failed:", error);
     }
   }
 
