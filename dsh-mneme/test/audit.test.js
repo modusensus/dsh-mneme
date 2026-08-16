@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
   createDreamScheduler,
   hashSnapshot,
+  hashDecisionInput,
   buildReceipt,
   parseReceipt,
   buildOutcome
@@ -101,6 +102,97 @@ test("successful runDream writes an audit row with receipt, decisions and outcom
   assert.equal(run.input.length, 2);
   assert.deepEqual(run.input.map((m) => m.title).sort(), ["插件", "插件2"]);
   assert.equal(hashSnapshot(run.input), run.snapshot_hash, "input snapshot digest matches stored snapshot_hash");
+  store.close();
+});
+
+// ---------------------------------------------------------------- per-record receipt chain
+
+test("hashDecisionInput is deterministic, order-independent and content-addressed", () => {
+  const mk = (id, title, content = "c") => ({ id, title, content, importance: 3 });
+  const a = mk("a", "t1");
+  const b = mk("b", "t2");
+  assert.equal(hashDecisionInput([a, b]), hashDecisionInput([b, a]), "order independent");
+  assert.equal(hashDecisionInput([a, b]), hashDecisionInput([{ ...a }, { ...b }]), "clone independent");
+  assert.notEqual(hashDecisionInput([a, b]), hashDecisionInput([a, { ...b, content: "changed" }]), "content change flips digest");
+  assert.match(hashDecisionInput([]), /^[0-9a-f]{64}$/, "empty input hashes stably");
+});
+
+test("runDream writes one per-record receipt per committed merge/conflict/update", async () => {
+  const { store, service, dream } = setup();
+  const { memory: a } = service.saveWithDedupe({ type: "project", title: "插件", content: "旧", importance: 3 });
+  const { memory: b } = service.saveWithDedupe({ type: "project", title: "插件2", content: "新细节", importance: 4 });
+  const { memory: w } = service.saveWithDedupe({ type: "decision", title: "截止", content: "8月20日", importance: 4 });
+  const { memory: l } = service.saveWithDedupe({ type: "decision", title: "截止旧", content: "8月15日", importance: 4 });
+  const { memory: u } = service.saveWithDedupe({ type: "preference", title: "语言", content: "喜欢 Python" });
+  const ctx = mockCtx({
+    onConsolidation: () => JSON.stringify([
+      { action: "merge", ids: [a.id, b.id], keepSource: b.id, title: "插件总览", content: "合并内容", importance: 4 },
+      { action: "conflict", winner: w.id, loser: l.id, reason: "更新" },
+      { action: "update", ids: [u.id], content: "喜欢 Rust" }
+    ])
+  });
+  // Backdate the update target so the update age guard (minAgeHours) sees a
+  // settled record rather than a sub-second-old one — store.nowIso() can drift
+  // a few ms ahead of the wall clock when seeds land in the same millisecond.
+  store.db.prepare("UPDATE memories SET created_at = ? WHERE id = ?")
+    .run(new Date(Date.now() - 3600000).toISOString(), u.id);
+  const result = await dream.runDream(ctx, service, { reflectionUpdateMinAgeHours: 0, policyEpoch: 3 });
+  assert.equal(result.status, "ok");
+
+  const receipts = store.listReceipts({ run_id: result.runId });
+  assert.equal(receipts.length, 3, "one receipt per mutable verdict, none for keep/archive");
+
+  const byKind = Object.fromEntries(receipts.map((r) => [r.kind, r]));
+  assert.deepEqual(Object.keys(byKind).sort(), ["conflict", "merge", "update"]);
+
+  const merge = byKind.merge;
+  assert.equal(merge.run_id, result.runId);
+  assert.equal(merge.record_id, b.id, "merge receipt keyed on keepSource");
+  assert.equal(merge.keep_source, b.id);
+  assert.deepEqual(merge.sources, [a.id, b.id], "merge sources = full id array");
+  assert.equal(merge.count_before, 2);
+  assert.equal(merge.count_after, 1);
+  assert.equal(merge.verdict, "live");
+  assert.equal(merge.policy_epoch, 3, "policy epoch stamped from config");
+  assert.equal(merge.input_digest, hashDecisionInput([a, b]), "digest over the pre-apply basis memories");
+  assert.match(merge.created_at, /^2\d{3}-/, "created_at is an ISO timestamp");
+
+  const conflict = byKind.conflict;
+  assert.equal(conflict.record_id, w.id, "conflict receipt keyed on winner");
+  assert.equal(conflict.winner_id, w.id);
+  assert.equal(conflict.loser_id, l.id);
+  assert.equal(conflict.keep_source, undefined, "no keep_source on a conflict");
+  assert.equal(conflict.count_before, 2);
+  assert.equal(conflict.count_after, 1);
+  assert.equal(conflict.input_digest, hashDecisionInput([w, l]), "digest over winner+loser");
+
+  const update = byKind.update;
+  assert.equal(update.record_id, u.id);
+  assert.equal(update.winner_id, undefined, "no winner/loser on an update");
+  assert.equal(update.count_before, 1);
+  assert.equal(update.count_after, 1);
+  assert.equal(update.input_digest, hashDecisionInput([u]), "digest over the pre-update target");
+  store.close();
+});
+
+test("a throwing per-record receipt writer never breaks the run (bookkeeping fails safe)", async () => {
+  const { store, service, dream } = setup();
+  const { memory: a } = service.saveWithDedupe({ type: "project", title: "甲", content: "A", importance: 3 });
+  const { memory: b } = service.saveWithDedupe({ type: "project", title: "乙", content: "B", importance: 4 });
+  service.saveReceipt = () => { throw new Error("receipt store boom"); };
+  const ctx = mockCtx({
+    onConsolidation: () => JSON.stringify([
+      { action: "merge", ids: [a.id, b.id], keepSource: b.id, title: "甲乙", content: "合并", importance: 4 }
+    ])
+  });
+  const result = await dream.runDream(ctx, service, {});
+  assert.equal(result.ok, true, "consolidation unaffected by receipt failure");
+  assert.equal(result.applied, 1);
+  const run = store.listDreamRuns()[0];
+  assert.equal(run.status, "ok", "audit row still written");
+  assert.equal(store.getById(b.id).title, "甲乙", "merge still applied");
+  assert.equal(store.getById(a.id).archived, true, "merge source still archived");
+  assert.equal(store.listReceipts().length, 0, "no receipts persisted");
   store.close();
 });
 

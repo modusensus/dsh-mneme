@@ -13,6 +13,10 @@ export const Config = z.object({
   dreamProvider: z.string(),
   dreamModel: z.string(),
   dreamMaxTokens: z.natural().min(256).max(32768).default(4096),
+  // Rule version for dream adjudication: when this bumps, older dream_runs
+  // degrade to historical evidence (their receipts no longer drive live
+  // decisions). Default 0 = no versioning in use yet.
+  policyEpoch: z.natural().min(0).max(1000000).default(0),
 
   // --- API protection ------------------------------------------------------
   // Optional shared token for the plugin's HTTP API. Empty (default) keeps

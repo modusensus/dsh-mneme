@@ -244,7 +244,7 @@ function applyMerge(d, service, snapshot) {
   });
   return {
     applied: 1,
-    committed: { action: "merge", ids: d.ids, keepSource: d.keepSource, title: d.title, content: d.content, importance: d.importance }
+    committed: { action: "merge", ids: d.ids, keepSource: d.keepSource, title: d.title, content: d.content, importance: d.importance, count_before: d.ids.length, count_after: 1 }
   };
 }
 
@@ -266,7 +266,7 @@ function applyConflict(d, service, snapshot) {
     });
     service.setArchived(d.loser, true);
   });
-  return { applied: 1, committed: { action: "conflict", winner: d.winner, loser: d.loser } };
+  return { applied: 1, committed: { action: "conflict", winner: d.winner, loser: d.loser, count_before: 2, count_after: 1 } };
 }
 
 function applyUpdate(d, service, snapshot) {
@@ -288,5 +288,5 @@ function applyUpdate(d, service, snapshot) {
       importance: d.importance ?? cur.importance
     });
   });
-  return { applied: 1, committed: { action: "update", ids: [id], title: d.title, content: d.content, importance: d.importance } };
+  return { applied: 1, committed: { action: "update", ids: [id], title: d.title, content: d.content, importance: d.importance, count_before: 1, count_after: 1 } };
 }
