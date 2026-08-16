@@ -102,8 +102,9 @@ npm run sync      # src → lib 同步（发布时自动执行）
 | **v0.2.2** | 流水线补全 | ✅ 已完成（专项测试 + 审查修复，258 测试） | — |
 | **v0.2.4** | 安全加固 | ✅ 已完成（API 鉴权 apiToken + apiKey 掩码 + timing-safe，258 测试） | — |
 | **v0.2.5** | 安全审计修复 | ✅ 已完成（CAS + 事务化应用 + reconcile 审计 + reranker opt-in + 归档恢复，258 测试） | — |
-| **v0.2.6** | 社区贡献 | ✅ 已完成（PR #2 嵌入式面板 UI 改进，259 测试） | — |
-| **v0.2.7** | 轻量结构化 | 实体注释标记（零 schema 变更，验证可行性） | 2-3 天 |
+| **v0.2.6** | 社区贡献 | ✅ 已完成（PR #2 嵌入式面板 UI 改进，263 测试） | — |
+| **v0.2.7** | 诚实审计 | ✅ 已完成（F-03：noop/degraded 状态，空跑不误报 ok，263 测试） | — |
+| **v0.2.8** | 轻量结构化 | 实体注释标记（零 schema 变更，验证可行性） | 2-3 天 |
 | **v0.3.0** | 记忆基因 | 正式 entities/attrs/relations 三表 + 时间轴 | 1 周 |
 | **v0.3.1** | 系统级睡眠 | Sleep 调度器 + 分层压缩 + 模式发现 | 3-5 天 |
 | **v0.4.0** | 反思性成长 | 纠错双向回流 + 规则演进 + 自适应参数 | 1-2 周 |
@@ -201,7 +202,8 @@ npm run sync      # src → lib sync (runs automatically on publish)
 | **v0.2.4** | Security hardening | ✅ Done (API auth apiToken + apiKey masking + timing-safe, 263 tests) | — |
 | **v0.2.5** | Security audit fixes | ✅ Done (CAS + transactional apply + reconcile audit + reranker opt-in + archive restore, 263 tests) | — |
 | **v0.2.6** | Community contribution | ✅ Done (PR #2 embedded panel UI fix, 263 tests) | — |
-| **v0.2.7** | Lightweight structure | Entity comment markers (zero schema change, feasibility check) | 2-3 days |
+| **v0.2.7** | Honest audit | ✅ Done (F-03: noop/degraded states, no false ok on empty runs, 263 tests) | — |
+| **v0.2.8** | Lightweight structure | Entity comment markers (zero schema change, feasibility check) | 2-3 days |
 | **v0.3.0** | Memory genome | Formal entities/attrs/relations tables + timeline | 1 week |
 | **v0.3.1** | System-level sleep | Sleep scheduler + tiered compression + pattern discovery | 3-5 days |
 | **v0.4.0** | Reflective growth | Correction feedback loop + rule evolution + adaptive params | 1-2 weeks |
