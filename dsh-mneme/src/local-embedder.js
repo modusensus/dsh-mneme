@@ -3,6 +3,9 @@
 // old embedding.js logic). All classes share one interface so the orchestrator
 // can pick a backend by provider name and degrade gracefully on failure.
 // Methods throw on error — the caller decides the fallback chain.
+import os from "node:os";
+import path from "node:path";
+
 const DEFAULT_TIMEOUT_MS = 15000;
 
 /** djb2 — stable, fast fingerprint for a provider/model string. */
@@ -47,7 +50,9 @@ export class LocalEmbedder {
     this._dimension = opts.dimension || 512;
     this.device = opts.device || "cpu";
     this.batchSize = opts.batchSize || 8;
-    this.cacheDir = String(opts.cacheDir ?? "").trim();
+    this.cacheDir =
+      String(opts.cacheDir ?? "").trim() ||
+      path.join(os.homedir(), ".dsh", "mneme", "models");
     this.useDtype = opts.useDtype || "q8";
     this.logger = opts.logger ?? null;
     // Test hook: replace the pipeline factory without touching modules.

@@ -1,3 +1,6 @@
+import os from "node:os";
+import path from "node:path";
+
 // Cross-encoder re-ranker for dsh-mneme recall candidates. Uses
 // bge-reranker-base through transformers.js: tries the native `rerank` task
 // first, then the sequence-classification head (sigmoid on the logit delta),
@@ -65,7 +68,9 @@ export class LocalReranker {
     this.maxCandidates = opts.maxCandidates || 30;
     this.scoreThreshold = opts.scoreThreshold ?? 0.1;
     this.device = opts.device || "cpu";
-    this.cacheDir = String(opts.cacheDir ?? "").trim();
+    this.cacheDir =
+      String(opts.cacheDir ?? "").trim() ||
+      path.join(os.homedir(), ".dsh", "mneme", "models");
     this.logger = opts.logger ?? null;
     this.engineFactory = opts.engineFactory || defaultPipelineLoader;
     // Injectable seam: async (query, passage) => number. When set, init()

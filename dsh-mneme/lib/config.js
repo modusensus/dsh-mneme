@@ -42,7 +42,9 @@ export const Config = z.object({
   ollamaBaseUrl: z.string().default("http://localhost:11434"),
   ollamaModel: z.string().default("nomic-embed-text"),
 
-  // Model download/cache.
+  // Model download/cache. When empty (default), models are cached under the
+  // user-level path ~/.dsh/mneme/models (resolved in local-embedder/reranker);
+  // a non-empty value is used verbatim.
   embedModelCacheDir: z.string().default(""),
   embedModelMirror: z.string().default("https://hf-mirror.com"),
 

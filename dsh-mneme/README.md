@@ -180,7 +180,7 @@ dsh web
 | `localEmbedBatchSize` | `8` | 本地 embedding 批大小（1-64） |
 | `ollamaBaseUrl` | `http://localhost:11434` | Ollama 服务地址 |
 | `ollamaModel` | `nomic-embed-text` | Ollama embedding 模型 |
-| `embedModelCacheDir` | 空 | 模型缓存目录（空 = transformers 默认缓存） |
+| `embedModelCacheDir` | 空 | 模型缓存目录（空 = 用户级 `~/.dsh/mneme/models`） |
 | `embedModelMirror` | `https://hf-mirror.com` | 模型下载镜像源 |
 | `vectorSearchTopK` | `20` | 向量搜索返回 Top-K |
 | `vectorSearchThreshold` | `0.65` | 向量搜索相似度阈值 |

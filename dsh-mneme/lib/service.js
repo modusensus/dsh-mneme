@@ -391,8 +391,12 @@ export function createService({ store, mirror, config, onWrite, logger }) {
         const hasDiff = (patch.title !== undefined && existing.title !== patch.title)
           || (patch.content !== undefined && existing.content !== patch.content);
         if (!hasDiff) continue;
-        store.update(edit.id, patch);
+        // 人工编辑回灌后触发 re-embed（issue #3 残留修复）：向量必须与
+        // 新 title/content 一致。scheduleEmbed 为 fire-and-forget，
+        // 内部 try/catch 吞错，失败不影响主流程。
+        const merged = store.update(edit.id, patch);
         applied++;
+        scheduleEmbed(merged);
       }
     }
     if (applied) {
