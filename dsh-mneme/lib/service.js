@@ -13,6 +13,14 @@ export function createService({ store, mirror, config, onWrite }) {
   // any content write it fire-and-forgets a re-embed of the row so vector
   // search stays in sync; failures are swallowed inside the embedder.
   let embedder = null;
+
+  // Optional entity extractor, installed via setEntityExtractor after creation
+  // (index.js injects it so the service never depends on the LLM directly).
+  // After a new memory is saved it fire-and-forgets an extraction pass for the
+  // entity gene (v0.3.0); failures are swallowed so a broken extraction never
+  // surfaces as a write failure. Extraction only runs when
+  // config.entityExtractionEnabled is true.
+  let entityExtractor = null;
   let vectorIndex = null;
   let reranker = null;
 
@@ -37,6 +45,25 @@ export function createService({ store, mirror, config, onWrite }) {
   }
 
   /**
+   * Fire-and-forget entity extraction for a freshly saved memory (entity gene
+   * v0.3.0). Opt-in via config.entityExtractionEnabled; the extractor is
+   * injected as a hook so the service never needs a direct LLM reference.
+   * The hook itself is expected to resolve to { ok:boolean } and never throw;
+   * a thrown rejection is swallowed here as a final fail-safe.
+   */
+  function scheduleEntityExtraction(memory) {
+    if (txDepth > 0) return; // deferred to the transaction's commit
+    if (!config.entityExtractionEnabled || !entityExtractor) return;
+    try {
+      entityExtractor(memory).catch((err) => {
+        console.warn("entity extraction failed:", err);
+      });
+    } catch (err) {
+      console.warn("entity extraction failed:", err);
+    }
+  }
+
+  /**
    * Cross-encoder rerank over a candidate list (best effort). Reranker
    * failures degrade to the original candidate order — reranking is an
    * accuracy upgrade, never a correctness gate.
@@ -56,6 +83,48 @@ export function createService({ store, mirror, config, onWrite }) {
     } catch {
       return candidates.slice(0, topK);
     }
+  }
+
+  /**
+   * Search for memories attached to a named entity (v0.3.0 Phase 3).
+   * 合并优先级（桉桉确认）：entity_attrs.memory_id 精确关联 = 1.0 > 关键词提及 = 0.7；
+   * attr 命中不覆盖，keyword 只补充召回，最后按 _score 降序取 topK。
+   * @param {string} entityName
+   * @param {object} [options]
+   * @param {number} [options.topK=20]
+   * @returns {any[]}
+   */
+  function searchByEntity(entityName, { topK = 20 } = {}) {
+    const entity = store.findEntityByName(entityName);
+    if (!entity) return [];
+    const attrs = store.getCurrentAttrs(entity.id);
+    const memoryIds = [...new Set(attrs.map((a) => a.memory_id).filter(Boolean))];
+    const attrHits = memoryIds.map((id) => store.getById(id)).filter(Boolean);
+    const keywordHits = store.search(entityName, { limit: topK });
+    const merged = new Map();
+    for (const mem of attrHits) merged.set(mem.id, { ...mem, _source: "entity_attr", _score: 1.0 });
+    for (const mem of keywordHits) {
+      if (!merged.has(mem.id)) merged.set(mem.id, { ...mem, _source: "keyword", _score: 0.7 });
+    }
+    return Array.from(merged.values()).sort((a, b) => b._score - a._score).slice(0, topK);
+  }
+
+  /**
+   * Search for memories by attribute key/value (v0.3.0 Phase 3).
+   * value 为空时由 store.findMemoriesByAttr 返回该 key 的全部有效记忆。
+   * @param {string} key
+   * @param {string | undefined} value
+   * @param {object} [options]
+   * @param {number} [options.topK=20]
+   * @returns {any[]}
+   */
+  function searchByAttr(key, value, { topK = 20 } = {}) {
+    if (!key) return [];
+    // value 可能为 undefined（attr:key 无 = 值）：归一为空串后交给
+    // store.findMemoriesByAttr —— 空 value 契约 = 返回该 attr_key 的全部
+    // 当前有效记忆（v0.3.0，store.js 已实现）。
+    const rows = store.findMemoriesByAttr(key, value ?? "");
+    return rows.slice(0, topK);
   }
 
   /**
@@ -85,9 +154,22 @@ export function createService({ store, mirror, config, onWrite }) {
     return base * (0.5 + (row.importance ?? 3) / 10);
   }
 
-  async function searchMemories(query, { mode = "auto", topK = 20, threshold, useRerank = true, recordRecall = false } = {}) {
+  async function searchMemories(query, options = {}) {
+    const { mode = "auto", topK = 20, threshold, useRerank = true, recordRecall = false } = options;
     const q = String(query ?? "").trim();
     if (!q) return [];
+
+    // entity:/attr: 前缀路由（v0.3.0 Phase 3）。entitySearchEnabled 关闭时走原逻辑。
+    if (config?.entitySearchEnabled) {
+      if (q.startsWith("entity:")) {
+        return searchByEntity(q.slice(7).trim(), options);
+      }
+      if (q.startsWith("attr:")) {
+        const [key, value] = q.slice(5).split("=");
+        return searchByAttr(key, value, options);
+      }
+    }
+
     const lim = topK > 0 ? topK : 20;
 
     // Keyword results, decorated with a score so they can be weight-blended
@@ -261,6 +343,7 @@ export function createService({ store, mirror, config, onWrite }) {
     syncMirror();
     notifyWrite();
     scheduleEmbed(created);
+    scheduleEntityExtraction(created);
     return { action: "created", memory: created };
   }
 
@@ -417,6 +500,7 @@ export function createService({ store, mirror, config, onWrite }) {
     transaction,
     setDreamHook(fn) { dreamHook = fn; },
     setEmbedder(emb) { embedder = emb; },
+    setEntityExtractor(fn) { entityExtractor = fn; },
     setVectorIndex(vi) { vectorIndex = vi; },
     setReranker(rn) { reranker = rn; },
     setRecallRecorder(fn) { recallRecorder = fn; },
@@ -517,6 +601,13 @@ export function createService({ store, mirror, config, onWrite }) {
     saveConflictPending: (r) => store.saveConflictPending(r),
     listConflictPending: (opts) => store.listConflictPending(opts),
     resolveConflictPending: (id, o) => store.resolveConflictPending(id, o),
-    countConflictPending: () => store.countConflictPending()
+    countConflictPending: () => store.countConflictPending(),
+    // Entity gene (v0.3.0) passthroughs for the autoDream apply path
+    // (applyDecisions): records supersedes relations after an update and
+    // migrates entity_attrs on merge. Bookkeeping writes like the audit
+    // passthroughs above — never write-hook-triggering memory mutations.
+    saveRelation: (r) => store.saveRelation(r),
+    getAttrsByMemory: (id) => store.getAttrsByMemory(id),
+    migrateAttrsToMemory: (fromId, toId, now) => store.migrateAttrsToMemory(fromId, toId, now)
   };
 }

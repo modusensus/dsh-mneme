@@ -13,6 +13,7 @@ import { createEmbedderByProvider } from "./local-embedder.js";
 import { LocalReranker } from "./reranker.js";
 import { createVectorIndex } from "./vector-index.js";
 import { Config } from "./config.js";
+import { extractEntities } from "./entities/extractor.js";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -162,6 +163,45 @@ export const apply = (ctx, config) => {
       onRun: () => (dream ? dream.runDream(ctx, service, cfg) : Promise.resolve({ ok: true, skipped: true }))
     });
     service.setDreamHook(() => dream.maybeSchedule(service));
+  }
+
+  // Entity gene extraction (v0.3.0): wire the extractor into the service as a
+  // hook so saveWithDedupe can fire-and-forget an extraction pass on fresh
+  // writes. The service never sees ctx.llm — index.js adapts it here into the
+  // callLLM(messages, options) => Promise<string> contract the extractor
+  // expects, reusing the same ctx.llm.stream consumption pattern as dream.js.
+  // Explicit opt-in only (entityExtractionEnabled defaults to false); any LLM
+  // failure degrades inside the extractor to { ok:false }, never a write error.
+  if (cfg.entityExtractionEnabled && ctx.llm) {
+    const streamEntityText = async (messages, options = {}) => {
+      let route = null;
+      if (options.model) {
+        route = { model: options.model };
+      } else {
+        try {
+          const sel = ctx.agentDefaultModel?.currentSelection?.();
+          if (sel?.provider && sel?.model) route = sel;
+        } catch { /* fall through to no route */ }
+      }
+      let text = "";
+      for await (const chunk of ctx.llm.stream({
+        ...(route ?? {}),
+        purpose: "entity-extract",
+        maxTokens: 4096,
+        messages
+      })) {
+        if (chunk.type === "text-delta" && typeof chunk.text === "string") text += chunk.text;
+        if (chunk.type === "finish" && (chunk.reason?.kind === "error" || chunk.reason?.kind === "aborted")) return undefined;
+      }
+      return text;
+    };
+    service.setEntityExtractor((memory) =>
+      extractEntities(memory, { store, config: cfg, callLLM: streamEntityText })
+        .catch((err) => {
+          ctx.logger?.warn?.(`[dsh-mneme] entity extraction failed: ${String(err)}`);
+          return { ok: false, error: String(err) };
+        })
+    );
   }
 
   const disposers = [];

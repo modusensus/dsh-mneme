@@ -1,0 +1,522 @@
+// v0.3.0 entity gene（记忆基因）测试。
+// 测试点由 Kimi K2.7 设计（maas_client → kimi-k2.7-code），
+// 再映射到本插件的真实 API 名（store/service/extractor/applyDecisions）。
+// 覆盖：Schema / 实体 CRUD / 属性时间轴(valid_until) / findMemoriesByAttr
+// （含空 value 契约修复）/ 抽取器 / entity:/attr: 前缀搜索 / autoDream / fail-safe。
+import test from "node:test";
+import assert from "node:assert/strict";
+import { DatabaseSync } from "node:sqlite";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createStore } from "../src/store.js";
+import { createService } from "../src/service.js";
+import { extractEntities } from "../src/entities/extractor.js";
+import { applyDecisions } from "../src/dream/decisions.js";
+
+function openStore() {
+  return createStore(":memory:");
+}
+
+function makeService(config = {}) {
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config });
+  return { store, service };
+}
+
+function seedAttr(store, service, { entityName, type = "person", key, value, title, content = "记忆内容" }) {
+  let entity = store.findEntityByName(entityName);
+  if (!entity) entity = store.createEntity({ name: entityName, type });
+  const mem = service.saveWithDedupe({ type: "preference", title, content, importance: 3 });
+  store.saveAttr({ entity_id: entity.id, attr_key: key, attr_value: value, memory_id: mem.memory.id });
+  return { entity, mem: mem.memory };
+}
+
+// mock LLM 输出：抽取器约定 callLLM(messages, options) => Promise<string>
+const jsonLLM = (payload) => async () => JSON.stringify(payload);
+
+// ============================================================ Schema
+
+test("createStore creates the three entity tables alongside memories", () => {
+  const store = openStore();
+  for (const t of ["memories", "entities", "entity_attrs", "entity_relations"]) {
+    const row = store.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(t);
+    assert.ok(row, `${t} table exists`);
+  }
+  store.close();
+});
+
+test("entity tables carry the expected indexes", () => {
+  const store = openStore();
+  const names = new Set(store.db.prepare("SELECT name FROM sqlite_master WHERE type='index'").all().map((r) => r.name));
+  for (const i of [
+    "idx_entities_name", "idx_entities_type",
+    "idx_attrs_entity", "idx_attrs_key", "idx_attrs_valid", "idx_attrs_memory",
+    "idx_relations_from", "idx_relations_to", "idx_relations_type"
+  ]) {
+    assert.ok(names.has(i), `index ${i} exists`);
+  }
+  store.close();
+});
+
+test("legacy database without entity tables auto-creates them (idempotent)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "dsh-mneme-entity-"));
+  const path = join(dir, "legacy.db");
+  try {
+    const legacy = new DatabaseSync(path);
+    legacy.exec(`CREATE TABLE memories (
+      id TEXT PRIMARY KEY, type TEXT NOT NULL, title TEXT NOT NULL, content TEXT NOT NULL,
+      tags TEXT NOT NULL DEFAULT '[]', importance INTEGER NOT NULL DEFAULT 3,
+      forgotten INTEGER NOT NULL DEFAULT 0, source TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );`);
+    legacy.close();
+    // 打开即自动建实体三表
+    const store = createStore(path);
+    for (const t of ["entities", "entity_attrs", "entity_relations"]) {
+      assert.ok(store.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(t), `${t} auto-created`);
+    }
+    store.close();
+    // 幂等：重复打开不会报错，且可正常写入实体
+    const store2 = createStore(path);
+    store2.createEntity({ name: "幂等实体", type: "concept" });
+    assert.ok(store2.findEntityByName("幂等实体"), "reopen is writable");
+    store2.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ============================================================ 实体 CRUD
+
+test("createEntity records first_seen/last_seen and mention_count=1", () => {
+  const store = openStore();
+  const ent = store.createEntity({ name: "React", type: "technology" });
+  assert.ok(ent.id, "has id");
+  assert.equal(ent.name, "React");
+  assert.equal(ent.type, "technology");
+  assert.equal(ent.mention_count, 1);
+  assert.ok(ent.first_seen, "has first_seen");
+  assert.equal(ent.last_seen, ent.first_seen);
+  assert.equal(store.findEntityByName("React").id, ent.id);
+  store.close();
+});
+
+test("findEntityByName / findEntityById resolve; unknown returns undefined", () => {
+  const store = openStore();
+  const ent = store.createEntity({ name: "Node", type: "technology" });
+  assert.equal(store.findEntityByName("Node").id, ent.id);
+  assert.equal(store.findEntityById(ent.id).name, "Node");
+  assert.equal(store.findEntityByName("不存在"), undefined);
+  assert.equal(store.findEntityById("ghost"), undefined);
+  store.close();
+});
+
+test("updateEntity bumps mention_count and refreshes last_seen", () => {
+  const store = openStore();
+  const ent = store.createEntity({ name: "Vite", type: "technology" });
+  const updated = store.updateEntity(ent.id, {});
+  assert.equal(updated.mention_count, 2, "empty patch = a fresh sighting");
+  assert.ok(updated.last_seen > ent.last_seen, "last_seen advances");
+  assert.equal(updated.name, "Vite", "name preserved");
+  assert.equal(updated.type, "technology");
+  store.close();
+});
+
+test("updateEntity applies partial patch and honors explicit mention_count", () => {
+  const store = openStore();
+  const ent = store.createEntity({ name: "Rust", type: "technology" });
+  const updated = store.updateEntity(ent.id, { type: "language", mention_count: 5 });
+  assert.equal(updated.type, "language");
+  assert.equal(updated.mention_count, 5, "explicit mention_count wins");
+  assert.equal(updated.name, "Rust", "untouched field preserved");
+  assert.equal(store.updateEntity("ghost", {}), undefined);
+  store.close();
+});
+
+// ============================================================ 属性时间轴 (valid_until)
+
+test("saveAttr persists key/value/confidence/source/memory_id with valid_until null", () => {
+  const store = openStore();
+  const mem = store.save({ type: "preference", title: "助手", content: "用 Kimi", importance: 3 });
+  const ent = store.createEntity({ name: "Kimi", type: "person" });
+  const attr = store.saveAttr({
+    entity_id: ent.id, attr_key: "role", attr_value: "测试助手",
+    memory_id: mem.id, confidence: 0.8, source: "llm_extract"
+  });
+  assert.ok(attr.id, "has id");
+  assert.equal(attr.attr_key, "role");
+  assert.equal(attr.attr_value, "测试助手");
+  assert.equal(attr.confidence, 0.8);
+  assert.equal(attr.source, "llm_extract");
+  assert.equal(attr.memory_id, mem.id);
+  assert.ok(attr.valid_from, "has valid_from");
+  assert.equal(attr.valid_until, undefined, "new row is live");
+  store.close();
+});
+
+test("saveAttr twice invalidates the old row; only the newest stays current", () => {
+  const store = openStore();
+  const ent = store.createEntity({ name: "X", type: "concept" });
+  store.saveAttr({ entity_id: ent.id, attr_key: "k", attr_value: "v1" });
+  store.saveAttr({ entity_id: ent.id, attr_key: "k", attr_value: "v2" });
+  const current = store.getCurrentAttrs(ent.id);
+  assert.equal(current.length, 1, "one current row per entity+key");
+  assert.equal(current[0].attr_value, "v2");
+  assert.equal(current[0].valid_until, undefined);
+  store.close();
+});
+
+test("getCurrentAttrs only live rows; getAttrHistory all rows oldest-first", () => {
+  const store = openStore();
+  const ent = store.createEntity({ name: "Y", type: "concept" });
+  store.saveAttr({ entity_id: ent.id, attr_key: "k", attr_value: "v1" });
+  store.saveAttr({ entity_id: ent.id, attr_key: "k", attr_value: "v2" });
+  const history = store.getAttrHistory(ent.id);
+  assert.equal(history.length, 2, "history keeps the superseded row");
+  assert.equal(history[0].attr_value, "v1");
+  assert.ok(history[0].valid_until, "old row closed with valid_until");
+  assert.equal(history[1].attr_value, "v2");
+  assert.equal(history[1].valid_until, undefined);
+  assert.equal(store.getCurrentAttrs(ent.id).length, 1);
+  store.close();
+});
+
+test("getAttrsByMemory returns the attrs referencing a given memory", () => {
+  const store = openStore();
+  const ent = store.createEntity({ name: "Z", type: "concept" });
+  const m1 = store.save({ type: "decision", title: "决定一", content: "c" });
+  const m2 = store.save({ type: "decision", title: "决定二", content: "c" });
+  store.saveAttr({ entity_id: ent.id, attr_key: "a", attr_value: "1", memory_id: m1.id });
+  store.saveAttr({ entity_id: ent.id, attr_key: "a", attr_value: "2", memory_id: m2.id });
+  const for1 = store.getAttrsByMemory(m1.id);
+  assert.equal(for1.length, 1);
+  assert.equal(for1[0].attr_value, "1");
+  assert.equal(for1[0].memory_id, m1.id);
+  assert.equal(store.getAttrsByMemory(m2.id).length, 1);
+  assert.equal(store.getAttrsByMemory("ghost").length, 0);
+  store.close();
+});
+
+test("invalidateOldAttr closes live rows and returns the count", () => {
+  const store = openStore();
+  const ent = store.createEntity({ name: "W", type: "concept" });
+  store.saveAttr({ entity_id: ent.id, attr_key: "k", attr_value: "v1" });
+  assert.equal(store.invalidateOldAttr(ent.id, "k", new Date().toISOString()), 1);
+  assert.equal(store.getCurrentAttrs(ent.id).length, 0, "no live rows left");
+  assert.equal(store.invalidateOldAttr(ent.id, "k", new Date().toISOString()), 0, "second pass is a no-op");
+  store.close();
+});
+
+// ============================================================ findMemoriesByAttr
+
+test("findMemoriesByAttr exact key=value match, deduped across entities", () => {
+  const store = openStore();
+  const m = store.save({ type: "preference", title: "记忆", content: "c" });
+  const e1 = store.createEntity({ name: "实体A", type: "concept" });
+  store.saveAttr({ entity_id: e1.id, attr_key: "tag", attr_value: "tech", memory_id: m.id });
+  const e2 = store.createEntity({ name: "实体B", type: "concept" });
+  store.saveAttr({ entity_id: e2.id, attr_key: "tag", attr_value: "tech", memory_id: m.id });
+  const rows = store.findMemoriesByAttr("tag", "tech");
+  assert.equal(rows.length, 1, "same memory via two entities still returns once");
+  assert.equal(rows[0].id, m.id);
+  store.close();
+});
+
+test("findMemoriesByAttr empty value returns ALL current memories for the key", () => {
+  const store = openStore();
+  const m1 = store.save({ type: "preference", title: "甲", content: "c" });
+  const m2 = store.save({ type: "preference", title: "乙", content: "c" });
+  // 同一 entity+key 的第二次 saveAttr 会失效前一行，因此用两个实体各存一条当前值
+  const e1 = store.createEntity({ name: "设备甲", type: "concept" });
+  const e2 = store.createEntity({ name: "设备乙", type: "concept" });
+  store.saveAttr({ entity_id: e1.id, attr_key: "brand", attr_value: "apple", memory_id: m1.id });
+  store.saveAttr({ entity_id: e2.id, attr_key: "brand", attr_value: "huawei", memory_id: m2.id });
+  for (const empty of ["", undefined, null]) {
+    const rows = store.findMemoriesByAttr("brand", empty);
+    assert.equal(rows.length, 2, `empty=${String(empty)} returns all current`);
+    assert.deepEqual(new Set(rows.map((r) => r.id)), new Set([m1.id, m2.id]));
+  }
+  store.close();
+});
+
+test("findMemoriesByAttr only matches live rows; expired values are excluded", () => {
+  const store = openStore();
+  const m1 = store.save({ type: "preference", title: "旧记忆", content: "c" });
+  const m2 = store.save({ type: "preference", title: "新记忆", content: "c" });
+  const e = store.createEntity({ name: "E", type: "concept" });
+  store.saveAttr({ entity_id: e.id, attr_key: "state", attr_value: "old", memory_id: m1.id });
+  store.saveAttr({ entity_id: e.id, attr_key: "state", attr_value: "new", memory_id: m2.id });
+  assert.deepEqual(store.findMemoriesByAttr("state", "old").map((r) => r.id), [], "superseded value not matched");
+  assert.deepEqual(store.findMemoriesByAttr("state", "new").map((r) => r.id), [m2.id]);
+  assert.deepEqual(store.findMemoriesByAttr("state", "").map((r) => r.id), [m2.id], "empty value still filters to live rows");
+  store.close();
+});
+
+test("findMemoriesByAttr unknown key returns []", () => {
+  const store = openStore();
+  const m = store.save({ type: "preference", title: "m", content: "c" });
+  const e = store.createEntity({ name: "F", type: "concept" });
+  store.saveAttr({ entity_id: e.id, attr_key: "real", attr_value: "x", memory_id: m.id });
+  assert.deepEqual(store.findMemoriesByAttr("nope", "x"), []);
+  assert.deepEqual(store.findMemoriesByAttr("nope", ""), []);
+  store.close();
+});
+
+// ============================================================ 抽取器
+
+test("extractor writes entities, attrs and relations from mock LLM output", async () => {
+  const store = openStore();
+  const memory = store.save({ type: "preference", title: "技术栈", content: "我用 React 和 Node", importance: 3 });
+  const callLLM = jsonLLM({
+    entities: [
+      { name: "React", type: "technology", attrs: [{ key: "category", value: "前端框架", confidence: 0.95 }] },
+      { name: "Node", type: "technology", attrs: [{ key: "category", value: "运行时", confidence: 0.9 }] }
+    ],
+    relations: [{ from: "React", to: "Node", type: "depends_on" }]
+  });
+  const result = await extractEntities(memory, { store, config: {}, callLLM });
+  assert.equal(result.ok, true);
+  assert.equal(result.entities.length, 2);
+  assert.equal(result.attrs.length, 2);
+  assert.equal(result.relations.length, 1);
+
+  const react = store.findEntityByName("React");
+  assert.ok(react, "entity row created");
+  assert.equal(react.type, "technology");
+  assert.equal(react.mention_count, 1);
+  const current = store.getCurrentAttrs(react.id);
+  assert.equal(current.length, 1);
+  assert.equal(current[0].attr_value, "前端框架");
+  assert.equal(current[0].source, "llm_extract");
+  assert.equal(current[0].memory_id, memory.id);
+  const rels = store.getRelations(react.id);
+  assert.equal(rels.length, 1);
+  assert.equal(rels[0].relation_type, "depends_on");
+  assert.equal(rels[0].to_entity, store.findEntityByName("Node").id);
+  store.close();
+});
+
+test("resolveEntity dedups: re-extracting the same name bumps mention_count", async () => {
+  const store = openStore();
+  const memory = store.save({ type: "preference", title: "工具", content: "用 Vite", importance: 3 });
+  const callLLM = jsonLLM({ entities: [{ name: "Vite", type: "technology", attrs: [] }], relations: [] });
+  await extractEntities(memory, { store, config: {}, callLLM });
+  const first = store.findEntityByName("Vite");
+  assert.equal(first.mention_count, 1);
+  const second = await extractEntities(memory, { store, config: {}, callLLM });
+  assert.equal(second.ok, true);
+  assert.equal(second.entities[0].entity_id, first.id, "reuses the same entity id");
+  assert.equal(store.findEntityByName("Vite").mention_count, 2, "mention_count incremented, no duplicate row");
+  assert.equal(store.db.prepare("SELECT count(*) AS c FROM entities WHERE name='Vite'").get().c, 1);
+  store.close();
+});
+
+test("extractor fails safe on garbage JSON → {ok:false} without throwing", async () => {
+  const store = openStore();
+  const memory = store.save({ type: "preference", title: "坏输出", content: "x" });
+  const result = await extractEntities(memory, {
+    store,
+    config: {},
+    callLLM: async () => "这不是 JSON，完全是乱写。"
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.error, "carries an error reason");
+  assert.equal(store.db.prepare("SELECT count(*) AS c FROM entities").get().c, 0, "nothing half-written");
+  store.close();
+});
+
+test("entityExtractionEnabled gate: hook fires only when enabled", () => {
+  // enabled → fires
+  const { store, service } = makeService({ entityExtractionEnabled: true });
+  let calls = 0;
+  service.setEntityExtractor(() => { calls++; return Promise.resolve({ ok: true }); });
+  service.saveWithDedupe({ type: "preference", title: "触发", content: "x" });
+  assert.equal(calls, 1, "hook invoked after a created write when enabled");
+  store.close();
+
+  // disabled → never fires even with a hook installed
+  const { store: s2, service: sv2 } = makeService({ entityExtractionEnabled: false });
+  let calls2 = 0;
+  sv2.setEntityExtractor(() => { calls2++; return Promise.resolve({ ok: true }); });
+  sv2.saveWithDedupe({ type: "preference", title: "不触发", content: "x" });
+  assert.equal(calls2, 0, "hook skipped when entityExtractionEnabled=false");
+  s2.close();
+});
+
+// ============================================================ entity:/attr: 前缀搜索
+
+test("searchMemories entity: prefix → attr exact (1.0) sorts before keyword (0.7)", async () => {
+  const { store, service } = makeService({ entitySearchEnabled: true });
+  const { mem } = seedAttr(store, service, { entityName: "阿尔托", key: "国籍", value: "芬兰", title: "建筑师" });
+  const kw = service.saveWithDedupe({ type: "history", title: "阿尔托大学", content: "位于赫尔辛基" });
+  const rows = await service.searchMemories("entity:阿尔托", { topK: 10 });
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  assert.equal(byId.get(mem.id)._score, 1.0, "attr-linked memory is the exact hit");
+  assert.equal(byId.get(mem.id)._source, "entity_attr");
+  assert.equal(byId.get(kw.memory.id)._score, 0.7, "keyword mention is the fill");
+  assert.equal(rows[0].id, mem.id, "attr exact leads the result order");
+  store.close();
+});
+
+test("searchMemories attr:key=value routes to exact attr match", async () => {
+  const { store, service } = makeService({ entitySearchEnabled: true });
+  const { mem } = seedAttr(store, service, { entityName: "柯布", key: "国籍", value: "法国", title: "马赛公寓" });
+  const other = service.saveWithDedupe({ type: "preference", title: "无关", content: "别的" });
+  const rows = await service.searchMemories("attr:国籍=法国", { topK: 10 });
+  assert.deepEqual(rows.map((r) => r.id), [mem.id]);
+  assert.ok(!rows.some((r) => r.id === other.memory.id));
+  store.close();
+});
+
+test("searchMemories attr:key without =value returns all current for the key", async () => {
+  const { store, service } = makeService({ entitySearchEnabled: true });
+  seedAttr(store, service, { entityName: "设备一", type: "concept", key: "brand", value: "apple", title: "笔记本" });
+  seedAttr(store, service, { entityName: "设备二", type: "concept", key: "brand", value: "huawei", title: "手机" });
+  const rows = await service.searchMemories("attr:brand", { topK: 10 });
+  assert.equal(rows.length, 2, "attr:key with no value covers every live value");
+  assert.deepEqual(new Set(rows.map((r) => r.title)), new Set(["笔记本", "手机"]));
+  // topK trims
+  const capped = await service.searchMemories("attr:brand", { topK: 1 });
+  assert.equal(capped.length, 1);
+  store.close();
+});
+
+test("searchMemories entitySearchEnabled=false does not route entity:/attr: prefixes", async () => {
+  const { store, service } = makeService({ entitySearchEnabled: false });
+  seedAttr(store, service, { entityName: "阿尔托", key: "国籍", value: "芬兰", title: "建筑师" });
+  // 前缀被当作普通关键词搜索："entity:阿尔托" 字面串无命中 → 空
+  const rows = await service.searchMemories("entity:阿尔托", { topK: 10 });
+  assert.equal(rows.length, 0, "entity: prefix falls through to plain keyword");
+  const attrRows = await service.searchMemories("attr:国籍", { topK: 10 });
+  assert.equal(attrRows.length, 0, "attr: prefix falls through to plain keyword");
+  store.close();
+});
+
+// ============================================================ autoDream（实体基因联动）
+
+test("applyUpdate writes supersedes self-relations for the updated memory's attrs", () => {
+  const { store, service } = makeService({});
+  const mem = service.saveWithDedupe({ type: "decision", title: "旧方案", content: "用方案A", importance: 4 });
+  const ent = store.createEntity({ name: "项目X", type: "project" });
+  store.saveAttr({ entity_id: ent.id, attr_key: "approach", attr_value: "A", memory_id: mem.memory.id });
+
+  const { applied, conflicts, failures } = applyDecisions(
+    [{ action: "update", ids: [mem.memory.id], content: "改用方案B" }],
+    service, null, null, { entityExtractionEnabled: true }
+  );
+  assert.equal(applied, 1);
+  assert.equal(conflicts.length, 0);
+  assert.equal(failures.length, 0);
+  const supersedes = store.getRelations(ent.id).filter((r) => r.relation_type === "supersedes");
+  assert.equal(supersedes.length, 1, "one supersedes relation per attr");
+  assert.equal(supersedes[0].from_entity, ent.id, "self-referencing from");
+  assert.equal(supersedes[0].to_entity, ent.id, "self-referencing to");
+  assert.equal(supersedes[0].memory_id, mem.memory.id);
+  assert.equal(supersedes[0].metadata.attr_key, "approach");
+  assert.equal(supersedes[0].metadata.old_value, "A");
+  store.close();
+});
+
+test("applyMerge migrates loser attrs to the keeper memory", () => {
+  const { store, service } = makeService({});
+  const loser = service.saveWithDedupe({ type: "project", title: "旧项目", content: "旧内容" });
+  const keeper = service.saveWithDedupe({ type: "project", title: "新项目", content: "新内容" });
+  const ent = store.createEntity({ name: "项目X", type: "project" });
+  store.saveAttr({ entity_id: ent.id, attr_key: "status", attr_value: "active", memory_id: loser.memory.id });
+
+  const { applied } = applyDecisions(
+    [{ action: "merge", ids: [loser.memory.id, keeper.memory.id], keepSource: keeper.memory.id, title: "合并项目", content: "合并内容" }],
+    service, null, null, { entityExtractionEnabled: true }
+  );
+  assert.equal(applied, 1);
+  const keeperAttrs = store.getAttrsByMemory(keeper.memory.id);
+  assert.equal(keeperAttrs.length, 1, "loser attr re-pointed to keeper");
+  assert.equal(keeperAttrs[0].attr_value, "active");
+  assert.equal(store.getAttrsByMemory(loser.memory.id).length, 0, "no attrs left on the loser");
+  store.close();
+});
+
+test("applyMerge invalidates the loser attr when the keeper already holds the same entity+key live", () => {
+  const { store, service } = makeService({});
+  const loser = service.saveWithDedupe({ type: "decision", title: "D旧", content: "旧" });
+  const keeper = service.saveWithDedupe({ type: "decision", title: "D新", content: "新" });
+  const ent = store.createEntity({ name: "目标", type: "concept" });
+  store.saveAttr({ entity_id: ent.id, attr_key: "state", attr_value: "done", memory_id: loser.memory.id });
+  store.saveAttr({ entity_id: ent.id, attr_key: "state", attr_value: "wip", memory_id: keeper.memory.id });
+
+  const { applied } = applyDecisions(
+    [{ action: "merge", ids: [loser.memory.id, keeper.memory.id], keepSource: keeper.memory.id, title: "D合并", content: "合并" }],
+    service, null, null, { entityExtractionEnabled: true }
+  );
+  assert.equal(applied, 1);
+  const current = store.getCurrentAttrs(ent.id);
+  assert.equal(current.length, 1);
+  assert.equal(current[0].attr_value, "wip", "keeper value wins");
+  assert.equal(current[0].memory_id, keeper.memory.id);
+  const history = store.getAttrHistory(ent.id);
+  const doneRow = history.find((a) => a.attr_value === "done");
+  assert.ok(doneRow.valid_until, "loser row invalidated, not re-pointed");
+  assert.equal(doneRow.memory_id, loser.memory.id);
+  store.close();
+});
+
+test("applyUpdate/applyMerge skip entity side-effects when entityExtractionEnabled=false", () => {
+  const { store, service } = makeService({});
+  const mem = service.saveWithDedupe({ type: "decision", title: "方案", content: "旧内容", importance: 4 });
+  const ent = store.createEntity({ name: "项目X", type: "project" });
+  store.saveAttr({ entity_id: ent.id, attr_key: "approach", attr_value: "A", memory_id: mem.memory.id });
+
+  const r = applyDecisions(
+    [{ action: "update", ids: [mem.memory.id], content: "新内容" }],
+    service, null, null, { entityExtractionEnabled: false }
+  );
+  assert.equal(r.applied, 1, "update itself still applies");
+  assert.equal(store.getRelations(ent.id).filter((x) => x.relation_type === "supersedes").length, 0, "no supersedes recorded");
+
+  const loser = service.saveWithDedupe({ type: "project", title: "L项目", content: "旧" });
+  const keeper = service.saveWithDedupe({ type: "project", title: "K项目", content: "新" });
+  store.saveAttr({ entity_id: ent.id, attr_key: "status", attr_value: "active", memory_id: loser.memory.id });
+  const m = applyDecisions(
+    [{ action: "merge", ids: [loser.memory.id, keeper.memory.id], keepSource: keeper.memory.id, title: "M合并", content: "合并" }],
+    service, null, null, { entityExtractionEnabled: false }
+  );
+  assert.equal(m.applied, 1, "merge itself still applies");
+  assert.equal(store.getAttrsByMemory(keeper.memory.id).length, 0, "attrs not migrated when disabled");
+  store.close();
+});
+
+// ============================================================ fail-safe
+
+test("throwing / rejecting entityExtractor never breaks the memory write", () => {
+  const { store, service } = makeService({ entityExtractionEnabled: true });
+  service.setEntityExtractor(() => { throw new Error("sync boom"); });
+  const r1 = service.saveWithDedupe({ type: "preference", title: "安全一", content: "写入不受影响" });
+  assert.equal(r1.action, "created");
+  assert.ok(r1.memory.id);
+  service.setEntityExtractor(() => Promise.reject(new Error("async boom")));
+  const r2 = service.saveWithDedupe({ type: "preference", title: "安全二", content: "写入不受影响" });
+  assert.equal(r2.action, "created");
+  assert.ok(r2.memory.id);
+  store.close();
+});
+
+test("extractor fails safe on missing content → {ok:false}", async () => {
+  const store = openStore();
+  const result = await extractEntities({ id: "ghost", content: "" }, { store, config: {}, callLLM: async () => "{}" });
+  assert.equal(result.ok, false);
+  assert.ok(result.error);
+  store.close();
+});
+
+test("extractor fails safe when callLLM rejects → {ok:false}", async () => {
+  const store = openStore();
+  const memory = store.save({ type: "preference", title: "LLM 故障", content: "x" });
+  const result = await extractEntities(memory, {
+    store,
+    config: {},
+    callLLM: async () => { throw new Error("llm down"); }
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.error);
+  store.close();
+});

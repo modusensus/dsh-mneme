@@ -75,4 +75,18 @@ export const Config = z.object({
   conflictFreezeEnabled: z.boolean().default(false),
   // Maximum number of frozen conflicts to keep pending for manual review.
   conflictFreezeMaxPending: z.natural().min(1).max(1000).default(100),
+
+  // --- entity gene (v0.3.0) -----------------------------------------------
+  // Opt-in: when false (default) nothing in the pipeline extracts entities.
+  // The storage layer (entities/entity_attrs/entity_relations tables + CRUD)
+  // is always available regardless of this flag.
+  entityExtractionEnabled: z.boolean().default(false),
+  // Optional model override for entity extraction; empty = use the caller's
+  // default provider/model.
+  entityExtractionModel: z.string().default(""),
+  // Cap on entities per extraction pass and attributes per entity.
+  entityExtractionMaxEntities: z.natural().min(1).max(20).default(10),
+  entityExtractionMaxAttrs: z.natural().min(1).max(50).default(20),
+  // Prefix/semantic search over entity names (used by recall).
+  entitySearchEnabled: z.boolean().default(true),
 });

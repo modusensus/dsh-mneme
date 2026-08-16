@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Awesome](https://awesome-dsh-plugin.com/badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
-[![tests](https://img.shields.io/badge/tests-373%20passed-success)](https://github.com/modusensus/dsh-mneme)
+[![tests](https://img.shields.io/badge/tests-404%20passed-success)](https://github.com/modusensus/dsh-mneme)
 
 > 给 DeepSeek Harness 的跨会话记忆插件：让 Agent 记住你、记住项目、自动整理记忆。**Mneme**（Μνήμη）——希腊记忆女神 Mnemosyne 之名，掌管记忆与梦境，正如 autoDream 在后台巩固记忆。
 
@@ -92,7 +92,19 @@ v0.2 起新增**完全离线的语义记忆引擎**（本地模型 + 精排 + �
 
 配置只需在 `cordis.patch.yml` 里设置 `embedProvider`（默认 `openai`，保持 v0.1 行为；改为 `local` 即离线）。升级无需迁移数据。
 
-> 📖 详见 [语义增强架构](docs/SEMANTIC.md) · [本地模型部署指南](docs/LOCAL_MODEL.md) · [从 v0.1 升级说明](docs/MIGRATION.md)
+### 实体结构化记忆（Entity Gene）🧬
+
+v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带时间轴的属性**、**实体间关系**，让搜索从"字面关键词"升级为"按实体/属性精确召回"。
+
+- **三表**：`entities` / `entity_attrs`（`valid_until` 快照式时间轴）/ `entity_relations`，旧库打开自动建表，幂等无迁移成本
+- **自动抽取**：`entityExtractionEnabled=true` 后，新写入的记忆 fire-and-forget 触发 LLM 抽取（同名实体去重、属性存时间轴、关系追加；失败绝不阻塞写入）
+- **实体搜索**（`searchMemories` 前缀路由，`entitySearchEnabled` 默认开）：
+  - `entity:阿尔托` → 属性精确关联的记忆（`_score 1.0`）排在关键词提及（`_score 0.7`）之前
+  - `attr:国籍=芬兰` → 精确匹配该属性值的记忆
+  - `attr:国籍` → 该属性键的**全部**当前有效记忆（value 为空契约）
+- **autoDream 联动**：update 决策写 `supersedes` 自引用（属性版本被替代）；merge 决策把 loser 的属性归属迁移到 keeper（keeper 已有同键当前值则失效）
+
+> 📖 详见 [实体结构化记忆设计](docs/ENTITIES.md) · [语义增强架构](docs/SEMANTIC.md) · [本地模型部署指南](docs/LOCAL_MODEL.md) · [从 v0.1 升级说明](docs/MIGRATION.md)
 
 ## 📦 安装
 
@@ -184,6 +196,11 @@ dsh web
 | `reflectionFailureTracking` | `true` | 失败追踪总开关 |
 | `reflectionUpdateMaxPerRun` | `2` | 每次整理最多 update 数 |
 | `reflectionUpdateMinAgeHours` | `24` | 新建记忆保护期（小时） |
+| `entityExtractionEnabled` | `false` | 实体抽取总开关（v0.3.0；存储层恒可用） |
+| `entityExtractionModel` | 空 | 抽取专用模型（空 = 用 agent 默认模型） |
+| `entityExtractionMaxEntities` | `10` | 每次抽取实体数上限 |
+| `entityExtractionMaxAttrs` | `20` | 每实体属性数上限 |
+| `entitySearchEnabled` | `true` | `entity:` / `attr:` 前缀搜索开关 |
 
 > 🔐 **API 安全**：DSH 无内置鉴权且默认仅监听 `127.0.0.1`。插件 API 默认开放（便于 Web 面板即装即用）。如需防护（如局域网暴露），在配置中设置 `apiToken`：写操作（画像/规则/命令）与密钥端点（`vector-config`、`vector-reindex`）需携带 `Authorization: Bearer <token>`（前端设置面板可填入同一 token），只读的 `list` / `search` / `semantic` 保持开放。`/api/dsh-mneme/vector-config` 返回的 `apiKey` 已掩码（`sk-***…`），存储仍保留明文供调用；前端回传空或掩码值表示"不改 key"。
 
@@ -219,13 +236,14 @@ src/
 ├── summarize.js      # 会话结束 LLM 摘要
 ├── dream.js          # autoDream 调度 + runDream（LLM 决策 + 摘要）
 ├── dream/decisions.js# 决策校验（fail-safe）+ 决策应用
+├── entities/extractor.js # 实体抽取器（v0.3.0：LLM JSON 抽取 + 去重 + fail-safe）
 ├── embedding.js      # OpenAI 兼容 embeddings 客户端 + 向量检索
 ├── api.js            # HTTP 路由（Web 面板数据通道）
 └── index.js          # 插件接线
 lib/
 ├── client.js         # Web 面板（手写 ModuleLoader bundle）
 └── *.js              # src 的同步分发产物
-test/                 # 373 个 node:test 测试（含审计与三轴线压测不变量）
+test/                 # 404 个 node:test 测试（含审计与三轴线压测不变量）
 scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压测 · sync-lib.js 同步
 ```
 
@@ -234,7 +252,7 @@ scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压
 ```bash
 cd dsh-mneme
 npm install        # 安装 peer 依赖（以 devDependencies 形式，用于本地测试）
-npm test           # 运行 373 个测试
+npm test           # 运行 404 个测试
 npm run stress     # 三轴线压测：长会话检索 / 冲突仲裁 / 多 Agent 并发（离线 mock LLM）
 npm run sync       # 把 src/ 同步到 lib/（发布时由 prepack 钩子自动执行）
 ```
@@ -250,6 +268,7 @@ npm run sync       # 把 src/ 同步到 lib/（发布时由 prepack 钩子自动
 - [记忆库设计](../docs/superpowers/specs/2026-08-13-dsh-mneme-design.md)
 - [autoDream 设计](../docs/superpowers/specs/2026-08-13-dsh-mneme-autodream-design.md)
 - [实施计划](../docs/superpowers/plans/2026-08-13-dsh-memory-autodream.md)
+- [实体结构化记忆设计](docs/ENTITIES.md)
 - [语义增强架构](docs/SEMANTIC.md)
 - [本地模型部署指南](docs/LOCAL_MODEL.md)
 - [从 v0.1 升级说明](docs/MIGRATION.md)
