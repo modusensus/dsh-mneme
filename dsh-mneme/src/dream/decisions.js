@@ -167,7 +167,7 @@ function casGuard(service, snapshot, ids) {
  *   committed  - the decisions that actually landed, for outcome/receipt based
  *                on real committed sub-steps rather than the raw LLM list.
  */
-export function applyDecisions(decisions, service, logger = null, snapshot = null) {
+export function applyDecisions(decisions, service, logger = null, snapshot = null, config = {}) {
   let applied = 0;
   const conflicts = [];
   const failures = [];
@@ -180,7 +180,7 @@ export function applyDecisions(decisions, service, logger = null, snapshot = nul
         committed.push({ action: "keep", ids: d.ids });
         continue;
       }
-      const outcome = applyOne(d, service, snapshot);
+      const outcome = applyOne(d, service, snapshot, config);
       if (outcome === "skipped") continue;
       applied += outcome.applied;
       committed.push(outcome.committed);
@@ -197,12 +197,12 @@ export function applyDecisions(decisions, service, logger = null, snapshot = nul
   return { applied, conflicts, failures, committed };
 }
 
-function applyOne(d, service, snapshot) {
+function applyOne(d, service, snapshot, config = {}) {
   switch (d.action) {
     case "archive": return applyArchive(d, service, snapshot);
-    case "merge": return applyMerge(d, service, snapshot);
+    case "merge": return applyMerge(d, service, snapshot, config);
     case "conflict": return applyConflict(d, service, snapshot);
-    default: return applyUpdate(d, service, snapshot);
+    default: return applyUpdate(d, service, snapshot, config);
   }
 }
 
@@ -222,7 +222,7 @@ function applyArchive(d, service, snapshot) {
   return { applied: targets.length, committed: { action: "archive", ids: targets } };
 }
 
-function applyMerge(d, service, snapshot) {
+function applyMerge(d, service, snapshot, config = {}) {
   const sources = d.ids.filter((id) => id !== d.keepSource);
   // Idempotent replay: if every other source is already archived, this merge
   // already landed — skip so a replayed/concurrent decision never double-counts
@@ -240,6 +240,18 @@ function applyMerge(d, service, snapshot) {
     for (const id of sources) {
       const mem = service.getById(id);
       if (mem && !mem.archived) service.setArchived(id, true);
+    }
+    // 4.3.2 迁移实体关联（opt-in）：将 loser（source）记忆关联的 entity_attrs 的
+    // memory_id 迁移到 keeper；keeper 已有同 entity+key 的当前属性时 loser 行被
+    // 失效。单个 source 迁移失败只告警，绝不能导致整个 merge 事务回滚（fail-safe）。
+    if (config.entityExtractionEnabled && typeof service.migrateAttrsToMemory === "function") {
+      for (const id of sources) {
+        try {
+          service.migrateAttrsToMemory(id, d.keepSource, new Date().toISOString());
+        } catch (error) {
+          logger?.warn?.(`dsh-mneme dream: failed to migrate attrs from ${id} to ${d.keepSource}: ${error.message}`);
+        }
+      }
     }
   });
   return {
@@ -269,7 +281,7 @@ function applyConflict(d, service, snapshot) {
   return { applied: 1, committed: { action: "conflict", winner: d.winner, loser: d.loser, count_before: 2, count_after: 1 } };
 }
 
-function applyUpdate(d, service, snapshot) {
+function applyUpdate(d, service, snapshot, config = {}) {
   const id = d.ids[0];
   const mem = service.getById(id);
   if (!mem || mem.archived) return "skipped";
@@ -288,5 +300,25 @@ function applyUpdate(d, service, snapshot) {
       importance: d.importance ?? cur.importance
     });
   });
+  // 4.3.1 supersedes 关系（opt-in）：事务提交成功后，为该记忆关联的每条实体属性
+  // 建立自引用 supersedes 关系，表示"此属性版本已被替代"。仅记录、绝不阻断主流程
+  // （fail-safe）：记录失败只告警，update 本身照常生效。
+  if (config.entityExtractionEnabled && typeof service.saveRelation === "function" && typeof service.getAttrsByMemory === "function") {
+    try {
+      const oldAttrs = service.getAttrsByMemory(id);
+      for (const attr of oldAttrs) {
+        if (!attr.entity_id) continue;
+        service.saveRelation({
+          from_entity: attr.entity_id,
+          to_entity: attr.entity_id,
+          relation_type: "supersedes",
+          memory_id: id,
+          metadata: JSON.stringify({ attr_key: attr.attr_key, old_value: attr.attr_value })
+        });
+      }
+    } catch (error) {
+      logger?.warn?.(`dsh-mneme dream: failed to record supersedes relations for ${id}: ${error.message}`);
+    }
+  }
   return { applied: 1, committed: { action: "update", ids: [id], title: d.title, content: d.content, importance: d.importance, count_before: 1, count_after: 1 } };
 }

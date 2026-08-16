@@ -541,7 +541,7 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     // a target changed during the LLM call is skipped and reported as a
     // conflict instead of being overwritten (item ①). Frozen conflicts are
     // excluded from this list (they are parked, not applied).
-    const { applied, conflicts, failures, committed } = applyDecisions(applyList, service, logger, snapshot);
+    const { applied, conflicts, failures, committed } = applyDecisions(applyList, service, logger, snapshot, config);
     // Per-record receipt chain: one row per actually-committed merge/conflict/
     // update verdict, stamped with the decision-basis digest + idempotency
     // counters (count_before → count_after). Written here, before the run audit

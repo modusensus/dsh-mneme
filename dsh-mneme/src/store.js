@@ -118,6 +118,52 @@ CREATE TABLE IF NOT EXISTS conflict_pending (
   resolved_winner TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_conflict_pending_unresolved ON conflict_pending(resolved_at);
+
+-- entity gene (v0.3.0): named entities mentioned across memories, with
+-- time-boxed attributes (valid_from → valid_until) and typed relations.
+-- Attributes follow the snapshot style: saveAttr invalidates the previous
+-- value for the same entity+key before inserting a new row, so the current
+-- value is always the row with valid_until IS NULL.
+CREATE TABLE IF NOT EXISTS entities (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  type TEXT,
+  first_seen TEXT NOT NULL,
+  last_seen TEXT NOT NULL,
+  mention_count INTEGER DEFAULT 1,
+  canonical_memory_id TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name);
+CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(type);
+
+CREATE TABLE IF NOT EXISTS entity_attrs (
+  id TEXT PRIMARY KEY,
+  entity_id TEXT NOT NULL,
+  attr_key TEXT NOT NULL,
+  attr_value TEXT NOT NULL,
+  memory_id TEXT,
+  valid_from TEXT NOT NULL,
+  valid_until TEXT,
+  confidence REAL DEFAULT 1.0,
+  source TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_attrs_entity ON entity_attrs(entity_id);
+CREATE INDEX IF NOT EXISTS idx_attrs_key ON entity_attrs(attr_key);
+CREATE INDEX IF NOT EXISTS idx_attrs_valid ON entity_attrs(valid_from, valid_until);
+CREATE INDEX IF NOT EXISTS idx_attrs_memory ON entity_attrs(memory_id);
+
+CREATE TABLE IF NOT EXISTS entity_relations (
+  id TEXT PRIMARY KEY,
+  from_entity TEXT NOT NULL,
+  to_entity TEXT NOT NULL,
+  relation_type TEXT NOT NULL,
+  memory_id TEXT,
+  created_at TEXT NOT NULL,
+  metadata TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_relations_from ON entity_relations(from_entity);
+CREATE INDEX IF NOT EXISTS idx_relations_to ON entity_relations(to_entity);
+CREATE INDEX IF NOT EXISTS idx_relations_type ON entity_relations(relation_type);
 `;
 
 const TYPES = new Set(["preference", "project", "decision", "history", "summary"]);
@@ -225,6 +271,55 @@ function toRecallRun(row) {
     threshold: row.threshold,
     candidates: parseJsonArray(row.candidates),
     created_at: row.created_at
+  };
+}
+
+function toEntity(row) {
+  if (!row) return undefined;
+  return {
+    id: row.id,
+    name: row.name,
+    type: row.type ?? undefined,
+    first_seen: row.first_seen,
+    last_seen: row.last_seen,
+    mention_count: row.mention_count,
+    canonical_memory_id: row.canonical_memory_id ?? undefined
+  };
+}
+
+function toAttr(row) {
+  if (!row) return undefined;
+  return {
+    id: row.id,
+    entity_id: row.entity_id,
+    attr_key: row.attr_key,
+    attr_value: row.attr_value,
+    memory_id: row.memory_id ?? undefined,
+    valid_from: row.valid_from,
+    valid_until: row.valid_until ?? undefined,
+    confidence: row.confidence,
+    source: row.source ?? undefined
+  };
+}
+
+function toRelation(row) {
+  if (!row) return undefined;
+  let metadata;
+  if (row.metadata != null) {
+    try {
+      metadata = JSON.parse(row.metadata);
+    } catch {
+      metadata = row.metadata;
+    }
+  }
+  return {
+    id: row.id,
+    from_entity: row.from_entity,
+    to_entity: row.to_entity,
+    relation_type: row.relation_type,
+    memory_id: row.memory_id ?? undefined,
+    created_at: row.created_at,
+    metadata
   };
 }
 
@@ -805,6 +900,190 @@ export function createStore(path) {
     return stats;
   }
 
+  // --- entity gene: named entities + time-boxed attrs + relations (v0.3.0) --
+
+  /**
+   * Create a named entity. A fresh mention always records first_seen = now;
+   * repeated sightings should call updateEntity (which bumps mention_count and
+   * refreshes last_seen) rather than creating duplicate rows.
+   */
+  function createEntity({ name, type }) {
+    const id = randomUUID();
+    const now = nowIso();
+    db.prepare(
+      `INSERT INTO entities (id, name, type, first_seen, last_seen, mention_count, canonical_memory_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(id, name, type ?? null, now, now, 1, null);
+    return toEntity(db.prepare("SELECT * FROM entities WHERE id = ?").get(id));
+  }
+
+  function findEntityByName(name) {
+    return toEntity(db.prepare("SELECT * FROM entities WHERE name = ?").get(name));
+  }
+
+  function findEntityById(id) {
+    return toEntity(db.prepare("SELECT * FROM entities WHERE id = ?").get(id));
+  }
+
+  /**
+   * Apply a partial update to an entity, always refreshing last_seen. The
+   * mention counter increments on every sighting unless the caller overrides
+   * it explicitly via patch.mention_count (e.g. to correct a count).
+   */
+  function updateEntity(id, patch) {
+    const old = findEntityById(id);
+    if (!old) return undefined;
+    const has = (k) => Object.prototype.hasOwnProperty.call(patch, k);
+    const name = has("name") ? patch.name : old.name;
+    const type = has("type") ? patch.type : old.type;
+    const canonical_memory_id = has("canonical_memory_id")
+      ? patch.canonical_memory_id
+      : old.canonical_memory_id;
+    const mention_count = has("mention_count")
+      ? patch.mention_count
+      : (old.mention_count ?? 1) + 1;
+    const now = nowIso();
+    db.prepare(
+      `UPDATE entities SET name = ?, type = ?, last_seen = ?, mention_count = ?, canonical_memory_id = ? WHERE id = ?`
+    ).run(name, type ?? null, now, mention_count, canonical_memory_id ?? null, id);
+    return findEntityById(id);
+  }
+
+  /**
+   * Record an attribute value for an entity. The previous value for the same
+   * entity+key is invalidated (valid_until = now) before the new row is
+   * inserted, so exactly one row per entity+key is current (valid_until IS NULL).
+   */
+  function saveAttr({ entity_id, attr_key, attr_value, memory_id, confidence, source }) {
+    const now = nowIso();
+    invalidateOldAttr(entity_id, attr_key, now);
+    const id = randomUUID();
+    db.prepare(
+      `INSERT INTO entity_attrs (id, entity_id, attr_key, attr_value, memory_id, valid_from, valid_until, confidence, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(id, entity_id, attr_key, attr_value, memory_id ?? null, now, null, confidence ?? 1.0, source ?? null);
+    return toAttr(db.prepare("SELECT * FROM entity_attrs WHERE id = ?").get(id));
+  }
+
+  /** Mark every currently-valid attr row for entityId+attrKey as expired. Returns rows changed. */
+  function invalidateOldAttr(entityId, attrKey, now) {
+    return db.prepare(
+      `UPDATE entity_attrs SET valid_until = ? WHERE entity_id = ? AND attr_key = ? AND valid_until IS NULL`
+    ).run(now, entityId, attrKey).changes;
+  }
+
+  /** Only the live value per attr_key (valid_until IS NULL). */
+  function getCurrentAttrs(entityId) {
+    return db.prepare(
+      "SELECT * FROM entity_attrs WHERE entity_id = ? AND valid_until IS NULL"
+    ).all(entityId).map(toAttr);
+  }
+
+  /** Full history per attr_key, oldest first. */
+  function getAttrHistory(entityId) {
+    return db.prepare(
+      "SELECT * FROM entity_attrs WHERE entity_id = ? ORDER BY valid_from"
+    ).all(entityId).map(toAttr);
+  }
+
+  /**
+   * All attr rows carrying a reference to the given memory (any valid state),
+   * oldest first. Used by autoDream's update path to record what an update
+   * superseded (v0.3.0 Phase 4 / 4.3.1).
+   */
+  function getAttrsByMemory(memoryId) {
+    return db.prepare(
+      "SELECT * FROM entity_attrs WHERE memory_id = ? ORDER BY valid_from ASC"
+    ).all(memoryId).map(toAttr);
+  }
+
+  /**
+   * Memories carrying a currently-valid attr matching key=value (deduped).
+   * When value is empty/undefined, the attr_value filter is dropped and every
+   * currently-valid memory for that attr_key is returned — the "attr:key"
+   * (no =value) contract, v0.3.0. Only live rows (valid_until IS NULL) with a
+   * memory reference participate, and each memory appears at most once.
+   */
+  function findMemoriesByAttr(key, value) {
+    const empty = value === undefined || value === null || value === "";
+    const sql = empty
+      ? `SELECT DISTINCT memory_id FROM entity_attrs
+         WHERE attr_key = ? AND valid_until IS NULL
+           AND memory_id IS NOT NULL AND memory_id != ''`
+      : `SELECT DISTINCT memory_id FROM entity_attrs
+         WHERE attr_key = ? AND attr_value = ? AND valid_until IS NULL
+           AND memory_id IS NOT NULL AND memory_id != ''`;
+    const params = empty ? [key] : [key, value];
+    const rows = db.prepare(sql).all(...params);
+    const memories = [];
+    const stmt = db.prepare("SELECT * FROM memories WHERE id = ?");
+    for (const { memory_id } of rows) {
+      const row = stmt.get(memory_id);
+      if (row) memories.push(toRow(row));
+    }
+    return memories;
+  }
+
+  /**
+   * Record a typed relation between two entities. metadata (optional) is a
+   * free-form JSON blob describing the relation. Relations are append-only.
+   */
+  function saveRelation({ from_entity, to_entity, relation_type, memory_id, metadata }) {
+    const id = randomUUID();
+    const now = nowIso();
+    const metaStr = metadata === undefined
+      ? null
+      : typeof metadata === "string"
+        ? metadata
+        : JSON.stringify(metadata);
+    db.prepare(
+      `INSERT INTO entity_relations (id, from_entity, to_entity, relation_type, memory_id, created_at, metadata)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(id, from_entity, to_entity, relation_type, memory_id ?? null, now, metaStr);
+    return toRelation(db.prepare("SELECT * FROM entity_relations WHERE id = ?").get(id));
+  }
+
+  /**
+   * Re-point every attr row whose memory_id is fromMemoryId to toMemoryId
+   * (autoDream merge migration, v0.3.0 Phase 4 / 4.3.2). When the keeper
+   * already carries a live attr for the same entity+key, the source row is
+   * superseded and invalidated instead (the keeper's value wins). Returns
+   * { migrated, invalidated }.
+   */
+  function migrateAttrsToMemory(fromMemoryId, toMemoryId, now) {
+    let migrated = 0;
+    let invalidated = 0;
+    const attrs = db.prepare(
+      "SELECT * FROM entity_attrs WHERE memory_id = ?"
+    ).all(fromMemoryId);
+    for (const attr of attrs) {
+      // 仅当 keeper 已有同 entity+key 的当前有效属性才视为被替代（限定 memory_id，
+      // 避免把 loser 自身的 live 行误判为 keeper 行）。
+      const keeperLive = db.prepare(
+        "SELECT id FROM entity_attrs WHERE entity_id = ? AND attr_key = ? AND valid_until IS NULL AND memory_id = ?"
+      ).get(attr.entity_id, attr.attr_key, toMemoryId);
+      if (keeperLive) {
+        db.prepare(
+          "UPDATE entity_attrs SET valid_until = ? WHERE id = ?"
+        ).run(now, attr.id);
+        invalidated++;
+      } else {
+        db.prepare(
+          "UPDATE entity_attrs SET memory_id = ? WHERE id = ?"
+        ).run(toMemoryId, attr.id);
+        migrated++;
+      }
+    }
+    return { migrated, invalidated };
+  }
+
+  /** Relations where the entity appears on either side (from or to). */
+  function getRelations(entityId) {
+    return db.prepare(
+      "SELECT * FROM entity_relations WHERE from_entity = ? OR to_entity = ?"
+    ).all(entityId, entityId).map(toRelation);
+  }
+
   return {
     db,
     count,
@@ -840,6 +1119,19 @@ export function createStore(path) {
     listConflictPending,
     resolveConflictPending,
     countConflictPending,
+    createEntity,
+    findEntityByName,
+    findEntityById,
+    updateEntity,
+    saveAttr,
+    invalidateOldAttr,
+    getCurrentAttrs,
+    getAttrHistory,
+    getAttrsByMemory,
+    findMemoriesByAttr,
+    saveRelation,
+    migrateAttrsToMemory,
+    getRelations,
     close() {
       db.close();
     }
