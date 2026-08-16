@@ -10,7 +10,7 @@
   <a href="https://github.com/awesome-dsh-plugin/awesome-dsh-plugin"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="Awesome"></a>
   <a href="https://github.com/modusensus/dsh-mneme/actions"><img src="https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/test.yml" alt="CI"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-24%2B-blue" alt="node"></a>
-  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-259%20passed-success" alt="tests"></a>
+  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-263%20passed-success" alt="tests"></a>
 </p>
 
 <p align="center"><strong><a href="#中文">中文</a> | <a href="#english">English</a></strong></p>
@@ -73,7 +73,7 @@ docs/        设计文档与实施计划
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 259 个测试
+npm test          # 263 个测试
 npm run stress    # 三轴线压测（长会话检索 / 冲突仲裁 / 多 Agent 并发）
 npm run sync      # src → lib 同步（发布时自动执行）
 ```
@@ -171,7 +171,7 @@ docs/        design docs & implementation plans
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 259 tests
+npm test          # 263 tests
 npm run stress    # three-axis stress test (long-session retrieval / conflict arbitration / concurrent agents)
 npm run sync      # src → lib sync (runs automatically on publish)
 ```
@@ -196,11 +196,11 @@ npm run sync      # src → lib sync (runs automatically on publish)
 
 | Version | Core theme | One-liner | Timeline |
 |---------|------------|-----------|----------|
-| **v0.2.1** | Reflection update | ✅ Done (update decision + failure_memories, 259 tests) | — |
-| **v0.2.2** | Pipeline completion | ✅ Done (specialized tests + review fixes, 259 tests) | — |
-| **v0.2.4** | Security hardening | ✅ Done (API auth apiToken + apiKey masking + timing-safe, 259 tests) | — |
-| **v0.2.5** | Security audit fixes | ✅ Done (CAS + transactional apply + reconcile audit + reranker opt-in + archive restore, 259 tests) | — |
-| **v0.2.6** | Community contribution | ✅ Done (PR #2 embedded panel UI fix, 259 tests) | — |
+| **v0.2.1** | Reflection update | ✅ Done (update decision + failure_memories, 263 tests) | — |
+| **v0.2.2** | Pipeline completion | ✅ Done (specialized tests + review fixes, 263 tests) | — |
+| **v0.2.4** | Security hardening | ✅ Done (API auth apiToken + apiKey masking + timing-safe, 263 tests) | — |
+| **v0.2.5** | Security audit fixes | ✅ Done (CAS + transactional apply + reconcile audit + reranker opt-in + archive restore, 263 tests) | — |
+| **v0.2.6** | Community contribution | ✅ Done (PR #2 embedded panel UI fix, 263 tests) | — |
 | **v0.2.7** | Lightweight structure | Entity comment markers (zero schema change, feasibility check) | 2-3 days |
 | **v0.3.0** | Memory genome | Formal entities/attrs/relations tables + timeline | 1 week |
 | **v0.3.1** | System-level sleep | Sleep scheduler + tiered compression + pattern discovery | 3-5 days |
