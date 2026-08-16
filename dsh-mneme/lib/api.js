@@ -268,21 +268,43 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
     }
   });
 
-  // --- health: mirror sync state (F-NEW-03) ---
+  // --- health: mirror sync state (F-NEW-03 / v0.3.6) ---
+  // Auth-gated; only returns a sanitized error code (never raw last_error which
+  // may leak paths/token-like strings/internal hosts). On state read failure it
+  // reports unknown/degraded (fail-closed) instead of a false dirty=false.
   register({
     kind: "exact",
     path: "/api/dsh-mneme/health",
     handler(req, res) {
+      if (!requireAuth(req, res, apiToken)) return;
+      let state = null;
       try {
-        const state = service.getMirrorHealth?.() ?? null;
-        sendJson(res, 200, {
-          mirror: state
-            ? { dirty: state.dirty === true, last_error: state.last_error ?? null, last_attempt: state.last_attempt ?? null, success_at: state.success_at ?? null }
-            : null
-        });
+        state = service.getMirrorHealth?.() ?? null;
       } catch {
-        sendJson(res, 500, { error: "internal" });
+        // read failure is itself a health signal: do not report a false clean
+        sendJson(res, 200, { mirror: { dirty: null, status: "unknown", last_error: null, last_attempt: null, success_at: null } });
+        return;
       }
+      if (!state) {
+        sendJson(res, 200, { mirror: { dirty: null, status: "unknown", last_error: null, last_attempt: null, success_at: null } });
+        return;
+      }
+      // Sanitized: boolean dirty + coarse status only; error string is mapped to
+      // a bounded code, never echoed verbatim.
+      let code = null;
+      if (state.last_error) {
+        const e = String(state.last_error);
+        code = /enospc|no space/i.test(e) ? "no-space" : /permission|eacces/i.test(e) ? "permission" : "sync-failed";
+      }
+      sendJson(res, 200, {
+        mirror: {
+          dirty: state.dirty === true,
+          status: state.dirty === true ? "degraded" : (code ? "degraded" : "ok"),
+          last_error: code,
+          last_attempt: state.last_attempt ?? null,
+          success_at: state.success_at ?? null
+        }
+      });
     }
   });
 

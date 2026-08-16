@@ -169,12 +169,20 @@ CREATE INDEX IF NOT EXISTS idx_relations_type ON entity_relations(relation_type)
 -- syncMirror 失败不再只靠瞬时 console.warn —— dirty=1 提示镜像脏了需重渲染，
 -- last_error/last_attempt 记录失败原因与最近尝试，success_at 记录最近成功。
 -- 上层可据此在启动时重试、提供人工 reconcile 入口与健康状态查询。
+-- v0.3.6: 新增 generation/applied_generation/type_status —— desired-applied
+-- 建模镜像债务：generation 是期望同步轮次，applied_generation 是已成功应用
+-- 轮次（成功清 dirty 必须 CAS/fence 到具体轮次，旧 worker 不能清新故障），
+-- type_status 逐 type 记录部分成功状态。旧库经 PRAGMA table_info 检查后
+-- ALTER 补列，幂等且不丢数据。
 CREATE TABLE IF NOT EXISTS mirror_state (
   id TEXT PRIMARY KEY,               -- 单一状态行（用 'main'）
   dirty INTEGER NOT NULL DEFAULT 0,  -- 1=镜像脏了需重渲染
   last_error TEXT,                   -- 最近失败原因
   last_attempt TEXT,                 -- 最近尝试时间（ISO）
-  success_at TEXT                    -- 最近成功时间（ISO）
+  success_at TEXT,                   -- 最近成功时间（ISO）
+  generation INTEGER NOT NULL DEFAULT 0,         -- 期望的同步轮次（desired）
+  applied_generation INTEGER NOT NULL DEFAULT 0, -- 已成功应用的轮次
+  type_status TEXT                               -- JSON: 逐 type 状态 {type: {dirty, applied_gen, last_error}}
 );
 `;
 
@@ -337,14 +345,33 @@ function toRelation(row) {
 
 function toMirrorState(row) {
   if (!row) {
-    return { dirty: false, last_error: null, last_attempt: null, success_at: null };
+    return {
+      dirty: false,
+      last_error: null,
+      last_attempt: null,
+      success_at: null,
+      generation: 0,
+      applied_generation: 0,
+      type_status: {}
+    };
+  }
+  let typeStatus = {};
+  if (row.type_status) {
+    try {
+      typeStatus = JSON.parse(row.type_status) || {};
+    } catch {
+      typeStatus = {};
+    }
   }
   return {
     id: row.id,
     dirty: row.dirty === 1,
     last_error: row.last_error,
     last_attempt: row.last_attempt,
-    success_at: row.success_at
+    success_at: row.success_at,
+    generation: Number(row.generation) || 0,
+    applied_generation: Number(row.applied_generation) || 0,
+    type_status: typeStatus
   };
 }
 
@@ -375,6 +402,19 @@ export function createStore(path) {
   const dreamCols = db.prepare("PRAGMA table_info(dream_runs)").all().map((c) => c.name);
   if (!dreamCols.includes("policy_epoch")) {
     db.exec("ALTER TABLE dream_runs ADD COLUMN policy_epoch INTEGER NOT NULL DEFAULT 0");
+  }
+
+  // Legacy mirror_state without v0.3.6 generation columns → add each missing
+  // column idempotently (old DBs open cleanly, no data loss).
+  const mirrorCols = db.prepare("PRAGMA table_info(mirror_state)").all().map((c) => c.name);
+  if (!mirrorCols.includes("generation")) {
+    db.exec("ALTER TABLE mirror_state ADD COLUMN generation INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!mirrorCols.includes("applied_generation")) {
+    db.exec("ALTER TABLE mirror_state ADD COLUMN applied_generation INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!mirrorCols.includes("type_status")) {
+    db.exec("ALTER TABLE mirror_state ADD COLUMN type_status TEXT");
   }
 
   // Per-instance monotonic timestamp guard: consecutive writes within the same
@@ -1113,14 +1153,25 @@ export function createStore(path) {
 
   /**
    * Upsert the single mirror_state row (id='main'). patch accepts
-   * {dirty?, last_error?, last_attempt?, success_at?} — only the keys present
-   * on the object are written, everything else is left untouched. Returns the
-   * freshly read state row (default shape when absent).
+   * {dirty?, last_error?, last_attempt?, success_at?, generation?,
+   * applied_generation?, type_status?} — only the keys present on the object
+   * are written, everything else is left untouched (partial upsert). type_status
+   * is stored as JSON text (objects are serialized on write), generation /
+   * applied_generation are coerced to non-negative integers. Returns the freshly
+   * read state row (default shape when absent).
    */
   function setMirrorState(patch) {
-    const ALLOWED = new Set(["dirty", "last_error", "last_attempt", "success_at"]);
-    const keys = Object.keys(patch).filter((key) =>
-      ALLOWED.has(key) && Object.prototype.hasOwnProperty.call(patch, key)
+    const ALLOWED = new Set([
+      "dirty",
+      "last_error",
+      "last_attempt",
+      "success_at",
+      "generation",
+      "applied_generation",
+      "type_status"
+    ]);
+    const keys = Object.keys(patch).filter(
+      (key) => ALLOWED.has(key) && Object.prototype.hasOwnProperty.call(patch, key)
     );
     if (keys.length === 0) {
       db.prepare(
@@ -1130,46 +1181,107 @@ export function createStore(path) {
     }
     // 列同时出现在 INSERT 与 ON CONFLICT 里（excluded.*），保证首次插入也写入
     // patch 值，而不只是默认值；未传入的列保持不变（partial upsert）。
-    const cols = keys.join(", ");
-    const placeholders = keys.map(() => "?").join(", ");
-    const updates = keys.map((k) => `${k} = excluded.${k}`).join(", ");
-    const values = keys.map((key) =>
-      key === "dirty" ? (patch[key] ? 1 : 0) : patch[key]
-    );
+    const cols = [];
+    const values = [];
+    const updates = [];
+    for (const key of keys) {
+      let value = patch[key];
+      if (key === "dirty") {
+        value = value ? 1 : 0;
+      } else if (key === "generation" || key === "applied_generation") {
+        value = Math.trunc(Number(value)) || 0;
+      } else if (key === "type_status" && value != null && typeof value !== "string") {
+        value = JSON.stringify(value);
+      }
+      cols.push(key);
+      values.push(value);
+      updates.push(`${key} = excluded.${key}`);
+    }
+    const placeholders = cols.map(() => "?").join(", ");
     db.prepare(
-      `INSERT INTO mirror_state (id, ${cols}) VALUES ('main', ${placeholders})
-       ON CONFLICT(id) DO UPDATE SET ${updates}`
+      `INSERT INTO mirror_state (id, ${cols.join(", ")}) VALUES ('main', ${placeholders})
+       ON CONFLICT(id) DO UPDATE SET ${updates.join(", ")}`
     ).run(...values);
     return getMirrorState();
   }
 
-  /** Current mirror state; default {dirty:0, last_error:null, last_attempt:null, success_at:null} when absent. */
+  /** Current mirror state; default {dirty:0, last_error:null, last_attempt:null, success_at:null, generation:0, applied_generation:0, type_status:{}} when absent. */
   function getMirrorState() {
     const row = db.prepare("SELECT * FROM mirror_state WHERE id = 'main'").get();
     return toMirrorState(row);
   }
 
-  /** Convenience: mark the mirror dirty after a failed sync (dirty=1 + last_error + last_attempt). */
+  /**
+   * Mark the mirror dirty after a failed sync (dirty=1 + last_error +
+   * last_attempt). v0.3.6: also bumps the desired generation so the debt is
+   * bound to a specific sync round; applied_generation is left untouched
+   * (the round was NOT applied). A stale worker that started earlier cannot
+   * clear this newer debt — only a clean fenced to a generation at least as
+   * recent as this one may.
+   */
   function markMirrorDirty(error, now) {
+    const current = getMirrorState();
     return setMirrorState({
       dirty: 1,
       last_error: error,
-      last_attempt: now ?? nowIso()
+      last_attempt: now ?? nowIso(),
+      generation: (current.generation || 0) + 1
     });
   }
 
-  /** Convenience: mark the mirror clean after a successful sync (dirty=0 + last_error=null + success_at). */
+  /**
+   * Fenced clean (CAS): mark the mirror clean for a specific generation.
+   * First records that generation `gen` has been applied
+   * (applied_generation = MAX(applied_generation, gen)), then clears dirty only
+   * when the current desired generation has not advanced past gen — a stale
+   * worker cleaning an older round must not wipe a newer failure's debt.
+   * Returns the resulting state (dirty stays set when the fence holds).
+   */
+  function markMirrorCleanForGeneration(gen, now) {
+    const current = getMirrorState();
+    const applied = Math.max(current.applied_generation || 0, gen);
+    const patch = { applied_generation: applied };
+    if (applied >= gen && (current.generation || 0) <= gen) {
+      patch.dirty = 0;
+      patch.last_error = null;
+      patch.success_at = now ?? nowIso();
+    }
+    return setMirrorState(patch);
+  }
+
+  /** Convenience: mark the mirror clean for the current desired generation (backward-compatible with pre-v0.3.6 callers). */
   function markMirrorClean(now) {
-    return setMirrorState({
-      dirty: 0,
-      last_error: null,
-      success_at: now ?? nowIso()
-    });
+    const current = getMirrorState();
+    return markMirrorCleanForGeneration(current.generation || 0, now);
   }
 
   /** Convenience: clear only the dirty flag + last_error, leaving success_at untouched (manual reconcile / retry path). */
   function clearMirrorDirty() {
     return setMirrorState({ dirty: 0, last_error: null });
+  }
+
+  /**
+   * Record per-type mirror status (partial success bookkeeping). `status` is a
+   * partial patch {dirty?, applied_gen?, last_error?} merged into the existing
+   * entry for `type` (other types untouched). Returns the updated full state.
+   */
+  function setTypeStatus(type, status) {
+    const current = getMirrorState();
+    const statuses = current.type_status || {};
+    statuses[type] = { ...(statuses[type] || {}), ...status };
+    return setMirrorState({ type_status: JSON.stringify(statuses) });
+  }
+
+  /** Per-type mirror status map {type: {dirty, applied_gen, last_error}}, {} when unset. */
+  function getTypeStatus() {
+    const current = getMirrorState();
+    return current.type_status || {};
+  }
+
+  /** Bump the desired generation (new sync round), returning the new state. */
+  function incrementGeneration() {
+    const current = getMirrorState();
+    return setMirrorState({ generation: (current.generation || 0) + 1 });
   }
 
   return {
@@ -1224,7 +1336,11 @@ export function createStore(path) {
     getMirrorState,
     markMirrorDirty,
     markMirrorClean,
+    markMirrorCleanForGeneration,
     clearMirrorDirty,
+    setTypeStatus,
+    getTypeStatus,
+    incrementGeneration,
     close() {
       db.close();
     }

@@ -336,7 +336,11 @@ test("F-NEW-03: health 端点 dirty 时返回 dirty=true 及 last_error/last_att
     assert.equal(res.statusCode, 200);
     const body = JSON.parse(res.body);
     assert.equal(body.mirror.dirty, true, "health 必须反映真实 dirty（布尔）");
-    assert.equal(body.mirror.last_error, "No space left on device");
+    assert.equal(body.mirror.status, "degraded", "dirty 时 health 必须为 degraded");
+    // v0.3.6 脱敏：只回脱敏错误码，不回显原始 last_error
+    assert.equal(body.mirror.last_error, "no-space", "last_error 必须脱敏为 no-space");
+    assert.ok(!body.mirror.last_error.includes("No space left on device"),
+      "原始错误串不得出现在 health 响应中");
     assert.ok(body.mirror.last_attempt, "last_attempt 须返回");
     assert.equal(body.mirror.success_at, null);
   } finally {
@@ -392,25 +396,25 @@ test("F-NEW-03: markMirrorDirty 自身抛错 → syncMirror 不抛、只 warn", 
   }
 });
 
-test("F-NEW-03: markMirrorClean 自身抛错 → syncMirror 不抛、只 warn", () => {
+test("F-NEW-03: markMirrorCleanForGeneration 自身抛错 → syncMirror 不抛、只 warn", () => {
   const { dir, store, mirror, service, warns } = setup();
   try {
     const { original } = throwingMirrorSync(mirror);
-    const origClean = store.markMirrorClean.bind(store);
+    const origClean = store.markMirrorCleanForGeneration.bind(store);
     try {
       // 制造 dirty
       service.saveWithDedupe({ type: "project", title: "前置脏", content: "x", importance: 3 });
       assert.equal(service.getMirrorState().dirty, true, "前置：必须 dirty");
-      // 恢复 sync + 让 markMirrorClean 抛错
+      // 恢复 sync + 让 markMirrorCleanForGeneration 抛错（v0.3.6 成功路径的 CAS 写）
       mirror.sync = original;
-      store.markMirrorClean = () => { throw new Error("clean write fail"); };
+      store.markMirrorCleanForGeneration = () => { throw new Error("clean write fail"); };
       assert.doesNotThrow(() => {
         service.saveWithDedupe({ type: "project", title: "成功路径", content: "y", importance: 2 });
-      }, "markMirrorClean 失败不得使 syncMirror 外抛");
-      assert.ok(warns.some((w) => /markMirrorClean failed|clean write fail/.test(w)), "应走 logger.warn");
+      }, "markMirrorCleanForGeneration 失败不得使 syncMirror 外抛");
+      assert.ok(warns.some((w) => /markMirrorCleanForGeneration failed|clean write fail/.test(w)), "应走 logger.warn");
       assert.equal(store.count(), 2, "store 写入不受影响");
     } finally {
-      store.markMirrorClean = origClean;
+      store.markMirrorCleanForGeneration = origClean;
       mirror.sync = original;
     }
   } finally {

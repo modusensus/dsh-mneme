@@ -511,38 +511,82 @@ export function createService({ store, mirror, config, onWrite, logger }) {
    * human-editable file (a human "edit" could otherwise resurrect them).
    */
   // syncMirror: 同步 mirror，并在失败/成功时持久记录 dirty 状态；保证自身不抛出。
-  // 失败写 store.markMirrorDirty（dirty=1 + last_error + last_attempt），成功写
-  // store.markMirrorClean（dirty=0 + last_error=null + success_at）。状态写入用
-  // try/catch 包住，避免 db 关闭等场景下 syncMirror 自身再抛出（F-NEW-03）。
+  // v0.3.6（audit peer 4 阻断）：
+  //   - 开始时 incrementGeneration 绑定本次期望轮次 gen；成功用
+  //     markMirrorCleanForGeneration(gen, now) CAS/fence 清 dirty——旧 worker
+  //     （gen 已过期）不会误清另一 worker 未恢复的故障债务；
+  //   - 失败写 markMirrorDirty（递增 desired 绑定新债务），下次 recover 恢复；
+  //   - 逐 type 用 setTypeStatus 记录部分成功/失败（type_status JSON）；
+  //   - 所有 store 状态写入各自 try/catch，失败只 warn，绝不向外抛（F-NEW-03）。
   function syncMirror() {
     if (txDepth > 0 || !mirror) return; // deferred to the transaction's commit
     const now = new Date().toISOString();
+    let gen;
     try {
-      mirror.sync(reconcileHumanEdits(store.list({ limit: 500, includeForgotten: false })));
-      // 成功：写 clean 状态
+      // 绑定本次期望轮次，必须在任何渲染之前，避免制造幽灵债务
+      const state = store.incrementGeneration();
+      gen = state.generation;
+    } catch (stateError) {
+      logger?.warn?.("syncMirror: incrementGeneration failed:", stateError);
+      return;
+    }
+    // coveredTypes 提到 try 外初始化：即使 store.list 先抛错，catch 分支也有
+    // 合法的空 Set 可迭代，保证 syncMirror 自身绝不抛（fail-safe）。
+    const coveredTypes = new Set();
+    try {
+      // 预先获取本次要覆盖的 type 集合（只调一次 store.list）
+      const list = store.list({ limit: 500, includeForgotten: false });
+      for (const memory of list) {
+        if (memory?.type && TYPE_FILE[memory.type]) {
+          coveredTypes.add(memory.type);
+        }
+      }
+
+      // 全量渲染
+      mirror.sync(reconcileHumanEdits(list));
+
+      // 成功：CAS/fence 绑定到本地 gen，旧 worker（gen 已过期）会被拦截
       try {
-        store.markMirrorClean(now);
+        store.markMirrorCleanForGeneration(gen, now);
       } catch (stateError) {
-        // markMirrorClean 失败不能影响主要同步逻辑，仅记录日志
-        logger?.warn?.("syncMirror: markMirrorClean failed:", stateError);
+        logger?.warn?.("syncMirror: markMirrorCleanForGeneration failed:", stateError);
+      }
+      // 逐 type 标记为 clean
+      for (const type of coveredTypes) {
+        try {
+          store.setTypeStatus(type, { dirty: false, applied_gen: gen, last_error: null });
+        } catch (stateError) {
+          logger?.warn?.(`syncMirror: setTypeStatus(${type}) clean failed:`, stateError);
+        }
       }
     } catch (error) {
-      // 同步失败：写 dirty 状态
       const errMsg = error?.message ?? String(error);
       logger?.warn?.("syncMirror failed:", error);
       try {
+        // 债务绑定到新的一轮（desired generation +1）
         store.markMirrorDirty(errMsg, now);
       } catch (stateError) {
-        // markMirrorDirty 失败同样不能向外抛出
         logger?.warn?.("syncMirror: markMirrorDirty failed:", stateError);
+      }
+      // 逐 type 标记为 dirty（applied_gen 不动）
+      for (const type of coveredTypes) {
+        try {
+          store.setTypeStatus(type, { dirty: true, last_error: errMsg });
+        } catch (stateError) {
+          logger?.warn?.(`syncMirror: setTypeStatus(${type}) dirty failed:`, stateError);
+        }
       }
     }
   }
 
   // recoverMirror: 启动/手动 reconcile 时根据持久 dirty 状态决定是否恢复同步
-  // （F-NEW-03）。dirty=true → 有界重试（最多 3 次，立即重试）重跑 syncMirror
-  // 收敛镜像；某次成功（dirty 变 0）立即停止。返回 { recovered, error } 供
-  // index.js 启动 / api.js health 判断。一切 fail-safe，绝不向外抛。
+  // （F-NEW-03 + v0.3.6）。触发条件不只是 dirty——还检查
+  // generation > applied_generation（有未应用的债务），这样 COMMIT→dirty 崩溃
+  // 窗口（DB 提交后、markMirrorDirty/clean 前进程退出 → dirty=false 但
+  // generation 不一致）也能被捕获。有界重试（最多 3 次）重跑 syncMirror 收敛；
+  // 某次成功后 dirty=false 且无更新债务（generation <= applied_generation）
+  // 立即停止。返回 { recovered, error } 供 index.js 启动 / api.js health 判断。
+  // 一切 fail-safe，绝不向外抛。
   function recoverMirror() {
     const MAX_ATTEMPTS = 3;
     let lastError = null;
@@ -550,24 +594,29 @@ export function createService({ store, mirror, config, onWrite, logger }) {
 
     try {
       const state = store.getMirrorState();
-      if (!state?.dirty) {
+      // 崩溃窗口检测：dirty 或 generation > applied_generation（COMMIT→dirty 窗口）
+      if (!state?.dirty && !(state.generation > state.applied_generation)) {
         // 本来就干净：无需恢复，视为成功
         return { recovered: true, error: null };
       }
 
-      // dirty 状态：最多尝试 3 次 sync
+      // 有 dirty 或有未应用债务：最多尝试 3 次 sync
       for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
         try {
           syncMirror(); // syncMirror 内部已 catch，不会向外抛
           const currentState = store.getMirrorState();
-          if (!currentState?.dirty) {
-            // 成功：镜像已收敛为 clean
+          // 成功条件：dirty 为 false 且没有更新一轮的债务
+          // （generation <= applied_generation，恢复后由 syncMirror 里
+          //   markMirrorCleanForGeneration 自动把 applied 跟上）
+          if (!currentState?.dirty && currentState.generation <= currentState.applied_generation) {
             recovered = true;
             lastError = null;
             break;
           }
-          // 仍 dirty：记录最后一次错误供重试耗尽后上报
-          lastError = currentState.last_error || `Sync attempt ${attempt + 1} left mirror dirty`;
+          // 仍 dirty 或仍有更新债务：记录最后一次错误供重试耗尽后上报。
+          // 注意：若别的 worker 又失败产生新债务（dirty 仍 true），这是"新债务"
+          // 不是本次失败，继续重试直到耗尽次数。
+          lastError = currentState.last_error || `Sync attempt ${attempt + 1} left mirror dirty or has pending debt`;
         } catch (syncError) {
           // syncMirror 理论不抛，fail-safe 兜底
           const errMsg = syncError?.message ?? String(syncError);
@@ -579,7 +628,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       if (!recovered) {
         logger?.warn?.("dsh-mneme mirror: recover failed after", MAX_ATTEMPTS, "attempts");
       } else {
-        logger?.warn?.("dsh-mneme mirror: recovered from dirty state");
+        logger?.warn?.("dsh-mneme mirror: recovered from dirty/pending state");
       }
     } catch (error) {
       // fail-safe：任何意外异常不向外抛

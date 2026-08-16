@@ -144,15 +144,17 @@ test("F-NEW-03 d: dirty 记录与 DB decision receipt 物理分离——mirror_s
   try {
     const store = createStore(dbPath);
     const cols = store.db.prepare("PRAGMA table_info(mirror_state)").all().map((c) => c.name);
-    assert.deepEqual(cols.sort(), ["dirty", "id", "last_attempt", "last_error", "success_at"],
-      "mirror_state 只含状态列，不得混入 receipt/decision 字段");
+    assert.deepEqual(cols.sort(),
+      ["applied_generation", "dirty", "generation", "id", "last_attempt", "last_error", "success_at", "type_status"],
+      "mirror_state 只含状态列（v0.3.6 含 generation/applied_generation/type_status），不得混入 receipt/decision 字段");
     store.markMirrorDirty("boom", "t");
     store.saveReceipt({
       run_id: "run-1", record_id: "rec-1", kind: "merge", input_digest: "d",
       verdict: "live", count_before: 1, count_after: 2
     });
     const state = store.getMirrorState();
-    assert.deepEqual(Object.keys(state).sort(), ["dirty", "id", "last_attempt", "last_error", "success_at"],
+    assert.deepEqual(Object.keys(state).sort(),
+      ["applied_generation", "dirty", "generation", "id", "last_attempt", "last_error", "success_at", "type_status"],
       "dirty 状态对象不得携带 receipt 内容");
     assert.equal(state.last_error, "boom");
     store.close();
@@ -328,7 +330,12 @@ test("F-NEW-03 j: /api/dsh-mneme/health 端点暴露 dirty 状态，恢复后自
     assert.equal(resDirty.statusCode, 200);
     assert.match(resDirty.headers["Content-Type"], /application\/json/);
     assert.equal(JSON.parse(resDirty.body).mirror.dirty, true, "dirty 时 /health 必须暴露 dirty:true");
-    assert.equal(JSON.parse(resDirty.body).mirror.last_error, MIRROR_ERR);
+    assert.equal(JSON.parse(resDirty.body).mirror.status, "degraded", "dirty 时 /health 必须为 degraded");
+    // v0.3.6 脱敏：/health 只回脱敏错误码，不回显原始 last_error
+    assert.equal(JSON.parse(resDirty.body).mirror.last_error, "no-space",
+      "last_error 必须脱敏为 no-space，不得回显原始值");
+    assert.ok(!JSON.parse(resDirty.body).mirror.last_error.includes(MIRROR_ERR),
+      "原始错误串不得出现在 /health 响应中");
 
     mock.mode = "ok";
     service.recoverMirror();
