@@ -10,7 +10,7 @@
   <a href="https://github.com/awesome-dsh-plugin/awesome-dsh-plugin"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="Awesome"></a>
   <a href="https://github.com/modusensus/dsh-mneme/actions"><img src="https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/test.yml" alt="CI"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-24%2B-blue" alt="node"></a>
-  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-263%20passed-success" alt="tests"></a>
+  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-326%20passed-success" alt="tests"></a>
 </p>
 
 <p align="center"><strong><a href="#中文">中文</a> | <a href="#english">English</a></strong></p>
@@ -73,7 +73,7 @@ docs/        设计文档与实施计划
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 263 个测试
+npm test          # 326 个测试
 npm run stress    # 三轴线压测（长会话检索 / 冲突仲裁 / 多 Agent 并发）
 npm run sync      # src → lib 同步（发布时自动执行）
 ```
@@ -104,7 +104,8 @@ npm run sync      # src → lib 同步（发布时自动执行）
 | **v0.2.5** | 安全审计修复 | ✅ 已完成（CAS + 事务化应用 + reconcile 审计 + reranker opt-in + 归档恢复，258 测试） | — |
 | **v0.2.6** | 社区贡献 | ✅ 已完成（PR #2 嵌入式面板 UI 改进，263 测试） | — |
 | **v0.2.7** | 诚实审计 | ✅ 已完成（F-03：noop/degraded 状态，空跑不误报 ok，263 测试） | — |
-| **v0.2.8** | 轻量结构化 | 实体注释标记（零 schema 变更，验证可行性） | 2-3 天 |
+| **v0.2.8** | 社区建议三连 | ✅ 已完成（召回层 receipt + policy_epoch + per-record 收据链，326 测试） | — |
+| **v0.2.9** | 轻量结构化 | 实体注释标记（零 schema 变更，验证可行性） | 2-3 天 |
 | **v0.3.0** | 记忆基因 | 正式 entities/attrs/relations 三表 + 时间轴 | 1 周 |
 | **v0.3.1** | 系统级睡眠 | Sleep 调度器 + 分层压缩 + 模式发现 | 3-5 天 |
 | **v0.4.0** | 反思性成长 | 纠错双向回流 + 规则演进 + 自适应参数 | 1-2 周 |
@@ -172,7 +173,7 @@ docs/        design docs & implementation plans
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 263 tests
+npm test          # 326 tests
 npm run stress    # three-axis stress test (long-session retrieval / conflict arbitration / concurrent agents)
 npm run sync      # src → lib sync (runs automatically on publish)
 ```
@@ -197,13 +198,14 @@ npm run sync      # src → lib sync (runs automatically on publish)
 
 | Version | Core theme | One-liner | Timeline |
 |---------|------------|-----------|----------|
-| **v0.2.1** | Reflection update | ✅ Done (update decision + failure_memories, 263 tests) | — |
-| **v0.2.2** | Pipeline completion | ✅ Done (specialized tests + review fixes, 263 tests) | — |
-| **v0.2.4** | Security hardening | ✅ Done (API auth apiToken + apiKey masking + timing-safe, 263 tests) | — |
-| **v0.2.5** | Security audit fixes | ✅ Done (CAS + transactional apply + reconcile audit + reranker opt-in + archive restore, 263 tests) | — |
-| **v0.2.6** | Community contribution | ✅ Done (PR #2 embedded panel UI fix, 263 tests) | — |
-| **v0.2.7** | Honest audit | ✅ Done (F-03: noop/degraded states, no false ok on empty runs, 263 tests) | — |
-| **v0.2.8** | Lightweight structure | Entity comment markers (zero schema change, feasibility check) | 2-3 days |
+| **v0.2.1** | Reflection update | ✅ Done (update decision + failure_memories, 326 tests) | — |
+| **v0.2.2** | Pipeline completion | ✅ Done (specialized tests + review fixes, 326 tests) | — |
+| **v0.2.4** | Security hardening | ✅ Done (API auth apiToken + apiKey masking + timing-safe, 326 tests) | — |
+| **v0.2.5** | Security audit fixes | ✅ Done (CAS + transactional apply + reconcile audit + reranker opt-in + archive restore, 326 tests) | — |
+| **v0.2.6** | Community contribution | ✅ Done (PR #2 embedded panel UI fix, 326 tests) | — |
+| **v0.2.7** | Honest audit | ✅ Done (F-03: noop/degraded states, no false ok on empty runs, 326 tests) | — |
+| **v0.2.8** | Community suggestions ×3 | ✅ Done (recall-layer receipt + policy_epoch + per-record receipt chain, 326 tests) | — |
+| **v0.2.9** | Lightweight structure | Entity comment markers (zero schema change, feasibility check) | 2-3 days |
 | **v0.3.0** | Memory genome | Formal entities/attrs/relations tables + timeline | 1 week |
 | **v0.3.1** | System-level sleep | Sleep scheduler + tiered compression + pattern discovery | 3-5 days |
 | **v0.4.0** | Reflective growth | Correction feedback loop + rule evolution + adaptive params | 1-2 weeks |
