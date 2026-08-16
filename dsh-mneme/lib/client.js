@@ -178,7 +178,7 @@ window.__ModuleLoader__.load({
 
       const tabs = ["all", "preference", "project", "decision", "history"];
 
-      const body = react.createElement("div", { style: embedded ? { ...styles.panel, width: "100%", maxWidth: "100%", maxHeight: "none" } : styles.panel },
+      const body = react.createElement("div", { style: embedded ? { width: "100%", display: "flex", flexDirection: "column" } : styles.panel },
         !embedded && react.createElement("div", { style: styles.header },
           react.createElement("span", { style: styles.title }, t("memory.panel.title")),
           react.createElement("button", { style: styles.close, onClick: onClose }, "×")
@@ -365,7 +365,7 @@ window.__ModuleLoader__.load({
       const hintStyle = { fontSize: 11, color: "var(--dsw-alias-label-tertiary, #999)", marginBottom: 8 };
       const rowStyle = { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: "1px solid var(--dsw-alias-border-l1, #eee)" };
 
-      const body = h("div", { style: embedded ? { ...styles.panel, width: "100%", maxWidth: "100%", maxHeight: "none" } : styles.panel },
+      const body = h("div", { style: embedded ? { width: "100%", display: "flex", flexDirection: "column" } : styles.panel },
         !embedded && h("div", { style: styles.header },
           h("span", { style: styles.title }, t("memory.settings.title")),
           h("button", { style: styles.close, onClick: onClose }, "×")
