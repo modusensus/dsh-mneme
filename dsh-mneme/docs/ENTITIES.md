@@ -176,7 +176,7 @@ attr:国籍=芬兰       → searchByAttr("国籍", "芬兰")   精确匹配
 attr:国籍           → searchByAttr("国籍", undefined) 该 key 全部当前有效
 ```
 
-### searchByEntity 排序（桉桉确认）
+### searchByEntity 排序
 
 **合并优先级：attr 精确关联 = 1.0 > 关键词提及 = 0.7**，attr 命中不覆盖、keyword 只补充召回，最终按 `_score` 降序取 topK：
 

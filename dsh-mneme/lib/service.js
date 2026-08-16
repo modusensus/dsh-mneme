@@ -110,7 +110,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
 
   /**
    * Search for memories attached to a named entity (v0.3.0 Phase 3).
-   * 合并优先级（桉桉确认）：entity_attrs.memory_id 精确关联 = 1.0 > 关键词提及 = 0.7；
+   * 合并优先级：entity_attrs.memory_id 精确关联 = 1.0 > 关键词提及 = 0.7；
    * attr 命中不覆盖，keyword 只补充召回，最后按 _score 降序取 topK。
    * @param {string} entityName
    * @param {object} [options]
