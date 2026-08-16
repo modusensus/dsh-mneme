@@ -45,6 +45,12 @@ export const apply = (ctx, config) => {
   const mirror = createMirror(memoryDir);
   const service = createService({ store, mirror, config: cfg, logger: ctx.logger });
 
+  // F-NEW-03: if the mirror sync failed last run (persisted dirty state), retry
+  // a safe re-render at boot so a stale mirror converges without needing a
+  // business write. Bounded: single attempt; on failure dirty stays for the
+  // next boot. Never throws.
+  service.recoverMirror();
+
   // Recall-layer receipt: when searchMemories runs with recordRecall=true, the
   // retrieval scene (query/mode/topK/threshold + candidates) is persisted to
   // recall_runs for audit/replay — the sibling of the dream_runs judgment trail.
