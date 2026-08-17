@@ -94,6 +94,16 @@ entities ──→ entity_attrs ──→ entity_relations
 - **实体感知（v0.3.0）**：update 自动写 `supersedes` 关系；merge 迁移 loser 的实体属性到 keeper
 - **CAS 防护 + 事务化**：并发安全，多步原子
 
+## 🌙 系统级睡眠（v0.4.1）
+
+autoDream 的升级版——空闲时触发的**深度整理**，让记忆库在没人打扰时自我精炼。全 opt-in，`sleepEnabled` 默认关闭：
+
+- **冲突消解**：语义高相似度（≥0.85）的同类型记忆对 → LLM 仲裁（保留更完整一条 / 归档另一条），或配置 `conflictFreezeEnabled` 冻结待人工确认；LLM 漏判的对默认 `keep`，阶段永不因单对失败
+- **归档降级**：纯时间分层，无需 LLM——`sleepArchiveDays`（默认 30 天）未访问 → 正文压缩为一行摘要、全文保留在 `_full_content`；`sleepDeepArchiveDays`（默认 90 天）→ 直接归档。`last_accessed_at` 在召回/注入时被 touch，新鲜记忆不会被误降级
+- **模式发现**：LLM 扫描最近记忆，产出 `type=pattern` 记忆，携带真实 `ev:<id>` 证据标签（伪造 id 自动过滤）
+- **调度器**：空闲检测（`sleepIdleMinutes` 无写入）+ 最小间隔（`sleepMinIntervalHours`），无 cron 依赖；串行任务队列保证与 autoDream 永不重叠
+- **全量审计**：每次睡眠写入 `run_type='sleep'` 的 dream_runs 行，三阶段各自 fail-safe，单阶段失败不阻断其余
+
 ## 🏛️ 记忆主权
 
 记忆透明、可审查、归你所有：
@@ -120,7 +130,7 @@ entities ──→ entity_attrs ──→ entity_relations
 - **recall_runs 召回层**：检索场景可审计
 - **policy_epoch 规则版本**：规则升级后旧裁决降级为历史证据
 - **安全审计 peer 复验**：真实 npm 包隔离独立回归，7 项发布门槛 + F-03 诚实审计
-- **443 个测试 + 三轴压测**全绿
+- **471 个测试 + 三轴压测**全绿
 
 ## ⚙️ 配置（节选）
 
@@ -132,6 +142,12 @@ entities ──→ entity_attrs ──→ entity_relations
 | 实体 | `entitySearchEnabled` | `true` | entity:/attr: 前缀搜索 |
 | 反思 | `reflectionUpdateEnabled` | `true` | update 决策开关 |
 | 反思 | `conflictFreezeEnabled` | `false` | 冲突冻结开关 |
+| 睡眠 | `sleepEnabled` | `false` | 系统级睡眠总开关（v0.4.1）|
+| 睡眠 | `sleepIdleMinutes` | `30` | 空闲判定：多少分钟无写入才跑 |
+| 睡眠 | `sleepMinIntervalHours` | `8` | 两次睡眠最小间隔 |
+| 睡眠 | `sleepArchiveDays` | `30` | 未访问 N 天 → 摘要降级 |
+| 睡眠 | `sleepDeepArchiveDays` | `90` | 未访问 N 天 → 直接归档 |
+| 睡眠 | `sleepMaxPatterns` | `5` | 单次睡眠最多铸造的模式数 |
 | 向量 | `embedProvider` | `openai` | 语义后端（local=离线）|
 | 向量 | `rerankEnabled` | `false` | Rerank 精排开关 |
 
@@ -150,7 +166,7 @@ dsh web
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 443 个测试
+npm test          # 471 个测试
 npm run stress    # 三轴线压测
 npm run sync      # src → lib 同步
 ```
@@ -185,7 +201,7 @@ npm run sync      # src → lib 同步
 | **v0.3.7** | 启动竞态修复 | ✅ 已完成（issue#6：回灌移入 init().then + scheduleEmbed 就绪门 + init 幂等，443 测试） | — |
 | **v0.3.8** | 镜像同步可靠性 | ✅ 已完成（audit peer 复验 6 项运行时阻断：desired generation 同事务原子递增 / 同步失败不静默 / 原子增量零丢失 / 逐 type 回执 / 读取失败显式 unknown / generation 上界负数 CHECK，447 测试） | — |
 | **v0.4.0** | 反思性成长 | 纠错双向回流 + 规则演进 + 自适应参数 | 规划 |
-| **v0.4.1** | 系统级睡眠 | Sleep 调度器 + 分层压缩 + 模式发现 | 待定 |
+| **v0.4.1** | 系统级睡眠 | Sleep 调度器（空闲检测+最小间隔，无 cron）+ 三层深度整理（冲突消解 / 归档降级 / 模式发现）+ create 决策 + 访问 touch 免生成号 | ✅ 已完成（471 测试） |
 | **v0.5.0+** | 自进化记忆 | 兴趣漂移 + 跨 workspace | 远期 |
 
 已完成版本详见 [Release Notes](https://github.com/modusensus/dsh-mneme/releases)。
@@ -363,7 +379,7 @@ Memory grows:
 | **v0.3.7** | Startup race fix | ✅ Done (issue#6: backfill in init().then + scheduleEmbed readiness gate + init idempotent, 443 tests) | — |
 | **v0.3.8** | Mirror sync reliability | ✅ Done (audit peer re-verify 6 runtime blockers: desired generation atomic increment / no silent sync failure / zero-loss atomic increment / per-type receipts / read-failure unknown / generation bounds CHECK, 447 tests) | — |
 | **v0.4.0** | Reflective growth | Correction feedback loop + rule evolution + adaptive params | planned |
-| **v0.4.1** | System-level sleep | Sleep scheduler + tiered compression + pattern discovery | planned |
+| **v0.4.1** | System-level sleep | Sleep scheduler (idle detection + min interval, no cron) + 3-tier deep pass (conflict resolution / archival demotion / pattern discovery) + create decision + access touch w/o generation bump | ✅ Done (471 tests) |
 | **v0.5.0+** | Self-evolving memory | Interest drift + cross-workspace | long-term |
 
 Completed versions see [Release Notes](https://github.com/modusensus/dsh-mneme/releases).

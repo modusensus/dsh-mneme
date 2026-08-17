@@ -5,6 +5,7 @@ import { createTools } from "./tools.js";
 import { createInjector } from "./inject.js";
 import { createSummarizer } from "./summarize.js";
 import { createDreamScheduler } from "./dream.js";
+import { createSleepScheduler, runSleep } from "./sleep.js";
 import { createApi } from "./api.js";
 import { createSettings } from "./settings.js";
 import { createCommandManager } from "./commands.js";
@@ -181,6 +182,25 @@ export const apply = (ctx, config) => {
     service.setDreamHook(() => dream.maybeSchedule(service));
   }
 
+  // Sleep scheduler (v0.4.1): idle-triggered deep pass (conflict resolution +
+  // archival demotion + pattern discovery). opt-in via sleepEnabled; writes
+  // through the service reset the idle clock (setSleepHook), and when the store
+  // stays quiet for sleepIdleMinutes past the sleepMinIntervalHours gate, the
+  // scheduler fires one cycle. The onRun closure reuses the same semantic
+  // pipeline as dream for the conflict phase.
+  let sleep = null;
+  if (cfg.sleepEnabled) {
+    sleep = createSleepScheduler({
+      service,
+      config: cfg,
+      logger: ctx.logger,
+      onRun: () => (sleep
+        ? runSleep(ctx, service, cfg, ctx.logger, { embedder, vectorIndex })
+        : Promise.resolve({ ok: true, skipped: true }))
+    });
+    service.setSleepHook(() => sleep.noteWrite());
+  }
+
   // Entity gene extraction (v0.3.0): wire the extractor into the service as a
   // hook so saveWithDedupe can fire-and-forget an extraction pass on fresh
   // writes. The service never sees ctx.llm — index.js adapts it here into the
@@ -251,6 +271,7 @@ export const apply = (ctx, config) => {
     }
     commands?.dispose();
     if (dream) await dream.dispose();
+    if (sleep) await sleep.dispose();
     store.close();
   };
 };

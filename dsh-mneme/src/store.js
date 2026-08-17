@@ -186,7 +186,7 @@ CREATE TABLE IF NOT EXISTS mirror_state (
 );
 `;
 
-const TYPES = new Set(["preference", "project", "decision", "history", "summary"]);
+const TYPES = new Set(["preference", "project", "decision", "history", "summary", "pattern"]);
 
 // Per-type mirror sync receipts (peer blocker 4): a type is either committed
 // (file written + fence applied), failed (last sync round errored for it), or
@@ -227,7 +227,12 @@ function toRow(row) {
     archived: row.archived === 1,
     source: row.source ?? undefined,
     created_at: row.created_at,
-    updated_at: row.updated_at
+    updated_at: row.updated_at,
+    // Sleep (v0.4.1): last_accessed_at drives the unrecalled tiering;
+    // _full_content holds the pre-demotion body for a memory reduced to its
+    // summary. Both are internal — the mirror render must not expose them.
+    last_accessed_at: row.last_accessed_at ?? undefined,
+    _full_content: row._full_content ?? undefined
   };
 }
 
@@ -248,7 +253,8 @@ function toDreamRun(row) {
     applied: row.applied,
     summary_stored: row.summary_stored === 1,
     receipt: row.receipt,
-    policy_epoch: row.policy_epoch ?? 0
+    policy_epoch: row.policy_epoch ?? 0,
+    run_type: row.run_type ?? "auto"
   };
 }
 
@@ -411,6 +417,19 @@ export function createStore(path) {
   const dreamCols = db.prepare("PRAGMA table_info(dream_runs)").all().map((c) => c.name);
   if (!dreamCols.includes("policy_epoch")) {
     db.exec("ALTER TABLE dream_runs ADD COLUMN policy_epoch INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!dreamCols.includes("run_type")) {
+    db.exec("ALTER TABLE dream_runs ADD COLUMN run_type TEXT NOT NULL DEFAULT 'auto'");
+  }
+
+  // Sleep (v0.4.1) columns: last_accessed_at tracks recall/inject touch for the
+  // "unrecalled N days → demote/archive" tiering; _full_content holds the pre-demotion
+  // body when a memory is reduced to its summary. Both are additive-only.
+  if (!columns.includes("last_accessed_at")) {
+    db.exec("ALTER TABLE memories ADD COLUMN last_accessed_at TEXT");
+  }
+  if (!columns.includes("_full_content")) {
+    db.exec("ALTER TABLE memories ADD COLUMN _full_content TEXT");
   }
 
   // Legacy mirror_state without v0.3.6 generation columns → add each missing
@@ -591,6 +610,48 @@ export function createStore(path) {
     return getById(id);
   }
 
+  /** Recall/inject touch. Records last_accessed_at WITHOUT bumping the mirror
+   *  generation — sleep's "unrecalled N days → demote/archive" tiering must not
+   *  spin the desired generation (that would mislead the mirror peer into
+   *  thinking the touched memory's content changed). Only bumps a timestamp,
+   *  so it is safe on hot recall paths. */
+  function touchAccess(id) {
+    const result = db.prepare(
+      "UPDATE memories SET last_accessed_at = ? WHERE id = ?"
+    ).run(nowIso(), id);
+    return result.changes > 0;
+  }
+
+  /** Sleep demotion (v0.4.1): move the full body into _full_content and replace
+   *  content with a one-line summary. Skips when already demoted (_full_content
+   *  present) so a replayed sleep run never double-wraps. Bumps the mirror
+   *  generation because content visibly changes in the mirror file.
+   *
+   *  minRefTimeMs (optional): the sleep tiering's freshness cutoff. A memory
+   *  whose reference time (last_accessed_at ?? updated_at ?? created_at) is
+   *  newer than the cutoff is skipped — phaseDemotion snapshots ref times up
+   *  front, and a recall touch landing between the snapshot and this call must
+   *  not demote a freshly-accessed memory. The check and the update run in the
+   *  same synchronous transaction, so the read-then-write is atomic. */
+  function demoteToSummary(id, summary, { minRefTimeMs } = {}) {
+    runAtomically(() => {
+      const row = db.prepare(
+        "SELECT content, _full_content, last_accessed_at, updated_at, created_at FROM memories WHERE id = ?"
+      ).get(id);
+      if (!row || row._full_content) return; // idempotent: never double-wrap
+      if (minRefTimeMs != null) {
+        const ref = row.last_accessed_at ?? row.updated_at ?? row.created_at;
+        const t = ref ? new Date(ref).getTime() : NaN;
+        if (!Number.isNaN(t) && t >= minRefTimeMs) return; // freshly touched: keep full
+      }
+      db.prepare(
+        "UPDATE memories SET _full_content = ?, content = ?, updated_at = ? WHERE id = ?"
+      ).run(row.content ?? "", summary ?? "", nowIso(), id);
+      incrementGeneration();
+    });
+    return getById(id);
+  }
+
   function list({ type, limit = 50, offset = 0, includeForgotten = false, includeArchived = false } = {}) {
     const clauses = [];
     const params = [];
@@ -716,16 +777,17 @@ export function createStore(path) {
     const id = run.id ?? randomUUID();
     const now = nowIso();
     const policyEpoch = Number.isInteger(run.policy_epoch) ? run.policy_epoch : 0;
+    const runType = run.run_type ?? "auto";
     db.prepare(
       `INSERT INTO dream_runs (id, created_at, status, error, provider, model, snapshot_hash,
-        input_count, input, decisions, outcome, applied, summary_stored, receipt, policy_epoch)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        input_count, input, decisions, outcome, applied, summary_stored, receipt, policy_epoch, run_type)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          created_at=excluded.created_at, status=excluded.status, error=excluded.error,
          provider=excluded.provider, model=excluded.model, snapshot_hash=excluded.snapshot_hash,
          input_count=excluded.input_count, input=excluded.input, decisions=excluded.decisions,
          outcome=excluded.outcome, applied=excluded.applied, summary_stored=excluded.summary_stored,
-         receipt=excluded.receipt, policy_epoch=excluded.policy_epoch`
+         receipt=excluded.receipt, policy_epoch=excluded.policy_epoch, run_type=excluded.run_type`
     ).run(
       id,
       run.created_at ?? now,
@@ -741,7 +803,8 @@ export function createStore(path) {
       run.applied ?? 0,
       run.summary_stored ? 1 : 0,
       run.receipt,
-      policyEpoch
+      policyEpoch,
+      runType
     );
     return getDreamRun(id);
   }
@@ -1374,6 +1437,8 @@ export function createStore(path) {
     remove,
     setForget,
     setArchived,
+    touchAccess,
+    demoteToSummary,
     list,
     all,
     search,

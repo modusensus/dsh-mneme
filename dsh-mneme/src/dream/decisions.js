@@ -1,4 +1,8 @@
-const ACTIONS = new Set(["keep", "merge", "archive", "conflict", "update"]);
+const ACTIONS = new Set(["keep", "merge", "archive", "conflict", "update", "create"]);
+
+// create is used by sleep pattern discovery (v0.4.1). It fabricates a new
+// memory of any known type (default pattern) rather than touching existing ids.
+const CREATE_TYPES = new Set(["pattern", "preference", "project", "decision", "history", "summary"]);
 
 /**
  * Validate a dream decision list against a snapshot of eligible memories.
@@ -9,6 +13,7 @@ const ACTIONS = new Set(["keep", "merge", "archive", "conflict", "update"]);
 export function validateDecisions(decisions, snapshot, options = {}) {
   const errors = [];
   const maxUpdatePerRun = options.maxUpdatePerRun ?? 2;
+  const maxCreatePerRun = options.maxCreatePerRun ?? 5;
   const minAgeHours = options.minAgeHours ?? 24;
   if (!Array.isArray(decisions) || decisions.length === 0) {
     return { ok: false, errors: ["decision list must be a non-empty array"] };
@@ -18,6 +23,35 @@ export function validateDecisions(decisions, snapshot, options = {}) {
     const at = `decision[${index}]`;
     if (!d || typeof d !== "object" || !ACTIONS.has(d.action)) {
       errors.push(`${at}: invalid action ${JSON.stringify(d?.action)}`);
+      continue;
+    }
+    // create claims no existing id: it fabricates a new memory, so it runs its
+    // own field validation and skips the ids-required check + the claimed set.
+    if (d.action === "create") {
+      if (typeof d.title !== "string" || !d.title.trim()) {
+        errors.push(`${at}: create needs non-empty title`);
+        continue;
+      }
+      if (typeof d.content !== "string" || !d.content.trim()) {
+        errors.push(`${at}: create needs non-empty content`);
+        continue;
+      }
+      if (d.importance !== undefined && (!Number.isInteger(d.importance) || d.importance < 1 || d.importance > 5)) {
+        errors.push(`${at}: create importance must be an integer 1-5 when provided`);
+        continue;
+      }
+      if (d.type !== undefined && (typeof d.type !== "string" || !CREATE_TYPES.has(d.type))) {
+        errors.push(`${at}: create type must be one of ${[...CREATE_TYPES].join(", ")}`);
+        continue;
+      }
+      if (d.evidence !== undefined && !Array.isArray(d.evidence)) {
+        errors.push(`${at}: create evidence must be an array of memory ids`);
+        continue;
+      }
+      if (d.tags !== undefined && !Array.isArray(d.tags)) {
+        errors.push(`${at}: create tags must be an array`);
+        continue;
+      }
       continue;
     }
     const ids = d.action === "conflict" ? [d.winner, d.loser] : (d.ids ?? []);
@@ -94,6 +128,12 @@ export function validateDecisions(decisions, snapshot, options = {}) {
   const updateCount = decisions.filter((d) => d.action === "update").length;
   if (updateCount > maxUpdatePerRun) {
     errors.push(`too many update decisions: ${updateCount} > ${maxUpdatePerRun}`);
+  }
+  // Cap create churn: a pattern-discovery loop fabricating endless new memories
+  // would bloat the store, so a run can mint at most maxCreatePerRun.
+  const createCount = decisions.filter((d) => d.action === "create").length;
+  if (createCount > maxCreatePerRun) {
+    errors.push(`too many create decisions: ${createCount} > ${maxCreatePerRun}`);
   }
   // Every snapshot id must appear in at least one decision
   for (const id of snapshot.keys()) {
@@ -202,8 +242,46 @@ function applyOne(d, service, snapshot, config = {}) {
     case "archive": return applyArchive(d, service, snapshot);
     case "merge": return applyMerge(d, service, snapshot, config);
     case "conflict": return applyConflict(d, service, snapshot);
+    case "create": return applyCreate(d, service, snapshot);
     default: return applyUpdate(d, service, snapshot, config);
   }
+}
+
+/**
+ * Mint a new memory (sleep pattern discovery). saveWithDedupe dedupes by
+ * (type, title) so a replayed create merges instead of duplicating — the
+ * idempotency guard. Evidence ids are folded into tags as `ev:<id>` so a
+ * pattern's provenance stays queryable after creation.
+ */
+function applyCreate(d, service, snapshot) {
+  const evidence = Array.isArray(d.evidence) ? d.evidence : [];
+  const tags = [
+    ...(Array.isArray(d.tags) ? d.tags : []),
+    ...evidence.map((id) => `ev:${id}`)
+  ];
+  const result = service.saveWithDedupe({
+    type: d.type ?? "pattern",
+    title: d.title,
+    content: d.content,
+    importance: d.importance ?? 3,
+    tags,
+    source: "dream-create"
+  });
+  if (!result?.memory) return "skipped";
+  return {
+    applied: 1,
+    committed: {
+      action: "create",
+      id: result.memory.id,
+      type: d.type ?? "pattern",
+      title: d.title,
+      content: d.content,
+      importance: d.importance ?? 3,
+      evidence,
+      count_before: 0,
+      count_after: 1
+    }
+  };
 }
 
 function applyArchive(d, service, snapshot) {

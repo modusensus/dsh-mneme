@@ -91,4 +91,32 @@ export const Config = z.object({
   entityExtractionMaxAttrs: z.natural().min(1).max(50).default(20),
   // Prefix/semantic search over entity names (used by recall).
   entitySearchEnabled: z.boolean().default(true),
+
+  // --- system-level sleep (v0.4.1) -----------------------------------------
+  // Opt-in: when false (default) the plugin never runs a sleep cycle, so the
+  // access-touch bookkeeping on recall/inject paths stays off too. Sleep is
+  // three phases: conflict resolution (reuses the dream conflict machinery),
+  // archival demotion (unrecalled memories tier down to summary then archive),
+  // and pattern discovery (LLM scans recent memories and mints type=pattern
+  // entries with evidence references).
+  sleepEnabled: z.boolean().default(false),
+  // A sleep run only fires when the store has been idle for this long and the
+  // last run is older than sleepMinIntervalHours. Idle detection replaces a
+  // cron-like schedule (DSH plugins have no resident crontab).
+  sleepIdleMinutes: z.natural().min(1).max(1440).default(30),
+  sleepMinIntervalHours: z.natural().min(1).max(168).default(8),
+  // Unrecalled (COALESCE(last_accessed_at, updated_at, created_at)) beyond
+  // sleepArchiveDays → demote: full body moves to _full_content, content
+  // becomes a one-line summary. Beyond sleepDeepArchiveDays → archive.
+  sleepArchiveDays: z.natural().min(1).max(365).default(30),
+  sleepDeepArchiveDays: z.natural().min(1).max(3650).default(90),
+  // How many most-recent memories the pattern-discovery pass scans.
+  sleepPatternScanCount: z.natural().min(10).max(500).default(100),
+  // Max patterns minted per sleep run (mirrors decisions maxCreatePerRun).
+  sleepMaxPatterns: z.natural().min(1).max(20).default(5),
+  // Optional LLM route override; empty = fall back to agentDefaultModel then
+  // the dream route. Distinct from dreamProvider/dreamModel so the sleep pass
+  // can pin a cheaper model for its bulk summarization.
+  sleepProvider: z.string().default(""),
+  sleepModel: z.string().default(""),
 });
