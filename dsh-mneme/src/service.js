@@ -384,10 +384,12 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       throw error;
     } finally {
       txDepth--;
-      try {
-        syncMirror();
-      } catch (error) {
-        logger?.warn?.("syncMirror failed after transaction:", error);
+      // Sync failures are surfaced, not swallowed (peer blocker 2): the mirror
+      // debt was already recorded by markMirrorDirty inside syncMirror, so a
+      // restart recovers — but the operator must see it now, not after restart.
+      const syncResult = syncMirror();
+      if (!syncResult?.success && !syncResult?.deferred) {
+        logger?.warn?.("mirror sync failed after transaction:", syncResult?.error);
       }
       notifyWrite();
     }
@@ -408,7 +410,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
         tags: memory.tags ?? existing.tags,
         title: memory.title ?? existing.title
       });
-      syncMirror();
+      afterSync("write");
       notifyWrite();
       scheduleEmbed(merged);
       return { action: "merged", memory: merged };
@@ -421,7 +423,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       importance: memory.importance ?? 3,
       source: memory.source ?? "manual"
     });
-    syncMirror();
+    afterSync("write");
     notifyWrite();
     scheduleEmbed(created);
     scheduleEntityExtraction(created);
@@ -481,7 +483,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       }
     }
     if (applied) {
-      syncMirror();
+      afterSync("write");
       notifyWrite();
     }
     return applied;
@@ -577,16 +579,17 @@ export function createService({ store, mirror, config, onWrite, logger }) {
   //   - 逐 type 用 setTypeStatus 记录部分成功/失败（type_status JSON）；
   //   - 所有 store 状态写入各自 try/catch，失败只 warn，绝不向外抛（F-NEW-03）。
   function syncMirror() {
-    if (txDepth > 0 || !mirror) return; // deferred to the transaction's commit
+    if (txDepth > 0 || !mirror) return { success: true, deferred: true }; // deferred to the transaction's commit
     const now = new Date().toISOString();
     let gen;
     try {
-      // 绑定本次期望轮次，必须在任何渲染之前，避免制造幽灵债务
-      const state = store.incrementGeneration();
-      gen = state.generation;
+      // desired generation 已在业务写事务中原子递增（peer blocker 1）；这里
+      // 直接读当前值作为本次同步的目标轮次，不再自行 incrementGeneration。
+      const state = store.getMirrorState();
+      gen = state?.generation ?? 0;
     } catch (stateError) {
-      logger?.warn?.("syncMirror: incrementGeneration failed:", stateError);
-      return;
+      logger?.warn?.("syncMirror: getMirrorState failed:", stateError);
+      return { success: false, error: stateError?.message ?? String(stateError) };
     }
     // coveredTypes 提到 try 外初始化：即使 store.list 先抛错，catch 分支也有
     // 合法的空 Set 可迭代，保证 syncMirror 自身绝不抛（fail-safe）。
@@ -603,37 +606,53 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       // 全量渲染
       mirror.sync(reconcileHumanEdits(list));
 
-      // 成功：CAS/fence 绑定到本地 gen，旧 worker（gen 已过期）会被拦截
+      // 成功：CAS/fence 绑定到本地 gen，旧 worker（gen 已过期）会被拦截。
+      // 此步失败说明核心 clean 状态没写成功，向上层报失败（不再静默）。
       try {
         store.markMirrorCleanForGeneration(gen, now);
       } catch (stateError) {
         logger?.warn?.("syncMirror: markMirrorCleanForGeneration failed:", stateError);
+        return { success: false, error: stateError?.message ?? String(stateError) };
       }
-      // 逐 type 标记为 clean
+      // 逐 type 标记为 committed（peer blocker 4: per-type receipt）
       for (const type of coveredTypes) {
         try {
-          store.setTypeStatus(type, { dirty: false, applied_gen: gen, last_error: null });
+          store.setTypeStatus(type, { status: "committed", applied_gen: gen, last_error: null });
         } catch (stateError) {
-          logger?.warn?.(`syncMirror: setTypeStatus(${type}) clean failed:`, stateError);
+          logger?.warn?.(`syncMirror: setTypeStatus(${type}) committed failed:`, stateError);
         }
       }
+      return { success: true };
     } catch (error) {
       const errMsg = error?.message ?? String(error);
       logger?.warn?.("syncMirror failed:", error);
       try {
-        // 债务绑定到新的一轮（desired generation +1）
+        // 债务绑定到新的一轮（desired generation 原子递增；即便 dirty 写失败，
+        // generation 已推进，recoverMirror 仍能捕获，不产生 false-clean）。
         store.markMirrorDirty(errMsg, now);
       } catch (stateError) {
         logger?.warn?.("syncMirror: markMirrorDirty failed:", stateError);
       }
-      // 逐 type 标记为 dirty（applied_gen 不动）
+      // 逐 type 标记为 failed（applied_gen 不动）
       for (const type of coveredTypes) {
         try {
-          store.setTypeStatus(type, { dirty: true, last_error: errMsg });
+          store.setTypeStatus(type, { status: "failed", last_error: errMsg });
         } catch (stateError) {
-          logger?.warn?.(`syncMirror: setTypeStatus(${type}) dirty failed:`, stateError);
+          logger?.warn?.(`syncMirror: setTypeStatus(${type}) failed:`, stateError);
         }
       }
+      return { success: false, error: errMsg };
+    }
+  }
+
+  // afterSync: run syncMirror and surface a failure to the operator instead of
+  // swallowing it (peer blocker 2). The mirror debt has already been persisted
+  // by markMirrorDirty inside syncMirror, so a restart recovers — but the
+  // calling write path must not report clean while the mirror is known-stale.
+  function afterSync(label) {
+    const r = syncMirror();
+    if (!r?.success && !r?.deferred) {
+      logger?.warn?.(`${label}: mirror sync failed (will recover on restart):`, r?.error);
     }
   }
 
@@ -718,10 +737,11 @@ export function createService({ store, mirror, config, onWrite, logger }) {
         success_at: state.success_at ?? null
       };
     } catch (error) {
-      // fail-safe：状态读取失败也不向外抛
+      // fail-safe：状态读取失败也不向外抛，但必须显式表达"未知"而非伪装成
+      // 干净（peer blocker 5：真实读取失败要显式 unknown，不得归一为 dirty:false）。
       logger?.warn?.("getMirrorHealth failed:", error);
       return {
-        dirty: false,
+        dirty: null,
         last_error: error?.message ?? String(error),
         last_attempt: null,
         success_at: null
@@ -780,7 +800,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     getById: (id) => store.getById(id),
     remove: (id) => {
       store.remove(id);
-      syncMirror();
+      afterSync("write");
       notifyWrite();
     },
     update: (id, p, ctx = {}) => {
@@ -806,7 +826,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
           memory_id: id
         });
       }
-      syncMirror();
+      afterSync("write");
       notifyWrite();
       scheduleEmbed(updated);
       return updated;
@@ -835,19 +855,19 @@ export function createService({ store, mirror, config, onWrite, logger }) {
           memory_id: id
         });
       }
-      syncMirror();
+      afterSync("write");
       notifyWrite();
       scheduleEmbed(updated);
       return updated;
     },
     setForget: (id, f) => {
       const updated = store.setForget(id, f);
-      syncMirror();
+      afterSync("write");
       return updated;
     },
     setArchived: (id, f) => {
       const updated = store.setArchived(id, f);
-      syncMirror();
+      afterSync("write");
       return updated;
     },
     // autoDream audit trail: passthroughs deliberately bypass write hooks —

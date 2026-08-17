@@ -180,13 +180,18 @@ CREATE TABLE IF NOT EXISTS mirror_state (
   last_error TEXT,                   -- 最近失败原因
   last_attempt TEXT,                 -- 最近尝试时间（ISO）
   success_at TEXT,                   -- 最近成功时间（ISO）
-  generation INTEGER NOT NULL DEFAULT 0,         -- 期望的同步轮次（desired）
-  applied_generation INTEGER NOT NULL DEFAULT 0, -- 已成功应用的轮次
+  generation INTEGER NOT NULL DEFAULT 0 CHECK (generation >= 0 AND generation <= 9007199254740991),         -- 期望的同步轮次（desired）
+  applied_generation INTEGER NOT NULL DEFAULT 0 CHECK (applied_generation >= 0 AND applied_generation <= 9007199254740991), -- 已成功应用的轮次
   type_status TEXT                               -- JSON: 逐 type 状态 {type: {dirty, applied_gen, last_error}}
 );
 `;
 
 const TYPES = new Set(["preference", "project", "decision", "history", "summary"]);
+
+// Per-type mirror sync receipts (peer blocker 4): a type is either committed
+// (file written + fence applied), failed (last sync round errored for it), or
+// pending (still owed a write).
+const VALID_TYPE_STATUS = new Set(["committed", "failed", "pending"]);
 
 // Pure helpers: no shared module state.
 
@@ -387,6 +392,10 @@ function parseJsonArray(raw) {
 export function createStore(path) {
   const db = new DatabaseSync(path);
   db.exec("PRAGMA journal_mode = WAL;");
+  // Concurrent writers (peer probe: 8 independent processes) must wait for the
+  // write lock instead of failing immediately with SQLITE_BUSY — otherwise the
+  // atomic generation increment loses whole writes, not just increments.
+  db.exec("PRAGMA busy_timeout = 5000;");
   db.exec(SCHEMA);
 
   // Schema migrations for legacy databases (idempotent).
@@ -467,10 +476,17 @@ export function createStore(path) {
     const embedding = Array.isArray(memory.embedding) && memory.embedding.length
       ? JSON.stringify(memory.embedding)
       : null;
-    db.prepare(
-      `INSERT INTO memories (id, type, title, content, tags, importance, forgotten, source, embedding, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`
-    ).run(id, type, memory.title, memory.content, tags, importance, memory.source ?? null, embedding, now, now);
+    runAtomically(() => {
+      db.prepare(
+        `INSERT INTO memories (id, type, title, content, tags, importance, forgotten, source, embedding, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`
+      ).run(id, type, memory.title, memory.content, tags, importance, memory.source ?? null, embedding, now, now);
+      // desired generation bumped in the same transaction as the write: once
+      // this commits, generation > applied_generation, so a crash right after
+      // (before syncMirror) is caught by recoverMirror on restart (peer
+      // blocker 1). ROLLBACK on error rolls this back with the write.
+      incrementGeneration();
+    });
     return getById(id);
   }
 
@@ -486,24 +502,34 @@ export function createStore(path) {
     const embedding = patch.embedding !== undefined
       ? (Array.isArray(patch.embedding) && patch.embedding.length ? JSON.stringify(patch.embedding) : null)
       : existing.embedding ?? null;
-    db.prepare(
-      `UPDATE memories SET type=?, title=?, content=?, tags=?, importance=?, source=?, embedding=?, updated_at=? WHERE id=?`
-    ).run(
-      type,
-      patch.title ?? existing.title,
-      patch.content ?? existing.content,
-      JSON.stringify(patch.tags ?? existing.tags),
-      Number.isInteger(patch.importance) ? patch.importance : existing.importance,
-      patch.source !== undefined ? patch.source : (existing.source ?? null),
-      embedding,
-      now,
-      id
-    );
+    runAtomically(() => {
+      db.prepare(
+        `UPDATE memories SET type=?, title=?, content=?, tags=?, importance=?, source=?, embedding=?, updated_at=? WHERE id=?`
+      ).run(
+        type,
+        patch.title ?? existing.title,
+        patch.content ?? existing.content,
+        JSON.stringify(patch.tags ?? existing.tags),
+        Number.isInteger(patch.importance) ? patch.importance : existing.importance,
+        patch.source !== undefined ? patch.source : (existing.source ?? null),
+        embedding,
+        now,
+        id
+      );
+      // Desired generation bumped in the same transaction as the update (peer
+      // blocker 1: crash between write and sync must still be recoverable).
+      incrementGeneration();
+    });
     return getById(id);
   }
 
   function remove(id) {
-    db.prepare("DELETE FROM memories WHERE id = ?").run(id);
+    runAtomically(() => {
+      db.prepare("DELETE FROM memories WHERE id = ?").run(id);
+      // Mirror sync must reflect the deletion; bump desired generation so a
+      // crash between the delete and syncMirror leaves a recoverable debt.
+      incrementGeneration();
+    });
   }
 
   /**
@@ -542,18 +568,26 @@ export function createStore(path) {
       expectedUpdatedAt
     );
     if (result.changes === 0) return undefined; // CAS miss: a concurrent write won
+    // Only bump desired generation on a successful CAS — a miss writes nothing.
+    runAtomically(() => { incrementGeneration(); });
     return getById(id);
   }
 
   function setForget(id, forgotten) {
-    db.prepare("UPDATE memories SET forgotten = ?, updated_at = ? WHERE id = ?")
-      .run(forgotten === true || forgotten === 1 ? 1 : 0, nowIso(), id);
+    runAtomically(() => {
+      db.prepare("UPDATE memories SET forgotten = ?, updated_at = ? WHERE id = ?")
+        .run(forgotten === true || forgotten === 1 ? 1 : 0, nowIso(), id);
+      incrementGeneration();
+    });
     return getById(id);
   }
 
   function setArchived(id, archived) {
-    db.prepare("UPDATE memories SET archived = ?, updated_at = ? WHERE id = ?")
-      .run(archived ? 1 : 0, nowIso(), id);
+    runAtomically(() => {
+      db.prepare("UPDATE memories SET archived = ?, updated_at = ? WHERE id = ?")
+        .run(archived ? 1 : 0, nowIso(), id);
+      incrementGeneration();
+    });
     return getById(id);
   }
 
@@ -1189,7 +1223,10 @@ export function createStore(path) {
       if (key === "dirty") {
         value = value ? 1 : 0;
       } else if (key === "generation" || key === "applied_generation") {
-        value = Math.trunc(Number(value)) || 0;
+        value = Math.trunc(Number(value));
+        if (!Number.isFinite(value) || value < 0 || value > Number.MAX_SAFE_INTEGER) {
+          throw new RangeError(`mirror_state.${key} out of range: ${value}`);
+        }
       } else if (key === "type_status" && value != null && typeof value !== "string") {
         value = JSON.stringify(value);
       }
@@ -1220,12 +1257,15 @@ export function createStore(path) {
    * recent as this one may.
    */
   function markMirrorDirty(error, now) {
-    const current = getMirrorState();
+    // Bump the desired generation atomically first — the new debt must be bound
+    // to a fresh round so a stale worker cannot fence-clean it. Even if this
+    // write fails (peer blocker 2), generation still advanced, so recoverMirror
+    // sees generation > applied_generation and retries rather than false-clean.
+    incrementGeneration();
     return setMirrorState({
       dirty: 1,
       last_error: error,
-      last_attempt: now ?? nowIso(),
-      generation: (current.generation || 0) + 1
+      last_attempt: now ?? nowIso()
     });
   }
 
@@ -1262,13 +1302,23 @@ export function createStore(path) {
 
   /**
    * Record per-type mirror status (partial success bookkeeping). `status` is a
-   * partial patch {dirty?, applied_gen?, last_error?} merged into the existing
-   * entry for `type` (other types untouched). Returns the updated full state.
+   * patch {status: 'committed'|'failed'|'pending', applied_gen?, last_error?}
+   * replacing the entry for `type` (other types untouched). Standardizing on an
+   * explicit status gives per-type committed/failed/pending receipts — a type
+   * whose file was written while a sibling failed is recorded as such, not
+   * collapsed into a bulk "dirty" (peer blocker 4). Returns the updated state.
    */
   function setTypeStatus(type, status) {
+    if (!VALID_TYPE_STATUS.has(status?.status)) {
+      throw new TypeError(`setTypeStatus: status must be one of committed|failed|pending, got ${status?.status}`);
+    }
     const current = getMirrorState();
     const statuses = current.type_status || {};
-    statuses[type] = { ...(statuses[type] || {}), ...status };
+    statuses[type] = {
+      status: status.status,
+      ...(status.applied_gen !== undefined ? { applied_gen: status.applied_gen } : {}),
+      ...(status.last_error !== undefined ? { last_error: status.last_error } : {})
+    };
     return setMirrorState({ type_status: JSON.stringify(statuses) });
   }
 
@@ -1278,10 +1328,40 @@ export function createStore(path) {
     return current.type_status || {};
   }
 
-  /** Bump the desired generation (new sync round), returning the new state. */
+  /** Run fn atomically: when the connection is already inside a transaction
+   *  (service.transaction's BEGIN), just run it — the outer COMMIT covers us.
+   *  Otherwise wrap in BEGIN/COMMIT so a memory write and its desired-generation
+   *  bump commit together: a crash between them can never leave a mutated store
+   *  with generation == applied (audit peer blocker 1, "crash window"). */
+  function runAtomically(fn) {
+    if (db.isTransaction) return fn();
+    db.exec("BEGIN");
+    try {
+      const result = fn();
+      db.exec("COMMIT");
+      return result;
+    } catch (error) {
+      try { db.exec("ROLLBACK"); } catch { /* connection may be closed */ }
+      throw error;
+    }
+  }
+
+  /** Bump the desired generation atomically (SQLite single-statement increment,
+   *  no SELECT-then-UPSERT race: peer blocker 3 lost 10 of 91 concurrent
+   *  increments under an 8-process probe). Returns the new mirror state.
+   *  Guards the upper bound: generation must stay within MAX_SAFE_INTEGER so
+   *  reads never hit ERR_OUT_OF_RANGE (peer blocker 6). */
   function incrementGeneration() {
-    const current = getMirrorState();
-    return setMirrorState({ generation: (current.generation || 0) + 1 });
+    return runAtomically(() => {
+      // Ensure the singleton row exists before incrementing (UPDATE alone would
+      // match nothing on a fresh DB).
+      db.prepare("INSERT OR IGNORE INTO mirror_state (id) VALUES ('main')").run();
+      const row = db.prepare(
+        "UPDATE mirror_state SET generation = generation + 1 WHERE id = 'main' AND generation < ? RETURNING generation"
+      ).get(Number.MAX_SAFE_INTEGER);
+      if (!row) throw new RangeError("mirror_state.generation exceeded MAX_SAFE_INTEGER");
+      return getMirrorState();
+    });
   }
 
   return {

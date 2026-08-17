@@ -141,30 +141,33 @@ test("V0.3.6-C3: incrementGeneration 每次 +1，不动 dirty/applied", () => {
 
 // ── D. 逐 type 部分成功（store 层 setTypeStatus）──────────────────────────
 
-test("V0.3.6-D1: setTypeStatus 按 type 合并，partial patch 保留未传字段", () => {
+test("V0.3.6-D1: setTypeStatus 记录逐 type committed/failed/pending 回执（peer blocker 4）", () => {
   const { dir, store } = setup();
   try {
-    const s1 = store.setTypeStatus("project", { dirty: true, last_error: "e1" });
-    assert.equal(s1.type_status.project.dirty, true);
+    // 状态必填且必须合法
+    assert.throws(() => store.setTypeStatus("project", { applied_gen: 1 }), /status must be one of/, "缺 status 必须抛错");
+    assert.throws(() => store.setTypeStatus("project", { status: "bogus" }), /status must be one of/, "非法 status 必须抛错");
+
+    const s1 = store.setTypeStatus("project", { status: "failed", last_error: "e1" });
+    assert.equal(s1.type_status.project.status, "failed");
     assert.equal(s1.type_status.project.last_error, "e1");
 
-    const s2 = store.setTypeStatus("project", { applied_gen: 7 });
-    assert.equal(s2.type_status.project.applied_gen, 7, "partial 合并到同 type");
-    assert.equal(s2.type_status.project.dirty, true, "未传字段保留");
-    assert.equal(s2.type_status.project.last_error, "e1", "未传字段保留");
+    const s2 = store.setTypeStatus("project", { status: "committed", applied_gen: 7, last_error: null });
+    assert.equal(s2.type_status.project.status, "committed", "同 type 状态更新");
+    assert.equal(s2.type_status.project.applied_gen, 7);
 
-    const s3 = store.setTypeStatus("decision", { dirty: false, applied_gen: 7 });
-    assert.equal(s3.type_status.decision.applied_gen, 7, "另一 type 独立");
-    assert.equal(s3.type_status.project.dirty, true, "同 type 不受影响");
+    const s3 = store.setTypeStatus("decision", { status: "pending" });
+    assert.equal(s3.type_status.decision.status, "pending", "另一 type 独立");
+    assert.equal(s3.type_status.project.status, "committed", "同 type 不受影响");
 
     // getTypeStatus 返回同一解析后的 map
     assert.deepEqual(store.getTypeStatus(), {
-      project: { dirty: true, last_error: "e1", applied_gen: 7 },
-      decision: { dirty: false, applied_gen: 7 }
+      project: { status: "committed", applied_gen: 7, last_error: null },
+      decision: { status: "pending" }
     });
     // type_status 持久化为 JSON 文本
     const row = store.db.prepare("SELECT type_status FROM mirror_state WHERE id='main'").get();
-    assert.ok(JSON.parse(row.type_status).project.applied_gen === 7, "type_status 必须以 JSON 落库");
+    assert.ok(JSON.parse(row.type_status).project.status === "committed", "type_status 必须以 JSON 落库");
   } finally {
     store.close();
     rmSync(dir, { recursive: true, force: true });
@@ -253,7 +256,7 @@ test("V0.3.6-B1: markMirrorDirty 自身写失败——syncMirror 不抛、genera
 
 // ── D. 逐 type 部分成功（service 层 type_status 生命周期）─────────────────
 
-test("V0.3.6-D2: syncMirror 成功时逐 type 记录 clean（applied_gen=gen）", () => {
+test("V0.3.6-D2: syncMirror 成功时逐 type 记录 committed（applied_gen=gen）", () => {
   const { dir, store, mirror, service } = setup();
   try {
     const mock = makeSyncMock();
@@ -261,7 +264,7 @@ test("V0.3.6-D2: syncMirror 成功时逐 type 记录 clean（applied_gen=gen）"
     service.saveWithDedupe({ type: "project", title: "P", content: "x", importance: 3 });
     const ts = store.getTypeStatus();
     assert.ok(ts.project, "覆盖的 type 必须记录 type_status");
-    assert.equal(ts.project.dirty, false);
+    assert.equal(ts.project.status, "committed");
     assert.equal(ts.project.last_error, null);
     assert.equal(ts.project.applied_gen, store.getMirrorState().applied_generation,
       "type_status.applied_gen 与全局 applied 一致");
@@ -271,15 +274,15 @@ test("V0.3.6-D2: syncMirror 成功时逐 type 记录 clean（applied_gen=gen）"
   }
 });
 
-test("V0.3.6-D3: syncMirror 失败时逐 type 记录 dirty，recoverMirror 后追到最新 applied", () => {
+test("V0.3.6-D3: syncMirror 失败时逐 type 记录 failed，recoverMirror 后追到最新 applied", () => {
   const { dir, store, mirror, service } = setup();
   try {
     const mock = makeSyncMock();
     mirror.sync = mock.sync;
-    // 第一次成功建立 clean type_status
+    // 第一次成功建立 committed type_status
     mock.mode = "ok";
     service.saveWithDedupe({ type: "project", title: "P", content: "x", importance: 3 });
-    assert.equal(store.getTypeStatus().project.dirty, false);
+    assert.equal(store.getTypeStatus().project.status, "committed");
 
     // 模拟一次"债务轮次"：incrementGeneration 但未成功 applied（崩溃在 type_status 层面）
     store.incrementGeneration();
@@ -293,7 +296,7 @@ test("V0.3.6-D3: syncMirror 失败时逐 type 记录 dirty，recoverMirror 后�
     const ts = store.getTypeStatus();
     assert.equal(ts.project.applied_gen, finalState.applied_generation,
       "type_status 必须追到最新 applied（部分成功债务表达并收敛）");
-    assert.equal(ts.project.dirty, false);
+    assert.equal(ts.project.status, "committed");
   } finally {
     store.close();
     rmSync(dir, { recursive: true, force: true });
@@ -454,8 +457,8 @@ test("V0.3.6-F1: 旧库（v0.3.5 5 列）打开自动 ALTER 加 3 列，不丢�
     // 新方法在迁移后的库上正常工作
     const clean = store.markMirrorCleanForGeneration(0, "t");
     assert.equal(clean.dirty, false, "迁移库上 fence clean 正常工作");
-    store.setTypeStatus("project", { dirty: true, applied_gen: 0 });
-    assert.equal(store.getTypeStatus().project.dirty, true, "迁移库上 setTypeStatus 正常工作");
+    store.setTypeStatus("project", { status: "failed", applied_gen: 0 });
+    assert.equal(store.getTypeStatus().project.status, "failed", "迁移库上 setTypeStatus 正常工作");
     store.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });

@@ -289,6 +289,14 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
         sendJson(res, 200, { mirror: { dirty: null, status: "unknown", last_error: null, last_attempt: null, success_at: null } });
         return;
       }
+      // Real read failure surfaces as dirty === null (peer blocker 5): report
+      // unknown explicitly instead of collapsing into a false "ok"/"degraded".
+      if (state.dirty === null) {
+        sendJson(res, 200, {
+          mirror: { dirty: null, status: "unknown", last_error: null, last_attempt: null, success_at: null }
+        });
+        return;
+      }
       // Sanitized: boolean dirty + coarse status only; error string is mapped to
       // a bounded code, never echoed verbatim.
       let code = null;
