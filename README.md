@@ -196,7 +196,7 @@ npm run sync      # src → lib 同步
 | **v0.3.7** | 启动竞态修复 | ✅ 已完成（issue#6：回灌移入 init().then + scheduleEmbed 就绪门 + init 幂等，443 测试） | — |
 | **v0.3.8** | 审计 6 项阻断修复 | audit peer 复验 6 项运行时阻断全修 + mirror 同步可靠性，447 测试 | ✅ 已完成 |
 | **v0.3.9** | 审计 A/B/D/F 加固 | CAS 同事务 + degraded 回执 + 逐 type 物理终态 + 整数 fail-closed，450 测试 | ✅ 已完成 |
-| **v0.4.0** | 系统级睡眠 Sleep Mode | 空闲触发的四阶段深度维护（冲突消解/归档降级/模式发现/关系补全）+ 分层压缩，471 测试 | 🚧 开发中 |
+| **v0.4.0** | 系统级睡眠 Sleep Mode | 空闲触发的四阶段深度维护（冲突消解/归档降级/模式发现/关系补全）+ 分层压缩，471 测试 | ✅ 已完成 |
 | **v0.4.1** | 反思性成长 | 纠错双向回流 + 规则演进 + 自适应参数 | 规划 |
 | **v0.5.0+** | 自进化记忆 | 兴趣漂移 + 跨 workspace | 远期 |
 
@@ -386,7 +386,7 @@ Memory grows:
 | **v0.3.7** | Startup race fix | ✅ Done (issue#6: backfill in init().then + scheduleEmbed readiness gate + init idempotent, 443 tests) | — |
 | **v0.3.8** | Audit 6-blocker fixes | audit peer 6 runtime blockers + mirror sync reliability, 447 tests | ✅ Done |
 | **v0.3.9** | Audit A/B/D/F hardening | CAS same-tx + degraded receipt + per-type terminal state + integer fail-closed, 450 tests | ✅ Done |
-| **v0.4.0** | Sleep Mode | idle-triggered 4-phase deep maintenance (conflict/demote/pattern/relation) + tiered compression, 471 tests | 🚧 in progress |
+| **v0.4.0** | Sleep Mode | idle-triggered 4-phase deep maintenance (conflict/demote/pattern/relation) + tiered compression, 471 tests | ✅ Done |
 | **v0.4.1** | Reflective growth | Correction feedback loop + rule evolution + adaptive params | planned |
 | **v0.5.0+** | Self-evolving memory | Interest drift + cross-workspace | long-term |
 
