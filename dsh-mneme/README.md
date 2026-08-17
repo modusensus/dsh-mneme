@@ -18,6 +18,11 @@
 - **SQLite 主存储**：`~/.dsh/memory/memory.db`，`node:sqlite` 内置，零原生依赖
 - **Markdown 镜像**：`preferences.md` / `projects.md` / `decisions.md` / `history.md` / `summary.md`，人类可读、可手工编辑（**人工修改优先**合并回库）
 - **4+1 种记忆类型**：`preference`（偏好）/ `project`（项目）/ `decision`（决策）/ `history`（历史）/ `summary`（总览）
+- **镜像同步状态机（v0.3.6+）**：mirror 与主库强一致，用 `generation`（期望轮次）/ `applied_generation`（已应用轮次）建模同步债务
+  - 业务写操作在**自身事务内原子递增** desired generation——崩溃在 COMMIT 后、渲染前，重启也能凭 durable 债务恢复，绝不静默跳过（v0.3.8）
+  - `generation` 用 SQLite 原子语句递增，多进程并发零丢失；带 `CHECK` 上界，负数/溢出拒绝
+  - 逐 type 记录 `committed / failed / pending` 回执，健康端点区分 `ok / degraded / unknown`
+  - 状态写失败不静默：同步失败落日志并留债务，重启自动收敛
 
 ### 模型工具（7 个）
 
@@ -105,6 +110,15 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 - **autoDream 联动**：update 决策写 `supersedes` 自引用（属性版本被替代）；merge 决策把 loser 的属性归属迁移到 keeper（keeper 已有同键当前值则失效）
 
 > 📖 详见 [实体结构化记忆设计](docs/ENTITIES.md) · [语义增强架构](docs/SEMANTIC.md) · [本地模型部署指南](docs/LOCAL_MODEL.md) · [从 v0.1 升级说明](docs/MIGRATION.md)
+
+## 🆕 最近版本亮点
+
+| 版本 | 亮点 |
+|------|------|
+| **v0.3.8** | audit peer 复验 6 项运行时阻断全部修复：desired generation 同事务原子递增（崩溃窗口不再静默跳过）、同步失败不静默、原子 generation 增量（多进程零丢失）、逐 type committed/failed/pending 回执、读取失败显式 unknown、generation 上界/负数 CHECK |
+| **v0.3.7** | 启动竞态修复：人工编辑 md 镜像后重启向量重建失败（回灌移入 init 就绪后 + scheduleEmbed 就绪门） |
+| **v0.3.6** | mirror 同步状态机：generation/applied_generation 债务建模、F-NEW-03 mirror 健康状态、持久 dirty + 启动 recoverMirror |
+| **v0.3.0** | 记忆基因：实体/属性/关系三表 + 时间轴 + 实体搜索 + autoDream supersedes |
 
 ## 📦 安装
 
@@ -243,7 +257,7 @@ src/
 lib/
 ├── client.js         # Web 面板（手写 ModuleLoader bundle）
 └── *.js              # src 的同步分发产物
-test/                 # 443 个 node:test 测试（含审计与三轴线压测不变量）
+test/                 # 447 个 node:test 测试（含审计与三轴线压测不变量）
 scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压测 · sync-lib.js 同步
 ```
 
