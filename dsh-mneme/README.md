@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Awesome](https://awesome-dsh-plugin.com/badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
-[![tests](https://img.shields.io/badge/tests-443%20passed-success)](https://github.com/modusensus/dsh-mneme)
+[![tests](https://img.shields.io/badge/tests-447%20passed-success)](https://github.com/modusensus/dsh-mneme)
 
 > 给 DeepSeek Harness 的跨会话记忆插件：让 Agent 记住你、记住项目、自动整理记忆。**Mneme**（Μνήμη）——希腊记忆女神 Mnemosyne 之名，掌管记忆与梦境，正如 autoDream 在后台巩固记忆。
 
@@ -119,6 +119,19 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 | **v0.3.7** | 启动竞态修复：人工编辑 md 镜像后重启向量重建失败（回灌移入 init 就绪后 + scheduleEmbed 就绪门） |
 | **v0.3.6** | mirror 同步状态机：generation/applied_generation 债务建模、F-NEW-03 mirror 健康状态、持久 dirty + 启动 recoverMirror |
 | **v0.3.0** | 记忆基因：实体/属性/关系三表 + 时间轴 + 实体搜索 + autoDream supersedes |
+
+## 🗺️ 进化路线图
+
+| 版本 | 状态 | 主题 | 说明 |
+|------|------|------|------|
+| v0.2.x | ✅ 完成 | 语义增强 + 反思更新 | 本地 Embedding/Rerank/聚类、`failure_memories` 失败追踪 |
+| v0.3.0 | ✅ 完成 | 记忆基因 | entities/attrs/relations 三表 + 时间轴 + 实体搜索 |
+| v0.3.6–0.3.8 | ✅ 完成 | 镜像一致性 + 审计加固 | generation 同步状态机、audit peer 6 项运行时阻断修复、447 测试全绿 |
+| **v0.4.0** | ⏳ 规划 | 反思性成长 | 纠错双向回流（改记忆同时反思"为什么记错/召回错"）+ 规则演进（从 failure 提炼规律注入系统提示）+ 自适应参数 |
+| **v0.4.1** | 🔜 待定 | 系统级睡眠 | autoDream 的升级版：定时深度整理（冲突消解 / 归档降级 / 模式发现），夜间批处理 |
+| **v0.5.0+** | 🚀 远期 | 自进化记忆 | 兴趣漂移跟踪 + 跨 workspace 记忆共享（等 DSH 支持） |
+
+> 新能力一律做成**可开关的功能**（配置启用/关闭），默认保守开启、不破坏现有行为。`failure_memories` 表与 autoDream 决策引擎已为 v0.4.0 铺好路。
 
 ## 📦 安装
 
@@ -266,7 +279,7 @@ scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压
 ```bash
 cd dsh-mneme
 npm install        # 安装 peer 依赖（以 devDependencies 形式，用于本地测试）
-npm test           # 运行 443 个测试
+npm test           # 运行 447 个测试
 npm run stress     # 三轴线压测：长会话检索 / 冲突仲裁 / 多 Agent 并发（离线 mock LLM）
 npm run sync       # 把 src/ 同步到 lib/（发布时由 prepack 钩子自动执行）
 ```
