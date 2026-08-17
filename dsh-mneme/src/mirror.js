@@ -128,21 +128,33 @@ export function createMirror(dir) {
     for (const m of memories) {
       (byType[m.type] ??= []).push(m);
     }
+    // Per-type physical outcomes (audit peer D): a failed write for one type
+    // must not abort the whole render. Each type is written (or pruned) in its
+    // own try/catch and the result reported so the caller can persist per-type
+    // committed/failed receipts — a file that was already written is a real
+    // physical commit even when a sibling type errors.
+    const results = {};
     for (const type of Object.keys(TYPE_FILE)) {
-      const file = filePath(type);
-      const items = (byType[type] ?? [])
-        .slice()
-        .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1));
-      if (items.length === 0) {
-        // no memories of this type: drop any stale mirror file so deleted
-        // memories do not "resurrect" via readHumanEdits
-        rmSync(file, { force: true });
-        continue;
+      try {
+        const file = filePath(type);
+        const items = (byType[type] ?? [])
+          .slice()
+          .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1));
+        if (items.length === 0) {
+          // no memories of this type: drop any stale mirror file so deleted
+          // memories do not "resurrect" via readHumanEdits
+          rmSync(file, { force: true });
+        } else {
+          const header = `# ${TYPE_FILE[type]} — dsh-mneme 镜像\n\n<!-- 手工编辑此文件会被合并回记忆库（人工优先）。 -->\n\n`;
+          const body = items.map(renderMemory).join("\n");
+          writeFileSync(file, header + body, "utf8");
+        }
+        results[type] = { ok: true };
+      } catch (error) {
+        results[type] = { ok: false, error: error?.message ?? String(error) };
       }
-      const header = `# ${TYPE_FILE[type]} — dsh-mneme 镜像\n\n<!-- 手工编辑此文件会被合并回记忆库（人工优先）。 -->\n\n`;
-      const body = items.map(renderMemory).join("\n");
-      writeFileSync(file, header + body, "utf8");
     }
+    return results;
   }
 
   return { filePath, sync, readHumanEdits };

@@ -603,26 +603,53 @@ export function createService({ store, mirror, config, onWrite, logger }) {
         }
       }
 
-      // 全量渲染
-      mirror.sync(reconcileHumanEdits(list));
-
-      // 成功：CAS/fence 绑定到本地 gen，旧 worker（gen 已过期）会被拦截。
-      // 此步失败说明核心 clean 状态没写成功，向上层报失败（不再静默）。
-      try {
-        store.markMirrorCleanForGeneration(gen, now);
-      } catch (stateError) {
-        logger?.warn?.("syncMirror: markMirrorCleanForGeneration failed:", stateError);
-        return { success: false, error: stateError?.message ?? String(stateError) };
-      }
-      // 逐 type 标记为 committed（peer blocker 4: per-type receipt）
-      for (const type of coveredTypes) {
+      // Per-type physical outcome (audit peer D): mirror.sync writes each type
+      // file independently and reports per-type success/failure. A type whose
+      // file was physically committed must be marked committed even when a
+      // sibling type errors — the old code batch-failed every type on any error,
+      // leaving committed files mislabeled as failed and masking partial state.
+      // Absent entries (a type with no memories) count as success: sync prunes
+      // the stale file, which is itself a completed physical state.
+      let allOk = true;
+      const results = mirror.sync(reconcileHumanEdits(list)) ?? {};
+      for (const type of Object.keys(TYPE_FILE)) {
+        const r = results[type];
+        const ok = !r || r.ok === true;
+        if (!ok) allOk = false;
         try {
-          store.setTypeStatus(type, { status: "committed", applied_gen: gen, last_error: null });
+          if (ok) {
+            store.setTypeStatus(type, { status: "committed", applied_gen: gen, last_error: null });
+          } else {
+            store.setTypeStatus(type, { status: "failed", last_error: r.error ?? "mirror sync failed" });
+          }
         } catch (stateError) {
-          logger?.warn?.(`syncMirror: setTypeStatus(${type}) committed failed:`, stateError);
+          logger?.warn?.(`syncMirror: setTypeStatus(${type}) failed:`, stateError);
         }
       }
-      return { success: true };
+
+      // 全部 type 物理收敛：CAS/fence 绑定到本地 gen，旧 worker（gen 已过期）会被
+      // 拦截。此步失败说明核心 clean 状态没写成功，向上层报失败（不再静默）。
+      if (allOk) {
+        try {
+          store.markMirrorCleanForGeneration(gen, now);
+        } catch (stateError) {
+          logger?.warn?.("syncMirror: markMirrorCleanForGeneration failed:", stateError);
+          return { success: false, error: stateError?.message ?? String(stateError) };
+        }
+        return { success: true };
+      }
+
+      // 部分 type 失败：持久 dirty（债务绑定到新轮次），下次 recover 只补未收敛
+      // 的 type。committed 的 type 已应用本轮 gen，不因兄弟失败被回滚。
+      const failedTypes = Object.entries(results)
+        .filter(([, r]) => r && r.ok === false)
+        .map(([t]) => t);
+      try {
+        store.markMirrorDirty(`mirror sync failed for: ${failedTypes.join(", ")}`, now);
+      } catch (stateError) {
+        logger?.warn?.("syncMirror: markMirrorDirty failed:", stateError);
+      }
+      return { success: false, error: `mirror sync failed for: ${failedTypes.join(", ")}` };
     } catch (error) {
       const errMsg = error?.message ?? String(error);
       logger?.warn?.("syncMirror failed:", error);
@@ -646,14 +673,17 @@ export function createService({ store, mirror, config, onWrite, logger }) {
   }
 
   // afterSync: run syncMirror and surface a failure to the operator instead of
-  // swallowing it (peer blocker 2). The mirror debt has already been persisted
-  // by markMirrorDirty inside syncMirror, so a restart recovers — but the
-  // calling write path must not report clean while the mirror is known-stale.
+  // swallowing it (peer blocker 2 + audit peer B). The mirror debt has already
+  // been persisted by markMirrorDirty inside syncMirror, so a restart recovers —
+  // but the calling write path must not report clean while the mirror is
+  // known-stale. Returns the sync result so the caller can attach an explicit
+  // degraded/pending receipt to its return value instead of faking success.
   function afterSync(label) {
     const r = syncMirror();
     if (!r?.success && !r?.deferred) {
       logger?.warn?.(`${label}: mirror sync failed (will recover on restart):`, r?.error);
     }
+    return r;
   }
 
   // recoverMirror: 启动/手动 reconcile 时根据持久 dirty 状态决定是否恢复同步
@@ -826,9 +856,20 @@ export function createService({ store, mirror, config, onWrite, logger }) {
           memory_id: id
         });
       }
-      afterSync("write");
+      const sync = afterSync("write");
       notifyWrite();
       scheduleEmbed(updated);
+      // Audit peer B: when the mirror sync failed, the store write landed but
+      // the mirror did not converge — return an explicit degraded receipt rather
+      // than a plain success. Non-enumerable so existing deepEqual assertions on
+      // the memory shape keep passing.
+      if (!sync?.success && !sync?.deferred) {
+        Object.defineProperty(updated, "_mirror", {
+          value: { status: "degraded", error: sync?.error ?? "mirror sync failed" },
+          enumerable: false,
+          configurable: true
+        });
+      }
       return updated;
     },
     // Compare-and-set update: applies the patch only when the row still carries
@@ -855,9 +896,17 @@ export function createService({ store, mirror, config, onWrite, logger }) {
           memory_id: id
         });
       }
-      afterSync("write");
+      const sync = afterSync("write");
       notifyWrite();
       scheduleEmbed(updated);
+      // Audit peer B: mirror sync failure on a CAS write must surface too.
+      if (!sync?.success && !sync?.deferred) {
+        Object.defineProperty(updated, "_mirror", {
+          value: { status: "degraded", error: sync?.error ?? "mirror sync failed" },
+          enumerable: false,
+          configurable: true
+        });
+      }
       return updated;
     },
     setForget: (id, f) => {

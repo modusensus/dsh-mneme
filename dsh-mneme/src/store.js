@@ -180,8 +180,8 @@ CREATE TABLE IF NOT EXISTS mirror_state (
   last_error TEXT,                   -- 最近失败原因
   last_attempt TEXT,                 -- 最近尝试时间（ISO）
   success_at TEXT,                   -- 最近成功时间（ISO）
-  generation INTEGER NOT NULL DEFAULT 0 CHECK (generation >= 0 AND generation <= 9007199254740991),         -- 期望的同步轮次（desired）
-  applied_generation INTEGER NOT NULL DEFAULT 0 CHECK (applied_generation >= 0 AND applied_generation <= 9007199254740991), -- 已成功应用的轮次
+  generation INTEGER NOT NULL DEFAULT 0 CHECK (generation >= 0 AND generation <= 9007199254740991 AND generation = CAST(generation AS INTEGER)),         -- 期望的同步轮次（desired）
+  applied_generation INTEGER NOT NULL DEFAULT 0 CHECK (applied_generation >= 0 AND applied_generation <= 9007199254740991 AND applied_generation = CAST(applied_generation AS INTEGER)), -- 已成功应用的轮次
   type_status TEXT                               -- JSON: 逐 type 状态 {type: {dirty, applied_gen, last_error}}
 );
 `;
@@ -391,11 +391,14 @@ function parseJsonArray(raw) {
 
 export function createStore(path) {
   const db = new DatabaseSync(path);
-  db.exec("PRAGMA journal_mode = WAL;");
-  // Concurrent writers (peer probe: 8 independent processes) must wait for the
-  // write lock instead of failing immediately with SQLITE_BUSY — otherwise the
-  // atomic generation increment loses whole writes, not just increments.
+  // Set busy_timeout BEFORE the journal-mode switch (audit peer: 8-process WAL
+  // init). Switching a fresh DB to WAL takes an exclusive lock; when several
+  // processes open the same path simultaneously, that lock can fail with
+  // SQLITE_BUSY before the timeout is armed. With the timeout installed first,
+  // the WAL transition (and every later write) blocks and retries instead of
+  // failing outright, so concurrent init converges to a stable 447/447.
   db.exec("PRAGMA busy_timeout = 5000;");
+  db.exec("PRAGMA journal_mode = WAL;");
   db.exec(SCHEMA);
 
   // Schema migrations for legacy databases (idempotent).
@@ -424,6 +427,24 @@ export function createStore(path) {
   }
   if (!mirrorCols.includes("type_status")) {
     db.exec("ALTER TABLE mirror_state ADD COLUMN type_status TEXT");
+  }
+
+  // Audit peer F: a legacy DB may hold a non-integer generation/applied_generation
+  // (pre-v0.3.9 the JS gate truncated with Math.trunc and SQLite's CHECK only
+  // enforced >= 0). Such a value is ambiguous — it cannot map to a real applied
+  // round — so surface it as a hard error on open instead of silently reading it
+  // as a coherent generation. Fail-closed: the operator must repair or reset the
+  // state row rather than continue with a lie.
+  for (const col of ["generation", "applied_generation"]) {
+    const bad = db.prepare(
+      `SELECT id FROM mirror_state WHERE ${col} IS NOT NULL AND ${col} != CAST(${col} AS INTEGER) LIMIT 1`
+    ).get();
+    if (bad) {
+      throw new RangeError(
+        `mirror_state.${col} holds a non-integer value (legacy dirty state); ` +
+        `repair or reset the row before opening this database`
+      );
+    }
   }
 
   // Per-instance monotonic timestamp guard: consecutive writes within the same
@@ -552,24 +573,35 @@ export function createStore(path) {
     const embedding = patch.embedding !== undefined
       ? (Array.isArray(patch.embedding) && patch.embedding.length ? JSON.stringify(patch.embedding) : null)
       : existing.embedding ?? null;
-    const result = db.prepare(
-      `UPDATE memories SET type=?, title=?, content=?, tags=?, importance=?, source=?, embedding=?, updated_at=?
-       WHERE id=? AND updated_at=?`
-    ).run(
-      type,
-      patch.title ?? existing.title,
-      patch.content ?? existing.content,
-      JSON.stringify(patch.tags ?? existing.tags),
-      Number.isInteger(patch.importance) ? patch.importance : existing.importance,
-      patch.source !== undefined ? patch.source : (existing.source ?? null),
-      embedding,
-      now,
-      id,
-      expectedUpdatedAt
-    );
-    if (result.changes === 0) return undefined; // CAS miss: a concurrent write won
-    // Only bump desired generation on a successful CAS — a miss writes nothing.
-    runAtomically(() => { incrementGeneration(); });
+    // The CAS UPDATE and the desired-generation bump must commit together (audit
+    // peer A): if the UPDATE autocommits first and the process dies before the
+    // increment, the store is mutated while generation == applied_generation and
+    // dirty == false — recoverMirror sees no debt and the mirror stays stale.
+    // Wrapping both in one transaction means a CAS miss rolls back cleanly too
+    // (no write, no generation bump).
+    let applied = false;
+    runAtomically(() => {
+      const result = db.prepare(
+        `UPDATE memories SET type=?, title=?, content=?, tags=?, importance=?, source=?, embedding=?, updated_at=?
+         WHERE id=? AND updated_at=?`
+      ).run(
+        type,
+        patch.title ?? existing.title,
+        patch.content ?? existing.content,
+        JSON.stringify(patch.tags ?? existing.tags),
+        Number.isInteger(patch.importance) ? patch.importance : existing.importance,
+        patch.source !== undefined ? patch.source : (existing.source ?? null),
+        embedding,
+        now,
+        id,
+        expectedUpdatedAt
+      );
+      if (result.changes === 0) return; // CAS miss: a concurrent write won
+      // Only bump desired generation on a successful CAS — a miss writes nothing.
+      incrementGeneration();
+      applied = true;
+    });
+    if (!applied) return undefined;
     return getById(id);
   }
 
@@ -1223,8 +1255,15 @@ export function createStore(path) {
       if (key === "dirty") {
         value = value ? 1 : 0;
       } else if (key === "generation" || key === "applied_generation") {
-        value = Math.trunc(Number(value));
-        if (!Number.isFinite(value) || value < 0 || value > Number.MAX_SAFE_INTEGER) {
+        // Fail-closed integer enforcement (audit peer F): never truncate. A
+        // fractional value like 1.5 previously passed the JS gate via
+        // Math.trunc while SQLite's CHECK (>= 0) silently accepted it too, so a
+        // dirty legacy row could carry a non-integer generation that reads as a
+        // coherent applied round. Reject non-integers outright — the caller must
+        // pass a whole number, and a stale dirty value stays visible instead of
+        // being "repaired" into a misleading clean integer.
+        value = Number(value);
+        if (!Number.isInteger(value) || value < 0 || value > Number.MAX_SAFE_INTEGER) {
           throw new RangeError(`mirror_state.${key} out of range: ${value}`);
         }
       } else if (key === "type_status" && value != null && typeof value !== "string") {

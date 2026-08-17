@@ -146,3 +146,45 @@ test("peer-D: generation 上界与负数拒绝", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("v0.3.9-A: compareAndUpdate 的 CAS UPDATE 与 generation 同事务——miss 不得递增", () => {
+  const { dir, store } = setup();
+  try {
+    const saved = store.save({ type: "project", title: "CAS 原子", content: "v0" });
+    const before = store.getById(saved.id);
+    const genBefore = store.getMirrorState().generation;
+
+    // 成功 CAS：业务写入 + generation 递增必须一次提交（同事务）
+    const updated = store.compareAndUpdate(saved.id, before.updated_at, { content: "v1" });
+    assert.ok(updated, "当前版本 CAS 必须成功");
+    const genAfterOk = store.getMirrorState().generation;
+    assert.equal(genAfterOk, genBefore + 1, "成功 CAS 必须恰好递增一次 generation");
+
+    // miss CAS：不写任何东西，generation 也不得递增
+    const stale = store.getById(saved.id).updated_at; // v1 的 token
+    store.compareAndUpdate(saved.id, before.updated_at, { content: "v2" }); // 用旧 token → miss
+    assert.equal(store.getById(saved.id).content, "v1", "miss 不得改数据");
+    assert.equal(store.getMirrorState().generation, genAfterOk,
+      "CAS miss 不得递增 generation（UPDATE 与 increment 必须同事务）");
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("v0.3.9-F: generation 非整数必须拒绝（不得截断）", () => {
+  const { dir, store } = setup();
+  try {
+    // 审计 peer F：1.5 这类小数此前被 Math.trunc 截断 + SQLite CHECK 接受 → 静默脏值。
+    // fail-closed：JS 与 SQL 统一只接受整数。
+    assert.throws(() => store.setMirrorState({ generation: 1.5 }), RangeError, "小数 generation 必须拒绝");
+    assert.throws(() => store.setMirrorState({ applied_generation: -1.5 }), RangeError, "负数小数必须拒绝");
+    assert.throws(() => store.setMirrorState({ generation: Number.MAX_SAFE_INTEGER + 0.5 }), RangeError, "超界小数必须拒绝");
+    // 整数仍正常
+    const s = store.setMirrorState({ generation: 7 });
+    assert.equal(s.generation, 7, "整数 generation 正常");
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

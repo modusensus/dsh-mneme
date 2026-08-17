@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
@@ -461,6 +461,39 @@ test("V0.3.6-F1: 旧库（v0.3.5 5 列）打开自动 ALTER 加 3 列，不丢�
     assert.equal(store.getTypeStatus().project.status, "failed", "迁移库上 setTypeStatus 正常工作");
     store.close();
   } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("v0.3.9-D: mirror 逐 type 物理终态——兄弟 type 失败不误标已提交 type", () => {
+  const { dir, store, mirror, service } = setup();
+  try {
+    // 注入逐 type 故障：project 写成功、decision 抛错（模拟 EISDIR），其余 type 正常。
+    // 对应审计 D：project 文件已物理提交、decision 失败，状态必须逐 type 记录——
+    // 不能像旧逻辑那样整体批量标 failed。
+    const original = mirror.sync.bind(mirror);
+    mirror.sync = (memories) => {
+      const results = original(memories);
+      results.decision = { ok: false, error: "EISDIR: decision.md is a directory" };
+      return results;
+    };
+    // project 与 decision 都有真实记忆 → 触发逐 type 渲染
+    store.save({ id: "mem-project", type: "project", title: "已提交", content: "物理写入", importance: 3, tags: [] });
+    store.save({ id: "mem-decision", type: "decision", title: "写失败", content: "此 type 失败", importance: 3, tags: [] });
+    // 直接调 service 内部 syncMirror（通过一次写触发）
+    service.saveWithDedupe({ type: "project", title: "触发", content: "sync", importance: 3 });
+
+    const ts = store.getTypeStatus();
+    // project 物理提交 → 必须 committed，不能被 decision 失败拖成 failed
+    assert.equal(ts.project.status, "committed", "物理已提交的 type 必须标记 committed");
+    assert.equal(ts.decision.status, "failed", "失败的 type 必须标记 failed");
+    // 部分失败 = 未完全收敛 → dirty 必须持久
+    assert.equal(store.getMirrorState().dirty, true, "部分 type 失败必须持久 dirty");
+    // 镜像里 project 文件真实存在（物理终态已落地，不是整体失败）
+    const projectFile = mirror.filePath("project");
+    assert.ok(existsSync(projectFile), "project 镜像文件必须已物理写入");
+  } finally {
+    store.close();
     rmSync(dir, { recursive: true, force: true });
   }
 });
