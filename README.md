@@ -10,7 +10,7 @@
   <a href="https://github.com/awesome-dsh-plugin/awesome-dsh-plugin"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="Awesome"></a>
   <a href="https://github.com/modusensus/dsh-mneme/actions"><img src="https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/test.yml" alt="CI"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-24%2B-blue" alt="node"></a>
-  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-443%20passed-success" alt="tests"></a>
+  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-447%20passed-success" alt="tests"></a>
 </p>
 
 <p align="center"><strong><a href="#中文">中文</a> | <a href="#english">English</a></strong></p>
@@ -170,7 +170,7 @@ npm run sync      # src → lib 同步
 记忆会自我成长：
 
 ```
-🧬 基因（v0.3.0）→ 🌙 睡眠（v0.3.1）→ 💭 反思（v0.4.0）→ ✨ 自进化（v0.5.0）
+🧬 基因（v0.3.0）→ 🪞 镜像一致（v0.3.6–0.3.8）→ 💭 反思（v0.4.0）→ 🌙 睡眠（v0.4.1）→ ✨ 自进化（v0.5.0）
 ```
 
 | 版本 | 主题 | 一句话 | 状态 |
@@ -183,8 +183,9 @@ npm run sync      # src → lib 同步
 | **v0.3.5** | 向量修复 + 安全文档 | ✅ 已完成（issue#6 scheduleEmbed 兜底 + SECURITY.md v2.1，443 测试） | — |
 | **v0.3.6** | 镜像债务建模 | ✅ 已完成（audit peer 4 阻断：generation/CAS/fence + 逐 type + health 鉴权脱敏，443 测试） | — |
 | **v0.3.7** | 启动竞态修复 | ✅ 已完成（issue#6：回灌移入 init().then + scheduleEmbed 就绪门 + init 幂等，443 测试） | — |
-| **v0.3.8** | 系统级睡眠 | Sleep 调度器 + 分层压缩 + 模式发现 | 规划 |
+| **v0.3.8** | 镜像同步可靠性 | ✅ 已完成（audit peer 复验 6 项运行时阻断：desired generation 同事务原子递增 / 同步失败不静默 / 原子增量零丢失 / 逐 type 回执 / 读取失败显式 unknown / generation 上界负数 CHECK，447 测试） | — |
 | **v0.4.0** | 反思性成长 | 纠错双向回流 + 规则演进 + 自适应参数 | 规划 |
+| **v0.4.1** | 系统级睡眠 | Sleep 调度器 + 分层压缩 + 模式发现 | 待定 |
 | **v0.5.0+** | 自进化记忆 | 兴趣漂移 + 跨 workspace | 远期 |
 
 已完成版本详见 [Release Notes](https://github.com/modusensus/dsh-mneme/releases)。
@@ -347,7 +348,7 @@ npm run sync      # src → lib sync
 Memory grows:
 
 ```
-🧬 Gene (v0.3.0) → 🌙 Sleep (v0.3.1) → 💭 Reflect (v0.4.0) → ✨ Self-evolve (v0.5.0)
+🧬 Gene (v0.3.0) → 🪞 Mirror consistency (v0.3.6–0.3.8) → 💭 Reflect (v0.4.0) → 🌙 Sleep (v0.4.1) → ✨ Self-evolve (v0.5.0)
 ```
 
 | Version | Theme | One-liner | Status |
@@ -360,8 +361,9 @@ Memory grows:
 | **v0.3.5** | Vector fix + security docs | ✅ Done (issue#6 scheduleEmbed fallback + SECURITY.md v2.1, 443 tests) | — |
 | **v0.3.6** | Mirror debt modeling | ✅ Done (audit peer 4 blockers: generation/CAS/fence + per-type + health auth/sanitize, 443 tests) | — |
 | **v0.3.7** | Startup race fix | ✅ Done (issue#6: backfill in init().then + scheduleEmbed readiness gate + init idempotent, 443 tests) | — |
-| **v0.3.8** | System-level sleep | Sleep scheduler + tiered compression + pattern discovery | planned |
+| **v0.3.8** | Mirror sync reliability | ✅ Done (audit peer re-verify 6 runtime blockers: desired generation atomic increment / no silent sync failure / zero-loss atomic increment / per-type receipts / read-failure unknown / generation bounds CHECK, 447 tests) | — |
 | **v0.4.0** | Reflective growth | Correction feedback loop + rule evolution + adaptive params | planned |
+| **v0.4.1** | System-level sleep | Sleep scheduler + tiered compression + pattern discovery | planned |
 | **v0.5.0+** | Self-evolving memory | Interest drift + cross-workspace | long-term |
 
 Completed versions see [Release Notes](https://github.com/modusensus/dsh-mneme/releases).
