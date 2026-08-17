@@ -10,7 +10,7 @@
   <a href="https://github.com/awesome-dsh-plugin/awesome-dsh-plugin"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="Awesome"></a>
   <a href="https://github.com/modusensus/dsh-mneme/actions"><img src="https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/test.yml" alt="CI"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-24%2B-blue" alt="node"></a>
-  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-443%20passed-success" alt="tests"></a>
+  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-471%20passed-success" alt="tests"></a>
 </p>
 
 <p align="center"><strong><a href="#中文">中文</a> | <a href="#english">English</a></strong></p>
@@ -94,6 +94,17 @@ entities ──→ entity_attrs ──→ entity_relations
 - **实体感知（v0.3.0）**：update 自动写 `supersedes` 关系；merge 迁移 loser 的实体属性到 keeper
 - **CAS 防护 + 事务化**：并发安全，多步原子
 
+## 💤 Sleep Mode 系统级睡眠（v0.4.0，opt-in）
+
+autoDream 是"被动阈值触发"，Sleep Mode 升级为"主动定时维护 + 分层压缩"。系统空闲 `sleepIdleMinutes` 分钟自动执行**四阶段深度维护**（默认关闭）：
+
+1. **冲突消解**：全库矛盾检测，strictness 三级可配（gentle 0.92 / normal 0.85 / aggressive 0.75）
+2. **归档降级**：按 `last_accessed_at` 分层——30 天未召回压成摘要（原文进 `_full_content` 可无损恢复）、90 天完全归档
+3. **模式发现**：LLM 扫描近期记忆提炼规律，产出 `type=pattern` 记忆，evidence 强校验防伪造
+4. **关系补全**：检测孤立实体并补全隐含关系（共现 `related_to` / 项目 `part_of` / 技术 `depends_on`）
+
+可中断（用户活动即中止）、串行安全（与 autoDream 共享 enqueue 队列不重叠）、fail-safe（单阶段失败不阻塞其余）、审计延续（`dream_runs` 以 `run_type='sleep'` 区分）。
+
 ## 🏛️ 记忆主权
 
 记忆透明、可审查、归你所有：
@@ -120,7 +131,7 @@ entities ──→ entity_attrs ──→ entity_relations
 - **recall_runs 召回层**：检索场景可审计
 - **policy_epoch 规则版本**：规则升级后旧裁决降级为历史证据
 - **安全审计 peer 复验**：真实 npm 包隔离独立回归，7 项发布门槛 + F-03 诚实审计
-- **443 个测试 + 三轴压测**全绿
+- **471 个测试 + 三轴压测**全绿
 
 ## ⚙️ 配置（节选）
 
@@ -150,7 +161,7 @@ dsh web
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 443 个测试
+npm test          # 471 个测试
 npm run stress    # 三轴线压测
 npm run sync      # src → lib 同步
 ```
@@ -170,7 +181,7 @@ npm run sync      # src → lib 同步
 记忆会自我成长：
 
 ```
-🧬 基因（v0.3.0）→ 🛡️ 审计加固（v0.3.6–0.3.9）→ 💭 反思（v0.4.0）→ ✨ 自进化（v0.5.0）
+🧬 基因（v0.3.0）→ 🛡️ 审计加固（v0.3.6–0.3.9）→ 💤 睡眠维护（v0.4.0）→ ✨ 自进化（v0.5.0）
 ```
 
 | 版本 | 主题 | 一句话 | 状态 |
@@ -185,7 +196,8 @@ npm run sync      # src → lib 同步
 | **v0.3.7** | 启动竞态修复 | ✅ 已完成（issue#6：回灌移入 init().then + scheduleEmbed 就绪门 + init 幂等，443 测试） | — |
 | **v0.3.8** | 审计 6 项阻断修复 | audit peer 复验 6 项运行时阻断全修 + mirror 同步可靠性，447 测试 | ✅ 已完成 |
 | **v0.3.9** | 审计 A/B/D/F 加固 | CAS 同事务 + degraded 回执 + 逐 type 物理终态 + 整数 fail-closed，450 测试 | ✅ 已完成 |
-| **v0.4.0** | 反思性成长 | 纠错双向回流 + 规则演进 + 自适应参数 | 规划 |
+| **v0.4.0** | 系统级睡眠 Sleep Mode | 空闲触发的四阶段深度维护（冲突消解/归档降级/模式发现/关系补全）+ 分层压缩，471 测试 | 🚧 开发中 |
+| **v0.4.1** | 反思性成长 | 纠错双向回流 + 规则演进 + 自适应参数 | 规划 |
 | **v0.5.0+** | 自进化记忆 | 兴趣漂移 + 跨 workspace | 远期 |
 
 已完成版本详见 [Release Notes](https://github.com/modusensus/dsh-mneme/releases)。
@@ -273,6 +285,17 @@ The background "dream engine" keeps the memory store refined:
 - **Entity-aware (v0.3.0)**: update writes `supersedes` relations; merge migrates loser's entity attrs to keeper
 - **CAS guard + transactions**: concurrency-safe, multi-step atomic
 
+## 💤 Sleep Mode (v0.4.0, opt-in)
+
+autoDream is "passively threshold-triggered"; Sleep Mode upgrades to "proactive scheduled maintenance + tiered compression". When the store is idle for `sleepIdleMinutes`, it runs a **4-phase deep maintenance pass** (off by default):
+
+1. **Conflict resolution**: whole-store contradiction detection, strictness tiers (gentle 0.92 / normal 0.85 / aggressive 0.75)
+2. **Archival demotion**: tiered by `last_accessed_at` — memories untouched for 30d shrink to a summary (full body kept in `_full_content`, losslessly restorable); 90d → fully archived
+3. **Pattern discovery**: LLM scans recent memories for recurring patterns, mints `type=pattern` memories with evidence-id validation
+4. **Relation completion**: detects orphan entities and completes implied relations (co-occurrence `related_to` / project `part_of` / tech `depends_on`)
+
+Interruptible (user activity aborts the cycle), serial-safe (shares the `service.enqueue` queue with autoDream — never overlapping), fail-safe (one phase failing never blocks the rest), audit-continuous (`dream_runs` rows tagged `run_type='sleep'`).
+
 ## 🏛️ Memory Sovereignty
 
 Transparent, auditable, yours:
@@ -299,7 +322,7 @@ Every decision is replayable; every claim has evidence:
 - **recall_runs**: retrieval scenes auditable
 - **policy_epoch**: rule version — old rulings degrade to historical evidence after upgrades
 - **Security audit peer re-verification**: isolated regression on real npm tarballs, 7 release gates + F-03 honest audit
-- **443 tests + three-axis stress** all green
+- **471 tests + three-axis stress** all green
 
 ## ⚙️ Configuration (excerpt)
 
@@ -328,7 +351,7 @@ dsh web
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 443 tests
+npm test          # 471 tests
 npm run stress    # three-axis stress test
 npm run sync      # src → lib sync
 ```
@@ -348,7 +371,7 @@ npm run sync      # src → lib sync
 Memory grows:
 
 ```
-🧬 Gene (v0.3.0) → 🛡️ Audit hardening (v0.3.6–0.3.9) → 💭 Reflect (v0.4.0) → ✨ Self-evolve (v0.5.0)
+🧬 Gene (v0.3.0) → 🛡️ Audit hardening (v0.3.6–0.3.9) → 💤 Sleep maintenance (v0.4.0) → ✨ Self-evolve (v0.5.0)
 ```
 
 | Version | Theme | One-liner | Status |
@@ -363,7 +386,8 @@ Memory grows:
 | **v0.3.7** | Startup race fix | ✅ Done (issue#6: backfill in init().then + scheduleEmbed readiness gate + init idempotent, 443 tests) | — |
 | **v0.3.8** | Audit 6-blocker fixes | audit peer 6 runtime blockers + mirror sync reliability, 447 tests | ✅ Done |
 | **v0.3.9** | Audit A/B/D/F hardening | CAS same-tx + degraded receipt + per-type terminal state + integer fail-closed, 450 tests | ✅ Done |
-| **v0.4.0** | Reflective growth | Correction feedback loop + rule evolution + adaptive params | planned |
+| **v0.4.0** | Sleep Mode | idle-triggered 4-phase deep maintenance (conflict/demote/pattern/relation) + tiered compression, 471 tests | 🚧 in progress |
+| **v0.4.1** | Reflective growth | Correction feedback loop + rule evolution + adaptive params | planned |
 | **v0.5.0+** | Self-evolving memory | Interest drift + cross-workspace | long-term |
 
 Completed versions see [Release Notes](https://github.com/modusensus/dsh-mneme/releases).

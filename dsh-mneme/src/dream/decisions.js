@@ -1,4 +1,4 @@
-const ACTIONS = new Set(["keep", "merge", "archive", "conflict", "update"]);
+const ACTIONS = new Set(["keep", "merge", "archive", "conflict", "update", "create"]);
 
 /**
  * Validate a dream decision list against a snapshot of eligible memories.
@@ -26,6 +26,25 @@ export function validateDecisions(decisions, snapshot, options = {}) {
         errors.push(`${at}: conflict needs distinct winner and loser`);
         continue;
       }
+    } else if (d.action === "create") {
+      // Mint a fresh memory (sleep pattern discovery). Claims no existing id,
+      // so it skips the claiming loop below; evidence is optional provenance
+      // (already filtered to real ids by the caller) and is stored in content.
+      if (typeof d.title !== "string" || !d.title.trim()) {
+        errors.push(`${at}: create needs non-empty title`);
+        continue;
+      }
+      if (typeof d.content !== "string" || !d.content.trim()) {
+        errors.push(`${at}: create needs non-empty content`);
+        continue;
+      }
+      if (d.importance !== undefined && (!Number.isInteger(d.importance) || d.importance < 1 || d.importance > 5)) {
+        errors.push(`${at}: create importance must be an integer 1-5 when provided`);
+      }
+      if (typeof d.type !== "string" || !d.type.trim()) {
+        errors.push(`${at}: create needs non-empty type`);
+      }
+      continue;
     } else if (!Array.isArray(d.ids) || d.ids.length === 0) {
       errors.push(`${at}: ${d.action} needs non-empty ids`);
       continue;
@@ -94,6 +113,12 @@ export function validateDecisions(decisions, snapshot, options = {}) {
   const updateCount = decisions.filter((d) => d.action === "update").length;
   if (updateCount > maxUpdatePerRun) {
     errors.push(`too many update decisions: ${updateCount} > ${maxUpdatePerRun}`);
+  }
+  // Cap pattern minting per run (sleepMaxPatternPerRun passes through here).
+  const createCount = decisions.filter((d) => d.action === "create").length;
+  const maxCreatePerRun = options.maxCreatePerRun ?? 5;
+  if (createCount > maxCreatePerRun) {
+    errors.push(`too many create decisions: ${createCount} > ${maxCreatePerRun}`);
   }
   // Every snapshot id must appear in at least one decision
   for (const id of snapshot.keys()) {
@@ -202,8 +227,31 @@ function applyOne(d, service, snapshot, config = {}) {
     case "archive": return applyArchive(d, service, snapshot);
     case "merge": return applyMerge(d, service, snapshot, config);
     case "conflict": return applyConflict(d, service, snapshot);
+    case "create": return applyCreate(d, service, config);
     default: return applyUpdate(d, service, snapshot, config);
   }
+}
+
+/**
+ * Mint a fresh memory (pattern discovery). No existing target, so no CAS guard.
+ * Evidence ids ride in the content so a pattern stays traceable to its source
+ * memories. saveWithDedupe dedupes identical mints (idempotent replay-safe).
+ */
+function applyCreate(d, service, config = {}) {
+  const title = String(d.title ?? "").trim();
+  const content = String(d.content ?? "").trim();
+  const importance = Number.isInteger(d.importance) ? d.importance : 3;
+  const type = typeof d.type === "string" ? d.type : "pattern";
+  const evidence = Array.isArray(d.evidence)
+    ? d.evidence.filter((id) => typeof id === "string")
+    : [];
+  const body = evidence.length > 0
+    ? `${content}\n\n[证据: ${evidence.join(", ")}]`
+    : content;
+  const created = service.saveWithDedupe({ type, title, content: body, importance });
+  const memory = created?.memory;
+  if (!memory) return "skipped"; // deduped/subsumed: nothing minted, clean no-op
+  return { applied: 1, committed: { action: "create", id: memory.id, type } };
 }
 
 function applyArchive(d, service, snapshot) {

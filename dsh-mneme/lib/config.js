@@ -91,4 +91,42 @@ export const Config = z.object({
   entityExtractionMaxAttrs: z.natural().min(1).max(50).default(20),
   // Prefix/semantic search over entity names (used by recall).
   entitySearchEnabled: z.boolean().default(true),
+
+  // --- sleep mode: idle-triggered deep maintenance (v0.4.0) ---------------
+  // Opt-in, off by default. Unlike autoDream (threshold-triggered, lightweight)
+  // sleep fires when the store has been quiet for sleepIdleMinutes and deep-
+  // maintains the whole library: conflict resolution, archival demotion,
+  // pattern discovery and entity relation completion. Abortable on user
+  // activity, audited into dream_runs (run_type='sleep'), and serialized with
+  // autoDream so the two never overlap.
+  sleepModeEnabled: z.boolean().default(false),
+  // Quiet window before a cycle fires (minutes).
+  sleepIdleMinutes: z.natural().min(1).max(60).default(5),
+  // Minimum gap between two sleep runs (hours) — a second idle window within
+  // this interval does not retrigger.
+  sleepMinIntervalHours: z.natural().min(1).max(168).default(8),
+  // Conflict adjudication strictness:
+  //   gentle    only high-confidence conflicts (threshold 0.92) are resolved
+  //   normal    standard dream-level (threshold 0.85)
+  //   aggressive low-confidence pairs are also adjudicated (threshold 0.75)
+  sleepConflictStrictness: z.union([
+    z.const("gentle"),
+    z.const("normal"),
+    z.const("aggressive")
+  ]).default("normal"),
+  // Archival demotion tiering (days since last access):
+  //   >= sleepArchiveDays  → shrink to summary, full body kept in _full_content
+  //   >= sleepCompressDays → archived outright (entity relations preserved)
+  sleepArchiveDays: z.natural().min(7).max(365).default(30),
+  sleepCompressDays: z.natural().min(7).max(365).default(90),
+  // Pattern discovery scan window (most recent memories to scan).
+  sleepPatternMinMemories: z.natural().min(10).max(1000).default(100),
+  // How far back pattern discovery considers entity attr changes (days).
+  sleepPatternLookbackDays: z.natural().min(1).max(90).default(30),
+  // Max pattern memories minted per run (0 = disabled).
+  sleepMaxPatternPerRun: z.natural().min(0).max(10).default(3),
+  // Optional LLM route override for sleep's bulk passes (empty = use dream
+  // route / agent default model).
+  sleepProvider: z.string().default(""),
+  sleepModel: z.string().default(""),
 });

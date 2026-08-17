@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS memories (
   archived    INTEGER NOT NULL DEFAULT 0,
   source      TEXT,
   embedding   TEXT,
+  last_accessed_at  TEXT,
+  _full_content     TEXT,
   created_at  TEXT NOT NULL,
   updated_at  TEXT NOT NULL
 );
@@ -38,7 +40,8 @@ CREATE TABLE IF NOT EXISTS dream_runs (
   applied        INTEGER NOT NULL DEFAULT 0,
   summary_stored INTEGER NOT NULL DEFAULT 0,
   receipt        TEXT NOT NULL,
-  policy_epoch   INTEGER NOT NULL DEFAULT 0  -- 裁决规则版本：规则升级后旧裁决降级为历史证据
+  policy_epoch   INTEGER NOT NULL DEFAULT 0,  -- 裁决规则版本：规则升级后旧裁决降级为历史证据
+  run_type       TEXT NOT NULL DEFAULT 'auto'  -- auto | sleep：睡眠周期的审计区分
 );
 CREATE INDEX IF NOT EXISTS idx_dream_runs_created ON dream_runs(created_at);
 
@@ -186,7 +189,7 @@ CREATE TABLE IF NOT EXISTS mirror_state (
 );
 `;
 
-const TYPES = new Set(["preference", "project", "decision", "history", "summary"]);
+const TYPES = new Set(["preference", "project", "decision", "history", "summary", "pattern"]);
 
 // Per-type mirror sync receipts (peer blocker 4): a type is either committed
 // (file written + fence applied), failed (last sync round errored for it), or
@@ -227,7 +230,9 @@ function toRow(row) {
     archived: row.archived === 1,
     source: row.source ?? undefined,
     created_at: row.created_at,
-    updated_at: row.updated_at
+    updated_at: row.updated_at,
+    last_accessed_at: row.last_accessed_at ?? undefined,
+    _full_content: row._full_content ?? undefined
   };
 }
 
@@ -248,7 +253,8 @@ function toDreamRun(row) {
     applied: row.applied,
     summary_stored: row.summary_stored === 1,
     receipt: row.receipt,
-    policy_epoch: row.policy_epoch ?? 0
+    policy_epoch: row.policy_epoch ?? 0,
+    run_type: row.run_type ?? "auto"
   };
 }
 
@@ -409,11 +415,20 @@ export function createStore(path) {
   if (!columns.includes("embedding")) {
     db.exec("ALTER TABLE memories ADD COLUMN embedding TEXT");
   }
+  if (!columns.includes("last_accessed_at")) {
+    db.exec("ALTER TABLE memories ADD COLUMN last_accessed_at TEXT");
+  }
+  if (!columns.includes("_full_content")) {
+    db.exec("ALTER TABLE memories ADD COLUMN _full_content TEXT");
+  }
 
   // Legacy dream_runs without policy_epoch → backfill with the default epoch.
   const dreamCols = db.prepare("PRAGMA table_info(dream_runs)").all().map((c) => c.name);
   if (!dreamCols.includes("policy_epoch")) {
     db.exec("ALTER TABLE dream_runs ADD COLUMN policy_epoch INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!dreamCols.includes("run_type")) {
+    db.exec("ALTER TABLE dream_runs ADD COLUMN run_type TEXT NOT NULL DEFAULT 'auto'");
   }
 
   // Legacy mirror_state without v0.3.6 generation columns → add each missing
@@ -623,6 +638,69 @@ export function createStore(path) {
     return getById(id);
   }
 
+  // --- sleep-mode storage support (v0.4.0) ---------------------------------
+  // touchLastAccess stamps the read time on recall/inject paths. It deliberately
+  // does NOT bump the mirror generation: reads must not mark the mirror dirty.
+  function touchLastAccess(id, at) {
+    if (!getById(id)) return false;
+    db.prepare("UPDATE memories SET last_accessed_at = ? WHERE id = ?")
+      .run(at ?? nowIso(), id);
+    return true;
+  }
+
+  // Shrink an aged memory to `summary`, parking its full body in _full_content.
+  // Idempotent: an already-demoted memory (non-null _full_content) is left
+  // untouched. minRefTimeMs guards the fast path — if last_accessed_at moved
+  // after the caller's snapshot (>= minRefTimeMs), the memory is hot again and
+  // is skipped. Returns the updated memory, or undefined when skipped/absent.
+  function demoteToSummary(id, summary, { minRefTimeMs } = {}) {
+    let changed = false;
+    runAtomically(() => {
+      const row = db.prepare("SELECT last_accessed_at, content, _full_content FROM memories WHERE id = ?").get(id);
+      if (!row || row._full_content) return;
+      if (minRefTimeMs !== undefined && row.last_accessed_at) {
+        const lastMs = Date.parse(row.last_accessed_at);
+        if (lastMs >= minRefTimeMs) return; // touched after snapshot — still hot
+      }
+      db.prepare(
+        "UPDATE memories SET content = ?, _full_content = ?, updated_at = ? WHERE id = ?"
+      ).run(summary, row.content, nowIso(), id);
+      incrementGeneration();
+      changed = true;
+    });
+    return changed ? getById(id) : undefined;
+  }
+
+  // Undo demoteToSummary: pull the parked body back into content.
+  function restoreContent(id) {
+    let changed = false;
+    runAtomically(() => {
+      const row = db.prepare("SELECT content, _full_content FROM memories WHERE id = ?").get(id);
+      if (!row || !row._full_content) return;
+      db.prepare(
+        "UPDATE memories SET content = ?, _full_content = NULL, updated_at = ? WHERE id = ?"
+      ).run(row._full_content, nowIso(), id);
+      incrementGeneration();
+      changed = true;
+    });
+    return changed ? getById(id) : undefined;
+  }
+
+  // Live memories that have not been touched since `cutMs` (never-touched ones
+  // fall back to created_at). Ordered by last access ascending — the coldest
+  // first. Used by sleep phase 2 to pick archival-demotion candidates.
+  function getUnrecalledSince(cutMs, { limit = 500 } = {}) {
+    const cutIso = new Date(cutMs).toISOString();
+    const rows = db.prepare(
+      `SELECT * FROM memories
+       WHERE forgotten = 0 AND archived = 0
+         AND (last_accessed_at IS NULL OR last_accessed_at < ?)
+       ORDER BY COALESCE(last_accessed_at, created_at) ASC, id
+       LIMIT ?`
+    ).all(cutIso, limit);
+    return rows.map(toRow);
+  }
+
   function list({ type, limit = 50, offset = 0, includeForgotten = false, includeArchived = false } = {}) {
     const clauses = [];
     const params = [];
@@ -748,16 +826,17 @@ export function createStore(path) {
     const id = run.id ?? randomUUID();
     const now = nowIso();
     const policyEpoch = Number.isInteger(run.policy_epoch) ? run.policy_epoch : 0;
+    const runType = run.run_type ?? "auto";
     db.prepare(
       `INSERT INTO dream_runs (id, created_at, status, error, provider, model, snapshot_hash,
-        input_count, input, decisions, outcome, applied, summary_stored, receipt, policy_epoch)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        input_count, input, decisions, outcome, applied, summary_stored, receipt, policy_epoch, run_type)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          created_at=excluded.created_at, status=excluded.status, error=excluded.error,
          provider=excluded.provider, model=excluded.model, snapshot_hash=excluded.snapshot_hash,
          input_count=excluded.input_count, input=excluded.input, decisions=excluded.decisions,
          outcome=excluded.outcome, applied=excluded.applied, summary_stored=excluded.summary_stored,
-         receipt=excluded.receipt, policy_epoch=excluded.policy_epoch`
+         receipt=excluded.receipt, policy_epoch=excluded.policy_epoch, run_type=excluded.run_type`
     ).run(
       id,
       run.created_at ?? now,
@@ -773,7 +852,8 @@ export function createStore(path) {
       run.applied ?? 0,
       run.summary_stored ? 1 : 0,
       run.receipt,
-      policyEpoch
+      policyEpoch,
+      runType
     );
     return getDreamRun(id);
   }
@@ -1215,6 +1295,16 @@ export function createStore(path) {
     ).all(entityId, entityId).map(toRelation);
   }
 
+  /** All entities (optionally name-filtered, newest first). Used by sleep phase 4
+   *  orphan detection: an entity with zero relations is a candidate for relation
+   *  completion. */
+  function listEntities({ limit = 1000 } = {}) {
+    const rows = db.prepare(
+      "SELECT * FROM entities ORDER BY last_seen DESC, name ASC LIMIT ?"
+    ).all(limit);
+    return rows.map(toEntity);
+  }
+
   // --- mirror sync state (F-NEW-03) -----------------------------------------
 
   /**
@@ -1413,6 +1503,10 @@ export function createStore(path) {
     remove,
     setForget,
     setArchived,
+    touchLastAccess,
+    demoteToSummary,
+    restoreContent,
+    getUnrecalledSince,
     list,
     all,
     search,
@@ -1441,6 +1535,7 @@ export function createStore(path) {
     createEntity,
     findEntityByName,
     findEntityById,
+    listEntities,
     updateEntity,
     saveAttr,
     invalidateOldAttr,

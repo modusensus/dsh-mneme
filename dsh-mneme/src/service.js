@@ -9,6 +9,11 @@ export function createService({ store, mirror, config, onWrite, logger }) {
   // passed in the constructor). Fired on the same write events as onWrite.
   let dreamHook = null;
 
+  // Optional sleep scheduler hook (v0.4.0), installed via setSleepHook after
+  // creation. Fired on the same write events as onWrite: it tells the sleep
+  // scheduler the store just changed so the idle-detection clock resets.
+  let sleepHook = null;
+
   // Optional vector embedder, installed via setEmbedder after creation. After
   // any content write it fire-and-forgets a re-embed of the row so vector
   // search stays in sync; failures are swallowed inside the embedder.
@@ -36,6 +41,19 @@ export function createService({ store, mirror, config, onWrite, logger }) {
   // never leaves the mirror file diverged from the database; transaction()
   // replays them exactly once against the committed state.
   let txDepth = 0;
+
+  // Serial task queue (sleep v0.4.0). Long-running background passes — dream
+  // consolidation, sleep cycles — must never overlap: two sleep runs racing
+  // would double-demote or double-mint patterns. enqueue chains the task onto
+  // a promise tail so N callers can queue work that runs strictly one at a
+  // time. A task that rejects doesn't poison the queue (the tail swallows the
+  // rejection) but the rejection still propagates to that caller.
+  let queueTail = Promise.resolve();
+  function enqueue(fn) {
+    const next = queueTail.then(fn, fn);
+    queueTail = next.catch(() => {});
+    return next;
+  }
 
   // issue #6 (part 2): startup race defense. A local embedder (LocalEmbedder /
   // Ollama) exposes an async init(), so between `setEmbedder` and init()
@@ -187,7 +205,9 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     for (const mem of keywordHits) {
       if (!merged.has(mem.id)) merged.set(mem.id, { ...mem, _source: "keyword", _score: 0.7 });
     }
-    return Array.from(merged.values()).sort((a, b) => b._score - a._score).slice(0, topK);
+    const hits = Array.from(merged.values()).sort((a, b) => b._score - a._score).slice(0, topK);
+    touchRecalled(hits);
+    return hits;
   }
 
   /**
@@ -205,7 +225,9 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     // store.findMemoriesByAttr —— 空 value 契约 = 返回该 attr_key 的全部
     // 当前有效记忆（v0.3.0，store.js 已实现）。
     const rows = store.findMemoriesByAttr(key, value ?? "");
-    return rows.slice(0, topK);
+    const hits = rows.slice(0, topK);
+    touchRecalled(hits);
+    return hits;
   }
 
   /**
@@ -233,6 +255,23 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     const titleHit = title.includes(ql);
     const base = titleHit ? 1 : content.includes(ql) ? 0.6 : 0.3;
     return base * (0.5 + (row.importance ?? 3) / 10);
+  }
+
+  /**
+   * Sleep touch (v0.4.0): when sleep is enabled, any memory surfaced by recall
+   * or auto-injection gets its last_accessed_at bumped, so the "unrecalled N
+   * days → demote/archive" tiering counts real access. Best-effort and gated on
+   * config.sleepModeEnabled — when sleep is off this is a complete no-op (no
+   * writes on the hot recall path). A touch failure must never break search/inject.
+   */
+  function touchRecalled(memories) {
+    if (config?.sleepModeEnabled !== true || !Array.isArray(memories) || memories.length === 0) return;
+    for (const m of memories) {
+      if (!m?.id) continue;
+      try {
+        store.touchLastAccess(m.id);
+      } catch { /* touch is best effort */ }
+    }
   }
 
   async function searchMemories(query, options = {}) {
@@ -345,6 +384,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
         });
       } catch { /* recall receipt is best effort */ }
     }
+    touchRecalled(result);
     return result;
   }
 
@@ -361,6 +401,9 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     }
     if (dreamHook) {
       try { dreamHook(); } catch { /* ignore */ }
+    }
+    if (sleepHook) {
+      try { sleepHook(); } catch { /* ignore */ }
     }
   }
 
@@ -446,7 +489,9 @@ export function createService({ store, mirror, config, onWrite, logger }) {
         const pb = b.type === "summary" ? 0 : b.type === "preference" ? 1 : 2;
         return pa - pb || b.importance - a.importance;
       });
-    return items.slice(0, maxItems);
+    const selected = items.slice(0, maxItems);
+    touchRecalled(selected);
+    return selected;
   }
 
   /**
@@ -788,7 +833,9 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     mergeHumanEdits,
     toApiList,
     transaction,
+    enqueue,
     setDreamHook(fn) { dreamHook = fn; },
+    setSleepHook(fn) { sleepHook = fn; },
     setEmbedder(emb) {
       embedder = emb;
       if (!emb) {
@@ -919,6 +966,22 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       afterSync("write");
       return updated;
     },
+    // sleep-mode storage (v0.4.0). demoteToSummary / restoreContent mutate
+    // content so they ride the normal write-hook path (mirror re-renders).
+    // touchLastAccess is a read-stamp — deliberately NO write hook (a recall
+    // must not dirty the mirror). getUnrecalledSince is a pure read.
+    demoteToSummary: (id, summary, opts) => {
+      const updated = store.demoteToSummary(id, summary, opts);
+      afterSync("write");
+      return updated;
+    },
+    restoreContent: (id) => {
+      const updated = store.restoreContent(id);
+      afterSync("write");
+      return updated;
+    },
+    touchLastAccess: (id, at) => store.touchLastAccess(id, at),
+    getUnrecalledSince: (cutMs, opts) => store.getUnrecalledSince(cutMs, opts),
     // autoDream audit trail: passthroughs deliberately bypass write hooks —
     // an audit write is bookkeeping, and notifyWrite would loop back into the
     // dream scheduler that just recorded the run.
@@ -941,6 +1004,12 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     // migrates entity_attrs on merge. Bookkeeping writes like the audit
     // passthroughs above — never write-hook-triggering memory mutations.
     saveRelation: (r) => store.saveRelation(r),
+    listEntities: (o) => store.listEntities(o),
+    getRelations: (id) => store.getRelations(id),
+    saveAttr: (r) => store.saveAttr(r),
+    createEntity: (r) => store.createEntity(r),
+    findEntityByName: (n) => store.findEntityByName(n),
+    findEntityById: (id) => store.findEntityById(id),
     getAttrsByMemory: (id) => store.getAttrsByMemory(id),
     migrateAttrsToMemory: (fromId, toId, now) => store.migrateAttrsToMemory(fromId, toId, now)
   };

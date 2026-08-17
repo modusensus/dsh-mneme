@@ -1,3 +1,49 @@
+# dsh-mneme v0.3.x → v0.4.0（系统级睡眠 Sleep Mode）升级说明
+
+- **日期**：2026-08-17
+- **适用范围**：从 v0.3.9（审计加固）升级到 v0.4.0（Sleep Mode）
+- **目标**：**零配置迁移、零数据损失**。升级后默认不启用 Sleep（opt-in），原行为完全不变。
+
+## 1. 数据兼容（自动迁移，无需手工操作）
+
+### 1.1 SQLite 记忆库
+
+- **memories 表新增两列**（幂等迁移，`PRAGMA table_info` 检查 + `ALTER TABLE ... ADD COLUMN`）：
+  - `last_accessed_at TEXT` — 最后召回时间戳（搜索/注入路径自动 touch）
+  - `_full_content TEXT` — 冷记忆降级时的原文存档（压缩后内容可在原处恢复）
+- **dream_runs 表新增一列**：`run_type TEXT NOT NULL DEFAULT 'auto'` — `auto`（autoDream）/ `sleep`（睡眠周期）审计区分
+- 已有数据不受影响；降级/归档只在 `sleepModeEnabled: true` 后按阈值触发
+
+### 1.2 镜像与审计
+
+- Markdown 镜像格式不变；`demoteToSummary`/`restoreContent` 走正常写钩子（镜像重渲染），`touchLastAccess` 是读戳（不触发写钩子，避免脏镜像）
+- 既有 `dream_runs` 审计记录保留；睡眠周期新增 `run_type='sleep'` 记录，与 autoDream 共用审计表
+
+## 2. 配置变更（全部 opt-in）
+
+### 2.1 新增配置项
+
+| 键 | 默认值 | 说明 |
+|----|--------|------|
+| `sleepModeEnabled` | `false` | 总开关，开启后才激活睡眠调度器 |
+| `sleepIdleMinutes` | `5` | 连续空闲多少分钟触发睡眠周期 |
+| `sleepMinIntervalHours` | `8` | 两次睡眠周期的最小间隔（小时） |
+| `sleepConflictStrictness` | `'normal'` | 冲突消解严格度：`gentle`(0.92) / `normal`(0.85) / `aggressive`(0.75) |
+| `sleepArchiveDays` | `30` | 多少天未召回 → 压成摘要（`_full_content` 存档） |
+| `sleepCompressDays` | `90` | 多少天未召回 → 完全归档 |
+| `sleepPatternMinMemories` | `100` | 模式发现扫描的最近记忆条数 |
+| `sleepPatternLookbackDays` | `30` | 模式发现回溯天数 |
+| `sleepMaxPatternPerRun` | `3` | 单次睡眠周期最多产出的模式数 |
+| `sleepProvider` / `sleepModel` | `''` | 睡眠专用 LLM 路由（留空复用默认） |
+
+### 2.2 行为变更说明
+
+- **零配置升级**：不设任何 sleep 配置 → 与 v0.3.9 行为完全一致，无新增后台任务
+- **首次启用**：设 `sleepModeEnabled: true` 后，系统空闲 `sleepIdleMinutes` 分钟触发首次深度维护
+- **推荐起步**：`sleepConflictStrictness: 'gentle'` 观察裁决质量后再收紧
+
+---
+
 # dsh-mneme v0.1 → v0.2（语义增强）升级说明
 
 - **日期**：2026-08-15

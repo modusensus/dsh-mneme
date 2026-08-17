@@ -5,6 +5,7 @@ import { createTools } from "./tools.js";
 import { createInjector } from "./inject.js";
 import { createSummarizer } from "./summarize.js";
 import { createDreamScheduler } from "./dream.js";
+import { createSleepScheduler, runSleep } from "./dream/sleep.js";
 import { createApi } from "./api.js";
 import { createSettings } from "./settings.js";
 import { createCommandManager } from "./commands.js";
@@ -181,6 +182,22 @@ export const apply = (ctx, config) => {
     service.setDreamHook(() => dream.maybeSchedule(service));
   }
 
+  // Sleep scheduler (v0.4.0): idle-triggered deep maintenance. Fires when the
+  // store has been quiet for sleepIdleMinutes and re-arms on every write via
+  // noteWrite (hooked to the service's write path). Runs go through
+  // service.enqueue so they serialize with autoDream — the two never overlap.
+  // Abortable on user activity; audited into dream_runs with run_type='sleep'.
+  let sleep = null;
+  if (cfg.sleepModeEnabled) {
+    sleep = createSleepScheduler({
+      service,
+      config: cfg,
+      logger: ctx.logger,
+      onRun: (signal) => (sleep ? runSleep(ctx, service, cfg, ctx.logger, { embedder, vectorIndex }, signal) : Promise.resolve({ ok: true, skipped: true }))
+    });
+    service.setSleepHook(() => sleep.noteWrite());
+  }
+
   // Entity gene extraction (v0.3.0): wire the extractor into the service as a
   // hook so saveWithDedupe can fire-and-forget an extraction pass on fresh
   // writes. The service never sees ctx.llm — index.js adapts it here into the
@@ -251,6 +268,7 @@ export const apply = (ctx, config) => {
     }
     commands?.dispose();
     if (dream) await dream.dispose();
+    if (sleep) sleep.dispose();
     store.close();
   };
 };

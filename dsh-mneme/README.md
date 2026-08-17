@@ -54,6 +54,22 @@
 - **Fail-safe**：非法 LLM 输出（未知 id / 非法 action / 跨类型合并 / 越界 importance）拒绝整单，绝不破坏记忆库
 - **裁决审计**：每次运行写入 `dream_runs` 审计表（输入快照 sha256 digest + 完整输入快照 + 决策清单 + 逐 id 去向 + receipt），可离线回放；merge / conflict / update 幂等应用，重放/并发重复执行无累积副作用；update 记录 `_before` 快照
 
+### Sleep Mode 系统级睡眠 💤（v0.4.0，opt-in）
+
+从 autoDream 的"被动阈值触发"升级为"主动定时维护 + 分层压缩"。系统空闲 `sleepIdleMinutes` 分钟自动执行深度维护，**默认关闭**（`sleepModeEnabled: false`），开启后行为：
+
+- **可中断**：AbortController 实现，用户恢复活动即中止当前周期（`noteWrite` 重置空闲计时 + 中断信号）
+- **串行安全**：睡眠周期走 `service.enqueue` 串行队列，与 autoDream 严格不重叠；`minRefTimeMs` 防止快照后被召回的记忆被误降级
+- **四阶段深度维护**：
+  1. `conflict_resolution`：全库冲突消解，strictness 三级可配（gentle 0.92 / normal 0.85 / aggressive 0.75）
+  2. `archival_demotion`：按 `last_accessed_at` 分层——30 天未召回压成摘要（原文进 `_full_content`，可无损恢复）、90 天完全归档
+  3. `pattern_discovery`：LLM 扫描近期记忆提炼规律，产出 `type=pattern` 记忆，evidence 强校验防伪造
+  4. `relation_completion`：检测孤立实体并补全隐含关系（共现 `related_to` / 项目 `part_of` / 技术 `depends_on`）
+- **Fail-safe**：每阶段独立 try/catch，LLM 故障只跳过对应阶段；无 LLM 路由时纯规则降级（demotion/relations）照常执行
+- **审计延续**：睡眠周期写入 `dream_runs`，`run_type='sleep'`，与 autoDream 共用审计表可追溯
+
+> 配置详见 `docs/SLEEP.md`；迁移说明见 `docs/MIGRATION.md`。
+
 ### Web 记忆面板
 
 官方设置面板 → 「记忆库设置」→「记忆」标签：按类型浏览、全文搜索；启用向量搜索后可用「语义」切换做向量召回。
@@ -115,6 +131,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 
 | 版本 | 亮点 |
 |------|------|
+| **v0.4.0** | 系统级睡眠 Sleep Mode：空闲触发的四阶段深度维护（冲突消解 / 归档降级 / 模式发现 / 关系补全），可中断、串行安全、fail-safe，分层压缩释放冷记忆；471 测试全绿 |
 | **v0.3.9** | 修复第三方审计 4 项 FAIL：CAS 同事务原子化、Mirror 降级回执透传、逐 type 物理终态收敛、Generation 强整数校验与并发初始化稳定化 |
 | **v0.3.8** | audit peer 复验 6 项运行时阻断全部修复：desired generation 同事务原子递增（崩溃窗口不再静默跳过）、同步失败不静默、原子 generation 增量（多进程零丢失）、逐 type committed/failed/pending 回执、读取失败显式 unknown、generation 上界/负数 CHECK |
 | **v0.3.7** | 启动竞态修复：人工编辑 md 镜像后重启向量重建失败（回灌移入 init 就绪后 + scheduleEmbed 就绪门） |
@@ -129,10 +146,11 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 | v0.3.0 | ✅ 完成 | 记忆基因 | entities/attrs/relations 三表 + 时间轴 + 实体搜索 |
 | v0.3.6–0.3.8 | ✅ 完成 | 镜像一致性 + 审计加固 | generation 同步状态机、audit peer 6 项运行时阻断修复、450 测试全绿 |
 | v0.3.9 | ✅ 完成 | 审计加固 A/B/D/F | compareAndUpdate 同事务原子性、degraded 回执、逐 type 物理终态、整数 fail-closed、并发初始化稳定 |
-| **v0.4.0** | ⏳ 规划 | 反思性成长 | 纠错双向回流（改记忆同时反思"为什么记错/召回错"）+ 规则演进（从 failure 提炼规律注入系统提示）+ 自适应参数 |
+| **v0.4.0** | 🚧 开发中 | 系统级睡眠 Sleep Mode | 空闲触发的四阶段深度维护（冲突消解 / 归档降级 / 模式发现 / 关系补全）、分层压缩、可中断串行 fail-safe；471 测试全绿 |
+| **v0.4.1** | 📋 规划 | 反思性成长 | 纠错双向回流（改记忆同时反思"为什么记错/召回错"）+ 规则演进（从 failure 提炼规律注入系统提示）+ 自适应参数 |
 | **v0.5.0+** | 🚀 远期 | 自进化记忆 | 兴趣漂移跟踪 + 跨 workspace 记忆共享（等 DSH 支持） |
 
-> 新能力一律做成**可开关的功能**（配置启用/关闭），默认保守开启、不破坏现有行为。`failure_memories` 表与 autoDream 决策引擎已为 v0.4.0 铺好路。
+> 新能力一律做成**可开关的功能**（配置启用/关闭），默认保守开启、不破坏现有行为。`failure_memories` 表与 autoDream 决策引擎已为后续反思性成长铺好路。
 
 ## 📦 安装
 
