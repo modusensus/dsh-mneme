@@ -210,6 +210,7 @@ dsh web
 | `memoryDir` | `~/.dsh/memory` | 记忆存储目录（SQLite + Markdown） |
 | `autoInject` | `true` | 会话启动自动注入记忆 |
 | `autoSummarize` | `true` | 会话结束自动提炼摘要 |
+| `summarizeProvider` / `summarizeModel` | 空 | 摘要的 LLM 路由覆盖（空=使用当前会话模型）；推荐轻量模型节省主模型 token |
 | `maxInjectedItems` | `5` | 最多注入几条记忆 |
 | `importanceThreshold` | `3` | 注入的最低重要性（1-5） |
 | `autoDream` | `true` | 自动记忆整理开关 |

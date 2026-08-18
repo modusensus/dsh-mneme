@@ -4,6 +4,11 @@ export const Config = z.object({
   memoryDir: z.string().default("~/.dsh/memory"),
   autoInject: z.boolean().default(true),
   autoSummarize: z.boolean().default(true),
+  // Optional model override for summarization. When both are non-empty, they
+  // take priority over the session's current model. Empty = use the session's
+  // active provider/model (same as before).
+  summarizeProvider: z.string().default(""),
+  summarizeModel: z.string().default(""),
   maxInjectedItems: z.natural().min(1).max(20).default(5),
   importanceThreshold: z.natural().min(1).max(5).default(3),
   autoDream: z.boolean().default(true),

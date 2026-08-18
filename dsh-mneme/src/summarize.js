@@ -100,9 +100,12 @@ export function createSummarizer(ctx, service, config) {
     inFlight.set(session.id, controller);
     try {
       const header = session.requestHeader?.()?.config;
-      const route = header?.provider && header?.model
-        ? { provider: header.provider, model: header.model }
-        : undefined;
+      // Config override takes priority, then session header, then nothing.
+      const route = (config.summarizeProvider && config.summarizeModel)
+        ? { provider: config.summarizeProvider, model: config.summarizeModel }
+        : (header?.provider && header?.model)
+          ? { provider: header.provider, model: header.model }
+          : undefined;
       if (!route) return;
       const messages = collectMessages(session);
       if (!messages.length) return;

@@ -154,3 +154,38 @@ test("aborted finish does not store entries", async () => {
   assert.equal(calls.length, 1); // the stream was actually reached
   assert.equal(store.count(), 0);
 });
+
+test("uses summarizeProvider/summarizeModel config override when set", async () => {
+  const { events, calls } = setup({
+    summarizeProvider: "aliyun",
+    summarizeModel: "qwen3.6-plus"
+  });
+  const handler = events.find((e) => e.name === "session/event").fn;
+  const session = {
+    id: "s4",
+    // Session header has a different model — config override should win.
+    requestHeader: () => ({ config: { provider: "deepseek", model: "deepseek-v4-pro" } }),
+    events: [userMessage("测试覆盖"), { seq: 2, type: "turn/end" }]
+  };
+  await handler(session, { seq: 2, type: "turn/end" });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].provider, "aliyun");
+  assert.equal(calls[0].model, "qwen3.6-plus");
+});
+
+test("falls back to session header when summarize config is empty", async () => {
+  const { events, calls } = setup({
+    summarizeProvider: "",
+    summarizeModel: ""
+  });
+  const handler = events.find((e) => e.name === "session/event").fn;
+  const session = {
+    id: "s5",
+    requestHeader: () => ({ config: { provider: "deepseek", model: "deepseek-chat" } }),
+    events: [userMessage("回退测试"), { seq: 2, type: "turn/end" }]
+  };
+  await handler(session, { seq: 2, type: "turn/end" });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].provider, "deepseek");
+  assert.equal(calls[0].model, "deepseek-chat");
+});
