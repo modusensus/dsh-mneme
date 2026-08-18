@@ -198,6 +198,7 @@ npm run sync      # src → lib 同步
 | **v0.3.9** | 审计 A/B/D/F 加固 | CAS 同事务 + degraded 回执 + 逐 type 物理终态 + 整数 fail-closed，450 测试 | ✅ 已完成 |
 | **v0.4.0** | 系统级睡眠 Sleep Mode | 空闲触发的四阶段深度维护（冲突消解/归档降级/模式发现/关系补全）+ 分层压缩，471 测试 | ✅ 已完成 |
 | **v0.4.2** | autoSummarize 自定义模型 | `summarizeProvider`/`summarizeModel` 配置项，独立轻量模型摘要 | ✅ 已完成 |
+| **v0.4.3** | autoDream 大记忆量修复 | `dreamMaxTokens` 上限 32768→131072 + `dreamReasoningEffort`/`sleepReasoningEffort` 思考开关（issue#9 B+A，none 默认） | ✅ 478 测试 |
 | **v0.5.0+** | 自进化记忆 | 兴趣漂移 + 跨 workspace | 远期 |
 
 已完成版本详见 [Release Notes](https://github.com/modusensus/dsh-mneme/releases)。
@@ -388,6 +389,7 @@ Memory grows:
 | **v0.3.9** | Audit A/B/D/F hardening | CAS same-tx + degraded receipt + per-type terminal state + integer fail-closed, 450 tests | ✅ Done |
 | **v0.4.0** | Sleep Mode | idle-triggered 4-phase deep maintenance (conflict/demote/pattern/relation) + tiered compression, 471 tests | ✅ Done |
 | **v0.4.2** | autoSummarize custom model | `summarizeProvider`/`summarizeModel` config, independent lightweight model for summaries | ✅ Done |
+| **v0.4.3** | autoDream large-memory fix | `dreamMaxTokens` cap 32768→131072 + `dreamReasoningEffort`/`sleepReasoningEffort` thinking switches (issue#9 B+A, none default) | ✅ 478 tests |
 | **v0.5.0+** | Self-evolving memory | Interest drift + cross-workspace | long-term |
 
 Completed versions see [Release Notes](https://github.com/modusensus/dsh-mneme/releases).
