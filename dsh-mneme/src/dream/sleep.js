@@ -198,11 +198,9 @@ async function phaseConflicts(ctx, service, config, logger, runId, semantic = nu
   if (text === undefined) return { status: "failed", error: "llm failed" };
   const decisions = parseJsonArray(text);
   if (!decisions) return { status: "failed", error: "invalid decisions json" };
-  // validateDecisions requires every snapshot id to be claimed exactly once.
-  // An LLM that omits a pair would otherwise fail the whole phase, so any
-  // snapshot id the output leaves uncovered is defaulted to `keep` — the
-  // fail-safe reading is "no conflict decided" rather than "conflict phase
-  // aborted". validateDecisions stays strict for the dream consolidation path.
+  // validateDecisions 要求每个 snapshot id 恰好被 claim 一次。v0.4.4 起它本身
+  // 就会为未覆盖的 id 自动补 keep（dreamImplicitKeep 默认开启），这里保留显式
+  // 预填作为防御性双保险——漏判读作"未裁决冲突"而非"冲突阶段整体失败"。
   const covered = new Set();
   for (const d of decisions) {
     if (d?.action === "conflict") {

@@ -29,6 +29,14 @@ export const Config = z.object({
     z.const("high"),
     z.const("none")
   ]).default("none"),
+  // 滑动窗口上限（v0.4.4）：autoDream 每次只对最近 dreamMaxSnapshotSize 条
+  // 记忆做 consolidation。大记忆量下全量快照会把 LLM 输入撑爆（636 记忆 →
+  // 677 "missing" errors、applied=0），窗口外的旧记忆不进 snapshot。
+  dreamMaxSnapshotSize: z.natural().min(1).max(1000).default(200),
+  // 隐式 keep（v0.4.4）：LLM 未提及的 snapshot 记忆自动补 {action:"keep"}，
+  // 避免"未覆盖即全拒"白白浪费整轮 run。设为 false 时保留旧的严格校验
+  // （未覆盖即拒绝整单）。
+  dreamImplicitKeep: z.boolean().default(true),
   // Rule version for dream adjudication: when this bumps, older dream_runs
   // degrade to historical evidence (their receipts no longer drive live
   // decisions). Default 0 = no versioning in use yet.

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { validateDecisions, applyDecisions, createDreamScheduler } from "../src/dream.js";
 import { createStore } from "../src/store.js";
 import { createService } from "../src/service.js";
+import { mockCtx } from "./helpers/dream-mock.js";
 
 function snapshot(ids, type = "project") {
   return new Map(ids.map((id, i) => [id, { id, type, title: `t${i}`, content: `c${i}`, importance: 3, archived: false, forgotten: false }]));
@@ -87,9 +88,19 @@ test("summary entries cannot be decision targets", () => {
   assert.equal(ok, false);
 });
 
-test("every snapshot memory must be covered by a decision", () => {
+test("uncovered snapshot memories are auto-filled with keep (implicit keep, v0.4.4)", () => {
   const snap = snapshot(["a", "b"]);
-  const { ok, errors } = validateDecisions([{ action: "keep", ids: ["a"] }], snap);
+  const decisions = [{ action: "keep", ids: ["a"] }];
+  const { ok, errors } = validateDecisions(decisions, snap);
+  assert.equal(ok, true, errors.join("; "));
+  assert.equal(decisions.length, 2, "keep appended for the uncovered snapshot id");
+  assert.ok(decisions.some((d) => d.action === "keep" && d.ids.includes("b")), "b auto-kept");
+});
+
+test("dreamImplicitKeep=false keeps the strict full-coverage validation", () => {
+  const snap = snapshot(["a", "b"]);
+  const decisions = [{ action: "keep", ids: ["a"] }];
+  const { ok, errors } = validateDecisions(decisions, snap, { dreamImplicitKeep: false });
   assert.equal(ok, false);
   assert.ok(errors.some((e) => e.includes("missing from decisions")));
 });
@@ -669,5 +680,40 @@ test("runDream freeze store failure never blocks the run (fail-safe)", async () 
   assert.ok(ctx.warnings.length >= 1, "freeze failure logged");
   assert.equal(store.getById(l.id).archived, false, "no side effects on memories");
   assert.equal(store.getById(w.id).content, "8月20日", "winner untouched");
+  store.close();
+});
+
+// --- v0.4.4: 大记忆量 autoDream（滑动窗口 + 隐式 keep）回归 -----------------
+
+test("autoDream with 650 memories: sliding window truncates snapshot + implicit keep fills uncovered ids", async () => {
+  const { store, service } = dreamSetup();
+  // seed 650 memories — the size that used to produce 677 "missing from
+  // decisions" errors and applied=0 under the strict full-coverage check
+  for (let i = 0; i < 650; i++) {
+    service.saveWithDedupe({ type: "project", title: `主题${i}`, content: `内容${i}`, importance: 3 });
+  }
+  // mock LLM claims only a small subset (20 archives) and never emits keeps
+  // for the rest — implicit keep must auto-fill the uncovered snapshot ids
+  const ctx = mockCtx({
+    onConsolidation: (listText) => {
+      const ids = [...listText.matchAll(/id=([^\s|]+)\s*\|\s*type=(\w+)\s*\|\s*importance=\d+/g)]
+        .map((m) => m[1]);
+      return JSON.stringify(ids.slice(0, 20).map((id) => ({ action: "archive", ids: [id], reason: "stale" })));
+    }
+  });
+  const dream = createDreamScheduler({ thresholdCount: 1, thresholdChars: 0, delayMs: 0 });
+  const result = await dream.runDream(ctx, service, {
+    dreamProvider: "deepseek", dreamModel: "deepseek-chat", dreamMaxSnapshotSize: 200
+  });
+  assert.equal(result.ok, true, "run succeeds instead of 677-error rejection");
+  assert.ok(result.applied > 0, "archive decisions applied");
+  // snapshot capped at the sliding window
+  const run = store.listDreamRuns()[0];
+  assert.equal(run.input_count, 200, "snapshot truncated to dreamMaxSnapshotSize");
+  // decisions cover exactly the snapshot window, with implicit keeps
+  assert.equal(result.decisions.length, 200, "decisions count = snapshot count");
+  assert.equal(result.decisions.filter((d) => d.action === "archive").length, 20, "claimed subset present");
+  assert.equal(result.decisions.filter((d) => d.action === "keep").length, 180, "uncovered ids auto-kept");
+  assert.equal(store.getById(result.decisions.find((d) => d.action === "archive").ids[0]).archived, true, "an archive landed");
   store.close();
 });

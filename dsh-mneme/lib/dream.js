@@ -19,7 +19,7 @@ const CONSOLIDATION_PROMPT = `你是记忆库整理助手。下面是全部记�
 5. 无问题的条目 → 输出 keep
 
 规则：
-- 每条记忆至少出现在一个决策中
+- 未在决策中提及的记忆将自动保留（keep），无需为每条记忆输出 keep
 - merge 的 keepSource 必须是 ids 之一
 - 仅合并同类型条目（type 相同）
 - 不要编造 ids；只使用提供的 id
@@ -344,8 +344,21 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
 
   async function runDream(ctx, service, config) {
     const logger = ctx.logger;
-    const memories = service.all().filter((m) => !m.archived && m.type !== "summary");
+    let memories = service.all().filter((m) => !m.archived && m.type !== "summary");
     if (memories.length === 0) return { ok: true, applied: 0, skipped: true, summary: false };
+    // v0.4.4 滑动窗口：只 consolidation 最近 dreamMaxSnapshotSize 条记忆，
+    // 窗口外的旧记忆不进 snapshot（大记忆量下全量快照会撑爆 LLM 输入，配合
+    // 隐式 keep 让 run 始终可收敛）。按 updated_at 倒序取前 maxSize 条。
+    const maxSize = Number.isInteger(config.dreamMaxSnapshotSize) ? config.dreamMaxSnapshotSize : 200;
+    memories = [...memories]
+      .sort((a, b) => {
+        const ta = String(a.updated_at ?? "");
+        const tb = String(b.updated_at ?? "");
+        if (ta < tb) return 1;
+        if (ta > tb) return -1;
+        return a.id < b.id ? -1 : 1;
+      })
+      .slice(0, Math.max(1, maxSize));
     const snapshot = new Map(memories.map((m) => [m.id, m]));
     const route = resolveRoute(ctx, config, logger);
     const runId = randomUUID();

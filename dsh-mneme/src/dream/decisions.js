@@ -120,9 +120,19 @@ export function validateDecisions(decisions, snapshot, options = {}) {
   if (createCount > maxCreatePerRun) {
     errors.push(`too many create decisions: ${createCount} > ${maxCreatePerRun}`);
   }
-  // Every snapshot id must appear in at least one decision
-  for (const id of snapshot.keys()) {
-    if (!claimed.has(id)) errors.push(`memory ${JSON.stringify(id)} missing from decisions`);
+  // v0.4.4: 隐式 keep。默认（dreamImplicitKeep !== false）下，未 claim 的
+  // snapshot 记忆自动补 {action:"keep"}，而不是整体拒绝——大记忆量下 LLM 漏报
+  // 一两条就全拒（636 记忆 → 677 errors）会白白浪费整轮 run。设 false 则保留
+  // 旧的严格"全量覆盖"校验。补齐的 keep 直接 append 到 decisions，调用方
+  // （runDream/applyDecisions/audit）复用同一数组即可覆盖全部 snapshot 记忆。
+  if (options.dreamImplicitKeep !== false) {
+    for (const id of snapshot.keys()) {
+      if (!claimed.has(id)) decisions.push({ action: "keep", ids: [id] });
+    }
+  } else {
+    for (const id of snapshot.keys()) {
+      if (!claimed.has(id)) errors.push(`memory ${JSON.stringify(id)} missing from decisions`);
+    }
   }
   return { ok: errors.length === 0, errors };
 }
