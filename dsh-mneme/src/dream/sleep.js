@@ -187,6 +187,9 @@ async function phaseConflicts(ctx, service, config, logger, runId, semantic = nu
     model: route.model,
     purpose: "sleep-conflict",
     maxTokens: 2048,
+    ...(config.sleepReasoningEffort && config.sleepReasoningEffort !== "none"
+      ? { reasoningEffort: config.sleepReasoningEffort }
+      : {}),
     messages: [
       { role: "system", content: [{ type: "text", text: CONFLICT_PROMPT }] },
       { role: "user", content: [{ type: "text", text: listText }] }
@@ -286,6 +289,9 @@ async function phasePatterns(ctx, service, config, logger, runId, signal = null)
     model: route.model,
     purpose: "sleep-pattern",
     maxTokens: 2048,
+    ...(config.sleepReasoningEffort && config.sleepReasoningEffort !== "none"
+      ? { reasoningEffort: config.sleepReasoningEffort }
+      : {}),
     messages: [
       { role: "system", content: [{ type: "text", text: PATTERN_PROMPT.replace("N", String(maxPatterns)) }] },
       { role: "user", content: [{ type: "text", text: listText }] }

@@ -50,6 +50,7 @@ flowchart TD
 | `sleepMaxPatternPerRun` | `3` | 单次运行最多创建的模式数量上限 |
 | `sleepProvider` | `''` | 睡眠模式专用 LLM Provider（留空则复用默认） |
 | `sleepModel` | `''` | 睡眠模式专用 LLM Model（留空则复用默认） |
+| `sleepReasoningEffort` | `'none'` | 睡眠 LLM 推理强度透传：`low` / `medium` / `high` / `none`。`none`（默认）= 不传该字段，使用模型默认；思考型模型预算被推理耗尽时可设 `low`（与 `dreamReasoningEffort` 语义一致） |
 
 ## 四阶段详解
 每个阶段独立包裹 `try/catch`，任一阶段失败仅跳过该阶段，不阻塞后续流程。

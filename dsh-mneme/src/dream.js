@@ -457,6 +457,9 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
         model: route.model,
         purpose: "compaction",
         maxTokens: config.dreamMaxTokens ?? 4096,
+        ...(config.dreamReasoningEffort && config.dreamReasoningEffort !== "none"
+          ? { reasoningEffort: config.dreamReasoningEffort }
+          : {}),
         messages: [
           { role: "system", content: [{ type: "text", text: consolidationPrompt }] },
           { role: "user", content: [{ type: "text", text: listText }] }
@@ -600,6 +603,9 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
         model: route.model,
         purpose: "compaction",
         maxTokens: config.dreamMaxTokens ?? 2048,
+        ...(config.dreamReasoningEffort && config.dreamReasoningEffort !== "none"
+          ? { reasoningEffort: config.dreamReasoningEffort }
+          : {}),
         messages: [
           { role: "system", content: [{ type: "text", text: SUMMARY_PROMPT }] },
           { role: "user", content: [{ type: "text", text: service.all().filter((m) => !m.archived && m.type !== "summary").map((m) => `- ${m.title}: ${m.content}`).join("\n") }] }
