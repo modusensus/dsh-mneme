@@ -703,7 +703,11 @@ test("autoDream with 650 memories: sliding window truncates snapshot + implicit 
   });
   const dream = createDreamScheduler({ thresholdCount: 1, thresholdChars: 0, delayMs: 0 });
   const result = await dream.runDream(ctx, service, {
-    dreamProvider: "deepseek", dreamModel: "deepseek-chat", dreamMaxSnapshotSize: 200
+    dreamProvider: "deepseek", dreamModel: "deepseek-chat", dreamMaxSnapshotSize: 200,
+    // mock only claims 20/200 = 10%; the implicit-keep coverage floor must be
+    // lowered so this deliberate "tiny explicit claim" scenario still passes
+    // (it exercises the window + keep-fill, not the coverage guard)
+    dreamMinExplicitCoverage: 0.1
   });
   assert.equal(result.ok, true, "run succeeds instead of 677-error rejection");
   assert.ok(result.applied > 0, "archive decisions applied");
@@ -715,5 +719,98 @@ test("autoDream with 650 memories: sliding window truncates snapshot + implicit 
   assert.equal(result.decisions.filter((d) => d.action === "archive").length, 20, "claimed subset present");
   assert.equal(result.decisions.filter((d) => d.action === "keep").length, 180, "uncovered ids auto-kept");
   assert.equal(store.getById(result.decisions.find((d) => d.action === "archive").ids[0]).archived, true, "an archive landed");
+  store.close();
+});
+
+// --- v0.4.4 fix: 残缺输出防洗白（显式覆盖率下限） + 严格模式透传 --------------
+
+test("validateDecisions rejects a truncated output whose explicit coverage is below the floor", () => {
+  const snap = snapshot(["a", "b", "c", "d"]);
+  const decisions = [{ action: "keep", ids: ["a"] }]; // claims 1/4 = 25%
+  const { ok, errors } = validateDecisions(decisions, snap, { dreamMinExplicitCoverage: 0.5 });
+  assert.equal(ok, false, "low explicit coverage rejects the whole list");
+  assert.ok(
+    errors.some((e) => e.includes("explicit decision coverage 25% < minimum 50%")),
+    `coverage error present, got: ${errors.join("; ")}`
+  );
+  assert.equal(decisions.length, 1, "no keep-fill pushed on rejection (nothing washed white)");
+});
+
+test("validateDecisions covers the whole snapshot when explicit coverage meets the floor", () => {
+  const snap = snapshot(["a", "b", "c", "d"]);
+  const decisions = [{ action: "archive", ids: ["a", "b"], reason: "stale" }]; // claims 2/4 = 50%
+  const { ok, errors } = validateDecisions(decisions, snap, { dreamMinExplicitCoverage: 0.5 });
+  assert.equal(ok, true, errors.join("; "));
+  assert.equal(decisions.length, 3, "archive + 2 implicit keeps for c/d");
+  assert.equal(decisions.filter((d) => d.action === "keep").length, 2);
+});
+
+test("runDream with dreamImplicitKeep=false rejects a partial mock output (missing from decisions)", async () => {
+  const { store, service } = dreamSetup();
+  for (let i = 0; i < 3; i++) {
+    service.saveWithDedupe({ type: "project", title: `主题${i}`, content: `内容${i}`, importance: 3 });
+  }
+  // mock only claims the first snapshot id, misses the rest — strict mode must
+  // reject the whole run instead of auto-keeping the uncovered ids
+  const warnings = [];
+  const ctx = {
+    warnings,
+    logger: { warn: (m) => warnings.push(m) },
+    agentDefaultModel: { currentSelection: () => ({ provider: "mock", model: "stress-model" }) },
+    llm: {
+      async *stream(options) {
+        const userText = options.messages.find((m) => m.role === "user")?.content?.[0]?.text ?? "";
+        if (userText.startsWith("id=")) {
+          const ids = [...userText.matchAll(/id=([^\s|]+)\s*\|\s*type=(\w+)\s*\|\s*importance=\d+/g)].map((m) => m[1]);
+          yield { type: "text-delta", index: 0, text: JSON.stringify(ids.slice(0, 1).map((id) => ({ action: "archive", ids: [id], reason: "stale" }))) };
+        } else {
+          yield { type: "text-delta", index: 0, text: "记忆库总览摘要" };
+        }
+        yield { type: "finish", reason: { kind: "stop" } };
+      }
+    }
+  };
+  const dream = createDreamScheduler({ thresholdCount: 1, thresholdChars: 0, delayMs: 0 });
+  const result = await dream.runDream(ctx, service, {
+    dreamProvider: "deepseek", dreamModel: "deepseek-chat",
+    dreamImplicitKeep: false
+  });
+  assert.equal(result.ok, false, "strict mode rejects the partial output");
+  assert.match(result.error, /invalid decisions: \d+ errors/);
+  assert.ok(warnings.some((m) => m.includes("missing from decisions")), "warned which ids are missing");
+  assert.equal(store.listDreamRuns()[0].status, "failed", "run audited as failed");
+  store.close();
+});
+
+test("runDream sliding window keeps the newest N memories and excludes the oldest", async () => {
+  const { store, service } = dreamSetup();
+  // seed 5 memories, backdate updated_at so i=0 is oldest (5h ago), i=4 newest (1h ago)
+  const ids = [];
+  for (let i = 0; i < 5; i++) {
+    const { memory } = service.saveWithDedupe({ type: "project", title: `主题${i}`, content: `内容${i}`, importance: 3 });
+    ids.push(memory.id);
+  }
+  for (let i = 0; i < 5; i++) {
+    const old = new Date(Date.now() - (5 - i) * 3600000).toISOString();
+    store.db.prepare("UPDATE memories SET updated_at = ?, created_at = ? WHERE id = ?").run(old, old, ids[i]);
+  }
+  const ctx = mockCtx({
+    onConsolidation: (listText) => {
+      const inWindow = [...listText.matchAll(/id=([^\s|]+)\s*\|\s*type=(\w+)\s*\|\s*importance=\d+/g)]
+        .map((m) => m[1]);
+      return JSON.stringify(inWindow.map((id) => ({ action: "keep", ids: [id] })));
+    }
+  });
+  const dream = createDreamScheduler({ thresholdCount: 1, thresholdChars: 0, delayMs: 0 });
+  const result = await dream.runDream(ctx, service, {
+    dreamProvider: "deepseek", dreamModel: "deepseek-chat", dreamMaxSnapshotSize: 3
+  });
+  const run = store.listDreamRuns()[0];
+  assert.equal(run.input_count, 3, "window capped at dreamMaxSnapshotSize");
+  const windowIds = run.input.map((m) => m.id).sort();
+  const expected = [ids[2], ids[3], ids[4]].sort(); // newest 3 by updated_at
+  assert.deepEqual(windowIds, expected, "window contains the newest 3 memories");
+  assert.ok(!windowIds.includes(ids[0]), "oldest memory excluded from the window");
+  assert.equal(result.decisions.length, 3, "decisions cover exactly the window");
   store.close();
 });

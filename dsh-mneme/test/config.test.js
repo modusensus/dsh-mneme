@@ -27,6 +27,15 @@ test("dream sliding window + implicit keep config defaults and bounds (v0.4.4)",
   assert.equal(off.dreamImplicitKeep, false, "implicit keep can be disabled");
 });
 
+test("dream explicit coverage threshold config defaults and bounds (v0.4.4 fix)", () => {
+  const cfg = Config({});
+  assert.equal(cfg.dreamMinExplicitCoverage, 0.5, "coverage threshold defaults to 0.5");
+  const low = Config({ dreamMinExplicitCoverage: 0.1 });
+  assert.equal(low.dreamMinExplicitCoverage, 0.1, "lower bound accepted");
+  const high = Config({ dreamMinExplicitCoverage: 1 });
+  assert.equal(high.dreamMinExplicitCoverage, 1, "upper bound accepted");
+});
+
 test("startup probe: the reranker module never statically imports transformers/onnxruntime", () => {
   // LocalReranker is imported eagerly by index.js, so a bare install must not
   // pull onnxruntime in at module load. The heavy load is a lazy dynamic import

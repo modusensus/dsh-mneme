@@ -125,7 +125,22 @@ export function validateDecisions(decisions, snapshot, options = {}) {
   // 一两条就全拒（636 记忆 → 677 errors）会白白浪费整轮 run。设 false 则保留
   // 旧的严格"全量覆盖"校验。补齐的 keep 直接 append 到 decisions，调用方
   // （runDream/applyDecisions/audit）复用同一数组即可覆盖全部 snapshot 记忆。
+  //
+  // v0.4.4 fix（残缺输出防洗白）：先收集所有非覆盖类 errors，有错直接 ok:false
+  // 且绝不 push 任何补齐 keep——残缺决策必须被真实拒绝，不能被隐式 keep 洗白成
+  // ok 后再 apply。只有无错时才检查显式覆盖率：LLM 输出被截断只 claim 少量
+  // snapshot（claimed.size / snapshot.size < dreamMinExplicitCoverage）时整单拒绝，
+  // 而不是用 keep 把绝大部分 snapshot 全部"通过"。
+  if (errors.length > 0) {
+    return { ok: false, errors };
+  }
+  const minCoverage = options.dreamMinExplicitCoverage ?? 0.5;
   if (options.dreamImplicitKeep !== false) {
+    const coverage = snapshot.size > 0 ? claimed.size / snapshot.size : 1;
+    if (coverage < minCoverage) {
+      errors.push(`explicit decision coverage ${Math.round(coverage * 100)}% < minimum ${Math.round(minCoverage * 100)}%`);
+      return { ok: false, errors };
+    }
     for (const id of snapshot.keys()) {
       if (!claimed.has(id)) decisions.push({ action: "keep", ids: [id] });
     }
@@ -133,8 +148,9 @@ export function validateDecisions(decisions, snapshot, options = {}) {
     for (const id of snapshot.keys()) {
       if (!claimed.has(id)) errors.push(`memory ${JSON.stringify(id)} missing from decisions`);
     }
+    if (errors.length > 0) return { ok: false, errors };
   }
-  return { ok: errors.length === 0, errors };
+  return { ok: true, errors };
 }
 
 /** Marker thrown when a decision target changed since the run snapshot. */

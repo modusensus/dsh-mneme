@@ -37,6 +37,11 @@ export const Config = z.object({
   // 避免"未覆盖即全拒"白白浪费整轮 run。设为 false 时保留旧的严格校验
   // （未覆盖即拒绝整单）。
   dreamImplicitKeep: z.boolean().default(true),
+  // 显式决策覆盖率下限（v0.4.4 fix）：dreamImplicitKeep 开启时，LLM 输出被
+  // 截断只显式 claim 少量 snapshot 记忆（claimed.size / snapshot.size < 该阈值）
+  // → 整单拒绝，防止残缺输出被隐式 keep 洗白成 ok 后再被真实 apply。0-1，
+  // 默认 0.5（至少显式覆盖一半 snapshot）。
+  dreamMinExplicitCoverage: z.number().min(0).max(1).default(0.5),
   // Rule version for dream adjudication: when this bumps, older dream_runs
   // degrade to historical evidence (their receipts no longer drive live
   // decisions). Default 0 = no versioning in use yet.

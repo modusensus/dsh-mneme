@@ -16,7 +16,7 @@ const CONSOLIDATION_PROMPT = `你是记忆库整理助手。下面是全部记�
    - 仅当内容确实需要修正时才使用，不要滥用
    - 每次整理最多输出 2 个 update
    - 24 小时内新建的记忆不可 update
-5. 无问题的条目 → 输出 keep
+5. 无问题的条目无需输出（未提及的条目将自动保留 keep）
 
 规则：
 - 未在决策中提及的记忆将自动保留（keep），无需为每条记忆输出 keep
@@ -356,7 +356,7 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
         const tb = String(b.updated_at ?? "");
         if (ta < tb) return 1;
         if (ta > tb) return -1;
-        return a.id < b.id ? -1 : 1;
+        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
       })
       .slice(0, Math.max(1, maxSize));
     const snapshot = new Map(memories.map((m) => [m.id, m]));
@@ -502,7 +502,11 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     }
     const { ok, errors } = validateDecisions(decisions, snapshot, {
       maxUpdatePerRun: config.reflectionUpdateMaxPerRun,
-      minAgeHours: config.reflectionUpdateMinAgeHours
+      minAgeHours: config.reflectionUpdateMinAgeHours,
+      // v0.4.4 fix：显式透传，用户配 dreamImplicitKeep:false 时严格模式必须
+      // 真正生效，dreamMinExplicitCoverage 决定隐式 keep 下的覆盖率下限。
+      dreamImplicitKeep: config.dreamImplicitKeep,
+      dreamMinExplicitCoverage: config.dreamMinExplicitCoverage
     });
     if (!ok) {
       logger?.warn?.(`dsh-mneme dream: invalid decisions: ${errors.join("; ")}`);
