@@ -814,3 +814,36 @@ test("runDream sliding window keeps the newest N memories and excludes the oldes
   assert.equal(result.decisions.length, 3, "decisions cover exactly the window");
   store.close();
 });
+
+// --- v0.4.4 fix: 决策 JSON schema 固化（kimi 等模型输出合规） -----------------
+
+test("consolidation prompt pins the decision schema (action field, single-string winner/loser, single claim per id)", async () => {
+  const { store, service } = dreamSetup();
+  service.saveWithDedupe({ type: "project", title: "a", content: "x" });
+  let systemText = "";
+  const ctx = {
+    logger: { warn: () => {} },
+    llm: {
+      async *stream(options) {
+        systemText = options.messages.find((m) => m.role === "system")?.content?.[0]?.text ?? "";
+        yield { type: "text-delta", text: "[]" };
+        yield { type: "finish", reason: { kind: "ok" } };
+      }
+    }
+  };
+  const dream = createDreamScheduler({ thresholdCount: 1, thresholdChars: 0, delayMs: 0 });
+  await dream.runDream(ctx, service, { dreamProvider: "deepseek", dreamModel: "deepseek-chat" });
+  // 字段名必须写死为 action（kimi 曾输出 "type" 导致整单拒绝）
+  assert.match(systemText, /"action"/, "prompt names the action field");
+  assert.match(systemText, /严禁写成\s*type/, "prompt forbids the type field name");
+  // conflict winner/loser 是单个 id 字符串而非数组
+  assert.match(systemText, /"winner"/, "prompt names the winner field");
+  assert.match(systemText, /"loser"/, "prompt names the loser field");
+  assert.match(systemText, /单个 id 字符串/, "winner/loser must be a single id string");
+  assert.match(systemText, /不是数组|绝不是数组/, "winner/loser must not be an array");
+  // 同一 id 不可被多个决策重复 claim
+  assert.match(systemText, /最多被 claim 一次/, "each memory claimed at most once");
+  // 决策 JSON 示例块
+  assert.match(systemText, /决策 JSON 示例/, "prompt includes a canonical example block");
+  store.close();
+});
