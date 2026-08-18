@@ -131,6 +131,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 
 | 版本 | 亮点 |
 |------|------|
+| **v0.4.2** | autoSummarize 自定义模型：`summarizeProvider`/`summarizeModel` 配置项，可独立指定轻量模型（如 qwen3.6-plus）用于会话摘要，节省主模型 token；473 测试全绿 |
 | **v0.4.0** | 系统级睡眠 Sleep Mode：空闲触发的四阶段深度维护（冲突消解 / 归档降级 / 模式发现 / 关系补全），可中断、串行安全、fail-safe，分层压缩释放冷记忆；471 测试全绿 |
 | **v0.3.9** | 修复第三方审计 4 项 FAIL：CAS 同事务原子化、Mirror 降级回执透传、逐 type 物理终态收敛、Generation 强整数校验与并发初始化稳定化 |
 | **v0.3.8** | audit peer 复验 6 项运行时阻断全部修复：desired generation 同事务原子递增（崩溃窗口不再静默跳过）、同步失败不静默、原子 generation 增量（多进程零丢失）、逐 type committed/failed/pending 回执、读取失败显式 unknown、generation 上界/负数 CHECK |
@@ -147,7 +148,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 | v0.3.6–0.3.8 | ✅ 完成 | 镜像一致性 + 审计加固 | generation 同步状态机、audit peer 6 项运行时阻断修复、450 测试全绿 |
 | v0.3.9 | ✅ 完成 | 审计加固 A/B/D/F | compareAndUpdate 同事务原子性、degraded 回执、逐 type 物理终态、整数 fail-closed、并发初始化稳定 |
 | **v0.4.0** | ✅ 完成 | 系统级睡眠 Sleep Mode | 空闲触发的四阶段深度维护（冲突消解 / 归档降级 / 模式发现 / 关系补全）、分层压缩、可中断串行 fail-safe；471 测试全绿 |
-| **v0.4.1** | 📋 规划 | 反思性成长 | 纠错双向回流（改记忆同时反思"为什么记错/召回错"）+ 规则演进（从 failure 提炼规律注入系统提示）+ 自适应参数 |
+| **v0.4.2** | ✅ 完成 | autoSummarize 自定义模型 | `summarizeProvider`/`summarizeModel` 配置项支持，可独立指定轻量模型（如 qwen3.6-plus）用于会话摘要，节省主模型 token；473 测试全绿 |
 | **v0.5.0+** | 🚀 远期 | 自进化记忆 | 兴趣漂移跟踪 + 跨 workspace 记忆共享（等 DSH 支持） |
 
 > 新能力一律做成**可开关的功能**（配置启用/关闭），默认保守开启、不破坏现有行为。`failure_memories` 表与 autoDream 决策引擎已为后续反思性成长铺好路。
