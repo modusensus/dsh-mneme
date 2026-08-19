@@ -5,11 +5,31 @@
 [![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Awesome](https://awesome-dsh-plugin.com/badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
-[![tests](https://img.shields.io/badge/tests-593%20passed-success)](https://github.com/modusensus/dsh-mneme)
+[![tests](https://img.shields.io/badge/tests-603%20passed-success)](https://github.com/modusensus/dsh-mneme)
 
 > 给 DeepSeek Harness 的跨会话记忆插件：让 Agent 记住你、记住项目、自动整理记忆。**Mneme**（Μνήμη）——希腊记忆女神 Mnemosyne 之名，掌管记忆与梦境，正如 autoDream 在后台巩固记忆。
 
 `dsh-mneme` 是一个 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) 插件，为 Agent 提供持久的跨会话记忆能力。它借鉴了 Claude 的 **Dream 机制** 与 cc-haha / Claude Code 的 **autoDream** 实现思路——不仅**存储**记忆，还会**自动巩固**（去重、合并、冲突裁决、摘要生成），让记忆库越用越精炼。
+
+## ⏱️ 30 秒理解
+
+**一句话**：给 Agent 装上跨会话记忆——记住你、记住项目，并在后台自动整理，越用越懂你。
+
+| ① 写入 | ② 存储 | ③ 进化 |
+|--------|--------|--------|
+| 对话中模型主动记录（`memory_save`）；会话结束自动提炼（`autoSummarize`） | SQLite 主库 + 人类可编辑 Markdown 镜像；实体 / 属性 / 时间轴三层结构化 | 新会话自动注入相关记忆；autoDream 后台去重 / 合并 / 归档，记忆库自我精炼 |
+
+```bash
+# 30 秒上手
+dsh plugin --profile web add @modusensus/dsh-mneme
+dsh web
+```
+
+**它不是什么**（边界声明）：
+
+- 不是向量数据库——语义搜索是可选增强，默认零额外依赖
+- 不替代会话日志——它存的是「值得跨会话记住的」精炼知识
+- 不改变模型本身——进化的是记忆库与每次注入的上下文
 
 ## ✨ 功能
 
@@ -367,7 +387,7 @@ src/
 lib/
 ├── client.js         # Web 面板（手写 ModuleLoader bundle）
 └── *.js              # src 的同步分发产物
-test/                 # 593 个 node:test 测试（含审计与三轴线压测不变量）
+test/                 # 603 个 node:test 测试（含审计与三轴线压测不变量）
 scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压测 · sync-lib.js 同步 · benchmark-recall.js 召回基准
 ```
 
@@ -376,7 +396,7 @@ scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压
 ```bash
 cd dsh-mneme
 npm install        # 安装 peer 依赖（以 devDependencies 形式，用于本地测试）
-npm test           # 运行 593 个测试
+npm test           # 运行 603 个测试
 npm run stress     # 三轴线压测：长会话检索 / 冲突仲裁 / 多 Agent 并发（离线 mock LLM）
 npm run sync       # 把 src/ 同步到 lib/（发布时由 prepack 钩子自动执行）
 ```

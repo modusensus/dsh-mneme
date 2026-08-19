@@ -10,7 +10,7 @@
   <a href="https://github.com/awesome-dsh-plugin/awesome-dsh-plugin"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="Awesome"></a>
   <a href="https://github.com/modusensus/dsh-mneme/actions"><img src="https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/test.yml" alt="CI"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-24%2B-blue" alt="node"></a>
-  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-593%20passed-success" alt="tests"></a>
+  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-603%20passed-success" alt="tests"></a>
 </p>
 
 <p align="center"><strong><a href="#中文">中文</a> | <a href="#english">English</a></strong></p>
@@ -30,6 +30,26 @@
 - **可读**：SQLite + 人类可编辑的 Markdown 镜像，双向同步，记忆主权始终在你手里
 - **可结构**：实体 / 属性 / 时间轴三表，把文本片段提炼为结构化知识（v0.3.0 记忆基因）
 - **可演化**：autoDream 后台巩固 + 反思更新 + 冲突冻结，记忆越用越精炼，朝自进化演进
+
+## ⏱️ 30 秒理解
+
+**一句话**：dsh-mneme 给 Agent 装上跨会话记忆——记住你、记住项目，并在后台自动整理，越用越懂你。
+
+| ① 写入 | ② 存储 | ③ 进化 |
+|--------|--------|--------|
+| 对话中模型主动记录（`memory_save`）；会话结束自动提炼（`autoSummarize`） | SQLite 主库 + 人类可编辑 Markdown 镜像；实体 / 属性 / 时间轴三层结构化 | 新会话自动注入相关记忆；autoDream 后台去重 / 合并 / 归档，记忆库自我精炼 |
+
+```bash
+# 30 秒上手
+dsh plugin --profile web add @modusensus/dsh-mneme
+dsh web
+```
+
+**它不是什么**（边界声明）：
+
+- 不是向量数据库——语义搜索是可选增强，默认零额外依赖
+- 不替代会话日志——它存的是「值得跨会话记住的」精炼知识
+- 不改变模型本身——进化的是记忆库与每次注入的上下文
 
 ---
 
@@ -142,7 +162,7 @@ autoDream 是"被动阈值触发"，Sleep Mode 升级为"主动定时维护 + �
 - **安全审计 peer 复验**：真实 npm 包隔离独立回归，7 项发布门槛 + F-03 诚实审计
 - **LLM 消耗审计（v0.4.6）**：autoDream / autoSummarize 每次后台 LLM 调用写入 `llm_audit_logs`（tokens / duration / status / source），只读 API 汇总近 N 天预算
 - **记忆质量过滤（v0.4.6）**：`memoryQualityFilter` 写库前启发式打分，低质记忆降权或归档（`low_quality` 仍可显式搜索，永不自动注入）
-- **593 个测试 + 三轴压测**全绿
+- **603 个测试 + 三轴压测**全绿
 
 ## ⚙️ 配置（节选）
 
@@ -185,7 +205,7 @@ dsh web
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 593 个测试
+npm test          # 603 个测试
 npm run stress    # 三轴线压测
 npm run sync      # src → lib 同步
 ```
@@ -251,6 +271,26 @@ Memory shouldn't be a black box. Mneme makes memory **readable, structured, and 
 - **Readable**: SQLite + human-editable Markdown mirrors, two-way sync — memory sovereignty stays with you
 - **Structured**: entity / attribute / timeline tables distill text fragments into structured knowledge (v0.3.0 Memory Genome)
 - **Evolvable**: autoDream background consolidation + reflection updates + conflict freeze — memory refines itself, evolving toward self-adaptation
+
+## ⏱️ 30-Second TL;DR
+
+**One-liner**: dsh-mneme gives your Agent cross-session memory — it remembers you and your projects, and consolidates in the background, so it knows you better over time.
+
+| ① Write | ② Store | ③ Evolve |
+|---------|---------|----------|
+| The model records actively during chat (`memory_save`); sessions are distilled automatically on end (`autoSummarize`) | SQLite primary store + human-editable Markdown mirrors; entities / attributes / timeline in three structured layers | New sessions auto-inject relevant memories; autoDream dedupes / merges / archives in the background — the store refines itself |
+
+```bash
+# Get started in 30 seconds
+dsh plugin --profile web add @modusensus/dsh-mneme
+dsh web
+```
+
+**What it is not** (honest boundaries):
+
+- Not a vector database — semantic search is an optional enhancement; zero extra deps by default
+- Not a replacement for session logs — it stores distilled knowledge "worth remembering across sessions"
+- Does not change the model itself — what evolves is the memory store and the context injected each turn
 
 ---
 
@@ -363,7 +403,7 @@ Every decision is replayable; every claim has evidence:
 - **Security audit peer re-verification**: isolated regression on real npm tarballs, 7 release gates + F-03 honest audit
 - **LLM cost audit (v0.4.6)**: every background LLM call (autoDream / autoSummarize) writes to `llm_audit_logs` (tokens/duration/status/source); read-only API aggregates budget over recent days
 - **Memory quality filter (v0.4.6)**: `memoryQualityFilter` scores before write; low-quality memories demoted or archived (`low_quality` stays searchable, never auto-injected)
-- **593 tests + three-axis stress** all green
+- **603 tests + three-axis stress** all green
 
 ## ⚙️ Configuration (excerpt)
 
@@ -405,7 +445,7 @@ dsh web
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 593 tests
+npm test          # 603 tests
 npm run stress    # three-axis stress test
 npm run sync      # src → lib sync
 ```
