@@ -811,6 +811,9 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       tags: memory.tags ?? [],
       importance: memory.importance ?? 3,
       source: memory.source ?? "manual",
+      // Provenance (v0.5.x): birth session rides through the create path; the
+      // merge path above preserves the original row's session_id untouched.
+      session_id: memory.session_id ?? undefined,
       ...(quality ? { quality_score: quality.score } : {})
     });
     const result = applyQualityDisposition(created, quality, qf);

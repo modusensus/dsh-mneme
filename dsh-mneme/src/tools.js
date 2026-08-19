@@ -16,6 +16,7 @@ const MEMORY_ITEM_SCHEMA = {
     tags: { type: "array", items: { type: "string" } },
     importance: { type: "integer", required: true },
     source: { type: "string" },
+    session_id: { type: "string" },
     created_at: { type: "string", required: true },
     updated_at: { type: "string", required: true }
   }
@@ -48,14 +49,18 @@ export function createTools(ctx, service, config, embedder) {
         },
         render: (_args, value) => TEXT_OUTPUT(`memory ${value.action}: ${value.id}`)
       },
-      async execute(args) {
+      async execute(args, exec) {
         const { action, memory } = service.saveWithDedupe({
           type: args.type,
           title: args.title,
           content: args.content,
           tags: args.tags ?? [],
           importance: args.importance ?? 3,
-          source: args.source ?? "tool"
+          source: args.source ?? "tool",
+          // Provenance: the session that issued the tool call. exec.agent is
+          // set by the agent loop (undefined in unit tests / direct calls) —
+          // absent a session, session_id stays null rather than fabricating one.
+          session_id: exec?.agent?.session?.id ?? undefined
         });
         return { action, id: memory.id };
       }

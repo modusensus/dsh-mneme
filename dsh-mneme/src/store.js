@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS memories (
   forgotten   INTEGER NOT NULL DEFAULT 0,
   archived    INTEGER NOT NULL DEFAULT 0,
   source      TEXT,
+  session_id  TEXT,
   content_history TEXT,
   embedding   TEXT,
   epistemic_status TEXT NOT NULL DEFAULT 'subjective',
@@ -321,6 +322,7 @@ function toRow(row) {
     forgotten: row.forgotten === 1,
     archived: row.archived === 1,
     source: row.source ?? undefined,
+    session_id: row.session_id ?? undefined,
     content_history: parseJsonArray(row.content_history),
     quality_score: row.quality_score !== null && row.quality_score !== undefined ? Number(row.quality_score) : undefined,
     epistemic_status: row.epistemic_status ?? "subjective",
@@ -571,6 +573,7 @@ export function createStore(path) {
   addColumn("memories", "epistemic_status", "ALTER TABLE memories ADD COLUMN epistemic_status TEXT NOT NULL DEFAULT 'subjective'");
   addColumn("memories", "content_history", "ALTER TABLE memories ADD COLUMN content_history TEXT");
   addColumn("memories", "quality_score", "ALTER TABLE memories ADD COLUMN quality_score REAL");
+  addColumn("memories", "session_id", "ALTER TABLE memories ADD COLUMN session_id TEXT");
 
   // Legacy dream_runs without policy_epoch → backfill with the default epoch.
   addColumn("dream_runs", "policy_epoch", "ALTER TABLE dream_runs ADD COLUMN policy_epoch INTEGER NOT NULL DEFAULT 0");
@@ -657,8 +660,8 @@ export function createStore(path) {
       : inferEpistemicStatus(memory);
     runAtomically(() => {
       db.prepare(
-        `INSERT INTO memories (id, type, title, content, tags, importance, forgotten, archived, source, content_history, quality_score, embedding, epistemic_status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO memories (id, type, title, content, tags, importance, forgotten, archived, source, session_id, content_history, quality_score, embedding, epistemic_status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         id,
         type,
@@ -668,6 +671,7 @@ export function createStore(path) {
         importance,
         memory.archived ? 1 : 0,
         memory.source ?? null,
+        memory.session_id ?? null,
         JSON.stringify(memory.content_history ?? []),
         Number.isFinite(memory.quality_score) ? memory.quality_score : null,
         embedding,

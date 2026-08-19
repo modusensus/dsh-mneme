@@ -182,7 +182,11 @@ export function createSummarizer(ctx, service, config) {
         .join("");
       const entries = parseSummaryJson(text || assembledText);
       for (const entry of entries) {
-        service.saveWithDedupe({ ...entry, source: `session:${session.id}` });
+        // Provenance: the summarizer runs on a real session (turn/end hook), so
+        // session.id is always available here — it rides both the human-readable
+        // source label and the structured session_id column (v0.5.x memory
+        // provenance, the raw material for v0.6.0 reasoning-path / drift analysis).
+        service.saveWithDedupe({ ...entry, source: `session:${session.id}`, session_id: session.id });
       }
     } finally {
       if (audit) {
