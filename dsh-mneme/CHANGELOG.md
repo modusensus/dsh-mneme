@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.4.6] - 2026-08-19
+
+### 修复
+
+- **向量链路三连修（Bug1/2/3）**：
+  - **embedSingle 适配（Bug1）**：向量链路统一走 `embedSingle`，消除 embed / embedSingle 不一致导致的静默跳过。
+  - **存量自动回填（Bug2）**：新增 `autoReindexOnBoot`（默认 `true`）——向量 API 已配置且存量记忆缺 embedding 时，启动后延迟后台按批次限速自动重建索引；设为 `false` 可保持仅手动重建。
+  - **vector_meta 元数据（Bug3）**：向量索引写入时记录模型/维度等元数据，`getStats` 可报告已嵌入/总数与模型信息。
+- **注入语义召回优先（Bug4，`hybridInject` 默认 `true`）**：`injectCandidates` 带非空 query 时先走向量索引语义召回候选，再回退规则筛选补足/去重；query 向量异步预取 + 有界缓存（cap 8），系统提示渲染保持同步。空 query / 无向量时行为与旧版一致。
+- **同标题追加（Bug5）**：同一标题再次写入不再覆盖，追加到 `content_history`，保留演进轨迹。
+- **注入长度上限（Bug6）**：注入记忆块设双层预算——单条 content 截断 300 字（尾部 `…`），整块上限 1500 字；超预算条目塌缩为仅标题，注入上下文不会被长记忆撑爆。
+- **记忆质量过滤（Bug7，`memoryQualityFilter` 默认开）**：写库前按启发式打分 0-100——元记忆词汇 / 自指类型标签 / 内容过短 / 重复度高 / 与近期记忆近似重复扣分。≥60 正常存储；30-60 降权（注入排序按 `importance × quality/100`）；<30 归档并标记 `low_quality`（显式搜索仍可召回，只是永不自动注入）。纯函数实现，无 I/O 可独立单测。
+- **LLM 消耗审计（Bug8，`llmAudit` 默认开）**：每次后台 LLM 调用（autoDream 整理 + 摘要、autoSummarize 压缩）写入 `llm_audit_logs` 表——tokens / duration / status / source；失败记 `status=error` 不阻塞功能；`retentionDays`（默认 90）启动时清理超期行。新增只读 API：`/api/dsh-mneme/semantic/llm-audit`（分页 + source 过滤）与 `/llm-audit/stats`（近 N 天按 source 汇总预算）。
+
+### 测试
+
+- 553 全绿（新增 `test/quality-filter.test.js`：打分信号 / 阈值分档 / 降权排序；`test/llm-audit.test.js`：埋点 / 统计 / 保留期清理 / API）。
+
 ## [0.4.5] - 2026-08-19
 
 ### 新增

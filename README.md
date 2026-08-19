@@ -131,7 +131,9 @@ autoDream 是"被动阈值触发"，Sleep Mode 升级为"主动定时维护 + �
 - **recall_runs 召回层**：检索场景可审计
 - **policy_epoch 规则版本**：规则升级后旧裁决降级为历史证据
 - **安全审计 peer 复验**：真实 npm 包隔离独立回归，7 项发布门槛 + F-03 诚实审计
-- **471 个测试 + 三轴压测**全绿
+- **LLM 消耗审计（v0.4.6）**：autoDream / autoSummarize 每次后台 LLM 调用写入 `llm_audit_logs`（tokens / duration / status / source），只读 API 汇总近 N 天预算
+- **记忆质量过滤（v0.4.6）**：`memoryQualityFilter` 写库前启发式打分，低质记忆降权或归档（`low_quality` 仍可显式搜索，永不自动注入）
+- **553 个测试 + 三轴压测**全绿
 
 ## ⚙️ 配置（节选）
 
@@ -147,6 +149,10 @@ autoDream 是"被动阈值触发"，Sleep Mode 升级为"主动定时维护 + �
 | 向量 | `rerankEnabled` | `false` | Rerank 精排开关 |
 | 可信度 | `trustEpistemicWeighting` | `false` | 记忆可信度加权（observation>inferred>subjective，影响检索/注入/dream 合并冲突；opt-in 默认关）|
 | 评估 | `evalPersistTestResults` | `false` | 检索评估 `evaluateRetrieval` 结果落库 `recall_evals`（opt-in 默认关，生产检索不受影响）|
+| 向量 | `autoReindexOnBoot` | `true` | 存量记忆缺 embedding 时启动后台自动回填重建 |
+| 注入 | `hybridInject` | `true` | 注入语义召回优先（非空 query 先走向量，规则补充去重）|
+| 质量 | `memoryQualityFilter` | 开 | 记忆质量过滤（0-100 打分，低质降权/归档，`low_quality` 仍可显式搜索）|
+| 审计 | `llmAudit` | 开 | LLM 消耗审计（`llm_audit_logs` 表 + 埋点 + 只读 API）|
 
 ## 📦 安装
 
@@ -203,6 +209,7 @@ npm run sync      # src → lib 同步
 | **v0.4.3** | autoDream 大记忆量修复 | `dreamMaxTokens` 上限 32768→131072 + `dreamReasoningEffort`/`sleepReasoningEffort` 思考开关（issue#9 B+A，none 默认） | ✅ 478 测试 |
 | **v0.4.4** | autoDream 决策覆盖修复 | 滑动窗口 `dreamMaxSnapshotSize`(默认200) + 隐式 keep `dreamImplicitKeep` + 覆盖率下限 `dreamMinExplicitCoverage`(默认50%) + 固定决策 schema（issue#9 方案C） | ✅ 487 测试 |
 | **v0.4.5** | epistemic trust + recall eval | 记忆可信度分级 `trustEpistemicWeighting`（observation>inferred>subjective，检索/注入/dream 合并冲突加权）+ 检索评估 `evaluateRetrieval` 落库 `recall_evals`（`evalPersistTestResults`，opt-in 默认关，生产隔离） | ✅ 518 测试 |
+| **v0.4.6** | 8 项修复 | 向量链路（embedSingle 适配 / `autoReindexOnBoot` 存量回填 / `vector_meta` 元数据）+ 注入语义召回 `hybridInject` + 同标题追加 `content_history` + 注入长度上限 + 质量过滤 `memoryQualityFilter` + LLM 审计 `llmAudit` | ✅ 553 测试 |
 | **v0.5.0+** | 自进化记忆 | 兴趣漂移 + 跨 workspace | 远期 |
 
 已完成版本详见 [Release Notes](https://github.com/modusensus/dsh-mneme/releases)。
@@ -327,7 +334,9 @@ Every decision is replayable; every claim has evidence:
 - **recall_runs**: retrieval scenes auditable
 - **policy_epoch**: rule version — old rulings degrade to historical evidence after upgrades
 - **Security audit peer re-verification**: isolated regression on real npm tarballs, 7 release gates + F-03 honest audit
-- **471 tests + three-axis stress** all green
+- **LLM cost audit (v0.4.6)**: every background LLM call (autoDream / autoSummarize) writes to `llm_audit_logs` (tokens/duration/status/source); read-only API aggregates budget over recent days
+- **Memory quality filter (v0.4.6)**: `memoryQualityFilter` scores before write; low-quality memories demoted or archived (`low_quality` stays searchable, never auto-injected)
+- **553 tests + three-axis stress** all green
 
 ## ⚙️ Configuration (excerpt)
 
@@ -343,6 +352,10 @@ Every decision is replayable; every claim has evidence:
 | Vector | `rerankEnabled` | `false` | Rerank switch |
 | Trust | `trustEpistemicWeighting` | `false` | Memory credibility weighting (observation>inferred>subjective, affects retrieval/inject/dream merge-conflict; opt-in, off by default) |
 | Eval | `evalPersistTestResults` | `false` | Persist `evaluateRetrieval` results to `recall_evals` (opt-in, off by default; production search unaffected) |
+| Vector | `autoReindexOnBoot` | `true` | Auto-backfill missing embeddings in the background on boot |
+| Inject | `hybridInject` | `true` | Semantic-first injection (non-empty query recalls via vector first, rule pick fills/dedupes) |
+| Quality | `memoryQualityFilter` | on | Memory quality filter (0-100 scoring; low-quality demoted/archived, `low_quality` still searchable) |
+| Audit | `llmAudit` | on | LLM cost audit (`llm_audit_logs` table + instrumentation + read-only API) |
 
 ## 📦 Install
 
@@ -398,6 +411,7 @@ Memory grows:
 | **v0.4.3** | autoDream large-memory fix | `dreamMaxTokens` cap 32768→131072 + `dreamReasoningEffort`/`sleepReasoningEffort` thinking switches (issue#9 B+A, none default) | ✅ 478 tests |
 | **v0.4.4** | autoDream decision-coverage fix | sliding window `dreamMaxSnapshotSize`(default 200) + implicit keep `dreamImplicitKeep` + min explicit coverage `dreamMinExplicitCoverage`(default 50%) + fixed decision schema (issue#9 plan C) | ✅ 487 tests |
 | **v0.4.5** | epistemic trust + recall eval | memory credibility tiers `trustEpistemicWeighting` (observation>inferred>subjective, weighted in retrieval/inject/dream merge-conflict) + retrieval eval `evaluateRetrieval` persisting to `recall_evals` (`evalPersistTestResults`, opt-in off by default, production isolated) | ✅ 518 tests |
+| **v0.4.6** | 8 fixes | vector chain (embedSingle / `autoReindexOnBoot` backfill / `vector_meta`) + semantic-first injection `hybridInject` + same-title `content_history` + inject length caps + quality filter `memoryQualityFilter` + LLM audit `llmAudit` | ✅ 553 tests |
 | **v0.5.0+** | Self-evolving memory | Interest drift + cross-workspace | long-term |
 
 Completed versions see [Release Notes](https://github.com/modusensus/dsh-mneme/releases).

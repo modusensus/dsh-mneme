@@ -139,6 +139,25 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 
 > 📖 详见 [实体结构化记忆设计](docs/ENTITIES.md) · [语义增强架构](docs/SEMANTIC.md) · [本地模型部署指南](docs/LOCAL_MODEL.md) · [从 v0.1 升级说明](docs/MIGRATION.md)
 
+### 记忆质量过滤 🧼（v0.4.6，默认开）
+
+写库前对每条记忆做**启发式质量打分**（纯函数，无 I/O、无共享状态）：元记忆词汇（谈论记忆系统本身）、自指类型标签、内容过短、重复度高、与近期记忆近似重复都会扣分（0-100）：
+
+- `score ≥ 60`：正常存储
+- `30 ≤ score < 60`：`quality_score` 落库，注入排序改为按 `importance × quality/100` 降权（degraded）
+- `score < 30`：归档并标记 `low_quality`——仍可显式搜索召回，只是**永不自动注入**
+
+`memoryQualityFilter.enabled` 可整体关闭，`archiveThreshold` / `degradeThreshold` / `minContentLength` 可调。
+
+### LLM 消耗审计 📊（v0.4.6，默认开）
+
+每次**后台 LLM 调用**（autoDream 整理 + 摘要、autoSummarize 压缩）都会写入 `llm_audit_logs` 表：`tokens` / `duration` / `status` / `source`（由哪个触发产生）。失败调用记为 `status=error`，绝不阻塞功能本体；`retentionDays`（默认 90）在启动时清理超期行。新增两个只读 API：
+
+- `GET /api/dsh-mneme/semantic/llm-audit?page=&pageSize=&source=` — 分页查询 + 按 source 过滤
+- `GET /api/dsh-mneme/semantic/llm-audit/stats?days=` — 近 N 天按 source 汇总预算（tokens / 次数 / 失败数）
+
+> 只读端点，与 list/search/semantic 一样在设置 `apiToken` 后仍保持开放。
+
 ## 🆕 最近版本亮点
 
 | 版本 | 亮点 |
@@ -164,6 +183,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 | **v0.4.3** | ✅ 完成 | autoDream 大记忆量修复 | issue#9 B+A：`dreamMaxTokens` 上限 32768→131072 + `dreamReasoningEffort`/`sleepReasoningEffort` 思考开关（none 默认，主对话不受影响）；478 测试全绿 |
 | **v0.4.4** | ✅ 完成 | autoDream 决策覆盖修复 | issue#9 方案C：滑动窗口 `dreamMaxSnapshotSize`(默认200，updated_at 倒序截断) + 隐式 keep `dreamImplicitKeep`(默认true) + 覆盖率下限 `dreamMinExplicitCoverage`(默认50%) + 固定决策 schema；487 测试全绿 |
 | **v0.4.5** | ✅ 完成 | epistemic trust + recall eval | 记忆可信度分级 `trustEpistemicWeighting`（observation>inferred>subjective：检索排序优先高可信、注入标注 `[verified]`、dream merge/conflict 偏向高可信；opt-in 默认关）+ 检索评估 `evaluateRetrieval` 落库 `recall_evals`（`evalPersistTestResults` opt-in 默认关，生产检索始终走 `recall_runs` 无条件隔离）；518 测试全绿 |
+| **v0.4.6** | ✅ 完成 | 8 项修复（向量链路 + 注入/质量/审计） | 向量链路修复（embedSingle 适配 / `autoReindexOnBoot` 存量回填 / `vector_meta` 元数据）+ 注入语义召回 `hybridInject` + 同标题追加 `content_history` + 注入长度上限（单条 300 / 整块 1500）+ 记忆质量过滤 `memoryQualityFilter` + LLM 消耗审计 `llmAudit`（表 + 埋点 + 只读 API）；553 测试全绿 |
 | **v0.5.0+** | 🚀 远期 | 自进化记忆 | 兴趣漂移跟踪 + 跨 workspace 记忆共享（等 DSH 支持） |
 
 > 新能力一律做成**可开关的功能**（配置启用/关闭），默认保守开启、不破坏现有行为。`failure_memories` 表与 autoDream 决策引擎已为后续反思性成长铺好路。
@@ -267,6 +287,10 @@ dsh web
 | `entitySearchEnabled` | `true` | `entity:` / `attr:` 前缀搜索开关 |
 | `trustEpistemicWeighting` | `false` | 记忆可信度加权（v0.4.5，opt-in 默认关）：记忆按来源分级 `observation`> `inferred` > `subjective`，开启后检索排序优先高可信记忆、注入对 observation 标注 `[verified]`、dream merge/conflict 偏向高可信一方；关闭时 `epistemic_status` 仅随保存落库、不参与行为 |
 | `evalPersistTestResults` | `false` | 检索评估落库（v0.4.5，opt-in 默认关）：开启后 `evaluateRetrieval` 把 precision/recall/mrr 快照写入 `recall_evals`；默认关时仅返回调用方不落库。生产 `searchMemories` 审计始终走 `recall_runs`，无条件不触碰 `recall_evals` |
+| `autoReindexOnBoot` | `true` | 存量记忆缺 embedding 时，向量已配置则启动后延迟后台按批次限速自动回填重建（设为 `false` 仅手动重建） |
+| `hybridInject` | `true` | 注入语义召回优先（v0.4.6，Bug4）：`injectCandidates` 带非空 query 时先走向量索引语义召回候选，规则筛选补足/去重；空 query / 无向量回退旧逻辑 |
+| `memoryQualityFilter` | `{enabled:true, archiveThreshold:30, degradeThreshold:60, minContentLength:10}` | 记忆质量过滤（v0.4.6，默认开）：写库前启发式打分 0-100，元记忆词汇/自指/过短/重复/近似重复扣分；≥60 正常存储，30-60 降权（注入排序按 importance×quality/100），<30 归档标记 `low_quality`（显式搜索仍可召回，永不自动注入） |
+| `llmAudit` | `{enabled:true, retentionDays:90}` | LLM 消耗审计（v0.4.6，默认开）：每次后台 LLM 调用（autoDream/autoSummarize）写 `llm_audit_logs`（tokens/duration/status/source）；失败记 error 不阻塞；只读 API `/api/dsh-mneme/semantic/llm-audit` + `/llm-audit/stats` |
 
 > 🔐 **API 安全**：DSH 无内置鉴权且默认仅监听 `127.0.0.1`。插件 API 默认开放（便于 Web 面板即装即用）。如需防护（如局域网暴露），在配置中设置 `apiToken`：写操作（画像/规则/命令）与密钥端点（`vector-config`、`vector-reindex`）需携带 `Authorization: Bearer <token>`（前端设置面板可填入同一 token），只读的 `list` / `search` / `semantic` 保持开放。`/api/dsh-mneme/vector-config` 返回的 `apiKey` 已掩码（`sk-***…`），存储仍保留明文供调用；前端回传空或掩码值表示"不改 key"。
 
