@@ -10,7 +10,7 @@
   <a href="https://github.com/awesome-dsh-plugin/awesome-dsh-plugin"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="Awesome"></a>
   <a href="https://github.com/modusensus/dsh-mneme/actions"><img src="https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/test.yml" alt="CI"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-24%2B-blue" alt="node"></a>
-  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-471%20passed-success" alt="tests"></a>
+  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-593%20passed-success" alt="tests"></a>
 </p>
 
 <p align="center"><strong><a href="#中文">中文</a> | <a href="#english">English</a></strong></p>
@@ -105,6 +105,15 @@ autoDream 是"被动阈值触发"，Sleep Mode 升级为"主动定时维护 + �
 
 可中断（用户活动即中止）、串行安全（与 autoDream 共享 enqueue 队列不重叠）、fail-safe（单阶段失败不阻塞其余）、审计延续（`dream_runs` 以 `run_type='sleep'` 区分）。
 
+## 🕸️ 记忆图谱与三路召回（v0.5.0）
+
+**让记忆看得见、找得回。**
+
+- **主区「记忆库」视图**：记忆功能收进主内容区全宽 tab（与「对话 / Trajectory」并列），取代侧边栏抽屉——「记忆」三栏浏览（分类树 / 时间树 / 全文详情）、「图谱」、「设置」三个子视图，观感与宿主原生视图一致。
+- **记忆图谱可视化**：输入实体名，加载以其为中心的关联网络——服务端 ego-graph API（BFS 1-2 跳，只读），前端零依赖手写 SVG 力导向布局（插件运行时无法 require 第三方图库），节点可拖拽、点边可跳回来源记忆，图谱 ↔ 记忆双向互跳。
+- **三路召回融合**：在向量召回 + FTS5/LIKE 关键词之外新增 **BM25 稀疏召回**（ASCII 词元 + CJK bigram，IDF 加权）——专有名词、ID、代码片段等散词查询不再依赖子串命中；配合**自适应阈值**（按查询形态动态调整截断），召回率可用内置基准（Recall@5 / MRR，legacy vs fused 双跑）重复验证。
+- **会话级短期热记忆**：最近 N 轮对话（默认 5 轮 / 2000 token 预算）滚动截断，注入顺序为「短期上下文 → 长期记忆召回 → 摘要」，不落库、无状态重建。
+
 ## 🏛️ 记忆主权
 
 记忆透明、可审查、归你所有：
@@ -133,7 +142,7 @@ autoDream 是"被动阈值触发"，Sleep Mode 升级为"主动定时维护 + �
 - **安全审计 peer 复验**：真实 npm 包隔离独立回归，7 项发布门槛 + F-03 诚实审计
 - **LLM 消耗审计（v0.4.6）**：autoDream / autoSummarize 每次后台 LLM 调用写入 `llm_audit_logs`（tokens / duration / status / source），只读 API 汇总近 N 天预算
 - **记忆质量过滤（v0.4.6）**：`memoryQualityFilter` 写库前启发式打分，低质记忆降权或归档（`low_quality` 仍可显式搜索，永不自动注入）
-- **553 个测试 + 三轴压测**全绿
+- **593 个测试 + 三轴压测**全绿
 
 ## ⚙️ 配置（节选）
 
@@ -151,6 +160,11 @@ autoDream 是"被动阈值触发"，Sleep Mode 升级为"主动定时维护 + �
 | 评估 | `evalPersistTestResults` | `false` | 检索评估 `evaluateRetrieval` 结果落库 `recall_evals`（opt-in 默认关，生产检索不受影响）|
 | 向量 | `autoReindexOnBoot` | `true` | 存量记忆缺 embedding 时启动后台自动回填重建 |
 | 注入 | `hybridInject` | `true` | 注入语义召回优先（非空 query 先走向量，规则补充去重）|
+| 召回 | `bm25SearchEnabled` | `true` | BM25 稀疏第三路召回（散词/ID/代码片段查询增强，v0.5.0）|
+| 召回 | `adaptiveThresholdEnabled` | `true` | 自适应相似度阈值（按查询形态动态截断，v0.5.0）|
+| 热记忆 | `hotMemoryRounds` / `hotMemoryMaxTokens` | `5` / `2000` | 会话级短期热记忆轮次与 token 预算（v0.5.0）|
+| 注入 | `selectiveInjectEnabled` | `true` | 选择性注入：候选按与当前 query 的主题相似度重排（v0.5.0）|
+| 召回 | `searchSemanticDedup` | `false` | 搜索时语义去重（激进选项，近重复行在 Rerank 前丢弃，v0.5.0）|
 | 质量 | `memoryQualityFilter` | 开 | 记忆质量过滤（0-100 打分，低质降权/归档，`low_quality` 仍可显式搜索）|
 | 审计 | `llmAudit` | 开 | LLM 消耗审计（`llm_audit_logs` 表 + 埋点 + 只读 API）|
 
@@ -169,7 +183,7 @@ dsh web
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 471 个测试
+npm test          # 593 个测试
 npm run stress    # 三轴线压测
 npm run sync      # src → lib 同步
 ```
@@ -189,7 +203,7 @@ npm run sync      # src → lib 同步
 记忆会自我成长：
 
 ```
-🧬 基因（v0.3.0）→ 🛡️ 审计加固（v0.3.6–0.3.9）→ 💤 睡眠维护（v0.4.0）→ ✨ 自进化（v0.5.0）
+🧬 基因（v0.3.0）→ 🛡️ 审计加固（v0.3.6–0.3.9）→ 💤 睡眠维护（v0.4.0）→ 🕸️ 召回融合与图谱（v0.5.0）→ ✨ 自进化（v0.6.0）
 ```
 
 | 版本 | 主题 | 一句话 | 状态 |
@@ -211,7 +225,8 @@ npm run sync      # src → lib 同步
 | **v0.4.5** | epistemic trust + recall eval | 记忆可信度分级 `trustEpistemicWeighting`（observation>inferred>subjective，检索/注入/dream 合并冲突加权）+ 检索评估 `evaluateRetrieval` 落库 `recall_evals`（`evalPersistTestResults`，opt-in 默认关，生产隔离） | ✅ 518 测试 |
 | **v0.4.6** | 8 项修复 | 向量链路（embedSingle 适配 / `autoReindexOnBoot` 存量回填 / `vector_meta` 元数据）+ 注入语义召回 `hybridInject` + 同标题追加 `content_history` + 注入长度上限 + 质量过滤 `memoryQualityFilter` + LLM 审计 `llmAudit` | ✅ 553 测试 |
 | **v0.4.7** | 迁移幂等化 | schema 迁移改用 `addColumn` helper 吞掉 duplicate column name 并发竞态（v0.4.6 CI peer 并发测试暴露，12 处统一收口） | ✅ 已完成 |
-| **v0.5.0+** | 自进化记忆 | 兴趣漂移 + 跨 workspace | 远期 |
+| **v0.5.0** | 召回融合与记忆可视化 | 主区「记忆库」视图（取代侧边栏抽屉）+ 记忆图谱（ego-graph API + 零依赖 SVG 力导向）+ BM25 三路召回融合 + 自适应阈值 + 会话热记忆 + 召回基准评测 | ✅ 593 测试 |
+| **v0.6.0+** | 自进化记忆 | 兴趣漂移 + 跨 workspace | 远期 |
 
 已完成版本详见 [Release Notes](https://github.com/modusensus/dsh-mneme/releases)。
 
@@ -309,6 +324,15 @@ autoDream is "passively threshold-triggered"; Sleep Mode upgrades to "proactive 
 
 Interruptible (user activity aborts the cycle), serial-safe (shares the `service.enqueue` queue with autoDream — never overlapping), fail-safe (one phase failing never blocks the rest), audit-continuous (`dream_runs` rows tagged `run_type='sleep'`).
 
+## 🕸️ Memory Graph & Three-Way Recall (v0.5.0)
+
+**Make memory visible — and findable.**
+
+- **Main-area "Memory" view**: memory features move into a full-width main-content tab (alongside "Chat / Trajectory"), replacing the sidebar drawer — three sub-views ("Memory" three-column browse / "Graph" / "Settings"), visually aligned with the host's native views.
+- **Memory graph visualization**: type an entity name to load its neighborhood network — a read-only server-side ego-graph API (1-2 hop BFS) plus a zero-dependency hand-written SVG force-directed layout (the plugin runtime cannot require third-party graph libs). Nodes are draggable, edges jump back to source memories, graph ↔ memory cross-navigation.
+- **Three-way recall fusion**: a **BM25 sparse recall** path (ASCII tokens + CJK bigrams, IDF-weighted) joins vector recall and FTS5/LIKE keyword — proper nouns, IDs, and code snippets no longer depend on substring hits; combined with **adaptive thresholds** (dynamic cutoff by query shape), recall gains are reproducibly verifiable via the built-in benchmark (Recall@5 / MRR, legacy vs fused).
+- **Session-level hot memory**: the last N conversation turns (default 5 rounds / 2000-token budget) roll-trimmed and injected as "short-term context → long-term recall → summary" — stateless rebuild, never persisted.
+
 ## 🏛️ Memory Sovereignty
 
 Transparent, auditable, yours:
@@ -337,7 +361,7 @@ Every decision is replayable; every claim has evidence:
 - **Security audit peer re-verification**: isolated regression on real npm tarballs, 7 release gates + F-03 honest audit
 - **LLM cost audit (v0.4.6)**: every background LLM call (autoDream / autoSummarize) writes to `llm_audit_logs` (tokens/duration/status/source); read-only API aggregates budget over recent days
 - **Memory quality filter (v0.4.6)**: `memoryQualityFilter` scores before write; low-quality memories demoted or archived (`low_quality` stays searchable, never auto-injected)
-- **553 tests + three-axis stress** all green
+- **593 tests + three-axis stress** all green
 
 ## ⚙️ Configuration (excerpt)
 
@@ -355,6 +379,11 @@ Every decision is replayable; every claim has evidence:
 | Eval | `evalPersistTestResults` | `false` | Persist `evaluateRetrieval` results to `recall_evals` (opt-in, off by default; production search unaffected) |
 | Vector | `autoReindexOnBoot` | `true` | Auto-backfill missing embeddings in the background on boot |
 | Inject | `hybridInject` | `true` | Semantic-first injection (non-empty query recalls via vector first, rule pick fills/dedupes) |
+| Recall | `bm25SearchEnabled` | `true` | BM25 sparse third recall path (scattered-word/ID/code-snippet queries, v0.5.0) |
+| Recall | `adaptiveThresholdEnabled` | `true` | Adaptive similarity threshold (dynamic cutoff by query shape, v0.5.0) |
+| Hot memory | `hotMemoryRounds` / `hotMemoryMaxTokens` | `5` / `2000` | Session-level hot memory rounds and token budget (v0.5.0) |
+| Inject | `selectiveInjectEnabled` | `true` | Selective injection: candidates re-ranked by topical similarity to current query (v0.5.0) |
+| Recall | `searchSemanticDedup` | `false` | Search-time semantic dedup (aggressive option, near-duplicates dropped before Rerank, v0.5.0) |
 | Quality | `memoryQualityFilter` | on | Memory quality filter (0-100 scoring; low-quality demoted/archived, `low_quality` still searchable) |
 | Audit | `llmAudit` | on | LLM cost audit (`llm_audit_logs` table + instrumentation + read-only API) |
 
@@ -372,7 +401,7 @@ dsh web
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 471 tests
+npm test          # 593 tests
 npm run stress    # three-axis stress test
 npm run sync      # src → lib sync
 ```
@@ -392,7 +421,7 @@ npm run sync      # src → lib sync
 Memory grows:
 
 ```
-🧬 Gene (v0.3.0) → 🛡️ Audit hardening (v0.3.6–0.3.9) → 💤 Sleep maintenance (v0.4.0) → ✨ Self-evolve (v0.5.0)
+🧬 Gene (v0.3.0) → 🛡️ Audit hardening (v0.3.6–0.3.9) → 💤 Sleep maintenance (v0.4.0) → 🕸️ Recall fusion & graph (v0.5.0) → ✨ Self-evolve (v0.6.0)
 ```
 
 | Version | Theme | One-liner | Status |
@@ -414,7 +443,8 @@ Memory grows:
 | **v0.4.5** | epistemic trust + recall eval | memory credibility tiers `trustEpistemicWeighting` (observation>inferred>subjective, weighted in retrieval/inject/dream merge-conflict) + retrieval eval `evaluateRetrieval` persisting to `recall_evals` (`evalPersistTestResults`, opt-in off by default, production isolated) | ✅ 518 tests |
 | **v0.4.6** | 8 fixes | vector chain (embedSingle / `autoReindexOnBoot` backfill / `vector_meta`) + semantic-first injection `hybridInject` + same-title `content_history` + inject length caps + quality filter `memoryQualityFilter` + LLM audit `llmAudit` | ✅ 553 tests |
 | **v0.4.7** | Migration idempotency | schema migration uses `addColumn` helper to swallow duplicate-column-name concurrency races (exposed by v0.4.6 CI peer concurrency tests; unified across 12 sites) | ✅ Done |
-| **v0.5.0+** | Self-evolving memory | Interest drift + cross-workspace | long-term |
+| **v0.5.0** | Recall fusion & memory visualization | main-area "Memory" view (replaces sidebar drawer) + memory graph (ego-graph API + zero-dependency SVG force layout) + BM25 three-way recall fusion + adaptive threshold + session hot memory + recall benchmark | ✅ 593 tests |
+| **v0.6.0+** | Self-evolving memory | Interest drift + cross-workspace | long-term |
 
 Completed versions see [Release Notes](https://github.com/modusensus/dsh-mneme/releases).
 

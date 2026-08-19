@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Awesome](https://awesome-dsh-plugin.com/badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
-[![tests](https://img.shields.io/badge/tests-450%20passed-success)](https://github.com/modusensus/dsh-mneme)
+[![tests](https://img.shields.io/badge/tests-593%20passed-success)](https://github.com/modusensus/dsh-mneme)
 
 > 给 DeepSeek Harness 的跨会话记忆插件：让 Agent 记住你、记住项目、自动整理记忆。**Mneme**（Μνήμη）——希腊记忆女神 Mnemosyne 之名，掌管记忆与梦境，正如 autoDream 在后台巩固记忆。
 
@@ -158,10 +158,31 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 
 > 只读端点，与 list/search/semantic 一样在设置 `apiToken` 后仍保持开放。
 
+### 记忆库主区视图与记忆图谱 🕸️（v0.5.0）
+
+记忆功能从侧边栏抽屉收进**主内容区全宽 tab**（conversation.view 插槽，与「对话 / Trajectory」并列），侧边栏「记忆」入口点击后直接激活该 tab。页面顶部子 tab 行切换三个子视图：
+
+- **记忆（三栏浏览）**：左栏分类树（类型 + 计数）/ 中栏时间树（月 → 日两级倒序、可折叠）/ 右栏详情（**全文不截断** + 复制全文）；语义搜索内嵌工具栏开关（防抖 250ms），`entity:` 前缀可「在图谱中查看」
+- **图谱**：输入实体名，加载以该实体为中心的关联网络——
+  - 服务端只读 ego-graph API：`GET /api/dsh-mneme/semantic/graph/ego?entity=<name>&depth=1|2`（BFS 层级遍历，`limit` 防大图失控，实体不存在 404；配套 `/semantic/graph/entity-attrs` 查实体属性）
+  - 前端**零依赖手写 SVG 力导向布局**（插件运行时无法 require vis-network 等第三方库）：斥力 + 弹簧 + 向心引力物理模拟，节点按类型着色、按提及次数定半径，支持拖拽、点节点看属性、点边跳回来源记忆
+- **设置**：画像 / 规则 / 指令 / 向量配置，限宽居中
+
+图谱 ↔ 记忆双向互跳：图谱详情侧的关联记忆可点击，记忆边的「来源记忆」按 memory_id 直跳三栏视图并自动定位。
+
+### 三路召回融合与会话热记忆 🔎（v0.5.0）
+
+- **BM25 稀疏第三路召回**（`src/search/bm25.js`）：与向量召回、FTS5/LIKE 关键词并列——ASCII 词元 + CJK bigram 分词、IDF 加权（归一化 [0,1]），专有名词 / ID / 代码片段等散词查询不再依赖子串命中。融合规则：未召回行按 `0.3×BM25分` 回填；仅向量召回行获得词法加分；LIKE 已命中行不叠分。`bm25SearchEnabled` 可关
+- **自适应阈值**（`src/search/adaptive.js`）：取代固定 `0.65` 截断——`entity:`/`attr:` 前缀放宽 0.5，短查询（<5 字符）收紧 0.7，长查询（>50）放宽 0.6，Top1/Top5 分差 > 0.3 时放宽让尾部进 Rerank；显式传 `threshold` 或 `adaptiveThresholdEnabled=false` 走旧行为
+- **会话级短期热记忆**（`src/hot-memory.js`）：最近 N 轮对话（默认 5 轮，`hotMemoryRounds`）按 token 预算（默认 2000，`hotMemoryMaxTokens`）滚动截断，从会话事件日志无状态重建、不落库；注入顺序为「短期上下文 → 长期记忆召回 → 摘要」
+- **选择性注入**：query 向量可用时注入候选按主题相似度重排（`selectiveInjectEnabled` 可关）；**搜索时语义去重**为激进选项（`searchSemanticDedup=true` 显式开启，近重复行 Rerank 前丢弃）
+- **召回基准**（`scripts/benchmark-recall.js`）：标准查询集驱动，计算 Recall@5 与 MRR，`legacy`（三特性全关）vs `fused`（默认配置）双跑对比
+
 ## 🆕 最近版本亮点
 
 | 版本 | 亮点 |
 |------|------|
+| **v0.5.0** | 主区「记忆库」视图（取代侧边栏抽屉）+ 记忆图谱可视化（ego-graph API + 零依赖 SVG 力导向）+ BM25 三路召回融合 + 自适应阈值 + 会话热记忆 + 召回基准评测；593 测试全绿 |
 | **v0.4.2** | autoSummarize 自定义模型：`summarizeProvider`/`summarizeModel` 配置项，可独立指定轻量模型（如 qwen3.6-plus）用于会话摘要，节省主模型 token；473 测试全绿 |
 | **v0.4.0** | 系统级睡眠 Sleep Mode：空闲触发的四阶段深度维护（冲突消解 / 归档降级 / 模式发现 / 关系补全），可中断、串行安全、fail-safe，分层压缩释放冷记忆；471 测试全绿 |
 | **v0.3.9** | 修复第三方审计 4 项 FAIL：CAS 同事务原子化、Mirror 降级回执透传、逐 type 物理终态收敛、Generation 强整数校验与并发初始化稳定化 |
@@ -185,7 +206,8 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 | **v0.4.5** | ✅ 完成 | epistemic trust + recall eval | 记忆可信度分级 `trustEpistemicWeighting`（observation>inferred>subjective：检索排序优先高可信、注入标注 `[verified]`、dream merge/conflict 偏向高可信；opt-in 默认关）+ 检索评估 `evaluateRetrieval` 落库 `recall_evals`（`evalPersistTestResults` opt-in 默认关，生产检索始终走 `recall_runs` 无条件隔离）；518 测试全绿 |
 | **v0.4.6** | ✅ 完成 | 8 项修复（向量链路 + 注入/质量/审计） | 向量链路修复（embedSingle 适配 / `autoReindexOnBoot` 存量回填 / `vector_meta` 元数据）+ 注入语义召回 `hybridInject` + 同标题追加 `content_history` + 注入长度上限（单条 300 / 整块 1500）+ 记忆质量过滤 `memoryQualityFilter` + LLM 消耗审计 `llmAudit`（表 + 埋点 + 只读 API）；553 测试全绿 |
 | **v0.4.7** | ✅ 完成 | schema 迁移幂等化 | 并发打开同一 db 时 `PRAGMA table_info` 检查与 ALTER 非原子，可能重复 `ADD COLUMN` 报 duplicate column name；改用 `addColumn` helper 吞掉竞态（try/catch），12 处迁移统一收口 |
-| **v0.5.0+** | 🚀 远期 | 自进化记忆 | 兴趣漂移跟踪 + 跨 workspace 记忆共享（等 DSH 支持） |
+| **v0.5.0** | ✅ 完成 | 召回融合与记忆可视化 | 主区「记忆库」视图 + 记忆图谱（ego-graph API + 零依赖 SVG 力导向）+ BM25 三路召回融合 + 自适应阈值 + 会话热记忆 + 召回基准；593 测试全绿 |
+| **v0.6.0+** | 🚀 远期 | 自进化记忆 | 兴趣漂移跟踪 + 跨 workspace 记忆共享（等 DSH 支持） |
 
 > 新能力一律做成**可开关的功能**（配置启用/关闭），默认保守开启、不破坏现有行为。`failure_memories` 表与 autoDream 决策引擎已为后续反思性成长铺好路。
 
@@ -290,6 +312,12 @@ dsh web
 | `evalPersistTestResults` | `false` | 检索评估落库（v0.4.5，opt-in 默认关）：开启后 `evaluateRetrieval` 把 precision/recall/mrr 快照写入 `recall_evals`；默认关时仅返回调用方不落库。生产 `searchMemories` 审计始终走 `recall_runs`，无条件不触碰 `recall_evals` |
 | `autoReindexOnBoot` | `true` | 存量记忆缺 embedding 时，向量已配置则启动后延迟后台按批次限速自动回填重建（设为 `false` 仅手动重建） |
 | `hybridInject` | `true` | 注入语义召回优先（v0.4.6，Bug4）：`injectCandidates` 带非空 query 时先走向量索引语义召回候选，规则筛选补足/去重；空 query / 无向量回退旧逻辑 |
+| `bm25SearchEnabled` | `true` | BM25 稀疏第三路召回（v0.5.0）：ASCII 词元 + CJK bigram，IDF 加权，散词/ID/代码片段查询不再依赖子串命中 |
+| `adaptiveThresholdEnabled` | `true` | 自适应相似度阈值（v0.5.0）：按查询形态动态截断（前缀 0.5 / 短查询 0.7 / 长查询 0.6 / 头部分差大放宽 0.5），显式传 `threshold` 走旧行为 |
+| `hotMemoryRounds` | `5` | 会话级短期热记忆轮次（v0.5.0）：最近 N 轮对话滚动注入，从会话事件日志无状态重建、不落库 |
+| `hotMemoryMaxTokens` | `2000` | 热记忆 token 预算（v0.5.0，200-32000），超出滚动截断 |
+| `selectiveInjectEnabled` | `true` | 选择性注入（v0.5.0）：query 向量可用时注入候选按主题相似度重排，替代固定规则序 |
+| `searchSemanticDedup` | `false` | 搜索时语义去重（v0.5.0，激进选项默认关）：embedding 余弦 ≥0.95 近重复行在 Rerank 前丢弃 |
 | `memoryQualityFilter` | `{enabled:true, archiveThreshold:30, degradeThreshold:60, minContentLength:10}` | 记忆质量过滤（v0.4.6，默认开）：写库前启发式打分 0-100，元记忆词汇/自指/过短/重复/近似重复扣分；≥60 正常存储，30-60 降权（注入排序按 importance×quality/100），<30 归档标记 `low_quality`（显式搜索仍可召回，永不自动注入） |
 | `llmAudit` | `{enabled:true, retentionDays:90}` | LLM 消耗审计（v0.4.6，默认开）：每次后台 LLM 调用（autoDream/autoSummarize）写 `llm_audit_logs`（tokens/duration/status/source）；失败记 error 不阻塞；只读 API `/api/dsh-mneme/semantic/llm-audit` + `/llm-audit/stats` |
 
@@ -328,14 +356,17 @@ src/
 ├── dream.js          # autoDream 调度 + runDream（LLM 决策 + 摘要）
 ├── dream/decisions.js# 决策校验（fail-safe）+ 决策应用
 ├── entities/extractor.js # 实体抽取器（v0.3.0：LLM JSON 抽取 + 去重 + fail-safe）
+├── search/bm25.js    # BM25 稀疏召回（v0.5.0：分词 + IDF 索引）
+├── search/adaptive.js# 自适应相似度阈值（v0.5.0）
+├── hot-memory.js     # 会话级短期热记忆（v0.5.0：滚动轮次 + token 预算）
 ├── embedding.js      # OpenAI 兼容 embeddings 客户端 + 向量检索
 ├── api.js            # HTTP 路由（Web 面板数据通道）
 └── index.js          # 插件接线
 lib/
 ├── client.js         # Web 面板（手写 ModuleLoader bundle）
 └── *.js              # src 的同步分发产物
-test/                 # 450 个 node:test 测试（含审计与三轴线压测不变量）
-scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压测 · sync-lib.js 同步
+test/                 # 593 个 node:test 测试（含审计与三轴线压测不变量）
+scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压测 · sync-lib.js 同步 · benchmark-recall.js 召回基准
 ```
 
 ## 🧪 开发
@@ -343,7 +374,7 @@ scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压
 ```bash
 cd dsh-mneme
 npm install        # 安装 peer 依赖（以 devDependencies 形式，用于本地测试）
-npm test           # 运行 450 个测试
+npm test           # 运行 593 个测试
 npm run stress     # 三轴线压测：长会话检索 / 冲突仲裁 / 多 Agent 并发（离线 mock LLM）
 npm run sync       # 把 src/ 同步到 lib/（发布时由 prepack 钩子自动执行）
 ```
