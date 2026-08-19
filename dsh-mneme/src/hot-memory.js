@@ -21,6 +21,13 @@ export function estimateTokens(text) {
  *            rounds(): Array, clear(): void}}
  */
 export function createHotMemory({ maxRounds = 5, maxTokens = 2000 } = {}) {
+  // Entry defense: a non-positive or non-integer maxRounds (0, -1, 1.5, NaN,
+  // null, "2") would make the eviction while-loop unbounded — the buffer can
+  // never shrink below `buffer.length > maxRounds`, so `add` would spin forever.
+  // Fall back to the defaults so a hostile/buggy caller can never wedge the
+  // hot-memory buffer in an infinite loop.
+  maxRounds = (Number.isInteger(maxRounds) && maxRounds > 0) ? maxRounds : 5;
+  maxTokens = (Number.isFinite(maxTokens) && maxTokens > 0) ? maxTokens : 2000;
   const buffer = [];
 
   function totalTokens() {

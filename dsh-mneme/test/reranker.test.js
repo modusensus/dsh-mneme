@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { LocalReranker } from "../src/reranker.js";
 
 /** Injected scorer: records (query, passage) calls, returns a fixed score. */
@@ -194,4 +196,45 @@ test("dispose releases the loaded pipeline", async () => {
   r.dispose();
   assert.equal(r.pipeline, null);
   assert.equal(extractor.disposed, true);
+});
+
+test("default pipeline loader mirrors cache_dir onto env.cacheDir (issue #13)", () => {
+  // The fix lives in the module's *default* loader — the dynamic-import of
+  // @huggingface/transformers that the in-process tests bypass by injecting
+  // engineFactory. So it is exercised in a child node process under the
+  // --experimental-test-module-mocks flag: the transformers module is mocked
+  // with an empty env, LocalReranker uses the real default loader, and we
+  // assert env.cacheDir picks up the constructor's cache_dir. A regression
+  // (loader no longer mirroring) fails the child and surfaces here as a
+  // non-zero exit.
+  const srcUrl = new URL("../src/reranker.js", import.meta.url).href;
+  const cacheDir = "/tmp/dsh-mneme-cache-mirror-test";
+  const script = `
+    import { test } from "node:test";
+    const cacheDir = ${JSON.stringify(cacheDir)};
+    test("cache_dir is mirrored onto env.cacheDir", async (t) => {
+      t.mock.module("@huggingface/transformers", {
+        namedExports: {
+          env: {},
+          pipeline: async () => ({ dispose: () => {} })
+        }
+      });
+      const { LocalReranker } = await import(${JSON.stringify(srcUrl)});
+      const r = new LocalReranker({ cacheDir, device: "cpu" });
+      await r.init();
+      const { env } = await import("@huggingface/transformers");
+      if (env.cacheDir !== cacheDir) {
+        throw new Error("env.cacheDir not mirrored from cache_dir: " + env.cacheDir);
+      }
+      console.log("CACHE_MIRROR_OK");
+    });
+  `;
+  const res = spawnSync(process.execPath, [
+    "--experimental-test-module-mocks",
+    "--input-type=module",
+    "-e",
+    script
+  ], { encoding: "utf8", cwd: fileURLToPath(new URL("..", import.meta.url)) });
+  assert.equal(res.status, 0, `cache-dir mirror child failed:\n${res.stdout}\n${res.stderr}`);
+  assert.match(res.stdout, /CACHE_MIRROR_OK/);
 });

@@ -49,6 +49,35 @@ test("estimateTokens counts CJK heavier than ASCII", () => {
   assert.ok(estimateTokens("中文内容") > estimateTokens("abcd"));
 });
 
+// --- entry defense: non-positive / non-integer bounds fall back to defaults ---
+// Bug: createHotMemory({ maxRounds: -1 }) made the eviction while-loop
+// `while (buffer.length > maxRounds)` unbounded — after the buffer emptied,
+// `0 > -1` stayed true and buffer.shift() on an empty array is a no-op, so
+// every add() spun forever. Non-integer values (1.5, NaN, null) were also
+// silently wrong. The fix clamps them to the 5/2000 defaults at the door.
+
+test("hot memory falls back to maxRounds=5 for non-positive/invalid values", () => {
+  for (const bad of [0, -1, 1.5, NaN, null]) {
+    const hot = createHotMemory({ maxRounds: bad, maxTokens: 10000 });
+    for (let i = 0; i < 8; i++) hot.add({ query: `第${i}轮`, response: "x" });
+    assert.equal(hot.rounds().length, 5, `maxRounds=${bad} must fall back to 5, no infinite loop`);
+    assert.ok(hot.getContext().includes("第7轮"), `maxRounds=${bad}: newest round survives`);
+    assert.ok(!hot.getContext().includes("第0轮"), `maxRounds=${bad}: oldest round evicted`);
+  }
+});
+
+test("hot memory falls back to maxTokens=2000 for non-positive/infinite values", () => {
+  for (const bad of [0, -1, Infinity]) {
+    const hot = createHotMemory({ maxRounds: 50, maxTokens: bad });
+    // 50 rounds at ~74 tokens each blow a 2000-token budget; the fallback must
+    // evict into (1, 50). A broken budget of 0/-1 would squeeze to 1 round and
+    // Infinity would keep all 50 — both are the pre-fix behavior.
+    for (let i = 0; i < 50; i++) hot.add({ query: `第${i}轮`, response: "长回答".repeat(40) });
+    const n = hot.rounds().length;
+    assert.ok(n > 1 && n < 50, `maxTokens=${bad} falls back to 2000 (kept ${n} rounds)`);
+  }
+});
+
 // --- service-level: BM25 fusion + semantic dedup + selective injection ---
 
 function toyVec(text) {

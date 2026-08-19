@@ -162,9 +162,11 @@ autoDream 是"被动阈值触发"，Sleep Mode 升级为"主动定时维护 + �
 | 注入 | `hybridInject` | `true` | 注入语义召回优先（非空 query 先走向量，规则补充去重）|
 | 召回 | `bm25SearchEnabled` | `true` | BM25 稀疏第三路召回（散词/ID/代码片段查询增强，v0.5.0）|
 | 召回 | `adaptiveThresholdEnabled` | `true` | 自适应相似度阈值（按查询形态动态截断，v0.5.0）|
+| 热记忆 | `hotMemoryEnabled` | `true` | 会话级短期热记忆总开关（v0.5.0）|
 | 热记忆 | `hotMemoryRounds` / `hotMemoryMaxTokens` | `5` / `2000` | 会话级短期热记忆轮次与 token 预算（v0.5.0）|
 | 注入 | `selectiveInjectEnabled` | `true` | 选择性注入：候选按与当前 query 的主题相似度重排（v0.5.0）|
 | 召回 | `searchSemanticDedup` | `false` | 搜索时语义去重（激进选项，近重复行在 Rerank 前丢弃，v0.5.0）|
+| 召回 | `searchSemanticDedupThreshold` | `0.95` | 搜索时语义去重相似度阈值（v0.5.0，默认 0.95，`searchSemanticDedup=true` 时生效）|
 | 质量 | `memoryQualityFilter` | 开 | 记忆质量过滤（0-100 打分，低质降权/归档，`low_quality` 仍可显式搜索）|
 | 审计 | `llmAudit` | 开 | LLM 消耗审计（`llm_audit_logs` 表 + 埋点 + 只读 API）|
 
@@ -381,9 +383,11 @@ Every decision is replayable; every claim has evidence:
 | Inject | `hybridInject` | `true` | Semantic-first injection (non-empty query recalls via vector first, rule pick fills/dedupes) |
 | Recall | `bm25SearchEnabled` | `true` | BM25 sparse third recall path (scattered-word/ID/code-snippet queries, v0.5.0) |
 | Recall | `adaptiveThresholdEnabled` | `true` | Adaptive similarity threshold (dynamic cutoff by query shape, v0.5.0) |
+| Hot memory | `hotMemoryEnabled` | `true` | Master switch for session-level hot memory (v0.5.0) |
 | Hot memory | `hotMemoryRounds` / `hotMemoryMaxTokens` | `5` / `2000` | Session-level hot memory rounds and token budget (v0.5.0) |
 | Inject | `selectiveInjectEnabled` | `true` | Selective injection: candidates re-ranked by topical similarity to current query (v0.5.0) |
 | Recall | `searchSemanticDedup` | `false` | Search-time semantic dedup (aggressive option, near-duplicates dropped before Rerank, v0.5.0) |
+| Recall | `searchSemanticDedupThreshold` | `0.95` | Semantic dedup similarity threshold (v0.5.0, default 0.95; effective when `searchSemanticDedup=true`) |
 | Quality | `memoryQualityFilter` | on | Memory quality filter (0-100 scoring; low-quality demoted/archived, `low_quality` still searchable) |
 | Audit | `llmAudit` | on | LLM cost audit (`llm_audit_logs` table + instrumentation + read-only API) |
 

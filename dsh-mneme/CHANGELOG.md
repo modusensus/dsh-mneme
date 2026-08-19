@@ -18,11 +18,11 @@
 - **召回率优化（三路召回融合）**：
   - **BM25 稀疏向量第三路召回（`src/search/bm25.js`）**：与向量召回、FTS5/LIKE 关键词并列的第三路——ASCII 词元 + CJK bigram 分词、IDF 加权打分（归一化 [0,1]），专有名词、ID、代码片段等散词查询不再依赖子串命中。融合规则：未召回的行按 `0.3×BM25分` 回填；仅向量召回的行获得词法加分；LIKE 关键词已命中的行不叠分（子串命中必然包含查询词元，叠分等于重复计算词法证据）。`bm25SearchEnabled` 可整体关闭。
   - **自适应阈值（`src/search/adaptive.js`）**：取代固定 `0.65` 截断——`entity:`/`attr:` 前缀放宽至 0.5，短查询（<5 字符）收紧至 0.7，长查询（>50）放宽至 0.6，候选头部 Top1/Top5 分差 > 0.3 时放宽至 0.5 让尾部进入 Rerank。抓取阶段以最宽松分支下限执行、终cut按实际分布计算；显式传入 `threshold` 或 `adaptiveThresholdEnabled=false` 时完全走旧行为。
-  - **会话级短期热记忆（`src/hot-memory.js`）**：与长期记忆库分离的会话内热上下文——最近 N 轮对话（默认 5，`hotMemoryRounds`）按 token 预算（默认 2000，`hotMemoryMaxTokens`）滚动截断，每次渲染从会话事件日志无状态重建，不落库。注入顺序为「短期上下文 → 长期记忆召回 → 摘要」，热记忆块置于 memory 上下文块头部（不新增独立 context，系统提示装配保持两块稳定）。
+  - **会话级短期热记忆（`src/hot-memory.js`）**：与长期记忆库分离的会话内热上下文——最近 N 轮对话（默认 5，`hotMemoryRounds`）按 token 预算（默认 2000，`hotMemoryMaxTokens`）滚动截断，每次渲染从会话事件日志无状态重建，不落库。`hotMemoryEnabled` 为总开关（默认开，关闭后热记忆块不再注入）。注入顺序为「短期上下文 → 长期记忆召回 → 摘要」，热记忆块置于 memory 上下文块头部（不新增独立 context，系统提示装配保持两块稳定）。
 - **部署优化（注入侧）**：
   - **上下文压缩注入**：sleep 降权记忆带 `_full_content` 时注入其摘要原文，不再对已压缩内容二次截断；普通长内容维持 300 字硬截断。
   - **选择性注入（主题匹配）**：query 向量可用时（异步预取缓存），注入候选按与当前查询的主题相似度重排，替代固定规则序；`selectiveInjectEnabled` 可关。
-  - **搜索时语义去重（激进选项）**：`searchSemanticDedup=true` 显式开启后，合并候选按 embedding 余弦相似度（阈值 0.95 可调）贪心去重，近重复行在 Rerank 前被丢弃，不等待 autoDream 合并。默认关闭——小模型可能误折叠语义相近但内容不同的记忆；keyword 纯文本模式永不参与。
+  - **搜索时语义去重（激进选项）**：`searchSemanticDedup=true` 显式开启后，合并候选按 embedding 余弦相似度贪心去重（阈值由 `searchSemanticDedupThreshold` 控制，默认 0.95），近重复行在 Rerank 前被丢弃，不等待 autoDream 合并。默认关闭——小模型可能误折叠语义相近但内容不同的记忆；keyword 纯文本模式永不参与。
 - **评测体系（`scripts/benchmark-recall.js`）**：标准查询集驱动的召回基准——每用例给出期望命中 id，计算 Recall@5 与 MRR，`legacy`（三特性全关）与 `fused`（默认配置）双跑对比，可重复验证三路融合的召回增益。
 
 ### 修复

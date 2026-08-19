@@ -85,6 +85,31 @@ test("hybrid blend honors configured vector/keyword weights", async () => {
   assert.ok(Math.abs(t.score - 0.9) < 1e-9, `tuned blend ${t.score}`);
 });
 
+test("hybrid fusion clamps blended scores into [0,1]", async () => {
+  // Weights summing above 1 (1.0 + 1.0) push a same-memory blend over 1.0:
+  // title hit (importance 5) = 1 * (0.5 + 0.5) = 1.0, vector cosine = 1.0 →
+  // raw blend 1.0*1 + 1.0*1 = 2.0. The fused score must be clamped so
+  // consumers never see a score outside [0,1].
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config: {
+    hybridSearchVectorWeight: 1,
+    hybridSearchKeywordWeight: 1,
+    adaptiveThresholdEnabled: false,
+    searchSemanticDedup: false
+  } });
+  const vi = createVectorIndex({ store });
+  service.setEmbedder(embedder);
+  service.setVectorIndex(vi);
+  const m = service.saveWithDedupe({ type: "preference", title: "量子计算", content: "量子计算入门", importance: 5 });
+  vi.saveEmbedding(m.memory.id, [1, 0, 0]);
+
+  const rows = await service.searchMemories("量子计算", { mode: "hybrid", topK: 10 });
+  const hit = rows.find((r) => r.id === m.memory.id);
+  assert.ok(hit, "blended row is recalled");
+  assert.equal(hit.score, 1, `over-weight blend clamped to 1 (got ${hit.score})`);
+  assert.ok(hit.score >= 0 && hit.score <= 1);
+});
+
 test("auto = keyword leads, vector fills the remaining slots", async () => {
   const { service, vectorIndex } = setup();
   const kw = service.saveWithDedupe({ type: "preference", title: "量子计算", content: "量子计算入门" });

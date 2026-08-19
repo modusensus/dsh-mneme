@@ -505,7 +505,9 @@ export function createService({ store, mirror, config, onWrite, logger }) {
           byId.set(m.id, { ...m, score: wb * (m.score ?? 0) });
         }
       }
-      const ranked = [...byId.values()].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+      const ranked = [...byId.values()]
+        .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+        .map((r) => ({ ...r, score: Math.max(0, Math.min(1, r.score ?? 0)) }));
       merged = ranked.slice(0, lim);
       if (merged.length < lim && !merged.length) {
         // Vector unavailable entirely: fall back to plain keyword.
