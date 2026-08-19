@@ -5,7 +5,12 @@
 //
 // Usage: npm run sync   (also run automatically by `npm pack`/`npm publish`
 // via the prepack hook, so a published tarball always ships a fresh lib/).
-import { cpSync, existsSync, mkdirSync, readdirSync } from "node:fs";
+//
+// Note: copyFileSync (not cpSync) is used on purpose — cpSync removes the
+// destination first, which fails with EPERM/unlink on Windows when the path
+// is long enough to trigger the \\?\ extended-prefix (observed on publish).
+// copyFileSync truncates and rewrites in place, so it survives long paths.
+import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -31,7 +36,7 @@ for (const file of walk(srcDir)) {
   const rel = relative(srcDir, file);
   const dest = join(libDir, rel);
   mkdirSync(join(dest, ".."), { recursive: true });
-  cpSync(file, dest);
+  copyFileSync(file, dest);
   copied++;
   console.log(`synced  ${rel}`);
 }
