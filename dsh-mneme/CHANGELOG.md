@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.3] - 2026-08-20
+
+### 新增
+
+- **`dreamReasoningEffort` / `sleepReasoningEffort` 支持 `off`**：显式关闭思考。deepseek-v4-flash 等思考型模型即使 `none`（不传字段）也会按默认 thinking 把整个 token 预算烧在推理上，返回空正文（`no json array in llm output`；deepseek harness 实测 `finish_reason:"length"`、content 长度 0、8192 completion = 8192 reasoning）。设 `off` 后 12s / 2075 token 即完成，且 `dreamMaxTokens: 8192` 默认值保持够用。sleep 侧同步支持。
+
+### 修复
+
+- **决策字段名归一化兜底（deepseek harness 实测）**：`extractJsonArray` 后新增 `normalizeDecisions`，把 thinking 模型输出的别名键 / wrapper 对象重写到规范字段——`target_ids` / `targetIds` / `memory_ids` → `ids`、`keep_source` → `keepSource`、`winner_id` → `winner`、`loser_id` → `loser`、`new_title` / `merged_title` → `title`、`consolidation` 作 action 键或 action 值 → `merge` 等；顶层 `{consolidation:[...]}` 等 wrapper 对象自动解包；`ids` 单值字符串包成数组；create 决策的 `type` 字段绝不被误当 action。字段名不听话但语义正确的输出不再整单被拒（实测方案 A 输出 `consolidation`/`target_ids`、方案 B 输出 `targetIds` 均非规范名）。
+
+### 测试
+
+- 603 → **613** 全绿（新增 `test/normalize-decisions.test.js` 归一化 9 例、reasoning-effort `off` 用例）。
+
 ## [0.5.2] - 2026-08-20
 
 ### 新增

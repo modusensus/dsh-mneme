@@ -248,6 +248,8 @@ npm run sync      # src → lib 同步
 | **v0.4.6** | 8 项修复 | 向量链路（embedSingle 适配 / `autoReindexOnBoot` 存量回填 / `vector_meta` 元数据）+ 注入语义召回 `hybridInject` + 同标题追加 `content_history` + 注入长度上限 + 质量过滤 `memoryQualityFilter` + LLM 审计 `llmAudit` | ✅ 553 测试 |
 | **v0.4.7** | 迁移幂等化 | schema 迁移改用 `addColumn` helper 吞掉 duplicate column name 并发竞态（v0.4.6 CI peer 并发测试暴露，12 处统一收口） | ✅ 已完成 |
 | **v0.5.0** | 召回融合与记忆可视化 | 主区「记忆库」视图（取代侧边栏抽屉）+ 记忆图谱（ego-graph API + 零依赖 SVG 力导向）+ BM25 三路召回融合 + 自适应阈值 + 会话热记忆 + 召回基准评测 | ✅ 593 测试 |
+| **v0.5.2** | 记忆溯源 session_id | memories 表 `session_id` 列 + `memory_save`/摘要记录出生会话（birth provenance，为 v0.6.0 推理路径 / 兴趣漂移分析打底） | ✅ 已发布（部署环境） |
+| **v0.5.3** | autoDream 思考关闭 + 字段归一化 | `dreamReasoningEffort`/`sleepReasoningEffort` 支持 `off` 显式关思考（deepseek-v4-flash 实测 8192 预算不再被推理吃光，12s/2075 token 完成）+ 决策字段名归一化兜底（`target_ids`→`ids`、wrapper 解包等） | ✅ 613 测试 |
 | **v0.6.0+** | 自进化记忆 | 兴趣漂移 + 跨 workspace | 远期 |
 
 已完成版本详见 [Release Notes](https://github.com/modusensus/dsh-mneme/releases)。
@@ -488,6 +490,8 @@ Memory grows:
 | **v0.4.6** | 8 fixes | vector chain (embedSingle / `autoReindexOnBoot` backfill / `vector_meta`) + semantic-first injection `hybridInject` + same-title `content_history` + inject length caps + quality filter `memoryQualityFilter` + LLM audit `llmAudit` | ✅ 553 tests |
 | **v0.4.7** | Migration idempotency | schema migration uses `addColumn` helper to swallow duplicate-column-name concurrency races (exposed by v0.4.6 CI peer concurrency tests; unified across 12 sites) | ✅ Done |
 | **v0.5.0** | Recall fusion & memory visualization | main-area "Memory" view (replaces sidebar drawer) + memory graph (ego-graph API + zero-dependency SVG force layout) + BM25 three-way recall fusion + adaptive threshold + session hot memory + recall benchmark | ✅ 593 tests |
+| **v0.5.2** | Memory provenance session_id | `session_id` column on memories + `memory_save`/summary record birth session (birth provenance, raw material for v0.6.0 reasoning-path / drift analysis) | ✅ Released (deployment env) |
+| **v0.5.3** | autoDream thinking-off + field normalization | `dreamReasoningEffort`/`sleepReasoningEffort` now accept `off` to explicitly disable thinking (deepseek-v4-flash: 8192 budget no longer drained by reasoning, 12s/2075 tokens) + decision field-name normalization fallback (`target_ids`→`ids`, wrapper unwrap) | ✅ 613 tests |
 | **v0.6.0+** | Self-evolving memory | Interest drift + cross-workspace | long-term |
 
 Completed versions see [Release Notes](https://github.com/modusensus/dsh-mneme/releases).

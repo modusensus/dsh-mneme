@@ -1,7 +1,7 @@
 import { validateDecisions, applyDecisions } from "./dream/decisions.js";
 import { clusterMemories, findPotentialConflicts } from "./dream/clustering.js";
 import { createHash, randomUUID } from "node:crypto";
-export { validateDecisions, applyDecisions };
+export { validateDecisions, applyDecisions, normalizeDecisions };
 
 
 // Extract the first JSON array from LLM output, tolerating markdown fences,
@@ -39,6 +39,95 @@ function extractJsonArray(text) {
     // fall through
   }
   return null;
+}
+
+/**
+ * Field-name drift guard (v0.5.3): thinking-type models (deepseek-v4-flash
+ * etc.) occasionally ignore the prompt's exact decision schema and emit alias
+ * keys —实测方案 A 输出 "consolidation"/"target_ids"、方案 B 输出
+ * "action"/"targetIds"，都不是插件要求的 "action"/"ids"。normalizeDecisions
+ * 在 validateDecisions 之前把常见变体重写回规范字段名，让"字段名不听话但
+ * 语义正确"的输出仍可被应用，而不是整单被拒。覆盖三类漂移：
+ *   1. 整个 body 是包在对象里的数组（{consolidation:[...]} /
+ *      {decisions:[...]} / {actions:[...]}）；
+ *   2. 决策对象用了别名键（target_ids→ids、keep_source→keepSource、
+ *      winner_id→winner、targetIds→ids 等）；
+ *   3. action 值用了同义词（archived→archive、consolidation→merge 等）。
+ * 无归一化必要时原样返回（null→null，调用方"no json array"分支不受影响）。
+ */
+const FIELD_ALIASES = {
+  // "consolidation" 也可作 action 键（实测 deepseek-v4-flash 这么写过）；
+  // 但 normalizeOne 对 action 键做字符串过滤，{consolidation:[...]} 这种
+  // wrapper 数组不会被误当成 action（顶层 WRAPPER_KEYS 负责解包）。
+  action: ["action", "decision", "operation", "op", "action_type", "actionType", "mode", "consolidation"],
+  // 注意：action 别名不含 "type"——create 决策的 type 是合法的记忆类型字段，
+  // 不能误当 action。
+  ids: ["ids", "target_ids", "targetIds", "targets", "memory_ids", "memoryIds", "id_list", "idList", "memories"],
+  reason: ["reason", "rationale", "why", "comment", "note", "explanation"],
+  importance: ["importance", "priority", "weight", "level", "score"],
+  keepSource: ["keepSource", "keep_source", "source_id", "sourceId", "keeper", "keep_id", "keepId"],
+  winner: ["winner", "winner_id", "winnerId", "win_id", "winId", "preferred", "primary"],
+  loser: ["loser", "loser_id", "loserId", "lose_id", "loseId", "drop_id", "dropId", "archive_id", "archiveId"],
+  title: ["title", "new_title", "newTitle", "merged_title", "mergedTitle", "merge_title", "mergeTitle"],
+  content: ["content", "new_content", "newContent", "merged_content", "mergedContent", "merge_content", "mergeContent"],
+  evidence: ["evidence", "evidence_ids", "evidenceIds"]
+};
+
+// 保守的 action 值同义词：只收语义无歧义、不可能被误认为记忆类型/其他 action 的映射。
+const ACTION_SYNONYMS = {
+  archived: "archive",
+  remove: "archive",
+  delete: "archive",
+  combine: "merge",
+  consolidation: "merge",
+  consolidate: "merge",
+  modify: "update",
+  edit: "update"
+};
+
+const WRAPPER_KEYS = ["consolidation", "decisions", "actions", "results", "updates", "list", "data"];
+
+/** 把单个决策对象重写到规范字段名；非对象原样返回。 */
+function normalizeOne(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+  const d = {};
+  const consumed = new Set();
+  for (const [canon, aliases] of Object.entries(FIELD_ALIASES)) {
+    for (const key of aliases) {
+      if (key in raw && raw[key] !== undefined && raw[key] !== null) {
+        // action 必须是字符串——{consolidation:[...]} 的 wrapper 数组跳过。
+        if (canon === "action" && Array.isArray(raw[key])) continue;
+        d[canon] = raw[key];
+        consumed.add(key);
+        break;
+      }
+    }
+  }
+  // 保留未被别名消费的原始键（create 的 type、未来字段）原样透传。
+  for (const key of Object.keys(raw)) {
+    if (!consumed.has(key)) d[key] = raw[key];
+  }
+  if (typeof d.action === "string") {
+    const low = d.action.toLowerCase();
+    if (ACTION_SYNONYMS[low] !== undefined) d.action = ACTION_SYNONYMS[low];
+  }
+  // ids 若被写成单个字符串则包成数组（validateDecisions 要求数组）。
+  if (d.ids !== undefined && typeof d.ids === "string") d.ids = [d.ids];
+  return d;
+}
+
+/** 归一化 LLM 决策 body（数组 / 包裹对象 / 单个决策对象），null 原样返回。 */
+function normalizeDecisions(raw) {
+  if (!raw) return raw;
+  if (Array.isArray(raw)) return raw.map(normalizeOne).filter((d) => d && typeof d === "object");
+  if (typeof raw === "object") {
+    for (const key of WRAPPER_KEYS) {
+      if (Array.isArray(raw[key])) return normalizeDecisions(raw[key]);
+    }
+    // 单个决策对象 → 包成单元素数组（validateDecisions 要求数组）。
+    return [normalizeOne(raw)];
+  }
+  return raw;
 }
 const SUMMARY_PROMPT = `你是记忆库摘要助手。根据整理后的记忆，生成一段 150-200 字的记忆库总览，覆盖：用户偏好、活跃项目、关键决策。之后作为会话上下文注入。只输出摘要文本，不要其他内容。`;
 
@@ -616,7 +705,10 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       return finish({ ok: false, error: "llm failed", summary: false });
     }
 
-    const decisions = extractJsonArray(decisionText);
+    // v0.5.3 字段名归一化兜底：thinking 模型可能输出别名键/wrapper 对象，
+    // 在 validateDecisions 之前重写到规范字段名，语义正确但 schema 不听话的
+    // 输出不再整单被拒。
+    const decisions = normalizeDecisions(extractJsonArray(decisionText));
     if (!Array.isArray(decisions)) {
       logger?.warn?.(`dsh-mneme dream: no json array in llm output (raw length ${decisionText?.length ?? 0})`);
       return finish({ ok: false, error: "no json array in llm output", summary: false });

@@ -36,6 +36,11 @@ test("issue#9: reasoningEffort config defaults to none and rejects unknown value
   assert.equal(cfg.sleepReasoningEffort, "none");
   assert.equal(Config({ dreamReasoningEffort: "high" }).dreamReasoningEffort, "high");
   assert.equal(Config({ sleepReasoningEffort: "medium" }).sleepReasoningEffort, "medium");
+  // v0.5.3: 'off' explicitly disables thinking — required for thinking-type
+  // models (deepseek-v4-flash) whose reasoning otherwise drains the whole
+  // token budget and returns an empty consolidation body.
+  assert.equal(Config({ dreamReasoningEffort: "off" }).dreamReasoningEffort, "off");
+  assert.equal(Config({ sleepReasoningEffort: "off" }).sleepReasoningEffort, "off");
   assert.throws(() => Config({ dreamReasoningEffort: "bogus" }), "invalid effort rejected");
   assert.throws(() => Config({ sleepReasoningEffort: "ultra" }), "invalid effort rejected");
 });
@@ -103,6 +108,28 @@ test("issue#9: dream forwards dreamReasoningEffort on both LLM calls", async () 
   assert.equal(captured.length, 2);
   for (const options of captured) {
     assert.equal(options.reasoningEffort, "high", `reasoningEffort forwarded on ${options.purpose}`);
+  }
+  store.close();
+});
+
+test("issue#9: dream forwards dreamReasoningEffort:off (thinking disabled) on both LLM calls", async () => {
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config: {} });
+  const dream = createDreamScheduler({ onRun: () => Promise.resolve({ ok: true, skipped: true }) });
+  const { memory: a } = service.saveWithDedupe({ type: "project", title: "插件", content: "旧", importance: 3 });
+  const { memory: b } = service.saveWithDedupe({ type: "project", title: "插件2", content: "新细节", importance: 4 });
+  const captured = [];
+  const ctx = dreamCtx({
+    captured,
+    onConsolidation: () => JSON.stringify([
+      { action: "merge", ids: [a.id, b.id], keepSource: b.id, title: "插件总览", content: "合并内容", importance: 4 }
+    ])
+  });
+  const result = await dream.runDream(ctx, service, { dreamReasoningEffort: "off" });
+  assert.equal(result.ok, true);
+  assert.equal(captured.length, 2);
+  for (const options of captured) {
+    assert.equal(options.reasoningEffort, "off", `reasoningEffort:"off" forwarded on ${options.purpose}`);
   }
   store.close();
 });

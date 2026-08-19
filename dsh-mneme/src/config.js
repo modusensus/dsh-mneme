@@ -19,11 +19,13 @@ export const Config = z.object({
   dreamModel: z.string(),
   dreamMaxTokens: z.natural().min(256).max(131072).default(8192),
   // Pass-through reasoning effort for dream's LLM calls. 'none' (default)
-  // omits the field so the provider's own default applies; low/medium/high
-  // are forwarded verbatim. Useful to cap reasoning spend on thinking-type
-  // models that would otherwise drain the whole token budget and return an
-  // empty body ("no json array in llm output").
+  // omits the field so the provider's own default applies; 'off' explicitly
+  // disables thinking — REQUIRED for thinking-type models (deepseek-v4-flash
+  // etc.) that would otherwise drain the whole token budget into reasoning and
+  // return an empty body ("no json array in llm output"); low/medium/high are
+  // forwarded verbatim to cap reasoning spend.
   dreamReasoningEffort: z.union([
+    z.const("off"),
     z.const("low"),
     z.const("medium"),
     z.const("high"),
@@ -197,9 +199,11 @@ export const Config = z.object({
   sleepProvider: z.string().default(""),
   sleepModel: z.string().default(""),
   // Pass-through reasoning effort for sleep's LLM passes, same semantics as
-  // dreamReasoningEffort: 'none' (default) omits the field; low/medium/high
-  // are forwarded verbatim.
+  // dreamReasoningEffort: 'none' (default) omits the field; 'off' explicitly
+  // disables thinking (thinking-type models would burn the whole budget on
+  // reasoning); low/medium/high are forwarded verbatim.
   sleepReasoningEffort: z.union([
+    z.const("off"),
     z.const("low"),
     z.const("medium"),
     z.const("high"),
