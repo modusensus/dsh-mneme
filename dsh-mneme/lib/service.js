@@ -3,6 +3,39 @@ import { TYPE_FILE } from "./mirror.js";
 
 const INJECT_TYPES = new Set(["preference", "project", "decision", "summary"]);
 
+// Epistemic trust weights (v0.4.5): when config.trustEpistemicWeighting is on,
+// each recall candidate's existing score is multiplied by the weight of its
+// epistemic_status before ranking — measured facts outrank guesses. Missing /
+// unknown statuses are unscaled (×1). Off by default, so nothing changes.
+const EPISTEMIC_WEIGHTS = { observation: 1.0, inferred: 0.85, subjective: 0.7 };
+
+/**
+ * Standard retrieval-quality metrics over the ordered candidate ids actually
+ * returned vs the ids the evaluator marked relevant (方案 B). Pure + total, so
+ * callers (and tests) get deterministic numbers without touching a store:
+ *   precision = |relevant ∩ retrieved| / |retrieved|
+ *   recall    = |relevant ∩ retrieved| / |expected|
+ *   mrr       = 1 / rank of the first relevant doc (0 when none retrieved)
+ * hit_count is the raw intersection size. Values are rounded to 4 decimals so
+ * repeated divisions (e.g. 1/3) never surface binary-float noise.
+ */
+export function computeRetrievalMetrics(actualIds, expectedIds) {
+  const expected = new Set(Array.isArray(expectedIds) ? expectedIds : []);
+  const actual = Array.isArray(actualIds) ? actualIds : [];
+  const relevant = actual.filter((id) => expected.has(id)).length;
+  const round4 = (x) => Math.round(x * 10000) / 10000;
+  let mrr = 0;
+  for (let i = 0; i < actual.length; i++) {
+    if (expected.has(actual[i])) { mrr = 1 / (i + 1); break; }
+  }
+  return {
+    precision: round4(actual.length ? relevant / actual.length : 0),
+    recall: round4(expected.size ? relevant / expected.size : 0),
+    mrr: round4(mrr),
+    hit_count: relevant
+  };
+}
+
 export function createService({ store, mirror, config, onWrite, logger }) {
   // Optional dream scheduler hook, installed via setDreamHook after creation
   // (the scheduler holds a reference back to the service, so it cannot be
@@ -357,9 +390,21 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     }
 
     merged = merged.slice(0, lim);
-    const result = useRerank && reranker && merged.length
+    let result = useRerank && reranker && merged.length
       ? await rerankCandidates(q, merged, lim)
       : merged;
+    // Epistemic trust (v0.4.5): opt-in re-weighting of the final candidate
+    // scores by source credibility. When off (default) `result` is returned
+    // untouched — exactly the legacy behavior.
+    if (config.trustEpistemicWeighting === true) {
+      result = result
+        .map((m) => ({
+          ...m,
+          score: (m.score ?? 0) * (EPISTEMIC_WEIGHTS[m.epistemic_status] ?? 1)
+        }))
+        .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+        .slice(0, lim);
+    }
 
     // Recall layer receipt: with recordRecall on, hand the actual merged
     // candidate list (id/title/content/score/source) to the injected recorder
@@ -386,6 +431,93 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     }
     touchRecalled(result);
     return result;
+  }
+
+  /**
+   * Retrieval evaluation (方案 B): run one search for `query`, compare the ids
+   * it actually returned against `expectedIds`, and return the computed
+   * metrics. When persistence is on (config.evalPersistTestResults, or an
+   * explicit `persist` override per call) the snapshot is written to the
+   * recall_evals table — a SEPARATE store from the recall_runs production audit,
+   * so test/eval data never inflates the production trail.
+   *
+   * options:
+   *   mode/topK/threshold/useRerank — passed through to searchMemories
+   *   evalType                      — label for the snapshot (default 'manual')
+   *   recordRecall                  — also write a recall_runs audit row for the
+   *                                   same scene and link it via recall_run_id
+   *                                   (default false: eval stays unlinked)
+   *   recallRunId                   — explicit link to an existing recall_runs id
+   *   persist                       — override the config gate for this call
+   *
+   * Returns { metrics, actualIds, expectedIds, recallRunId, persisted }.
+   * Never throws on persistence failures: a broken eval write must not break
+   * the retrieval quality measurement.
+   */
+  async function evaluateRetrieval(query, expectedIds, options = {}) {
+    const q = String(query ?? "").trim();
+    const expected = Array.isArray(expectedIds) ? expectedIds : [];
+    const {
+      mode = "auto",
+      topK = 20,
+      threshold,
+      useRerank = true,
+      evalType = "manual",
+      recordRecall = false,
+      recallRunId = null,
+      persist = config.evalPersistTestResults === true
+    } = options;
+    if (!q) {
+      const empty = computeRetrievalMetrics([], expected);
+      return { metrics: empty, actualIds: [], expectedIds: expected, recallRunId: null, persisted: false };
+    }
+
+    const rows = await searchMemories(q, { mode, topK, threshold, useRerank, recordRecall: false });
+    const actualIds = rows.map((m) => m.id);
+    const metrics = computeRetrievalMetrics(actualIds, expected);
+
+    // Optional recall_runs audit for the same scene; the eval row then links to
+    // it. Kept separate from the production recorder (which fires only on
+    // recordRecall=true inside searchMemories) — eval never double-records.
+    // An explicit recallRunId wins; recordRecall only mints a NEW audit run when
+    // the caller did not already link one (never clobber an existing link).
+    let runId = recallRunId ?? null;
+    if (recordRecall && runId === null) {
+      try {
+        const run = store.saveRecallRun({
+          query: q,
+          mode,
+          topK,
+          threshold: threshold ?? null,
+          candidates: rows.map((m) => ({
+            id: m.id,
+            title: m.title,
+            content: m.content,
+            score: m.score ?? null,
+            source: m.source ?? "keyword"
+          })),
+          created_at: new Date().toISOString()
+        });
+        runId = run.id;
+      } catch { /* non-fatal: the eval itself still succeeds */ }
+    }
+
+    let persisted = false;
+    if (persist) {
+      try {
+        store.saveRecallEval({
+          recall_run_id: runId,
+          query: q,
+          expected_ids: expected,
+          actual_ids: actualIds,
+          metrics,
+          eval_type: evalType,
+          created_at: new Date().toISOString()
+        });
+        persisted = true;
+      } catch { /* non-fatal: measurement survives a failed eval write */ }
+    }
+    return { metrics, actualIds, expectedIds: expected, recallRunId: runId, persisted };
   }
 
   /**
@@ -867,6 +999,8 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     setReranker(rn) { reranker = rn; },
     setRecallRecorder(fn) { recallRecorder = fn; },
     searchMemories,
+    evaluateRetrieval,
+    computeRetrievalMetrics,
     // passthroughs used by tools and api layers; mutations keep the mirror in sync
     search: (q, o) => store.search(q, o),
     searchVector: (v, o) => store.searchVector(v, o),
@@ -999,6 +1133,12 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     listConflictPending: (opts) => store.listConflictPending(opts),
     resolveConflictPending: (id, o) => store.resolveConflictPending(id, o),
     countConflictPending: () => store.countConflictPending(),
+    // Recall evaluation trail (方案 B): audit-bookkeeping semantics like the
+    // dream/recall passthroughs above — a recall_evals write is a snapshot, not
+    // a memory mutation, so it never triggers write hooks.
+    saveRecallEval: (r) => store.saveRecallEval(r),
+    getRecallEval: (id) => store.getRecallEval(id),
+    listRecallEvals: (opts) => store.listRecallEvals(opts),
     // Entity gene (v0.3.0) passthroughs for the autoDream apply path
     // (applyDecisions): records supersedes relations after an update and
     // migrates entity_attrs on merge. Bookkeeping writes like the audit

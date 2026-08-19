@@ -1,5 +1,10 @@
 const ACTIONS = new Set(["keep", "merge", "archive", "conflict", "update", "create"]);
 
+// Epistemic trust (v0.4.5): when config.trustEpistemicWeighting is on, merge
+// keepSource and conflict winners prefer the higher-trust memory. Higher value
+// = preferred. observation (measured) > inferred (derived) > subjective (guess).
+const EPISTEMIC_PRIORITY = { observation: 3, inferred: 2, subjective: 1 };
+
 /**
  * Validate a dream decision list against a snapshot of eligible memories.
  * @param decisions - LLM-produced decision list.
@@ -252,10 +257,32 @@ function applyOne(d, service, snapshot, config = {}) {
   switch (d.action) {
     case "archive": return applyArchive(d, service, snapshot);
     case "merge": return applyMerge(d, service, snapshot, config);
-    case "conflict": return applyConflict(d, service, snapshot);
+    case "conflict": return applyConflict(d, service, snapshot, config);
     case "create": return applyCreate(d, service, config);
     default: return applyUpdate(d, service, snapshot, config);
   }
+}
+
+/**
+ * Highest-epistemic-priority UNARCHIVED id among `ids` (ties break toward
+ * `preferred`). Archived memories are never eligible keepers — promoting one
+ * would demote the real keepSource to a source and then hit the archived-keeper
+ * guard in applyMerge, silently skipping the whole merge. When `preferred`
+ * itself is archived (or missing), fall back to any unarchived candidate.
+ */
+function pickBestKeeper(ids, preferred, service) {
+  let best = null;
+  let bestP = -1;
+  for (const id of ids) {
+    const mem = service.getById(id);
+    if (!mem || mem.archived) continue; // archived/missing: ineligible keeper
+    const p = EPISTEMIC_PRIORITY[mem.epistemic_status] ?? 0;
+    if (p > bestP || (p === bestP && id === preferred)) {
+      bestP = p;
+      best = id;
+    }
+  }
+  return best ?? preferred;
 }
 
 /**
@@ -297,6 +324,13 @@ function applyArchive(d, service, snapshot) {
 }
 
 function applyMerge(d, service, snapshot, config = {}) {
+  // Epistemic trust (v0.4.5): when enabled, prefer an observation keeper over a
+  // subjective/inferred one. Mutating the decision keeps the receipt + committed
+  // record aligned with the actual keeper.
+  if (config.trustEpistemicWeighting === true) {
+    const best = pickBestKeeper(d.ids, d.keepSource, service);
+    if (best && best !== d.keepSource) d.keepSource = best;
+  }
   const sources = d.ids.filter((id) => id !== d.keepSource);
   // Idempotent replay: if every other source is already archived, this merge
   // already landed — skip so a replayed/concurrent decision never double-counts
@@ -334,7 +368,14 @@ function applyMerge(d, service, snapshot, config = {}) {
   };
 }
 
-function applyConflict(d, service, snapshot) {
+function applyConflict(d, service, snapshot, config = {}) {
+  // Epistemic trust (v0.4.5): when enabled, the observation side of a conflict
+  // is preferred as winner over a subjective/inferred one.
+  if (config.trustEpistemicWeighting === true) {
+    const pw = EPISTEMIC_PRIORITY[service.getById(d.winner)?.epistemic_status] ?? 0;
+    const pl = EPISTEMIC_PRIORITY[service.getById(d.loser)?.epistemic_status] ?? 0;
+    if (pl > pw) [d.winner, d.loser] = [d.loser, d.winner];
+  }
   const winner = service.getById(d.winner);
   const loser = service.getById(d.loser);
   if (!winner || !loser) return "skipped";

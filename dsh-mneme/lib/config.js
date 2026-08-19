@@ -167,4 +167,22 @@ export const Config = z.object({
     z.const("high"),
     z.const("none")
   ]).default("none"),
+
+  // --- epistemic trust: memory source credibility (v0.4.5) -----------------
+  // Distinguish memories by source: observation (measured / witnessed),
+  // subjective (opinion / guess) and inferred (derived from other evidence).
+  // Opt-in by default: when false (default) retrieval ranking, injection
+  // marking and dream merge/conflict keepSource are untouched and
+  // epistemic_status stays inert data (still written + inferred on save, just
+  // never used to influence behavior).
+  trustEpistemicWeighting: z.boolean().default(false),
+
+  // --- recall evaluation: test-result storage (v0.4.6, 方案 B) --------------
+  // Separate retrieval evaluation snapshots from the production recall audit.
+  // When false (default) evaluateRetrieval still computes precision/recall/mrr
+  // and returns them to the caller, but writes nothing to recall_evals — the
+  // eval table only grows when the operator opts in. Production searchMemories
+  // audits to recall_runs and NEVER touches recall_evals, regardless of this
+  // flag (production isolation is unconditional).
+  evalPersistTestResults: z.boolean().default(false),
 });

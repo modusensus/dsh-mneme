@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS memories (
   archived    INTEGER NOT NULL DEFAULT 0,
   source      TEXT,
   embedding   TEXT,
+  epistemic_status TEXT NOT NULL DEFAULT 'subjective',
   last_accessed_at  TEXT,
   _full_content     TEXT,
   created_at  TEXT NOT NULL,
@@ -60,6 +61,29 @@ CREATE TABLE IF NOT EXISTS recall_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_recall_runs_created ON recall_runs(created_at);
 CREATE INDEX IF NOT EXISTS idx_recall_runs_query ON recall_runs(query);
+
+-- recall_evals: retrieval evaluation/test snapshots, kept SEPARATE from the
+-- recall_runs production audit so test runs never inflate the production trail.
+-- One row per evaluateRetrieval call that opted into persistence
+-- (config.evalPersistTestResults): the query, the expected ids the operator
+-- marked relevant, the actual ids retrieval returned, and the computed
+-- metrics (precision/recall/mrr). recall_run_id optionally links to the
+-- recall_runs audit row that captured the same retrieval scene (null when the
+-- eval did not also record a run). Bookkeeping like the other audit tables: it
+-- never triggers write hooks.
+CREATE TABLE IF NOT EXISTS recall_evals (
+  id            TEXT PRIMARY KEY,
+  recall_run_id TEXT,                -- FK → recall_runs.id (optional linkage)
+  query         TEXT NOT NULL,
+  expected_ids  TEXT NOT NULL,       -- JSON: relevant ids expected by the evaluator
+  actual_ids    TEXT NOT NULL,       -- JSON: ids actually retrieved
+  metrics       TEXT NOT NULL,       -- JSON: { precision, recall, mrr, hit_count }
+  eval_type     TEXT NOT NULL DEFAULT 'manual',
+  created_at    TEXT NOT NULL,
+  FOREIGN KEY (recall_run_id) REFERENCES recall_runs(id)
+);
+CREATE INDEX IF NOT EXISTS idx_recall_evals_created ON recall_evals(created_at);
+CREATE INDEX IF NOT EXISTS idx_recall_evals_run ON recall_evals(recall_run_id);
 
 -- failure_memories: records user corrections / reflection failures. Captures
 -- what a memory was (actual) vs what the user changed it to (expected)
@@ -191,6 +215,48 @@ CREATE TABLE IF NOT EXISTS mirror_state (
 
 const TYPES = new Set(["preference", "project", "decision", "history", "summary", "pattern"]);
 
+// Epistemic status: what kind of evidence a memory rests on. Defaults to
+// 'subjective' so legacy rows (and rows without any signal) stay compatible.
+const EPISTEMIC_STATUSES = new Set(["observation", "subjective", "inferred"]);
+// Rule-based inference markers, checked in priority order (observation >
+// inferred > subjective). The default fallback is 'subjective'.
+const OBSERVATION_RE = /实测|观察到|观测|测得|测量|结果表明|数据显示|实验|统计|结果/;
+const INFERRED_RE = /推断|推测出|推导|推论|由此可|据此|综上|意味着|所以|因此/;
+const SUBJECTIVE_RE = /我推测|我猜|我觉得|我感觉|可能|大概|也许|认为|猜想|似乎|猜测|感觉/;
+
+/**
+ * Heuristically infer a memory's epistemic status from its content (and the
+ * AI-generated types). summary/pattern entries are always 'inferred' (derived
+ * from other memories); otherwise content markers decide. Pure rule-based, so
+ * it never throws and always returns a value in EPISTEMIC_STATUSES.
+ */
+function inferEpistemicStatus(memory) {
+  if (memory.type === "summary" || memory.type === "pattern") return "inferred";
+  const text = `${memory.title ?? ""} ${memory.content ?? ""}`;
+  if (OBSERVATION_RE.test(text)) return "observation";
+  if (INFERRED_RE.test(text)) return "inferred";
+  if (SUBJECTIVE_RE.test(text)) return "subjective";
+  return "subjective";
+}
+
+/** Resolve a requested epistemic_status: explicit valid value wins, otherwise
+ *  re-infer from (possibly updated) content. Never returns an invalid value. */
+function resolveEpistemicStatus(memory, patch) {
+  if (patch?.epistemic_status !== undefined) {
+    return EPISTEMIC_STATUSES.has(patch.epistemic_status) ? patch.epistemic_status : "subjective";
+  }
+  // Re-infer whenever any signal that feeds the heuristic changed: content
+  // (marker words), title (marker words), or type (summary/pattern are always
+  // inferred). Otherwise keep the stored status.
+  const changed = ["content", "title", "type"].some(
+    (k) => patch?.[k] !== undefined && patch[k] !== memory?.[k]
+  );
+  if (changed) {
+    return inferEpistemicStatus({ ...memory, ...patch });
+  }
+  return memory?.epistemic_status ?? "subjective";
+}
+
 // Per-type mirror sync receipts (peer blocker 4): a type is either committed
 // (file written + fence applied), failed (last sync round errored for it), or
 // pending (still owed a write).
@@ -229,6 +295,7 @@ function toRow(row) {
     forgotten: row.forgotten === 1,
     archived: row.archived === 1,
     source: row.source ?? undefined,
+    epistemic_status: row.epistemic_status ?? "subjective",
     created_at: row.created_at,
     updated_at: row.updated_at,
     last_accessed_at: row.last_accessed_at ?? undefined,
@@ -301,6 +368,24 @@ function toRecallRun(row) {
     topK: row.top_k,
     threshold: row.threshold,
     candidates: parseJsonArray(row.candidates),
+    created_at: row.created_at
+  };
+}
+
+function toRecallEval(row) {
+  if (!row) return undefined;
+  let metrics;
+  if (row.metrics != null) {
+    try { metrics = JSON.parse(row.metrics); } catch { metrics = undefined; }
+  }
+  return {
+    id: row.id,
+    recall_run_id: row.recall_run_id ?? undefined,
+    query: row.query,
+    expected_ids: parseJsonArray(row.expected_ids),
+    actual_ids: parseJsonArray(row.actual_ids),
+    metrics,
+    eval_type: row.eval_type,
     created_at: row.created_at
   };
 }
@@ -421,6 +506,9 @@ export function createStore(path) {
   if (!columns.includes("_full_content")) {
     db.exec("ALTER TABLE memories ADD COLUMN _full_content TEXT");
   }
+  if (!columns.includes("epistemic_status")) {
+    db.exec("ALTER TABLE memories ADD COLUMN epistemic_status TEXT NOT NULL DEFAULT 'subjective'");
+  }
 
   // Legacy dream_runs without policy_epoch → backfill with the default epoch.
   const dreamCols = db.prepare("PRAGMA table_info(dream_runs)").all().map((c) => c.name);
@@ -512,11 +600,16 @@ export function createStore(path) {
     const embedding = Array.isArray(memory.embedding) && memory.embedding.length
       ? JSON.stringify(memory.embedding)
       : null;
+    // Explicit valid status wins; otherwise infer from content/type. Falls back
+    // to 'subjective' (the column default) so legacy callers never break.
+    const epistemicStatus = EPISTEMIC_STATUSES.has(memory.epistemic_status)
+      ? memory.epistemic_status
+      : inferEpistemicStatus(memory);
     runAtomically(() => {
       db.prepare(
-        `INSERT INTO memories (id, type, title, content, tags, importance, forgotten, source, embedding, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`
-      ).run(id, type, memory.title, memory.content, tags, importance, memory.source ?? null, embedding, now, now);
+        `INSERT INTO memories (id, type, title, content, tags, importance, forgotten, source, embedding, epistemic_status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`
+      ).run(id, type, memory.title, memory.content, tags, importance, memory.source ?? null, embedding, epistemicStatus, now, now);
       // desired generation bumped in the same transaction as the write: once
       // this commits, generation > applied_generation, so a crash right after
       // (before syncMirror) is caught by recoverMirror on restart (peer
@@ -538,9 +631,10 @@ export function createStore(path) {
     const embedding = patch.embedding !== undefined
       ? (Array.isArray(patch.embedding) && patch.embedding.length ? JSON.stringify(patch.embedding) : null)
       : existing.embedding ?? null;
+    const epistemicStatus = resolveEpistemicStatus(existing, patch);
     runAtomically(() => {
       db.prepare(
-        `UPDATE memories SET type=?, title=?, content=?, tags=?, importance=?, source=?, embedding=?, updated_at=? WHERE id=?`
+        `UPDATE memories SET type=?, title=?, content=?, tags=?, importance=?, source=?, embedding=?, epistemic_status=?, updated_at=? WHERE id=?`
       ).run(
         type,
         patch.title ?? existing.title,
@@ -549,6 +643,7 @@ export function createStore(path) {
         Number.isInteger(patch.importance) ? patch.importance : existing.importance,
         patch.source !== undefined ? patch.source : (existing.source ?? null),
         embedding,
+        epistemicStatus,
         now,
         id
       );
@@ -588,6 +683,7 @@ export function createStore(path) {
     const embedding = patch.embedding !== undefined
       ? (Array.isArray(patch.embedding) && patch.embedding.length ? JSON.stringify(patch.embedding) : null)
       : existing.embedding ?? null;
+    const epistemicStatus = resolveEpistemicStatus(existing, patch);
     // The CAS UPDATE and the desired-generation bump must commit together (audit
     // peer A): if the UPDATE autocommits first and the process dies before the
     // increment, the store is mutated while generation == applied_generation and
@@ -597,7 +693,7 @@ export function createStore(path) {
     let applied = false;
     runAtomically(() => {
       const result = db.prepare(
-        `UPDATE memories SET type=?, title=?, content=?, tags=?, importance=?, source=?, embedding=?, updated_at=?
+        `UPDATE memories SET type=?, title=?, content=?, tags=?, importance=?, source=?, embedding=?, epistemic_status=?, updated_at=?
          WHERE id=? AND updated_at=?`
       ).run(
         type,
@@ -607,6 +703,7 @@ export function createStore(path) {
         Number.isInteger(patch.importance) ? patch.importance : existing.importance,
         patch.source !== undefined ? patch.source : (existing.source ?? null),
         embedding,
+        epistemicStatus,
         now,
         id,
         expectedUpdatedAt
@@ -999,6 +1096,60 @@ export function createStore(path) {
       `SELECT * FROM recall_runs ${where} ORDER BY created_at DESC, id LIMIT ? OFFSET ?`
     ).all(...params, lim, off);
     return rows.map(toRecallRun);
+  }
+
+  // --- recall evaluation trail (方案 B: separate from the production audit) -
+
+  /**
+   * Persist one retrieval-evaluation snapshot into recall_evals — the test/eval
+   * sibling of recall_runs, deliberately stored apart so eval snapshots never
+   * inflate the production recall audit. Like the other audit tables this is
+   * bookkeeping: it never triggers write hooks. Writes are idempotent on id
+   * (replay overwrites, never duplicates), matching saveRecallRun. recall_run_id
+   * optionally links the eval to the recall_runs row that captured the same
+   * retrieval scene (FK-referenced, null when no run was recorded).
+   */
+  function saveRecallEval(evalRow) {
+    const id = evalRow.id ?? randomUUID();
+    db.prepare(
+      `INSERT INTO recall_evals (id, recall_run_id, query, expected_ids, actual_ids, metrics, eval_type, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         recall_run_id=excluded.recall_run_id, query=excluded.query,
+         expected_ids=excluded.expected_ids, actual_ids=excluded.actual_ids,
+         metrics=excluded.metrics, eval_type=excluded.eval_type,
+         created_at=excluded.created_at`
+    ).run(
+      id,
+      evalRow.recall_run_id ?? null,
+      evalRow.query,
+      JSON.stringify(evalRow.expected_ids ?? []),
+      JSON.stringify(evalRow.actual_ids ?? []),
+      JSON.stringify(evalRow.metrics ?? {}),
+      evalRow.eval_type ?? "manual",
+      evalRow.created_at ?? nowIso()
+    );
+    return getRecallEval(id);
+  }
+
+  function getRecallEval(id) {
+    const row = db.prepare("SELECT * FROM recall_evals WHERE id = ?").get(id);
+    return toRecallEval(row);
+  }
+
+  function listRecallEvals({ limit = 50, offset = 0, query } = {}) {
+    const { limit: lim, offset: off } = sanitizePage(limit, offset, 50);
+    const clauses = [];
+    const params = [];
+    if (query) {
+      clauses.push("query LIKE ? ESCAPE '\\'");
+      params.push(`%${escapeLike(String(query))}%`);
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const rows = db.prepare(
+      `SELECT * FROM recall_evals ${where} ORDER BY created_at DESC, id LIMIT ? OFFSET ?`
+    ).all(...params, lim, off);
+    return rows.map(toRecallEval);
   }
 
   // --- failure memories ----------------------------------------------------
@@ -1524,6 +1675,9 @@ export function createStore(path) {
     saveRecallRun,
     getRecallRun,
     listRecallRuns,
+    saveRecallEval,
+    getRecallEval,
+    listRecallEvals,
     saveFailure,
     listFailures,
     getFailureStats,

@@ -6,7 +6,12 @@ export function createInjector(ctx, service, settings, config) {
     if (!candidates.length) return "";
     const lines = ["[记忆库] 来自 dsh-mneme 的跨会话记忆（用户偏好与高优先级项目/决策）："];
     for (const m of candidates) {
-      lines.push(`- [${m.type}] ${m.title}（重要性 ${m.importance}）：${m.content}`);
+      // Epistemic trust (v0.4.5): when enabled, measured observations are
+      // flagged so the agent can weigh them above guesses/opinions.
+      const verified = config.trustEpistemicWeighting === true && m.epistemic_status === "observation"
+        ? "[verified] "
+        : "";
+      lines.push(`- [${m.type}] ${verified}${m.title}（重要性 ${m.importance}）：${m.content}`);
     }
     return lines.join("\n");
   }
