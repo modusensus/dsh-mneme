@@ -911,6 +911,29 @@ export function createStore(path) {
     db.prepare("UPDATE memories SET embedding = ? WHERE id = ?").run(json, id);
   }
 
+  /** Batch fetch stored embeddings by id (v0.5.0 search-time semantic dedup).
+   *  Returns a Map(id → number[]); rows without a parseable embedding are
+   *  simply absent from the map. */
+  function getEmbeddings(ids) {
+    const out = new Map();
+    const list = (Array.isArray(ids) ? ids : []).filter(Boolean);
+    for (let i = 0; i < list.length; i += 100) {
+      const chunk = list.slice(i, i + 100);
+      const rows = db.prepare(
+        `SELECT id, embedding FROM memories
+         WHERE embedding IS NOT NULL AND embedding != ''
+           AND id IN (${chunk.map(() => "?").join(",")})`
+      ).all(...chunk);
+      for (const row of rows) {
+        try {
+          const vec = JSON.parse(row.embedding);
+          if (Array.isArray(vec) && vec.length) out.set(row.id, vec);
+        } catch { /* corrupt row: skip */ }
+      }
+    }
+    return out;
+  }
+
   function embeddedCount() {
     return db.prepare(
       "SELECT count(*) AS c FROM memories WHERE embedding IS NOT NULL AND embedding != ''"
@@ -1852,6 +1875,7 @@ export function createStore(path) {
     all,
     search,
     setEmbedding,
+    getEmbeddings,
     embeddedCount,
     needsEmbedding,
     searchVector,

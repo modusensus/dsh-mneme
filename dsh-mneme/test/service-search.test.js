@@ -25,9 +25,13 @@ const reranker = {
 
 // Real store + service, wired with the mock embedder and a vector index over
 // the same store (the service's vector path prefers vectorIndex when set).
-function setup({ withEmbedder = true } = {}) {
+// The v0.5.0 recall fusion extras (BM25 third path, search-time semantic
+// dedup) are disabled per-test when the assertion targets the legacy blend
+// mechanics — the toy embedder pins every vector hit to the same [1,0,0],
+// which semantic dedup would legitimately collapse.
+function setup({ withEmbedder = true, config = {} } = {}) {
   const store = createStore(":memory:");
-  const service = createService({ store, mirror: null, config: {} });
+  const service = createService({ store, mirror: null, config });
   const vectorIndex = createVectorIndex({ store });
   if (withEmbedder) {
     service.setEmbedder(embedder);

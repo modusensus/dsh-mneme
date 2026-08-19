@@ -17,7 +17,7 @@ export const Config = z.object({
   dreamDelayMs: z.natural().min(0).max(60000).default(2000),
   dreamProvider: z.string(),
   dreamModel: z.string(),
-  dreamMaxTokens: z.natural().min(256).max(131072).default(4096),
+  dreamMaxTokens: z.natural().min(256).max(131072).default(8192),
   // Pass-through reasoning effort for dream's LLM calls. 'none' (default)
   // omits the field so the provider's own default applies; low/medium/high
   // are forwarded verbatim. Useful to cap reasoning spend on thinking-type
@@ -91,6 +91,35 @@ export const Config = z.object({
   // non-empty query recalls via the vector index first and falls back to the
   // rule-based pick to fill/dedupe. Empty query / no vector → legacy behavior.
   hybridInject: z.boolean().default(true),
+
+  // --- recall optimization (v0.5.0) ----------------------------------------
+  // BM25 third recall path beside vector + LIKE keyword (1.1): per-token IDF
+  // scoring recalls rows whose query terms are scattered — identifiers, code
+  // fragments, mixed CJK/ASCII — where substring LIKE cannot match.
+  bm25SearchEnabled: z.boolean().default(true),
+  // Query-aware vector cutoff (1.2) replacing the fixed 0.65: entity:/attr:
+  // prefixes loosen to 0.5, short queries tighten to 0.7, long queries loosen
+  // to 0.6, and a decisive top-1/top-5 score gap loosens to 0.5 so the tail
+  // still reaches the reranker. Off = legacy fixed threshold behavior.
+  adaptiveThresholdEnabled: z.boolean().default(true),
+  // Session-scoped hot memory (1.3): the latest N dialogue rounds rendered
+  // ahead of the long-term recall block — short-term context that never
+  // enters the memory store.
+  hotMemoryEnabled: z.boolean().default(true),
+  hotMemoryRounds: z.natural().min(1).max(50).default(5),
+  hotMemoryMaxTokens: z.natural().min(200).max(32000).default(2000),
+  // Topic-ranked injection (2.2): when a query vector is available the whole
+  // injection candidate list is re-ordered by similarity to the current
+  // query instead of keeping the rule-based order.
+  selectiveInjectEnabled: z.boolean().default(true),
+  // Search-time semantic dedup (2.3): greedy pass over the merged candidate
+  // list dropping rows whose embedding cosine-similarity to an already-kept
+  // row exceeds the threshold — duplicates are filtered at recall time
+  // instead of waiting for a dream consolidation. Opt-in aggressive mode:
+  // small embedding models can collapse legitimately distinct rows, so the
+  // default keeps every recalled row.
+  searchSemanticDedup: z.boolean().default(false),
+  searchSemanticDedupThreshold: z.number().min(0.5).max(1).default(0.95),
 
   // --- semantic: rerank layer (v0.2) --------------------------------------
   // Opt-in by default (item ⑥): the local cross-encoder pulls in onnxruntime

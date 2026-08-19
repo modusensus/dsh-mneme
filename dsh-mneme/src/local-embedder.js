@@ -22,7 +22,13 @@ function modelHash(model) {
 
 /** Lazy default loader: dynamic import keeps module load cheap. */
 async function defaultPipelineLoader(task, model, options) {
-  const { pipeline } = await import("@huggingface/transformers");
+  const { env, pipeline } = await import("@huggingface/transformers");
+  // issue #13: transformers.js's get_tokenizer_files() drops the caller's
+  // cache_dir when it pre-checks tokenizer_config.json metadata, so the HEAD
+  // request falls back to env.cacheDir and hits the network even when the
+  // model is fully cached locally. Mirroring the cache_dir onto env.cacheDir
+  // makes that pre-check resolve locally too — fully offline loading.
+  if (options?.cache_dir) env.cacheDir = options.cache_dir;
   return pipeline(task, model, options);
 }
 

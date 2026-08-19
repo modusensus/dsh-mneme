@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { TYPE_FILE } from "./mirror.js";
 import { evaluateMemoryQuality } from "./quality-filter.js";
+import { createBM25Index } from "./search/bm25.js";
+import { adaptiveThreshold } from "./search/adaptive.js";
 
 const INJECT_TYPES = new Set(["preference", "project", "decision", "summary"]);
 
@@ -307,6 +309,66 @@ export function createService({ store, mirror, config, onWrite, logger }) {
   // Weighted blend factor for hybrid search; exposed so callers can tune it.
   const DEFAULT_HYBRID_WEIGHTS = { vector: 0.6, keyword: 0.4 };
 
+  // Cosine over two plain arrays (shared by the search-time semantic dedup).
+  function cosineVec(a, b) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length || !a.length) return 0;
+    let dot = 0, na = 0, nb = 0;
+    for (let i = 0; i < a.length; i++) {
+      dot += a[i] * b[i];
+      na += a[i] * a[i];
+      nb += b[i] * b[i];
+    }
+    if (na === 0 || nb === 0) return 0;
+    return dot / (Math.sqrt(na) * Math.sqrt(nb));
+  }
+
+  /**
+   * BM25 third recall path (v0.5.0 1.1). Scores the query tokens against the
+   * live non-archived rows and returns the top `limit` hits with scores
+   * normalized to [0,1]. Failures degrade to [] — BM25 is a recall booster,
+   * never a correctness gate.
+   */
+  function bm25Recall(q, limit) {
+    if (config?.bm25SearchEnabled === false) return [];
+    try {
+      const docs = store.list({ limit: 500, includeForgotten: false }).filter((m) => !m.archived);
+      if (!docs.length) return [];
+      return createBM25Index(docs).search(q, { limit });
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Search-time semantic dedup (v0.5.0 2.3): greedy pass dropping candidates
+   * whose embedding similarity to an already-kept row exceeds the threshold.
+   * Rows without a stored embedding are always kept (no signal = no drop).
+   */
+  function semanticDeduplicate(candidates) {
+    // Opt-in aggressive mode (default off): collapsing near-duplicates can
+    // drop legitimately distinct rows on small embedding models, so it ships
+    // behind searchSemanticDedup=true.
+    if (config?.searchSemanticDedup !== true || candidates.length < 2) return candidates;
+    const threshold = config?.searchSemanticDedupThreshold ?? 0.95;
+    try {
+      const vecs = store.getEmbeddings(candidates.map((c) => c.id));
+      if (vecs.size < 2) return candidates;
+      const kept = [];
+      for (const c of candidates) {
+        const v = vecs.get(c.id);
+        if (!v) { kept.push(c); continue; }
+        const dup = kept.some((k) => {
+          const kv = vecs.get(k.id);
+          return kv && cosineVec(v, kv) > threshold;
+        });
+        if (!dup) kept.push(c);
+      }
+      return kept;
+    } catch {
+      return candidates;
+    }
+  }
+
   /**
    * Give a keyword-hit row a relevance score in [0,1]: title hits score
    * higher than content hits, then scaled by importance (1-5). This lets
@@ -371,13 +433,38 @@ export function createService({ store, mirror, config, onWrite, logger }) {
           : embedder.embed.bind(embedder);
         const qv = await embedSingle(q);
         if (qv?.length) {
-          const hits = vectorIndex
-            ? vectorIndex.search(qv, { limit: lim * 2, threshold: threshold ?? 0 })
-            : store.searchVector(qv, { limit: lim * 2, threshold: threshold ?? 0 });
-          vector = hits.map((m) => ({ ...m, vector: true, source: "vector" }));
+          // Adaptive threshold (v0.5.0 1.2): the fetch runs at the loosest
+          // branch floor so the head-gap rule can still re-admit the tail;
+          // the final cutoff is computed against the fetched score
+          // distribution. Explicit `threshold` wins; disabled → legacy 0.
+          const adaptive = config?.adaptiveThresholdEnabled !== false;
+          const fetchThreshold = adaptive && threshold === undefined
+            ? Math.min(0.5, adaptiveThreshold(q))
+            : (threshold ?? 0);
+          const search = vectorIndex
+            ? vectorIndex.search(qv, { limit: lim * 2, threshold: fetchThreshold })
+            : store.searchVector(qv, { limit: lim * 2, threshold: fetchThreshold });
+          const finalThreshold = adaptive && threshold === undefined
+            ? adaptiveThreshold(q, search)
+            : (threshold ?? 0);
+          vector = search
+            .filter((m) => (m.score ?? 1) >= finalThreshold)
+            .map((m) => ({ ...m, vector: true, source: "vector" }));
         }
       } catch { /* vector unavailable: keep keyword results */ }
     }
+
+    // BM25 third path (v0.5.0 1.1): IDF-weighted token overlap recalls rows
+    // whose query terms are scattered — the gap LIKE substring matching
+    // cannot close. Scores are already normalized to [0,1].
+    const bm25 = bm25Recall(q, lim).map((m) => ({ ...m, source: "bm25" }));
+    // Loose blend weight: BM25 confirms and backfills, never dominates the
+    // semantic signal. Same-memory overlap boosts, unseen ids backfill.
+    const wb = 0.3;
+    // Path bookkeeping for the boost rule below: which ids each semantic
+    // recall path surfaced.
+    const vectorIds = new Set(vector.map((m) => m.id));
+    const keywordIds = new Set(keyword.map((m) => m.id));
 
     // Hybrid blending weights from config when provided.
     const wv = config?.hybridSearchVectorWeight ?? DEFAULT_HYBRID_WEIGHTS.vector;
@@ -387,9 +474,10 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     if (mode === "keyword") {
       merged = keyword;
     } else if (mode === "vector" || mode === "hybrid") {
-      // semantic-first: vector recalls lead, keyword fills remaining slots.
-      // Weighted blend when both sides scored the same memory; otherwise
-      // vector order leads (it is the semantic signal), keyword backfills.
+      // semantic-first: vector recalls lead, keyword + BM25 fill remaining
+      // slots. Weighted blend when sides scored the same memory; otherwise
+      // vector order leads (it is the semantic signal), lexical paths
+      // backfill.
       const byId = new Map();
       for (const m of vector) {
         const rec = byId.get(m.id);
@@ -404,6 +492,19 @@ export function createService({ store, mirror, config, onWrite, logger }) {
           byId.set(m.id, m);
         }
       }
+      for (const m of bm25) {
+        const rec = byId.get(m.id);
+        if (rec) {
+          // Boost rule: a row the LIKE keyword path already hit carries the
+          // query as a substring, so BM25 tokens are trivially present —
+          // boosting it double-counts lexical evidence. Only vector-recalled
+          // rows (lexical hit is genuinely new information) get the boost.
+          if (keywordIds.has(m.id)) continue;
+          byId.set(m.id, { ...rec, score: (rec.score ?? 0) + wb * (m.score ?? 0) });
+        } else {
+          byId.set(m.id, { ...m, score: wb * (m.score ?? 0) });
+        }
+      }
       const ranked = [...byId.values()].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
       merged = ranked.slice(0, lim);
       if (merged.length < lim && !merged.length) {
@@ -411,15 +512,26 @@ export function createService({ store, mirror, config, onWrite, logger }) {
         merged = keyword.slice(0, lim);
       }
     } else {
-      // auto: keyword leads, vector fills remaining slots (legacy behavior)
+      // auto: keyword leads, vector + BM25 fill remaining slots (legacy
+      // behavior, extended with the third path)
       merged = keyword.slice(0, lim);
       const seen = new Set(merged.map((m) => m.id));
       for (const m of vector) {
         if (merged.length >= lim) break;
         if (!seen.has(m.id)) { seen.add(m.id); merged.push(m); }
       }
+      for (const m of bm25) {
+        if (merged.length >= lim) break;
+        if (!seen.has(m.id)) { seen.add(m.id); merged.push(m); }
+      }
     }
 
+    // Search-time semantic dedup (v0.5.0 2.3): near-duplicate rows are
+    // dropped before the reranker sees them, so topK slots carry distinct
+    // information instead of the same memory twice. Keyword mode is exempt —
+    // it is the documented text-only path and must not be altered by
+    // embedding state.
+    merged = mode === "keyword" ? merged : semanticDeduplicate(merged);
     merged = merged.slice(0, lim);
     let result = useRerank && reranker && merged.length
       ? await rerankCandidates(q, merged, lim)
@@ -805,6 +917,20 @@ export function createService({ store, mirror, config, onWrite, logger }) {
         }
         candidates = merged;
       }
+    }
+    // Topic-ranked selection (v0.5.0 2.2): when the current query's vector is
+    // available the whole candidate list is re-ordered by similarity to that
+    // vector, so the injected slots go to memories on the current topic
+    // rather than to the rule-based order. Rows the index did not return
+    // keep their relative order after the scored ones.
+    if (config?.selectiveInjectEnabled !== false && Array.isArray(queryVector) && queryVector.length && vectorIndex) {
+      try {
+        const hits = vectorIndex.search(queryVector, { limit: 200, threshold: 0 });
+        const sim = new Map(hits.map((m) => [m.id, m.score ?? 0]));
+        if (sim.size) {
+          candidates = [...candidates].sort((a, b) => (sim.get(b.id) ?? -1) - (sim.get(a.id) ?? -1));
+        }
+      } catch { /* topic re-rank unavailable: keep rule-based order */ }
     }
     const selected = candidates.slice(0, maxItems);
     touchRecalled(selected);
@@ -1352,6 +1478,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     findEntityByName: (n) => store.findEntityByName(n),
     findEntityById: (id) => store.findEntityById(id),
     getAttrsByMemory: (id) => store.getAttrsByMemory(id),
+    getCurrentAttrs: (id) => store.getCurrentAttrs(id),
     migrateAttrsToMemory: (fromId, toId, now) => store.migrateAttrsToMemory(fromId, toId, now)
   };
 }

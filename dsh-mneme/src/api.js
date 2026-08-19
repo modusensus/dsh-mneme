@@ -103,7 +103,7 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
       try {
         const url = new URL(req.url, "http://localhost");
         const q = url.searchParams.get("q") ?? "";
-        const limit = Number(url.searchParams.get("limit") ?? 20);
+        const limit = Number(url.searchParams.get("topK") ?? url.searchParams.get("limit") ?? 20);
         // mode selects the recall strategy (defaults to auto):
         //   auto    (default) keyword first, vector fills remaining slots
         //   hybrid  vector first, keyword fills remaining slots; scores of
@@ -300,6 +300,122 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
         const days = Math.max(1, Math.min(365, Number(url.searchParams.get("days") ?? 7) || 7));
         const stats = service.getLlmAuditStats?.({ days }) ?? null;
         sendJson(res, 200, stats ?? { error: "unavailable" });
+      } catch {
+        sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
+  // --- ego graph: 1-2 hop neighborhood of one entity (graph panel P1) ---
+  // Read-only like list/search/semantic, so it stays open when apiToken is set.
+  // BFS from the root entity over entity_relations (both directions; the
+  // idx_relations_from/to indexes keep a 2-hop walk in the tens of ms even
+  // for a few thousand nodes). `distance` on each node is the hop count from
+  // the root so the UI can shade the frontier. The API is graph-traversal
+  // only — nodes carry no attr payload; hover summaries come from
+  // /semantic/graph/entity-attrs.
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/semantic/graph/ego",
+    handler(req, res) {
+      try {
+        const url = new URL(req.url, "http://localhost");
+        const name = (url.searchParams.get("entity") ?? "").trim();
+        if (!name) {
+          sendJson(res, 400, { error: "missing-entity" });
+          return;
+        }
+        const root = service.findEntityByName?.(name);
+        if (!root) {
+          sendJson(res, 404, { error: "entity-not-found" });
+          return;
+        }
+        const depth = Math.max(1, Math.min(2, Number(url.searchParams.get("depth") ?? 1) || 1));
+        const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit") ?? 40) || 40));
+
+        const nodes = new Map([[root.id, { ...root, distance: 0 }]]);
+        let frontier = [root.id];
+        for (let d = 1; d <= depth && nodes.size < limit; d++) {
+          const next = [];
+          for (const id of frontier) {
+            for (const rel of service.getRelations?.(id) ?? []) {
+              const other = rel.from_entity === id ? rel.to_entity : rel.from_entity;
+              if (nodes.has(other) || nodes.size >= limit) continue;
+              const entity = service.findEntityById?.(other);
+              if (!entity) continue;
+              nodes.set(other, { ...entity, distance: d });
+              next.push(other);
+            }
+          }
+          frontier = next;
+        }
+
+        // Collect every relation whose endpoints both survived the limit cut;
+        // each edge is visited twice (once per endpoint) so dedupe by id.
+        const edgeMap = new Map();
+        for (const id of nodes.keys()) {
+          for (const rel of service.getRelations?.(id) ?? []) {
+            if (nodes.has(rel.from_entity) && nodes.has(rel.to_entity)) {
+              edgeMap.set(rel.id, rel);
+            }
+          }
+        }
+
+        sendJson(res, 200, {
+          root: { id: root.id, name: root.name, type: root.type ?? null, mention_count: root.mention_count ?? 1 },
+          nodes: [...nodes.values()].map((n) => ({
+            id: n.id,
+            name: n.name,
+            type: n.type ?? null,
+            mention_count: n.mention_count ?? 1,
+            distance: n.distance
+          })),
+          edges: [...edgeMap.values()].map((e) => ({
+            id: e.id,
+            from: e.from_entity,
+            to: e.to_entity,
+            relation_type: e.relation_type,
+            memory_id: e.memory_id ?? null,
+            created_at: e.created_at
+          }))
+        });
+      } catch {
+        sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
+  // --- entity attrs: current valid attrs for one entity (graph hover panel) ---
+  // Read-only; mirrors getCurrentAttrs (valid_until IS NULL). Also used as the
+  // graph panel's fallback list when the ego graph is too sparse to draw.
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/semantic/graph/entity-attrs",
+    handler(req, res) {
+      try {
+        const url = new URL(req.url, "http://localhost");
+        const name = (url.searchParams.get("entity") ?? "").trim();
+        if (!name) {
+          sendJson(res, 400, { error: "missing-entity" });
+          return;
+        }
+        const entity = service.findEntityByName?.(name);
+        if (!entity) {
+          sendJson(res, 404, { error: "entity-not-found" });
+          return;
+        }
+        const attrs = service.getCurrentAttrs?.(entity.id) ?? [];
+        sendJson(res, 200, {
+          entity: { id: entity.id, name: entity.name, type: entity.type ?? null, mention_count: entity.mention_count ?? 1 },
+          attrs: Array.isArray(attrs)
+            ? attrs.map((a) => ({
+                key: a.attr_key,
+                value: a.attr_value,
+                confidence: a.confidence ?? null,
+                valid_from: a.valid_from ?? null
+              }))
+            : []
+        });
       } catch {
         sendJson(res, 500, { error: "internal" });
       }

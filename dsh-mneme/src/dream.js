@@ -3,6 +3,43 @@ import { clusterMemories, findPotentialConflicts } from "./dream/clustering.js";
 import { createHash, randomUUID } from "node:crypto";
 export { validateDecisions, applyDecisions };
 
+
+// Extract the first JSON array from LLM output, tolerating markdown fences,
+// leading/trailing prose, and common wrapper noise. Returns an array or null.
+function extractJsonArray(text) {
+  if (typeof text !== "string" || text.trim().length === 0) return null;
+
+  // 1. Strip markdown code fences (```json ... ``` or ``` ... ```).
+  let cleaned = text.replace(/```(?:json)?\s*([\s\S]*?)```/gi, "$1");
+  cleaned = cleaned.trim();
+
+  // 2. Find the first '[' and the matching last ']' that yields valid JSON.
+  const start = cleaned.indexOf("[");
+  if (start === -1) return null;
+  for (let end = cleaned.lastIndexOf("]"); end > start; end = cleaned.lastIndexOf("]", end - 1)) {
+    const candidate = cleaned.slice(start, end + 1);
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // Light repair: remove trailing commas before ] or }.
+      try {
+        const repaired = candidate.replace(/,(\s*[}\]])/g, "$1");
+        return JSON.parse(repaired);
+      } catch {
+        // keep searching backwards
+      }
+    }
+  }
+
+  // 3. Fallback: a broader regex extraction.
+  try {
+    const match = cleaned.match(/\[[\s\S]*\]/);
+    if (match) return JSON.parse(match[0]);
+  } catch {
+    // fall through
+  }
+  return null;
+}
 const SUMMARY_PROMPT = `你是记忆库摘要助手。根据整理后的记忆，生成一段 150-200 字的记忆库总览，覆盖：用户偏好、活跃项目、关键决策。之后作为会话上下文注入。只输出摘要文本，不要其他内容。`;
 
 const CONSOLIDATION_PROMPT = `你是记忆库整理助手。下面是全部记忆条目（id、类型、标题、内容、重要性、更新时间）。
@@ -579,18 +616,10 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       return finish({ ok: false, error: "llm failed", summary: false });
     }
 
-    let decisions;
-    try {
-      const start = decisionText.indexOf("[");
-      const end = decisionText.lastIndexOf("]");
-      if (start === -1 || end <= start) {
-        logger?.warn?.("dsh-mneme dream: no json array in llm output");
-        return finish({ ok: false, error: "no json array in llm output", summary: false });
-      }
-      decisions = JSON.parse(decisionText.slice(start, end + 1));
-    } catch {
-      logger?.warn?.("dsh-mneme dream: invalid decisions json");
-      return finish({ ok: false, error: "invalid decisions json", summary: false });
+    const decisions = extractJsonArray(decisionText);
+    if (!Array.isArray(decisions)) {
+      logger?.warn?.(`dsh-mneme dream: no json array in llm output (raw length ${decisionText?.length ?? 0})`);
+      return finish({ ok: false, error: "no json array in llm output", summary: false });
     }
     const { ok, errors } = validateDecisions(decisions, snapshot, {
       maxUpdatePerRun: config.reflectionUpdateMaxPerRun,

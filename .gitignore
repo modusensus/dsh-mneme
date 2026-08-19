@@ -33,3 +33,6 @@ memory.db
 .vscode/
 .idea/
 *.swp
+
+# workbuddy workspace data
+.workbuddy/

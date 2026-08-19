@@ -1,3 +1,5 @@
+import { createHotMemory } from "./hot-memory.js";
+
 // Best-effort extraction of the current user's latest message text from the
 // live session, for semantic-first injection (Bug4). The system-prompt
 // interpolator renders synchronously, so this walks the already-materialized
@@ -25,6 +27,50 @@ function lastUserQuery(ctx) {
   return "";
 }
 
+// Hot-memory round extraction (v0.5.0 1.3): pairs each user/message with the
+// next assistant reply from the materialized session log. Tolerates shapes
+// where assistant events carry a different type tag — anything whose payload
+// has content parts and is not a user message counts as a reply. Best-effort:
+// returns [] on any failure, and the hot block simply does not render.
+function extractRounds(ctx, maxRounds) {
+  try {
+    const events = ctx?.agent?.session?.events;
+    if (!Array.isArray(events) || events.length === 0) return [];
+    const rounds = [];
+    let pendingQuery = null;
+    const textOf = (event) => {
+      const parts = event?.data?.content;
+      if (!Array.isArray(parts)) return "";
+      return parts
+        .map((p) => (typeof p === "string" ? p : p?.text ?? ""))
+        .filter(Boolean)
+        .join("\n")
+        .trim();
+    };
+    for (const event of events) {
+      const kind = event?.data?.source?.kind;
+      const isUser = event?.type === "user/message" && (kind === undefined || kind === "user");
+      if (isUser) {
+        if (pendingQuery) rounds.push({ query: pendingQuery, response: "" });
+        pendingQuery = textOf(event).slice(0, 500);
+        continue;
+      }
+      // Only assistant-originated events close a round; tool/system events
+      // carrying text must not be mistaken for the model's reply.
+      const isAssistant = typeof event?.type === "string" && event.type.includes("assistant")
+        || kind === "assistant";
+      const body = isAssistant ? textOf(event) : "";
+      if (!body || !pendingQuery) continue;
+      rounds.push({ query: pendingQuery, response: body.slice(0, 800) });
+      pendingQuery = null;
+    }
+    if (pendingQuery) rounds.push({ query: pendingQuery, response: "" });
+    return rounds.slice(-maxRounds);
+  } catch {
+    return [];
+  }
+}
+
 export function createInjector(ctx, service, settings, config) {
   const maxItems = config.maxInjectedItems ?? 5;
   const threshold = config.importanceThreshold ?? 3;
@@ -35,6 +81,35 @@ export function createInjector(ctx, service, settings, config) {
   // memory can never push the injected context past a few thousand chars.
   const MAX_CONTENT = 300;
   const MAX_BLOCK = 1500;
+
+  // Compressed injection (v0.5.0 2.1): a sleep-demoted row already carries its
+  // summary in `content` with the original parked in `_full_content` — inject
+  // the summary verbatim instead of re-truncating the (already short) text.
+  // Regular long rows keep the hard truncate.
+  function injectMemory(m, maxLength = MAX_CONTENT) {
+    if (m?._full_content) return String(m.content ?? "");
+    const text = String(m?.content ?? "");
+    return text.length <= maxLength ? text : `${text.slice(0, maxLength)}…`;
+  }
+
+  // Hot memory (v0.5.0 1.3): the latest rounds of THIS session, rebuilt from
+  // the materialized event log on every render — stateless, so it survives
+  // session switches and never persists anywhere.
+  const hot = createHotMemory({
+    maxRounds: config.hotMemoryRounds ?? 5,
+    maxTokens: config.hotMemoryMaxTokens ?? 2000
+  });
+
+  function renderHotContext(ctx) {
+    if (config.hotMemoryEnabled === false) return "";
+    const rounds = extractRounds(ctx, config.hotMemoryRounds ?? 5);
+    if (!rounds.length) return "";
+    hot.clear();
+    for (const r of rounds) hot.add(r);
+    const body = hot.getContext();
+    if (!body) return "";
+    return `[短期上下文] 最近对话（共 ${rounds.length} 轮）：\n${body}`;
+  }
 
   function render(candidates) {
     if (!candidates.length) return "";
@@ -48,8 +123,7 @@ export function createInjector(ctx, service, settings, config) {
         ? "[verified] "
         : "";
       const title = `${m.title}（重要性 ${m.importance}）`;
-      let content = String(m.content ?? "");
-      if (content.length > MAX_CONTENT) content = `${content.slice(0, MAX_CONTENT)}…`;
+      const content = injectMemory(m);
       const full = `- [${m.type}] ${verified}${title}：${content}`;
       if (budget - full.length >= 0) {
         lines.push(full);
@@ -108,7 +182,14 @@ export function createInjector(ctx, service, settings, config) {
         if (query) prefetchQueryVector(query);
         const queryVector = queryVectorCache.get(query);
         const candidates = service.injectCandidates({ query, queryVector, maxItems, threshold });
-        return render(candidates);
+        // Hot memory (v0.5.0 1.3) leads the single memory block: the agent
+        // sees the short-term rounds first, then the cross-session recall —
+        // the documented injection order 1→2. Folding it here (instead of a
+        // separate context) keeps the prompt assembly stable at two blocks.
+        const hotText = renderHotContext(ctx);
+        const body = render(candidates);
+        if (!hotText) return body;
+        return body ? `${hotText}\n\n${body}` : hotText;
       }
     }),
     ctx.systemPrompt.context({

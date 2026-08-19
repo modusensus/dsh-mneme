@@ -25,7 +25,7 @@ const embedder = {
 // ---------------------------------------------------------------- config schema
 
 test("issue#9: dreamMaxTokens accepts the widened 131072 cap and defaults to 4096", () => {
-  assert.equal(Config({}).dreamMaxTokens, 4096, "default unchanged");
+  assert.equal(Config({}).dreamMaxTokens, 8192, "default unchanged");
   assert.equal(Config({ dreamMaxTokens: 131072 }).dreamMaxTokens, 131072, "new upper bound accepted");
   assert.equal(Config({ dreamMaxTokens: 65536 }).dreamMaxTokens, 65536, "intermediate value accepted");
 });

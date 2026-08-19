@@ -25,20 +25,210 @@ test("client bundle is lib-only with no src counterpart", () => {
   assert.equal(existsSync(join(root, "lib/client.js")), true, "lib/client.js must exist");
 });
 
-// Both panels render in two modes: a portal modal (styles.panel, full chrome)
-// and an embedded settings-section variant. The embedded variant must drop the
-// modal-only chrome (background, radius, padding, shadow) — the settings host
-// already provides its own surface, so reusing the modal panel style makes the
-// section render as a floating card with an inset box and shadow inside the
-// settings page.
-test("embedded variant drops the modal panel chrome", () => {
-  const branches = clientSource.match(/embedded \? \{[^}]+\}/g);
-  assert.ok(branches, "panels must branch on the embedded flag");
-  assert.equal(branches.length, 2, "both MemoryPanel and SettingsPanel must branch");
-  for (const branch of branches) {
-    assert.equal(branch.includes("styles.panel"), false, "embedded branch must not reuse the modal panel style");
-    for (const chrome of ["boxShadow", "background", "borderRadius", "padding"]) {
-      assert.equal(branch.includes(chrome), false, `embedded branch must not carry ${chrome}`);
-    }
+// The memory entry lives at the sidebar foot, not in the settings modal: the
+// migration must register into `sidebar.footer.action` (the list slot the
+// sidebar shell renders beside Settings) and must not keep a `settings.section`
+// registration, or the entry would appear twice under different hosts.
+test("memory entry registers into the sidebar foot slot", () => {
+  assert.ok(
+    clientSource.includes('ctx.slots.inject("sidebar.footer.action"'),
+    "client must inject into sidebar.footer.action"
+  );
+  assert.equal(
+    clientSource.includes('"settings.section"'),
+    false,
+    "the old settings.section registration must be gone"
+  );
+});
+
+// The drawer era is over as the PRIMARY surface: the sidebar entry must
+// activate the main-area memory library tab first. The one sanctioned
+// exception is the hero screen — the host hides the whole tab ring while a
+// session is blank, so activation legitimately fails there and the same
+// click falls back to a full-viewport overlay (same MemoryExplorer, not the
+// old 420px side drawer). A dialog role stays banned either way.
+test("tab-first activation with hero-screen overlay fallback", () => {
+  assert.equal(
+    clientSource.includes("role: \"dialog\""),
+    false,
+    "no dialog surface should remain"
+  );
+  assert.ok(
+    clientSource.includes("activateExplorerTab(t(\"memory.view.label\"))"),
+    "the sidebar trigger must activate the memory library tab by its label"
+  );
+  assert.ok(
+    clientSource.includes("activateExplorerTab(t(\"memory.view.label\")).then((ok) => { if (!ok) setOpen(true); })"),
+    "a failed tab activation must open the fallback overlay"
+  );
+  assert.ok(
+    /if \(!tab\) \{ resolve\(false\); return; \}/.test(clientSource),
+    "activation must resolve false when the tab ring is absent (hero screen)"
+  );
+  assert.ok(
+    /aria-selected.*true/.test(clientSource),
+    "activation is only confirmed once the host marks the tab selected"
+  );
+});
+
+// The fallback overlay reuses the full MemoryExplorer (three columns, graph,
+// settings) at viewport size — not the old side drawer — and closes on Esc
+// or the close button.
+test("hero fallback overlay is a full-viewport MemoryExplorer with a close affordance", () => {
+  assert.ok(
+    clientSource.includes('.mneme-overlay{position:fixed;inset:0'),
+    "the overlay must cover the full viewport"
+  );
+  assert.ok(
+    clientSource.includes('h(MemoryExplorer, { t })'),
+    "the overlay renders the same MemoryExplorer component as the tab"
+  );
+  assert.ok(
+    clientSource.includes('e.key === "Escape"'),
+    "Esc must close the overlay"
+  );
+  assert.ok(
+    clientSource.includes('"memory.overlay.close"'),
+    "the overlay ships a localized close label in both dictionaries"
+  );
+});
+
+// The sidebar hands each footer action only its column state: a wide row
+// (icon + label) when expanded, a bare rail icon when collapsed.
+test("trigger renders a wide row or a rail icon from the wide flag", () => {
+  assert.ok(
+    /wide \? "mneme-trigger" : "mneme-trigger mneme-rail"/.test(clientSource),
+    "trigger must branch on the wide flag"
+  );
+  assert.ok(
+    /wide && h\("span", \{ className: "mneme-trigger-label" \}/.test(clientSource),
+    "the label span must render only when wide"
+  );
+});
+
+// The full-width memory browser lives in the conversation view ring beside
+// Chat / Trajectory, so the client must inject into `conversation.view` with
+// a stable entry id (the active view is persisted by that id).
+test("explorer registers into the conversation view ring", () => {
+  assert.ok(
+    clientSource.includes('ctx.slots.inject("conversation.view"'),
+    "client must inject into conversation.view"
+  );
+  assert.ok(
+    clientSource.includes('id: "dsh-mneme-memory"'),
+    "the view entry needs a stable, unique id"
+  );
+  assert.ok(
+    clientSource.includes('"memory.view.label"'),
+    "the tab label must come from the memory.view.label dictionary key"
+  );
+});
+
+// The graph toggle must not read as "share": the primitives share icon is
+// banned and a custom node-graph glyph takes its place.
+test("graph toggle uses a node-graph glyph, not the share icon", () => {
+  assert.equal(
+    clientSource.includes("IconShareOutline16"),
+    false,
+    "IconShareOutline16 reads as share and must not appear"
+  );
+  assert.ok(
+    clientSource.includes("GraphNodesIcon"),
+    "the custom node-graph icon must back the graph toggle"
+  );
+});
+
+// Every memory feature lives in the main-area library now: the explorer
+// hosts three sub-views (browse / graph / settings) switched by tabs whose
+// labels come from dedicated dictionary keys.
+test("explorer hosts browse, graph and settings sub-views", () => {
+  for (const key of ["tabMemory", "tabGraph", "tabSettings"]) {
+    assert.ok(
+      clientSource.includes(`"memory.explorer.${key}"`),
+      `sub-view labels must come from memory.explorer.${key}`
+    );
   }
+  assert.ok(
+    clientSource.includes('h(GraphPanel, { t, focusEntity: graphFocus, onJumpMemory: jumpToMemory })'),
+    "the graph panel must be embedded as a sub-view"
+  );
+  assert.ok(
+    clientSource.includes('h(SettingsContent, { t })'),
+    "the settings forms must be embedded as a sub-view"
+  );
+});
+
+// The graph panel jumps back into the browser: related-memory rows and the
+// edge source button must land on the browse tab with the target selected.
+test("graph jump lands on the selected memory in the browser", () => {
+  assert.ok(
+    /onClick: \(\) => onJumpMemory && onJumpMemory\(m\)/.test(clientSource),
+    "related-memory rows must jump via onJumpMemory(m)"
+  );
+  assert.ok(
+    clientSource.includes("onJumpMemory({ id: selected.edge.memory_id })"),
+    "the edge source button must jump to the origin memory by id"
+  );
+  assert.ok(
+    /const jumpToMemory = \(target\) => \{/.test(clientSource),
+    "jumpToMemory must reset filters and select the target"
+  );
+});
+
+// "entity:" in the browser search is the graph entry grammar: it must offer
+// a jump chip instead of filtering the list.
+test("entity: search grammar offers a graph jump", () => {
+  assert.ok(
+    clientSource.includes('query.trim().startsWith("entity:")'),
+    "the entity: prefix must be recognized"
+  );
+  assert.ok(
+    /onClick: \(\) => openGraphFor\(entityQuery\)/.test(clientSource),
+    "the jump chip must switch to the graph sub-view"
+  );
+});
+
+// The explorer is a three-pane layout: types with counts, a month→day time
+// tree, and a detail pane rendering the untruncated content.
+test("explorer lays out types, timeline, and full-text detail", () => {
+  assert.ok(
+    clientSource.includes('className: "mneme-xmain"'),
+    "the three-column grid must be present"
+  );
+  assert.ok(
+    clientSource.includes('className: "mneme-xdcontent"'),
+    "the detail pane must render the full content"
+  );
+  assert.ok(
+    /toLocaleDateString\(undefined, \{ year: "numeric", month: "long" \}\)/.test(clientSource),
+    "month groups must format via the host locale, not hardcoded strings"
+  );
+});
+
+// The library page must read as a first-party view: the chrome resolves to
+// the host's design tokens (layer-1 canvas, brand-blue active states) and
+// the boxed-panel / pill-chip patterns of the drawer era must stay gone.
+test("explorer chrome aligns with the host design system", () => {
+  assert.ok(
+    clientSource.includes("background:var(--dsw-alias-bg-layer-1)"),
+    "the page canvas must sit on the host bg-layer-1 token"
+  );
+  assert.ok(
+    /\.mneme-vtab\.mneme-active::after/.test(clientSource),
+    "active sub-tabs use the host underline treatment"
+  );
+  assert.ok(
+    clientSource.includes(".mneme-vtab.mneme-active{color:var(--dsw-alias-state-business-primary)}"),
+    "active sub-tab text must turn the host brand blue"
+  );
+  assert.equal(
+    /\.mneme-xmain\{[^}]*border:1px/.test(clientSource),
+    false,
+    "the three-column layout must not wrap itself in a boxed panel"
+  );
+  assert.equal(
+    clientSource.includes("border-radius:999px"),
+    false,
+    "pill chips belong to the drawer era and must stay gone"
+  );
 });

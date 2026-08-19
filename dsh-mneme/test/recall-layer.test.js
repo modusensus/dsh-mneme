@@ -17,9 +17,9 @@ const embedder = {
 
 // Real store + service wired with the mock embedder and a vector index over the
 // same store (the service's vector path prefers vectorIndex when set).
-function setup() {
+function setup(config = {}) {
   const store = createStore(":memory:");
-  const service = createService({ store, mirror: null, config: {} });
+  const service = createService({ store, mirror: null, config });
   const vectorIndex = createVectorIndex({ store });
   service.setEmbedder(embedder);
   service.setVectorIndex(vectorIndex);

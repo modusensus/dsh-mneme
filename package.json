@@ -1,8 +1,16 @@
 {
   "name": "@modusensus/dsh-mneme",
-  "version": "0.4.7",
+  "version": "0.5.0",
   "description": "Structured memory engine for DeepSeek Harness. Offline semantic search, entity-attribute-timeline, autoDream self-consolidation, and human-editable Markdown storage.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/modusensus/dsh-mneme.git"
+  },
+  "homepage": "https://github.com/modusensus/dsh-mneme#readme",
+  "bugs": {
+    "url": "https://github.com/modusensus/dsh-mneme/issues"
+  },
   "type": "module",
   "main": "./dsh-mneme/lib/index.js",
   "exports": {
