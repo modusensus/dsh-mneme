@@ -21,9 +21,9 @@ function addMemory(store, { title, content, type = "preference", vector }) {
   return memory;
 }
 
-// Embedder mock for rebuildIndex. NOTE: the rebuild guard checks
-// `typeof embedder.embed === "function"` while the inner loop calls
-// `embedder.embedSingle` — so a rebuild-ready mock must provide both.
+// Embedder mock for rebuildIndex. The rebuild loop prefers embedSingle and
+// falls back to `embed` for embed-only OpenAI-compatible clients, so a mock
+// that provides embedSingle exercises the primary path.
 function rebuildEmbedder({ vector = [1, 0, 0], modelHash = "mock#rebuild", dimension = 3 } = {}) {
   return {
     embed: async (texts) => texts.map(() => vector),
@@ -137,13 +137,29 @@ test("rebuildIndex handles a throwing embedder without failing the batch", async
   assert.equal(vectorIndex.getStats().embeddedCount, 1);
 });
 
-test("rebuildIndex guard: embedder without embedSingle() is ignored", async () => {
+test("rebuildIndex guard: embedder with no embed method at all is ignored", async () => {
   const { store, vectorIndex } = setup();
   addMemory(store, { title: "缺向量", content: "A" });
-  const bare = { embed: async () => [1, 0, 0], modelHash: "mock#bare", dimension: 3 };
+  const bare = { modelHash: "mock#bare", dimension: 3 };
   const result = await vectorIndex.rebuildIndex(bare, { limit: 100 });
-  assert.deepEqual(result, { indexed: 0, skipped: 0 }, "guard returns early when embedSingle() is missing");
+  assert.deepEqual(result, { indexed: 0, skipped: 0 }, "guard returns early when neither embed nor embedSingle is available");
   assert.equal(vectorIndex.modelHash(), undefined, "no model marked");
+});
+
+test("rebuildIndex supports an embed-only OpenAI-compatible embedder (issue #10)", async () => {
+  const { store, vectorIndex } = setup();
+  addMemory(store, { title: "缺向量", content: "A" });
+  const embedOnly = {
+    embed: async (text) => [1, 0, 0], // OpenAI-compatible single-text embed
+    modelHash: "text-embedding#abc",
+    dimension: 3
+  };
+  const result = await vectorIndex.rebuildIndex(embedOnly, { limit: 100 });
+  assert.equal(result.indexed, 1, "embed-only embedder indexes the missing row");
+  assert.equal(result.skipped, 0);
+  assert.equal(vectorIndex.modelHash(), "text-embedding#abc", "model fingerprint recorded");
+  assert.equal(vectorIndex.dimension(), 3, "dimension recorded");
+  assert.equal(vectorIndex.getStats().embeddedCount, 1, "embedding persisted");
 });
 
 test("rebuildIndex works with embedSingle-only embedder", async () => {

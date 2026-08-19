@@ -73,13 +73,23 @@ export function createVectorIndex({ store, logger }) {
 
     /** Re-embed every row missing an embedding. Returns indexed count. */
     async rebuildIndex(embedder, { limit = 1000 } = {}) {
-      if (!embedder || typeof embedder.embedSingle !== "function") return { indexed: 0, skipped: 0 };
+      // The loop needs a single-text embedder. Native embedSingle is preferred;
+      // embed-only OpenAI-compatible clients (issue #10) are accepted too via
+      // their `embed` single-text interface, so /vector-reindex no longer
+      // silently returns 0 for them. An embedder exposing neither is ignored.
+      let embedOne = null;
+      if (embedder && typeof embedder.embedSingle === "function") {
+        embedOne = (text) => embedder.embedSingle(text);
+      } else if (embedder && typeof embedder.embed === "function") {
+        embedOne = (text) => Promise.resolve(embedder.embed(text));
+      }
+      if (!embedOne) return { indexed: 0, skipped: 0 };
       const rows = store.needsEmbedding(limit);
       let indexed = 0;
       for (const row of rows) {
         try {
           const text = [row.title, row.content].filter(Boolean).join("\n");
-          const vector = await embedder.embedSingle(text);
+          const vector = await embedOne(text);
           if (vector && vector.length) {
             store.setEmbedding(row.id, vector);
             indexed++;

@@ -237,7 +237,9 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
         const task = viaIndex
           ? semantic.vectorIndex.rebuildIndex(embedder, { limit })
           : embedder.reindexMissing ? embedder.reindexMissing(limit) : Promise.resolve({ indexed: 0, skipped: 0, error: "vector-unavailable" });
-        task.then((result) => {
+        // Return the chain so awaiting callers (tests/health checks) observe the
+        // finished response rather than racing the async backfill.
+        return task.then((result) => {
           sendJson(res, 200, result);
         }).catch(() => {
           sendJson(res, 200, { indexed: 0, skipped: 0, error: "vector-failed" });
@@ -262,6 +264,42 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
           reranker: semantic?.reranker ? "ready" : null,
           index: stats
         });
+      } catch {
+        sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
+  // --- LLM audit trail (Bug8): paginated read + aggregate stats ---
+  // Read-only endpoints, so like list/search/semantic they stay open even when
+  // apiToken is set. The stats aggregate budget by source over the last N days.
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/semantic/llm-audit",
+    handler(req, res) {
+      try {
+        const url = new URL(req.url, "http://localhost");
+        const page = Math.max(1, Number(url.searchParams.get("page") ?? 1) || 1);
+        const pageSize = Math.min(200, Math.max(1, Number(url.searchParams.get("pageSize") ?? 50) || 50));
+        const source = url.searchParams.get("source") ?? undefined;
+        const items = service.listLlmAudits?.({ limit: pageSize, offset: (page - 1) * pageSize, source }) ?? [];
+        const total = service.countLlmAudits?.({ source }) ?? items.length;
+        sendJson(res, 200, { items, total, page, pageSize });
+      } catch {
+        sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/semantic/llm-audit/stats",
+    handler(req, res) {
+      try {
+        const url = new URL(req.url, "http://localhost");
+        const days = Math.max(1, Math.min(365, Number(url.searchParams.get("days") ?? 7) || 7));
+        const stats = service.getLlmAuditStats?.({ days }) ?? null;
+        sendJson(res, 200, stats ?? { error: "unavailable" });
       } catch {
         sendJson(res, 500, { error: "internal" });
       }
@@ -354,7 +392,7 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
   });
 
   return {
-    routes: 9,
+    routes: 11,
     dispose: () => {
       for (const dispose of disposers) dispose();
     }

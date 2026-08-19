@@ -847,3 +847,55 @@ test("consolidation prompt pins the decision schema (action field, single-string
   assert.match(systemText, /决策 JSON 示例/, "prompt includes a canonical example block");
   store.close();
 });
+
+// --- Bug8: llm_audit_logs trail ----------------------------------------------
+
+test("Bug8: runDream records llm_audit_logs rows for consolidation and summary", async () => {
+  const { store, service } = dreamSetup();
+  service.saveWithDedupe({ type: "project", title: "旧1", content: "第一段内容" });
+  service.saveWithDedupe({ type: "project", title: "旧2", content: "第二段内容" });
+  const ctx = mockCtx({
+    onConsolidation: (listText) => JSON.stringify([{ action: "keep", ids: [listText.match(/id=([^\s|]+)/)[1]] }])
+  });
+  const dream = createDreamScheduler({ thresholdCount: 1, thresholdChars: 0, delayMs: 0 });
+  const result = await dream.runDream(ctx, service, { dreamProvider: "deepseek", dreamModel: "deepseek-chat" });
+  assert.equal(result.ok, true, "run succeeds");
+  const rows = store.listLlmAudits();
+  assert.equal(rows.length, 2, "consolidation + summary both audited");
+  assert.deepEqual(rows.map((r) => r.trigger_source), ["autoDream", "autoDream"]);
+  assert.deepEqual(rows.map((r) => r.operation_type).sort(), ["dream_consolidate", "dream_summarize"]);
+  const consolidate = rows.find((r) => r.operation_type === "dream_consolidate");
+  assert.equal(consolidate.related_memory_ids.length, 2, "consolidation audit links the snapshot ids");
+  const summarize = rows.find((r) => r.operation_type === "dream_summarize");
+  assert.deepEqual(summarize.related_memory_ids, [], "summary audit has no related ids");
+  for (const row of rows) {
+    assert.equal(row.status, "success");
+    assert.equal(row.model_id, "mock:stress-model");
+    assert.ok(Number.isInteger(row.duration_ms) && row.duration_ms >= 0, "duration recorded");
+    assert.equal(row.input_tokens, 0);
+    assert.equal(row.output_tokens, 0);
+  }
+  store.close();
+});
+
+test("Bug8: a failed LLM call is recorded with status=error and does not block the run", async () => {
+  const { store, service } = dreamSetup();
+  service.saveWithDedupe({ type: "project", title: "主题", content: "内容" });
+  const ctx = {
+    logger: { warn: () => {} },
+    llm: {
+      stream: async function* () {
+        yield { type: "finish", reason: { kind: "error" } };
+      }
+    }
+  };
+  const dream = createDreamScheduler({ thresholdCount: 1, thresholdChars: 0, delayMs: 0 });
+  const result = await dream.runDream(ctx, service, { dreamProvider: "deepseek", dreamModel: "deepseek-chat" });
+  assert.equal(result.ok, false, "failed run reported");
+  const rows = store.listLlmAudits();
+  assert.equal(rows.length, 1, "one audit row for the failed consolidation call");
+  assert.equal(rows[0].operation_type, "dream_consolidate");
+  assert.equal(rows[0].status, "error", "LLM failure status=error");
+  assert.ok(rows[0].error_message, "error message recorded");
+  store.close();
+});

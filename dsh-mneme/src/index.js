@@ -43,6 +43,15 @@ export const apply = (ctx, config) => {
   try {
     store.deleteOldFailures(new Date(Date.now() - 90 * 86400000).toISOString());
   } catch { /* non-fatal */ }
+  // Bug8: enforce llm_audit_logs retention on boot (config.llmAudit.retentionDays,
+  // default 90). Best-effort like the failure prune — the audit trail is
+  // bookkeeping and a failed purge must never block plugin boot.
+  try {
+    if (cfg.llmAudit?.enabled !== false) {
+      const retentionMs = Number.isInteger(cfg.llmAudit?.retentionDays) ? cfg.llmAudit.retentionDays : 90;
+      store.deleteOldLlmAudits(new Date(Date.now() - retentionMs * 86400000).toISOString());
+    }
+  } catch { /* non-fatal */ }
   const mirror = createMirror(memoryDir);
   const service = createService({ store, mirror, config: cfg, logger: ctx.logger });
 
@@ -99,7 +108,9 @@ export const apply = (ctx, config) => {
   let embedder = null;
   let reranker = null;
   if (cfg.embedProvider === "openai") {
-    embedder = createEmbedder({ store, settings, logger: ctx.logger });
+    // vectorIndex is passed so the legacy OpenAI embedder records the producing
+    // model fingerprint after each successful embed (Bug3).
+    embedder = createEmbedder({ store, settings, logger: ctx.logger, vectorIndex });
     service.setEmbedder(embedder);
     // legacy OpenAI embedder is immediately usable
     applyHumanEdits();
@@ -154,6 +165,62 @@ export const apply = (ctx, config) => {
       ctx.logger?.warn?.(`[dsh-mneme] reranker unavailable, rerank disabled: ${String(error)}`);
     }
   }
+
+  // Bug2: lazy auto-backfill of missing embeddings on boot. When the vector API
+  // is configured and rows still lack an embedding (e.g. written before vector
+  // search was enabled) AND the vector_meta fingerprint is absent or stale, the
+  // index is rebuilt in the background after a short delay. Gated on
+  // cfg.autoReindexOnBoot; rate-limited in small batches so a large backlog
+  // never floods the provider. Failures degrade silently — search stays keyword.
+  function scheduleAutoReindex() {
+    if (cfg.autoReindexOnBoot === false) return;
+    const attempt = (tries) => {
+      try {
+        if (!embedder || typeof embedder.embedSingle !== "function") return;
+        if ("ready" in embedder && embedder.ready !== true) {
+          // Local/ollama embedders init asynchronously; give them a moment
+          // before giving up on this boot (next boot retries).
+          if (tries > 0) setTimeout(() => attempt(tries - 1), 2000);
+          return;
+        }
+        if (!store.needsEmbedding(1).length) return; // nothing to backfill
+        // Model fingerprint gate: vectors already produced by the same model
+        // mean there is no drift and no rebuild needed.
+        const current = embedder.modelHash;
+        if (current && vectorIndex.modelHash?.() === current) return;
+        const BATCH = 10;
+        const MAX_TOTAL = 500; // bound boot-time work
+        (async () => {
+          let indexed = 0;
+          for (let done = 0; done < MAX_TOTAL;) {
+            const rows = store.needsEmbedding(BATCH);
+            if (!rows.length) break;
+            for (const row of rows) {
+              try {
+                const text = [row.title, row.content].filter(Boolean).join("\n");
+                const vector = await embedder.embedSingle(text);
+                if (vector?.length) {
+                  store.setEmbedding(row.id, vector);
+                  indexed++;
+                }
+              } catch { /* skip the bad row */ }
+            }
+            done += rows.length;
+            // Rate limit: space out batches so the provider is not hammered.
+            if (store.needsEmbedding(1).length) await new Promise((r) => setTimeout(r, 200));
+          }
+          if (indexed > 0 && current) vectorIndex.markModel?.(current, embedder.dimension);
+          ctx.logger?.info?.(`[dsh-mneme] auto-reindex backfilled ${indexed} embeddings on boot`);
+        })().catch((error) => {
+          ctx.logger?.warn?.(`[dsh-mneme] auto-reindex failed: ${String(error)}`);
+        });
+      } catch (error) {
+        ctx.logger?.warn?.(`[dsh-mneme] auto-reindex failed: ${String(error)}`);
+      }
+    };
+    setTimeout(() => attempt(5), 5000);
+  }
+  scheduleAutoReindex();
 
   // Custom commands: register persisted commands into the DSH command registry
   // on boot; add/remove re-register live through the API.

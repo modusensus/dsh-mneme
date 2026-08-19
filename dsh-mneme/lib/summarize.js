@@ -98,6 +98,12 @@ export function createSummarizer(ctx, service, config) {
     if (disposed || inFlight.has(session.id)) return;
     const controller = new AbortController();
     inFlight.set(session.id, controller);
+    // Bug8: audit state for the compression call. null = no audit for this run
+    // (disabled, or no LLM call was actually made). The audit row is written in
+    // the finally below — once, regardless of which exit path the call took —
+    // so a failed/aborted stream still leaves a status='error' trail without
+    // ever blocking the summarization itself.
+    let audit = null;
     try {
       const header = session.requestHeader?.()?.config;
       // Config override takes priority, then session header, then nothing.
@@ -109,6 +115,18 @@ export function createSummarizer(ctx, service, config) {
       if (!route) return;
       const messages = collectMessages(session);
       if (!messages.length) return;
+
+      if (config?.llmAudit?.enabled !== false && typeof service.saveLlmAudit === "function") {
+        audit = {
+          route,
+          timestamp: new Date().toISOString(),
+          startedAt: Date.now(),
+          inputTokens: 0,
+          outputTokens: 0,
+          status: "success",
+          errorMessage: null
+        };
+      }
 
       const assembler = new BlockAssembler();
       let text = "";
@@ -122,15 +140,35 @@ export function createSummarizer(ctx, service, config) {
         ],
         signal: controller.signal
       };
-      for await (const chunk of ctx.llm.stream(options)) {
-        if (STREAM_CHUNK_TYPES.has(chunk.type)) assembler.push(toProtocolChunk(chunk));
-        if (chunk.type === "text-delta") {
-          text += chunk.text ?? chunk.delta ?? "";
+      try {
+        for await (const chunk of ctx.llm.stream(options)) {
+          if (STREAM_CHUNK_TYPES.has(chunk.type)) assembler.push(toProtocolChunk(chunk));
+          if (chunk.type === "text-delta") {
+            text += chunk.text ?? chunk.delta ?? "";
+          }
+          if (chunk.type === "usage" && audit) {
+            const i = chunk.input_tokens ?? chunk.inputTokens ?? chunk.prompt_tokens ?? chunk.promptTokens;
+            const o = chunk.output_tokens ?? chunk.outputTokens ?? chunk.completion_tokens ?? chunk.completionTokens;
+            if (Number.isFinite(i)) audit.inputTokens = i;
+            if (Number.isFinite(o)) audit.outputTokens = o;
+          }
+          if (chunk.type === "finish") {
+            const reasonKind = chunk.reason?.kind ?? chunk.kind;
+            if (reasonKind === "error" || reasonKind === "aborted") {
+              if (audit) {
+                audit.status = "error";
+                audit.errorMessage = `llm stream ${reasonKind}`;
+              }
+              return;
+            }
+          }
         }
-        if (chunk.type === "finish") {
-          const reasonKind = chunk.reason?.kind ?? chunk.kind;
-          if (reasonKind === "error" || reasonKind === "aborted") return;
+      } catch (error) {
+        if (audit) {
+          audit.status = "error";
+          audit.errorMessage = String(error?.message ?? error);
         }
+        throw error; // caller's catch handles the failure; audit already staged
       }
       // Direct delta accumulation is the primary extraction path (it works
       // for real protocol chunks {index,text} and looser {delta} shapes
@@ -147,6 +185,26 @@ export function createSummarizer(ctx, service, config) {
         service.saveWithDedupe({ ...entry, source: `session:${session.id}` });
       }
     } finally {
+      if (audit) {
+        try {
+          service.saveLlmAudit({
+            timestamp: audit.timestamp,
+            trigger_source: "autoSummarize",
+            operation_type: "summarize_compress",
+            model_id: `${audit.route.provider}:${audit.route.model}`,
+            input_tokens: audit.inputTokens,
+            output_tokens: audit.outputTokens,
+            total_tokens: audit.inputTokens + audit.outputTokens,
+            cost_usd: 0,
+            duration_ms: Date.now() - audit.startedAt,
+            status: audit.status,
+            error_message: audit.errorMessage,
+            related_memory_ids: []
+          });
+        } catch (auditError) {
+          ctx.logger?.warn?.(`dsh-mneme: llm audit write failed: ${String(auditError)}`);
+        }
+      }
       inFlight.delete(session.id);
     }
   }

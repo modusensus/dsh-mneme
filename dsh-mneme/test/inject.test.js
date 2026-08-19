@@ -80,3 +80,24 @@ test("user-settings context precedes memory block (order 85 < 90)", () => {
   const settingsCtx = contexts.find((c) => c.name === "user-settings");
   assert.ok(settingsCtx.order < contexts.find((c) => c.name === "memory").order);
 });
+
+test("Bug6: long content is truncated to ~300 chars with an ellipsis", () => {
+  const { contexts, service } = setup();
+  const longContent = "这是一段非常长的记忆正文".repeat(200); // ~2600 chars
+  service.saveWithDedupe({ type: "preference", title: "长记忆", content: longContent, importance: 5 });
+  const text = contexts[0].text({});
+  assert.ok(text.includes("长记忆"), "memory still rendered");
+  assert.ok(text.includes("…"), "ellipsis marks the truncation");
+  assert.ok(!text.includes(longContent.slice(300)), "full body not injected verbatim");
+});
+
+test("Bug6: injected block stays within the ~1500 char budget, later entries collapse", () => {
+  const { contexts, service } = setup({ maxInjectedItems: 8 });
+  for (let i = 0; i < 8; i++) {
+    service.saveWithDedupe({ type: "preference", title: `长标题记忆${i}`, content: "这是一段".repeat(100), importance: 5 });
+  }
+  const text = contexts[0].text({});
+  assert.ok(text.length <= 1600, `memory block bounded near budget, got ${text.length} chars`);
+  // The first entries render full bodies; every entry is present by title.
+  for (let i = 0; i < 8; i++) assert.ok(text.includes(`长标题记忆${i}`), `entry ${i} present`);
+});

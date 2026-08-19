@@ -32,8 +32,15 @@ test("saveWithDedupe merges into existing on exact title match", () => {
   assert.equal(result.action, "merged");
   assert.equal(store.count(), 1);
   const all = store.all();
-  assert.equal(all[0].content, "新内容");
-  assert.equal(all[0].importance, 5);
+  // Bug5: same-title merge appends under a timestamped `---` separator instead
+  // of overwriting; the previous content is archived into content_history.
+  assert.ok(all[0].content.includes("旧内容"), "old content preserved in appended body");
+  assert.ok(all[0].content.includes("新内容"), "new content appended");
+  assert.ok(all[0].content.includes("---"), "timestamped separator present");
+  assert.equal(all[0].importance, 5, "importance takes the max of both");
+  assert.equal(all[0].content_history.length, 1, "old content archived to history");
+  assert.equal(all[0].content_history[0].content, "旧内容");
+  assert.equal(all[0].content_history[0].source, "auto_merge");
 });
 
 test("injectCandidates returns preferences + high-importance items within limit", () => {
@@ -195,4 +202,128 @@ test("service.compareAndUpdate rejects a stale version token (no lost update)", 
   assert.equal(stale, undefined, "stale version CAS misses without writing");
   assert.equal(service.getById(m.id).content, "count=1", "increment not lost");
   store.close();
+});
+
+// --- Bug4: injectCandidates semantic-first recall (query) --------------------
+
+test("Bug4: injectCandidates with an empty query keeps the legacy rule-based selection", () => {
+  const { service } = setup();
+  service.saveWithDedupe({ type: "preference", title: "p0", content: "偏好" });
+  service.saveWithDedupe({ type: "preference", title: "p1", content: "偏好" });
+  service.saveWithDedupe({ type: "project", title: "low", content: "低", importance: 2 });
+  service.saveWithDedupe({ type: "project", title: "high", content: "高", importance: 5 });
+  service.saveWithDedupe({ type: "history", title: "h", content: "历史", importance: 5 });
+  service.saveWithDedupe({ type: "summary", title: "记忆库总览", content: "总览", importance: 5 });
+  const legacy = service.injectCandidates({ maxItems: 5, threshold: 4 });
+  const noQuery = service.injectCandidates({ maxItems: 5, threshold: 4, query: "" });
+  const blankQuery = service.injectCandidates({ maxItems: 5, threshold: 4, query: "   " });
+  assert.deepEqual(noQuery.map((c) => c.id), legacy.map((c) => c.id), "empty query behaves identically to the old logic");
+  assert.deepEqual(blankQuery.map((c) => c.id), legacy.map((c) => c.id), "whitespace-only query degrades too");
+  assert.equal(legacy[0].type, "summary", "summary still leads");
+  assert.ok(!legacy.some((c) => c.type === "history"), "history still excluded");
+});
+
+test("Bug4: injectCandidates ignores the query when hybridInject is disabled", () => {
+  const { store } = setup();
+  const svc = createService({ store, mirror: null, config: { hybridInject: false } });
+  svc.saveWithDedupe({ type: "preference", title: "p0", content: "偏好" });
+  svc.saveWithDedupe({ type: "summary", title: "记忆库总览", content: "总览", importance: 5 });
+  const noQuery = svc.injectCandidates({ maxItems: 5, threshold: 3 });
+  const withQuery = svc.injectCandidates({ maxItems: 5, threshold: 3, query: "中文" });
+  assert.deepEqual(withQuery.map((c) => c.id), noQuery.map((c) => c.id), "hybridInject off keeps rule-based ordering");
+});
+
+// --- Bug5: content_history FIFO + human-edited direct overwrite --------------
+
+test("Bug5: content_history grows FIFO across repeated same-title merges (capped at 20)", () => {
+  const { store, service } = setup();
+  service.saveWithDedupe({ type: "project", title: "流水", content: "v0" });
+  for (let i = 1; i <= 25; i++) {
+    service.saveWithDedupe({ type: "project", title: "流水", content: `v${i}` });
+  }
+  const row = store.all()[0];
+  assert.ok(Array.isArray(row.content_history), "content_history is an array");
+  assert.equal(row.content_history.length, 20, "FIFO cap of 20 respected");
+  assert.ok(row.content_history[0].content.includes("v24"), "newest archived body kept at index 0");
+  assert.ok(row.content_history[19].content.includes("v5"), "oldest kept entry");
+  assert.ok(!row.content_history[19].content.includes("v6"), "entries older than the cap dropped");
+  assert.ok(row.content.includes("v25"), "latest merge still appended to the live body");
+});
+
+test("Bug5: _humanEdited overwrite replaces content directly and archives the old version", () => {
+  const { store, service } = setup();
+  service.saveWithDedupe({ type: "preference", title: "语言", content: "机器内容" });
+  const result = service.saveWithDedupe({ type: "preference", title: "语言", content: "人工修正", _humanEdited: true });
+  const row = store.getById(result.memory.id);
+  assert.equal(row.content, "人工修正", "direct overwrite, no appended --- block");
+  assert.ok(!row.content.includes("机器内容"), "old content not in the live body");
+  assert.equal(row.content_history.length, 1);
+  assert.equal(row.content_history[0].content, "机器内容");
+  assert.equal(row.content_history[0].source, "human_override");
+});
+
+// --- Bug7: memory quality filter ---------------------------------------------
+
+function qualitySetup(config = {}) {
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config: { memoryQualityFilter: { enabled: true, ...config } } });
+  return { store, service };
+}
+
+test("Bug7: meta-memory is scored below the degrade threshold but still stored", () => {
+  const { store, service } = qualitySetup();
+  const result = service.saveWithDedupe({ type: "project", title: "记忆系统规则", content: "我需要记住用户喜欢中文阅读长篇小说和散文" });
+  assert.equal(result.action, "created");
+  assert.ok(result.memory.quality_score < 60, `meta-memory degraded, got ${result.memory.quality_score}`);
+  assert.ok(result.memory.quality_score >= 30, "still above the archive threshold");
+  assert.equal(result.memory.archived, false, "not archived");
+  assert.equal(store.count(), 1, "still stored and searchable");
+});
+
+test("Bug7: short content is archived and tagged low_quality", () => {
+  const { store, service } = qualitySetup();
+  const result = service.saveWithDedupe({ type: "project", title: "备忘", content: "x" });
+  const row = store.getById(result.memory.id);
+  assert.equal(row.archived, true, "short content archived");
+  assert.ok(row.tags.includes("low_quality"), "low_quality tag added");
+  assert.ok(row.quality_score < 30, `score below archive threshold: ${row.quality_score}`);
+});
+
+test("Bug7: near-duplicate content is archived and tagged low_quality", () => {
+  const { store, service } = qualitySetup();
+  const base = "今天下午去操场跑步三圈然后回来洗澡";
+  service.saveWithDedupe({ type: "history", title: "记录A", content: base });
+  const result = service.saveWithDedupe({ type: "history", title: "记录B", content: `${base}${base}${base}` });
+  const row = store.getById(result.memory.id);
+  assert.equal(row.archived, true, "near-duplicate archived");
+  assert.ok(row.tags.includes("low_quality"), "low_quality tag added");
+  assert.ok(row.quality_score < 30, `score below archive threshold: ${row.quality_score}`);
+});
+
+test("Bug7: repetitive (dedup<0.3) content is scored into the degraded band", () => {
+  const { store, service } = qualitySetup();
+  const result = service.saveWithDedupe({ type: "history", title: "唠叨", content: "好好好好好好好好好好好好好好好好好好" });
+  const row = store.getById(result.memory.id);
+  assert.ok(row.quality_score >= 30 && row.quality_score < 60, `repetitive-only degraded, got ${row.quality_score}`);
+  assert.equal(row.archived, false, "not archived (only a single non-meta signal)");
+});
+
+test("Bug7: memoryQualityFilter.enabled=false skips scoring entirely", () => {
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config: { memoryQualityFilter: { enabled: false } } });
+  const result = service.saveWithDedupe({ type: "project", title: "记忆系统规则", content: "我需要记住用户喜欢中文阅读长篇小说和散文" });
+  const row = store.getById(result.memory.id);
+  assert.ok(row.quality_score == null, "no quality_score written");
+  assert.equal(row.archived, false, "not archived");
+  assert.ok(!(row.tags ?? []).includes("low_quality"), "no low_quality tag");
+});
+
+test("Bug7: injection ranking re-weights by quality_score (degraded memories rank lower)", () => {
+  const { store } = setup();
+  const svc = createService({ store, mirror: null, config: { memoryQualityFilter: { enabled: true } } });
+  svc.saveWithDedupe({ type: "preference", title: "高质量", content: "用户喜欢读科幻小说和散文" });
+  svc.saveWithDedupe({ type: "preference", title: "元记忆", content: "我需要记住用户偏好的完整清单防止忘记" });
+  const candidates = svc.injectCandidates({ maxItems: 5, threshold: 3 });
+  assert.equal(candidates[0].title, "高质量", "100-quality preference leads the degraded one");
+  assert.equal(candidates[1].title, "元记忆");
 });

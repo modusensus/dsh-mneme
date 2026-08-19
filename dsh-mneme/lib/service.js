@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { TYPE_FILE } from "./mirror.js";
+import { evaluateMemoryQuality } from "./quality-filter.js";
 
 const INJECT_TYPES = new Set(["preference", "project", "decision", "summary"]);
 
@@ -8,6 +9,29 @@ const INJECT_TYPES = new Set(["preference", "project", "decision", "summary"]);
 // epistemic_status before ranking — measured facts outrank guesses. Missing /
 // unknown statuses are unscaled (×1). Off by default, so nothing changes.
 const EPISTEMIC_WEIGHTS = { observation: 1.0, inferred: 0.85, subjective: 0.7 };
+
+// Bug5: content version history cap (FIFO — the newest 20 versions are kept,
+// older ones dropped). Entries are {content, source, updated_at}; source marks
+// how the version was superseded (auto_merge | human_override | overwrite).
+const CONTENT_HISTORY_MAX = 20;
+
+/** Prepend the previous content to a memory's content_history (FIFO capped). */
+function pushContentHistory(existing, source) {
+  const history = Array.isArray(existing?.content_history) ? existing.content_history : [];
+  return [
+    { content: existing?.content ?? "", source, updated_at: new Date().toISOString() },
+    ...history
+  ].slice(0, CONTENT_HISTORY_MAX);
+}
+
+/** Bug5: same-title merge appends the new content under a timestamped `---`
+ *  separator instead of overwriting, so a re-noted memory never loses history.
+ *  The `---` line is compatible with the mirror's readHumanEdits (which strips
+ *  only the LAST structural `---` when parsing the human-editable file). */
+function appendContent(oldContent, newContent) {
+  const ts = new Date().toISOString();
+  return `${oldContent}\n\n---\n[${ts}] ${newContent}`;
+}
 
 /**
  * Standard retrieval-quality metrics over the ordered candidate ids actually
@@ -68,6 +92,13 @@ export function createService({ store, mirror, config, onWrite, logger }) {
   // the retrieval layer can be audited/replayed — the sibling of the dream
   // judgment-layer audit trail (dream_runs).
   let recallRecorder = null;
+
+  // Bug4: semantic recall cache for the injection path. The system-prompt
+  // interpolator renders context synchronously, so injectCandidates cannot
+  // fire a fresh async embed. The most recent searchMemories recall is cached
+  // here (query + ordered candidates) and reused when the injection query
+  // matches, giving semantic-first injection without breaking the sync render.
+  let lastSemanticRecall = null;
 
   // Transaction nesting depth. Inside service.transaction the per-mutation side
   // effects (mirror render, write notify, re-embed) are deferred so a ROLLBACK
@@ -429,6 +460,9 @@ export function createService({ store, mirror, config, onWrite, logger }) {
         });
       } catch { /* recall receipt is best effort */ }
     }
+    // Bug4: cache the latest semantic recall so the sync injection path can
+    // reuse it when the injection query matches (no async embed available).
+    lastSemanticRecall = { query: q, items: result };
     touchRecalled(result);
     return result;
   }
@@ -571,24 +605,90 @@ export function createService({ store, mirror, config, onWrite, logger }) {
   }
 
   /**
+   * Embed an arbitrary query text and return its vector (null on failure / no
+   * embedder). Used by the injector to prefetch the semantic-first recall
+   * vector for the current user message — the system-prompt render is
+   * synchronous, so the vector must be cached in advance (Bug4).
+   */
+  async function embedQuery(query) {
+    const q = String(query ?? "").trim();
+    if (!q || !embedder) return null;
+    try {
+      const embedSingle = typeof embedder.embedSingle === "function"
+        ? embedder.embedSingle.bind(embedder)
+        : embedder.embed.bind(embedder);
+      const vector = await embedSingle(q);
+      return Array.isArray(vector) && vector.length ? vector : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Save a memory, merging into an existing one when title matches within the same type.
+   *
+   * Bug5: a same-title merge no longer overwrites — the new content is appended
+   * under a timestamped `---` separator (`旧内容\n\n---\n[时间戳] 新内容`) and the
+   * previous content is archived into content_history (source: auto_merge, FIFO
+   * capped at 20). importance takes the max of both (capped at 5). Callers that
+   * truly replace a row (dream summary regeneration) pass `_overwrite: true` to
+   * overwrite directly while still archiving the old version (source: overwrite).
+   * mergeHumanEdits entry points pass `_humanEdited: true` — same direct
+   * overwrite semantics, source: human_override.
+   *
+   * Bug7 (memory quality filter): when config.memoryQualityFilter.enabled, the
+   * memory is scored after dedupe, before write:
+   *   score >= degradeThreshold        → stored normally (score persisted)
+   *   archiveThreshold <= score < 60   → persisted + ranked degraded
+   *   score < archiveThreshold         → archived + tagged low_quality (still
+   *                                      explicitly searchable via includeArchived)
    * @returns {{action: "created"|"merged", memory: object}}
    */
   function saveWithDedupe(memory) {
+    // Bug7: score quality once (after dedupe lookup, before write). Failures
+    // inside the evaluator are impossible (pure function), but the write that
+    // records the score must never fail the save — wrap defensively.
+    const qf = config.memoryQualityFilter;
+    let quality = null;
+    if (qf?.enabled === true) {
+      try {
+        const recentContents = store.all().slice(0, 20).map((m) => m.content ?? "");
+        quality = evaluateMemoryQuality(memory, {
+          minContentLength: qf.minContentLength ?? 10,
+          recentContents
+        });
+      } catch { /* quality scoring is best-effort */ }
+    }
     const existing = store
       .list({ type: memory.type, limit: 100 })
       .find((m) => m.title.trim() === String(memory.title).trim());
     if (existing) {
+      const newContent = String(memory.content ?? "");
+      if (!newContent.trim()) {
+        // Nothing to merge: the row stays untouched.
+        return { action: "merged", memory: existing };
+      }
+      const direct = memory._overwrite === true || memory._humanEdited === true;
+      const content = direct
+        ? newContent
+        : appendContent(existing.content, newContent);
+      const importance = Math.min(5, Math.max(existing.importance, memory.importance ?? existing.importance));
       const merged = store.update(existing.id, {
-        content: memory.content ?? existing.content,
-        importance: memory.importance ?? existing.importance,
+        content,
+        importance,
         tags: memory.tags ?? existing.tags,
-        title: memory.title ?? existing.title
+        title: memory.title ?? existing.title,
+        content_history: pushContentHistory(existing, direct
+          ? (memory._humanEdited === true ? "human_override" : "overwrite")
+          : "auto_merge"),
+        ...(quality ? { quality_score: quality.score } : {})
       });
+      // Bug7: a degraded/archived result is applied on top of the merged row.
+      const result = applyQualityDisposition(merged, quality, qf);
       afterSync("write");
       notifyWrite();
-      scheduleEmbed(merged);
-      return { action: "merged", memory: merged };
+      scheduleEmbed(result);
+      return { action: "merged", memory: result };
     }
     const created = store.save({
       type: memory.type,
@@ -596,13 +696,44 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       content: memory.content,
       tags: memory.tags ?? [],
       importance: memory.importance ?? 3,
-      source: memory.source ?? "manual"
+      source: memory.source ?? "manual",
+      ...(quality ? { quality_score: quality.score } : {})
     });
+    const result = applyQualityDisposition(created, quality, qf);
     afterSync("write");
     notifyWrite();
-    scheduleEmbed(created);
-    scheduleEntityExtraction(created);
-    return { action: "created", memory: created };
+    scheduleEmbed(result);
+    scheduleEntityExtraction(result);
+    return { action: "created", memory: result };
+  }
+
+  /**
+   * Bug7: apply the quality verdict to a freshly written row. Below the archive
+   * threshold the memory is archived + tagged low_quality (still searchable
+   * explicitly via includeArchived); between archive and degrade thresholds the
+   * score is already persisted and only the injection ranking is affected
+   * (importance × score/100). Best-effort: a disposition write failure must
+   * never fail the save. Returns the (possibly refreshed) memory row so callers
+   * see the archived/tagged state, not the pre-disposition snapshot.
+   */
+  function applyQualityDisposition(memory, quality, qf) {
+    if (!quality || qf?.enabled !== true) return memory;
+    const archiveThreshold = qf.archiveThreshold ?? 30;
+    // Signal tags (meta / repetitive / duplicate / short_content / low_quality)
+    // are merged onto the stored row in every assessed band so the verdict is
+    // observable, not just the numeric score. Below the archive threshold the
+    // memory is additionally archived (still explicitly searchable).
+    const tags = [...new Set([...(memory.tags ?? []), ...(quality.tags ?? [])])];
+    if (tags.length === (memory.tags?.length ?? 0) && quality.score >= archiveThreshold) {
+      return memory; // no tag drift and not archived → nothing extra to write
+    }
+    try {
+      store.update(memory.id, { tags, quality_score: quality.score });
+      if (quality.score < archiveThreshold) store.setArchived(memory.id, true);
+      return store.getById(memory.id);
+    } catch {
+      return memory;
+    }
   }
 
   /**
@@ -611,17 +742,71 @@ export function createService({ store, mirror, config, onWrite, logger }) {
    * importance >= threshold. History is never auto-injected. Archived entries
    * are excluded (store.list already filters them by default; the extra
    * !m.archived check is kept as double insurance).
+   *
+   * Bug4 (hybridInject): when a non-empty `query` is available and a matching
+   * semantic recall was cached by the last searchMemories, the vector hits
+   * lead the selection (up to maxItems*2 candidates) and the rule-based pick
+   * fills + dedupes the remaining slots. Empty query / no cached recall /
+   * hybridInject off → pure legacy rule-based selection.
    */
-  function injectCandidates({ maxItems = 5, threshold = 3 } = {}) {
+  function injectCandidates({ query = "", maxItems = 5, threshold = 3, queryVector } = {}) {
+    const q = String(query ?? "").trim();
+    // Bug7: quality-weighted importance in the rule-based tier. Unassessed rows
+    // (quality_score null) count as 100 (weight 1), so legacy stores keep their
+    // exact summary>preference>importance ordering.
+    const qualityWeight = (m) => (m.quality_score != null ? m.quality_score / 100 : 1);
     const items = store.list({ limit: 200, includeForgotten: false })
       .filter((m) => !m.archived && INJECT_TYPES.has(m.type) && !m.forgotten &&
         (m.type === "summary" || m.type === "preference" || m.importance >= threshold))
       .sort((a, b) => {
         const pa = a.type === "summary" ? 0 : a.type === "preference" ? 1 : 2;
         const pb = b.type === "summary" ? 0 : b.type === "preference" ? 1 : 2;
-        return pa - pb || b.importance - a.importance;
+        return pa - pb || (b.importance * qualityWeight(b)) - (a.importance * qualityWeight(a));
       });
-    const selected = items.slice(0, maxItems);
+    let candidates = items;
+    if (config.hybridInject !== false && q) {
+      // Bug4: semantic-first recall. Vector hits (queryVector, cached by the
+      // injector's async prefetch) lead when present; otherwise the last
+      // searchMemories recall for the exact same query is reused. Rule-based
+      // items fill + dedupe the remaining slots. Empty query / no vector /
+      // no cached recall → pure legacy rule-based selection.
+      const semanticItems = [];
+      if (Array.isArray(queryVector) && queryVector.length && vectorIndex) {
+        try {
+          const hits = vectorIndex.search(queryVector, { limit: maxItems * 2, threshold: 0 });
+          for (const m of hits) {
+            if (m && !m.archived && INJECT_TYPES.has(m.type) && !m.forgotten &&
+              (m.type === "summary" || m.type === "preference" || m.importance >= threshold)) {
+              semanticItems.push(m);
+            }
+          }
+        } catch { /* vector unavailable: fall through to the recall cache */ }
+      }
+      if (!semanticItems.length && lastSemanticRecall?.query === q && lastSemanticRecall.items?.length) {
+        for (const m of lastSemanticRecall.items) {
+          if (m && !m.archived && INJECT_TYPES.has(m.type) && !m.forgotten) semanticItems.push(m);
+        }
+      }
+      if (semanticItems.length) {
+        const seen = new Set();
+        const merged = [];
+        const push = (m) => {
+          if (seen.has(m.id)) return;
+          seen.add(m.id);
+          merged.push(m);
+        };
+        for (const m of semanticItems) {
+          push(m);
+          if (merged.length >= maxItems * 2) break;
+        }
+        for (const m of items) {
+          if (merged.length >= maxItems * 2) break;
+          push(m);
+        }
+        candidates = merged;
+      }
+    }
+    const selected = candidates.slice(0, maxItems);
     touchRecalled(selected);
     return selected;
   }
@@ -654,7 +839,15 @@ export function createService({ store, mirror, config, onWrite, logger }) {
         // 人工编辑回灌后触发 re-embed（issue #3 残留修复）：向量必须与
         // 新 title/content 一致。scheduleEmbed 为 fire-and-forget，
         // 内部 try/catch 吞错，失败不影响主流程。
-        const merged = store.update(edit.id, patch);
+        // Bug5: human edits overwrite directly, but the machine version is
+        // archived into content_history (source: human_override) before being
+        // replaced, so a manual correction never silently destroys the old value.
+        const merged = store.update(edit.id, {
+          ...patch,
+          content_history: patch.content !== undefined && existing.content !== patch.content
+            ? pushContentHistory(existing, "human_override")
+            : existing.content_history
+        });
         applied++;
         scheduleEmbed(merged);
       }
@@ -999,6 +1192,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     setReranker(rn) { reranker = rn; },
     setRecallRecorder(fn) { recallRecorder = fn; },
     searchMemories,
+    embedQuery,
     evaluateRetrieval,
     computeRetrievalMetrics,
     // passthroughs used by tools and api layers; mutations keep the mirror in sync
@@ -1139,6 +1333,13 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     saveRecallEval: (r) => store.saveRecallEval(r),
     getRecallEval: (id) => store.getRecallEval(id),
     listRecallEvals: (opts) => store.listRecallEvals(opts),
+    // LLM audit trail (Bug8): bookkeeping semantics like the recall/dream
+    // passthroughs — a saveLlmAudit write never triggers write hooks.
+    saveLlmAudit: (entry) => store.saveLlmAudit(entry),
+    listLlmAudits: (opts) => store.listLlmAudits(opts),
+    countLlmAudits: (opts) => store.countLlmAudits(opts),
+    getLlmAuditStats: (opts) => store.getLlmAuditStats(opts),
+    deleteOldLlmAudits: (before) => store.deleteOldLlmAudits(before),
     // Entity gene (v0.3.0) passthroughs for the autoDream apply path
     // (applyDecisions): records supersedes relations after an update and
     // migrates entity_attrs on merge. Bookkeeping writes like the audit

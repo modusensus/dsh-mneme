@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS memories (
   forgotten   INTEGER NOT NULL DEFAULT 0,
   archived    INTEGER NOT NULL DEFAULT 0,
   source      TEXT,
+  content_history TEXT,
   embedding   TEXT,
   epistemic_status TEXT NOT NULL DEFAULT 'subjective',
   last_accessed_at  TEXT,
@@ -145,6 +146,31 @@ CREATE TABLE IF NOT EXISTS conflict_pending (
   resolved_winner TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_conflict_pending_unresolved ON conflict_pending(resolved_at);
+
+-- llm_audit_logs: every background LLM call (autoDream consolidation + summary,
+-- autoSummarize compression) is recorded here — tokens in/out, duration, status
+-- and the trigger that caused it (Bug8). Failures are captured as status='error'
+-- and never block the calling feature. retentionDays is enforced by a boot-time
+-- purge (deleteOldLlmAudits). Bookkeeping like the other audit tables: it never
+-- triggers write hooks.
+CREATE TABLE IF NOT EXISTS llm_audit_logs (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  timestamp         TEXT NOT NULL,
+  trigger_source    TEXT NOT NULL,          -- autoDream | autoSummarize | manual ...
+  operation_type    TEXT NOT NULL,          -- dream_consolidate | dream_summarize | summarize_compress ...
+  model_id          TEXT NOT NULL,
+  input_tokens      INTEGER NOT NULL DEFAULT 0,
+  output_tokens     INTEGER NOT NULL DEFAULT 0,
+  total_tokens      INTEGER NOT NULL DEFAULT 0,
+  cost_usd          REAL NOT NULL DEFAULT 0,
+  duration_ms       INTEGER NOT NULL DEFAULT 0,
+  status            TEXT NOT NULL,          -- success | error | skipped
+  error_message     TEXT,
+  related_memory_ids TEXT,                  -- JSON: ids the call operated on
+  metadata          TEXT                    -- JSON: free-form extras
+);
+CREATE INDEX IF NOT EXISTS idx_llm_audit_timestamp ON llm_audit_logs(timestamp);
+CREATE INDEX IF NOT EXISTS idx_llm_audit_source ON llm_audit_logs(trigger_source);
 
 -- entity gene (v0.3.0): named entities mentioned across memories, with
 -- time-boxed attributes (valid_from → valid_until) and typed relations.
@@ -295,6 +321,8 @@ function toRow(row) {
     forgotten: row.forgotten === 1,
     archived: row.archived === 1,
     source: row.source ?? undefined,
+    content_history: parseJsonArray(row.content_history),
+    quality_score: row.quality_score !== null && row.quality_score !== undefined ? Number(row.quality_score) : undefined,
     epistemic_status: row.epistemic_status ?? "subjective",
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -439,6 +467,34 @@ function toRelation(row) {
   };
 }
 
+function toLlmAudit(row) {
+  if (!row) return undefined;
+  let metadata;
+  if (row.metadata != null) {
+    try {
+      metadata = JSON.parse(row.metadata);
+    } catch {
+      metadata = row.metadata;
+    }
+  }
+  return {
+    id: row.id,
+    timestamp: row.timestamp,
+    trigger_source: row.trigger_source,
+    operation_type: row.operation_type,
+    model_id: row.model_id,
+    input_tokens: row.input_tokens,
+    output_tokens: row.output_tokens,
+    total_tokens: row.total_tokens,
+    cost_usd: row.cost_usd,
+    duration_ms: row.duration_ms,
+    status: row.status,
+    error_message: row.error_message ?? undefined,
+    related_memory_ids: parseJsonArray(row.related_memory_ids),
+    metadata
+  };
+}
+
 function toMirrorState(row) {
   if (!row) {
     return {
@@ -508,6 +564,12 @@ export function createStore(path) {
   }
   if (!columns.includes("epistemic_status")) {
     db.exec("ALTER TABLE memories ADD COLUMN epistemic_status TEXT NOT NULL DEFAULT 'subjective'");
+  }
+  if (!columns.includes("content_history")) {
+    db.exec("ALTER TABLE memories ADD COLUMN content_history TEXT");
+  }
+  if (!columns.includes("quality_score")) {
+    db.exec("ALTER TABLE memories ADD COLUMN quality_score REAL");
   }
 
   // Legacy dream_runs without policy_epoch → backfill with the default epoch.
@@ -607,9 +669,24 @@ export function createStore(path) {
       : inferEpistemicStatus(memory);
     runAtomically(() => {
       db.prepare(
-        `INSERT INTO memories (id, type, title, content, tags, importance, forgotten, source, embedding, epistemic_status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`
-      ).run(id, type, memory.title, memory.content, tags, importance, memory.source ?? null, embedding, epistemicStatus, now, now);
+        `INSERT INTO memories (id, type, title, content, tags, importance, forgotten, archived, source, content_history, quality_score, embedding, epistemic_status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        id,
+        type,
+        memory.title,
+        memory.content,
+        tags,
+        importance,
+        memory.archived ? 1 : 0,
+        memory.source ?? null,
+        JSON.stringify(memory.content_history ?? []),
+        Number.isFinite(memory.quality_score) ? memory.quality_score : null,
+        embedding,
+        epistemicStatus,
+        now,
+        now
+      );
       // desired generation bumped in the same transaction as the write: once
       // this commits, generation > applied_generation, so a crash right after
       // (before syncMirror) is caught by recoverMirror on restart (peer
@@ -632,9 +709,15 @@ export function createStore(path) {
       ? (Array.isArray(patch.embedding) && patch.embedding.length ? JSON.stringify(patch.embedding) : null)
       : existing.embedding ?? null;
     const epistemicStatus = resolveEpistemicStatus(existing, patch);
+    const contentHistory = Array.isArray(patch.content_history)
+      ? JSON.stringify(patch.content_history)
+      : (Array.isArray(existing.content_history) ? JSON.stringify(existing.content_history) : null);
+    const qualityScore = patch.quality_score !== undefined && Number.isFinite(patch.quality_score)
+      ? patch.quality_score
+      : (existing.quality_score ?? null);
     runAtomically(() => {
       db.prepare(
-        `UPDATE memories SET type=?, title=?, content=?, tags=?, importance=?, source=?, embedding=?, epistemic_status=?, updated_at=? WHERE id=?`
+        `UPDATE memories SET type=?, title=?, content=?, tags=?, importance=?, source=?, content_history=?, quality_score=?, embedding=?, epistemic_status=?, updated_at=? WHERE id=?`
       ).run(
         type,
         patch.title ?? existing.title,
@@ -642,6 +725,8 @@ export function createStore(path) {
         JSON.stringify(patch.tags ?? existing.tags),
         Number.isInteger(patch.importance) ? patch.importance : existing.importance,
         patch.source !== undefined ? patch.source : (existing.source ?? null),
+        contentHistory,
+        qualityScore,
         embedding,
         epistemicStatus,
         now,
@@ -684,6 +769,12 @@ export function createStore(path) {
       ? (Array.isArray(patch.embedding) && patch.embedding.length ? JSON.stringify(patch.embedding) : null)
       : existing.embedding ?? null;
     const epistemicStatus = resolveEpistemicStatus(existing, patch);
+    const contentHistory = Array.isArray(patch.content_history)
+      ? JSON.stringify(patch.content_history)
+      : (Array.isArray(existing.content_history) ? JSON.stringify(existing.content_history) : null);
+    const qualityScore = patch.quality_score !== undefined && Number.isFinite(patch.quality_score)
+      ? patch.quality_score
+      : (existing.quality_score ?? null);
     // The CAS UPDATE and the desired-generation bump must commit together (audit
     // peer A): if the UPDATE autocommits first and the process dies before the
     // increment, the store is mutated while generation == applied_generation and
@@ -693,7 +784,7 @@ export function createStore(path) {
     let applied = false;
     runAtomically(() => {
       const result = db.prepare(
-        `UPDATE memories SET type=?, title=?, content=?, tags=?, importance=?, source=?, embedding=?, epistemic_status=?, updated_at=?
+        `UPDATE memories SET type=?, title=?, content=?, tags=?, importance=?, source=?, content_history=?, quality_score=?, embedding=?, epistemic_status=?, updated_at=?
          WHERE id=? AND updated_at=?`
       ).run(
         type,
@@ -702,6 +793,8 @@ export function createStore(path) {
         JSON.stringify(patch.tags ?? existing.tags),
         Number.isInteger(patch.importance) ? patch.importance : existing.importance,
         patch.source !== undefined ? patch.source : (existing.source ?? null),
+        contentHistory,
+        qualityScore,
         embedding,
         epistemicStatus,
         now,
@@ -1150,6 +1243,115 @@ export function createStore(path) {
       `SELECT * FROM recall_evals ${where} ORDER BY created_at DESC, id LIMIT ? OFFSET ?`
     ).all(...params, lim, off);
     return rows.map(toRecallEval);
+  }
+
+  // --- llm audit trail (Bug8) ---------------------------------------------
+
+  /**
+   * Persist one LLM audit row (a background call's token/time/status receipt).
+   * Bookkeeping like the other audit tables: it never triggers write hooks, so
+   * recording a call can never loop back into the scheduler that made it. The
+   * call itself is wrapped so a failure is captured (status='error') instead of
+   * blocking the feature — only a throwing saveLlmAudit is swallowed, never the
+   * LLM call.
+   */
+  function saveLlmAudit(entry) {
+    const now = nowIso();
+    const inTokens = Number.isFinite(entry.input_tokens) ? entry.input_tokens : 0;
+    const outTokens = Number.isFinite(entry.output_tokens) ? entry.output_tokens : 0;
+    db.prepare(
+      `INSERT INTO llm_audit_logs (timestamp, trigger_source, operation_type, model_id,
+        input_tokens, output_tokens, total_tokens, cost_usd, duration_ms, status,
+        error_message, related_memory_ids, metadata)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      entry.timestamp ?? now,
+      entry.trigger_source,
+      entry.operation_type,
+      entry.model_id,
+      inTokens,
+      outTokens,
+      Number.isFinite(entry.total_tokens) ? entry.total_tokens : inTokens + outTokens,
+      Number.isFinite(entry.cost_usd) ? entry.cost_usd : 0,
+      Number.isFinite(entry.duration_ms) ? entry.duration_ms : 0,
+      entry.status ?? "success",
+      entry.error_message ?? null,
+      JSON.stringify(entry.related_memory_ids ?? []),
+      entry.metadata !== undefined
+        ? (typeof entry.metadata === "string" ? entry.metadata : JSON.stringify(entry.metadata))
+        : null
+    );
+    return toLlmAudit(db.prepare("SELECT * FROM llm_audit_logs ORDER BY id DESC LIMIT 1").get());
+  }
+
+  function listLlmAudits({ limit = 50, offset = 0, source } = {}) {
+    const { limit: lim, offset: off } = sanitizePage(limit, offset, 50);
+    const clauses = [];
+    const params = [];
+    if (source) {
+      clauses.push("trigger_source = ?");
+      params.push(source);
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const rows = db.prepare(
+      `SELECT * FROM llm_audit_logs ${where} ORDER BY timestamp DESC, id DESC LIMIT ? OFFSET ?`
+    ).all(...params, lim, off);
+    return rows.map(toLlmAudit);
+  }
+
+  function countLlmAudits({ source } = {}) {
+    const clauses = [];
+    const params = [];
+    if (source) {
+      clauses.push("trigger_source = ?");
+      params.push(source);
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    return db.prepare(`SELECT count(*) AS c FROM llm_audit_logs ${where}`).get(...params).c;
+  }
+
+  /**
+   * Aggregate LLM spend over the last `days`: total calls/tokens/duration/cost,
+   * broken down by trigger_source and by status. Used by the API's
+   * /llm-audit/stats endpoint so the Web panel can show where budget goes.
+   */
+  function getLlmAuditStats({ days = 7 } = {}) {
+    const since = new Date(Date.now() - days * 86400000).toISOString();
+    const total = db.prepare(
+      `SELECT count(*) AS c,
+              COALESCE(SUM(input_tokens), 0) AS i,
+              COALESCE(SUM(output_tokens), 0) AS o,
+              COALESCE(SUM(total_tokens), 0) AS t,
+              COALESCE(SUM(duration_ms), 0) AS d,
+              COALESCE(SUM(cost_usd), 0) AS cst
+       FROM llm_audit_logs WHERE timestamp >= ?`
+    ).get(since);
+    const bySource = db.prepare(
+      `SELECT trigger_source AS source, count(*) AS c,
+              COALESCE(SUM(total_tokens), 0) AS total_tokens
+       FROM llm_audit_logs WHERE timestamp >= ?
+       GROUP BY trigger_source ORDER BY total_tokens DESC`
+    ).all(since);
+    const byStatus = db.prepare(
+      "SELECT status, count(*) AS c FROM llm_audit_logs WHERE timestamp >= ? GROUP BY status"
+    ).all(since);
+    return {
+      days,
+      since,
+      total_calls: total.c,
+      input_tokens: total.i,
+      output_tokens: total.o,
+      total_tokens: total.t,
+      total_duration_ms: total.d,
+      total_cost_usd: Number(total.cst),
+      by_source: bySource,
+      by_status: byStatus
+    };
+  }
+
+  /** Delete audit rows older than `before` (ISO string). Returns count removed. */
+  function deleteOldLlmAudits(before) {
+    return db.prepare("DELETE FROM llm_audit_logs WHERE timestamp < ?").run(before).changes;
   }
 
   // --- failure memories ----------------------------------------------------
@@ -1678,6 +1880,11 @@ export function createStore(path) {
     saveRecallEval,
     getRecallEval,
     listRecallEvals,
+    saveLlmAudit,
+    listLlmAudits,
+    countLlmAudits,
+    getLlmAuditStats,
+    deleteOldLlmAudits,
     saveFailure,
     listFailures,
     getFailureStats,

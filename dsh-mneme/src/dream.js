@@ -199,16 +199,78 @@ function buildRecordReceipts({ runId, committed, snapshot, policyEpoch }) {
  * accumulation covers both the real protocol ({type:"text-delta", index, text})
  * and looser test doubles ({type:"text-delta", text}); a terminal error/abort
  * surfaces as undefined. The caller decides how to treat an empty result.
+ * `onUsage` (optional, Bug8) receives any usage chunk for token accounting.
  */
-async function streamText(ctx, options) {
+async function streamText(ctx, options, onUsage) {
   let text = "";
   for await (const chunk of ctx.llm.stream(options)) {
     if (chunk.type === "text-delta" && typeof chunk.text === "string") text += chunk.text;
+    if (chunk.type === "usage" && typeof onUsage === "function") onUsage(chunk);
     if (chunk.type === "finish" && (chunk.reason?.kind === "error" || chunk.reason?.kind === "aborted")) {
       return undefined;
     }
   }
   return text;
+}
+
+/**
+ * Bug8: wrap a background LLM call so its token/time/status are recorded in the
+ * llm_audit_logs table. Best-effort bookkeeping: a failure to WRITE the audit
+ * row is swallowed (never blocks the LLM call), while a failure of the call
+ * itself is captured as status='error' and re-thrown so the caller keeps its
+ * existing error path. `spec` carries the static metadata (trigger_source,
+ * operation_type, model_id, related_memory_ids); `body(reportUsage)` performs
+ * the actual stream consumption and is handed a usage reporter for the chunks.
+ */
+async function runAuditedLlm(ctx, service, config, spec, body) {
+  const audit = config?.llmAudit;
+  if (audit?.enabled === false || typeof service?.saveLlmAudit !== "function") return body(() => {});
+  const startedAt = Date.now();
+  const timestamp = new Date(startedAt).toISOString();
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let status = "success";
+  let errorMessage = null;
+  let result;
+  try {
+    result = await body((usage) => {
+      if (!usage) return;
+      const i = usage.input_tokens ?? usage.inputTokens ?? usage.prompt_tokens ?? usage.promptTokens;
+      const o = usage.output_tokens ?? usage.outputTokens ?? usage.completion_tokens ?? usage.completionTokens;
+      if (Number.isFinite(i)) inputTokens = i;
+      if (Number.isFinite(o)) outputTokens = o;
+    });
+    if (result === undefined) {
+      // stream aborted/errored: the caller treats undefined as a failed run;
+      // record it as error here so the audit shows the truth.
+      status = "error";
+      errorMessage = errorMessage ?? "llm stream aborted or errored";
+    }
+    return result;
+  } catch (error) {
+    status = "error";
+    errorMessage = String(error?.message ?? error);
+    throw error;
+  } finally {
+    try {
+      service.saveLlmAudit({
+        timestamp,
+        trigger_source: spec.triggerSource,
+        operation_type: spec.operationType,
+        model_id: spec.modelId,
+        input_tokens: inputTokens,
+        output_tokens: outputTokens,
+        total_tokens: inputTokens + outputTokens,
+        cost_usd: 0,
+        duration_ms: Date.now() - startedAt,
+        status,
+        error_message: errorMessage,
+        related_memory_ids: spec.relatedMemoryIds ?? []
+      });
+    } catch (auditError) {
+      ctx.logger?.warn?.(`dsh-mneme: llm audit write failed: ${String(auditError)}`);
+    }
+  }
 }
 
 /**
@@ -487,7 +549,15 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       : CONSOLIDATION_PROMPT;
     let decisionText;
     try {
-      decisionText = await streamText(ctx, {
+      // Bug8: the consolidation call is audited (tokens/time/status). A throw
+      // re-propagates to the catch below; an aborted stream returns undefined
+      // and is treated as a failed run after the check below.
+      decisionText = await runAuditedLlm(ctx, service, config, {
+        triggerSource: "autoDream",
+        operationType: "dream_consolidate",
+        modelId: `${route.provider}:${route.model}`,
+        relatedMemoryIds: [...snapshot.keys()]
+      }, (reportUsage) => streamText(ctx, {
         provider: route.provider,
         model: route.model,
         purpose: "compaction",
@@ -499,7 +569,7 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
           { role: "system", content: [{ type: "text", text: consolidationPrompt }] },
           { role: "user", content: [{ type: "text", text: listText }] }
         ]
-      });
+      }, reportUsage));
     } catch (error) {
       logger?.warn?.(`dsh-mneme dream: consolidation llm call failed: ${String(error)}`);
       return finish({ ok: false, error: "llm failed", summary: false });
@@ -637,7 +707,13 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     // a failed run; summary:false marks a run that produced no summary.
     let summaryText;
     try {
-      summaryText = await streamText(ctx, {
+      // Bug8: the summary call is audited too (operation dream_summarize).
+      summaryText = await runAuditedLlm(ctx, service, config, {
+        triggerSource: "autoDream",
+        operationType: "dream_summarize",
+        modelId: `${route.provider}:${route.model}`,
+        relatedMemoryIds: []
+      }, (reportUsage) => streamText(ctx, {
         provider: route.provider,
         model: route.model,
         purpose: "compaction",
@@ -649,14 +725,18 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
           { role: "system", content: [{ type: "text", text: SUMMARY_PROMPT }] },
           { role: "user", content: [{ type: "text", text: service.all().filter((m) => !m.archived && m.type !== "summary").map((m) => `- ${m.title}: ${m.content}`).join("\n") }] }
         ]
-      });
+      }, reportUsage));
     } catch (error) {
       logger?.warn?.(`dsh-mneme dream: summary llm call failed: ${String(error)}`);
       return finish({ ok: false, error: "llm failed", applied, decisions: auditDecisions, outcome, frozen: frozenCount, summary: false });
     }
     let summaryStored = false;
     if (summaryText !== undefined && summaryText.trim()) {
-      service.saveWithDedupe({ type: "summary", title: "记忆库总览", content: summaryText.trim(), importance: 5, source: "dream" });
+      // Bug5 carve-out: the library overview is regenerated every run, so it
+      // must REPLACE the previous overview (not append — that would grow the
+      // summary unboundedly). `_overwrite` still archives the old overview into
+      // content_history before replacing it.
+      service.saveWithDedupe({ type: "summary", title: "记忆库总览", content: summaryText.trim(), importance: 5, source: "dream", _overwrite: true });
       summaryStored = true;
       // Re-embed the fresh summary so the index stays in sync with the store.
       if (semantic?.embedder && semantic?.vectorIndex) {

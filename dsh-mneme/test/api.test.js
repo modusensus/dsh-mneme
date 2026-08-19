@@ -5,6 +5,7 @@ import { createStore } from "../src/store.js";
 import { createService } from "../src/service.js";
 import { createApi } from "../src/api.js";
 import { createSettings } from "../src/settings.js";
+import { createVectorIndex } from "../src/vector-index.js";
 
 class FakeRes extends EventEmitter {
   constructor() { super(); this.statusCode = 200; this.body = ""; }
@@ -382,4 +383,87 @@ test("no apiToken configured keeps all endpoints open", async () => {
   const res = new FakeRes();
   await vec.handler(req("/api/dsh-mneme/vector-config"), res);
   assert.equal(res.statusCode, 200, "open when apiToken is unset");
+});
+
+// --- Bug8: llm-audit API (pagination + stats) --------------------------------
+
+test("GET /api/dsh-mneme/semantic/llm-audit returns paginated rows", async () => {
+  const { routes, service } = setup();
+  for (let i = 0; i < 5; i++) {
+    service.saveLlmAudit({ trigger_source: "autoDream", operation_type: "dream_consolidate", model_id: "m1", input_tokens: 10, output_tokens: 5, status: "success", related_memory_ids: [] });
+  }
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/semantic/llm-audit");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/semantic/llm-audit?page=2&pageSize=2"), res);
+  assert.equal(res.statusCode, 200);
+  const data = JSON.parse(res.body);
+  assert.equal(data.total, 5);
+  assert.equal(data.page, 2);
+  assert.equal(data.pageSize, 2);
+  assert.equal(data.items.length, 2, "second page of 2");
+});
+
+test("GET /api/dsh-mneme/semantic/llm-audit filters by source", async () => {
+  const { routes, service } = setup();
+  service.saveLlmAudit({ trigger_source: "autoDream", operation_type: "dream_consolidate", model_id: "m1", status: "success" });
+  service.saveLlmAudit({ trigger_source: "autoSummarize", operation_type: "summarize_compress", model_id: "m2", status: "success" });
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/semantic/llm-audit");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/semantic/llm-audit?source=autoSummarize"), res);
+  const data = JSON.parse(res.body);
+  assert.equal(data.total, 1);
+  assert.equal(data.items[0].operation_type, "summarize_compress");
+});
+
+test("GET /api/dsh-mneme/semantic/llm-audit/stats aggregates tokens by source and status", async () => {
+  const { routes, service } = setup();
+  service.saveLlmAudit({
+    trigger_source: "autoDream", operation_type: "dream_consolidate", model_id: "m1",
+    input_tokens: 100, output_tokens: 50, total_tokens: 150, duration_ms: 12, status: "success", related_memory_ids: []
+  });
+  service.saveLlmAudit({
+    trigger_source: "autoSummarize", operation_type: "summarize_compress", model_id: "m2",
+    input_tokens: 20, output_tokens: 10, total_tokens: 30, duration_ms: 5, status: "error", error_message: "boom", related_memory_ids: []
+  });
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/semantic/llm-audit/stats");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/semantic/llm-audit/stats?days=7"), res);
+  assert.equal(res.statusCode, 200);
+  const data = JSON.parse(res.body);
+  assert.equal(data.total_calls, 2);
+  assert.equal(data.input_tokens, 120);
+  assert.equal(data.output_tokens, 60);
+  assert.equal(data.total_tokens, 180);
+  assert.equal(data.total_duration_ms, 17);
+  assert.ok(data.by_source.some((s) => s.source === "autoDream" && s.total_tokens === 150), "autoDream aggregate present");
+  assert.ok(data.by_status.some((s) => s.status === "error" && s.c === 1), "error status counted");
+});
+
+// --- issue #10: vector-reindex with an embed-only OpenAI-compatible embedder --
+
+test("Bug10: vector-reindex with an embed-only OpenAI-compatible embedder returns the real count and records the model fingerprint", async () => {
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config: {} });
+  const settings = createSettings(store.db);
+  const vectorIndex = createVectorIndex({ store });
+  const embedder = {
+    embed: async (text) => [0.1, 0.2, 0.3], // OpenAI-compatible single-text embed
+    modelHash: "text-embedding-3#abc",
+    dimension: 3
+  };
+  // A pre-index row written before the embedder is attached (so it still has no vector).
+  service.saveWithDedupe({ type: "project", title: "待回填", content: "缺少向量的存量记忆" });
+  const routes = [];
+  const ctx = { webServer: { register(route) { routes.push(route); return () => {}; } } };
+  createApi(ctx, service, settings, { add() {}, remove() {}, list() { return []; } }, embedder, { vectorIndex }, "");
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/vector-reindex");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/vector-reindex"), res);
+  assert.equal(res.statusCode, 200);
+  const data = JSON.parse(res.body);
+  assert.equal(data.indexed, 1, "actual indexed count, not 0");
+  assert.equal(data.skipped, 0);
+  assert.equal(vectorIndex.modelHash(), "text-embedding-3#abc", "model_hash written to vector_meta");
+  assert.equal(vectorIndex.dimension(), 3, "dimension written to vector_meta");
+  assert.equal(vectorIndex.getEmbedding(service.all()[0].id).length, 3, "embedding persisted");
 });

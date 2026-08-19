@@ -75,7 +75,9 @@ test("digest 匹配：saveWithDedupe 同标题 merge 后新值落地、无伪冲
     assert.equal(result.action, "merged");
     assert.equal(store.count(), 1, "同标题合并不新增条目");
     const m = service.getById(result.memory.id);
-    assert.equal(m.content, "新内容", "合并后新值必须落地");
+    // Bug5: 同标题合并不是覆盖，而是追加（旧内容 + --- 分隔 + 新内容）
+    assert.ok(m.content.includes("旧内容"), "合并后旧内容保留在追加正文");
+    assert.ok(m.content.includes("新内容"), "合并后新值必须落地");
     assert.ok(!m.content.includes(CONFLICT_MARKER), "不得出现伪冲突 marker");
     const file = readFileSync(mirrorFile(dir, "preference"), "utf8");
     assert.match(file, /新内容/, "镜像已重渲染为新值");

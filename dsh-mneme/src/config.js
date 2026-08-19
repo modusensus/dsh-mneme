@@ -82,6 +82,15 @@ export const Config = z.object({
   vectorSearchThreshold: z.number().min(0).max(1).default(0.65),
   hybridSearchVectorWeight: z.number().min(0).max(1).default(0.6),
   hybridSearchKeywordWeight: z.number().min(0).max(1).default(0.4),
+  // Lazy auto-backfill of missing embeddings on boot (Bug2): when the vector
+  // API is configured and rows still lack an embedding, the index is rebuilt
+  // in the background after a short delay, rate-limited in batches. On by
+  // default; set false to keep the backfill manual only.
+  autoReindexOnBoot: z.boolean().default(true),
+  // Semantic-first injection (Bug4): when enabled, injectCandidates with a
+  // non-empty query recalls via the vector index first and falls back to the
+  // rule-based pick to fill/dedupe. Empty query / no vector → legacy behavior.
+  hybridInject: z.boolean().default(true),
 
   // --- semantic: rerank layer (v0.2) --------------------------------------
   // Opt-in by default (item ⑥): the local cross-encoder pulls in onnxruntime
@@ -176,6 +185,32 @@ export const Config = z.object({
   // epistemic_status stays inert data (still written + inferred on save, just
   // never used to influence behavior).
   trustEpistemicWeighting: z.boolean().default(false),
+
+  // --- memory quality filter (Bug7) ------------------------------------------
+  // Heuristic gate on what deserves the injection/recall surface. When enabled,
+  // saveWithDedupe scores each new memory after dedupe and before write:
+  //   score >= degradeThreshold (60) → stored normally
+  //   archiveThreshold (30) <= score < 60 → quality_score persisted and the
+  //       injection sort re-ranks by importance * quality_score/100 (degraded)
+  //   score < 30 → archived + tagged low_quality (still explicitly searchable)
+  // Meta-memory markers, near-duplicates and repetitive filler lose points.
+  memoryQualityFilter: z.object({
+    enabled: z.boolean().default(true),
+    archiveThreshold: z.natural().min(1).max(100).default(30),
+    degradeThreshold: z.natural().min(1).max(100).default(60),
+    minContentLength: z.natural().min(1).max(1000).default(10)
+  }).default({}),
+
+  // --- LLM audit trail (Bug8) ------------------------------------------------
+  // Records every background LLM call (autoDream consolidation + summary,
+  // autoSummarize compression) into llm_audit_logs: tokens, duration, status
+  // and which trigger produced it. Failures are recorded as status=error and
+  // never block the feature. retentionDays bounds the table: older rows are
+  // purged on boot.
+  llmAudit: z.object({
+    enabled: z.boolean().default(true),
+    retentionDays: z.natural().min(1).max(3650).default(90)
+  }).default({}),
 
   // --- recall evaluation: test-result storage (v0.4.6, 方案 B) --------------
   // Separate retrieval evaluation snapshots from the production recall audit.
