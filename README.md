@@ -145,6 +145,8 @@ autoDream 是"被动阈值触发"，Sleep Mode 升级为"主动定时维护 + �
 | 反思 | `conflictFreezeEnabled` | `false` | 冲突冻结开关 |
 | 向量 | `embedProvider` | `openai` | 语义后端（local=离线）|
 | 向量 | `rerankEnabled` | `false` | Rerank 精排开关 |
+| 可信度 | `trustEpistemicWeighting` | `false` | 记忆可信度加权（observation>inferred>subjective，影响检索/注入/dream 合并冲突；opt-in 默认关）|
+| 评估 | `evalPersistTestResults` | `false` | 检索评估 `evaluateRetrieval` 结果落库 `recall_evals`（opt-in 默认关，生产检索不受影响）|
 
 ## 📦 安装
 
@@ -200,6 +202,7 @@ npm run sync      # src → lib 同步
 | **v0.4.2** | autoSummarize 自定义模型 | `summarizeProvider`/`summarizeModel` 配置项，独立轻量模型摘要 | ✅ 已完成 |
 | **v0.4.3** | autoDream 大记忆量修复 | `dreamMaxTokens` 上限 32768→131072 + `dreamReasoningEffort`/`sleepReasoningEffort` 思考开关（issue#9 B+A，none 默认） | ✅ 478 测试 |
 | **v0.4.4** | autoDream 决策覆盖修复 | 滑动窗口 `dreamMaxSnapshotSize`(默认200) + 隐式 keep `dreamImplicitKeep` + 覆盖率下限 `dreamMinExplicitCoverage`(默认50%) + 固定决策 schema（issue#9 方案C） | ✅ 487 测试 |
+| **v0.4.5** | epistemic trust + recall eval | 记忆可信度分级 `trustEpistemicWeighting`（observation>inferred>subjective，检索/注入/dream 合并冲突加权）+ 检索评估 `evaluateRetrieval` 落库 `recall_evals`（`evalPersistTestResults`，opt-in 默认关，生产隔离） | ✅ 518 测试 |
 | **v0.5.0+** | 自进化记忆 | 兴趣漂移 + 跨 workspace | 远期 |
 
 已完成版本详见 [Release Notes](https://github.com/modusensus/dsh-mneme/releases)。
@@ -338,6 +341,8 @@ Every decision is replayable; every claim has evidence:
 | Reflection | `conflictFreezeEnabled` | `false` | Conflict freeze switch |
 | Vector | `embedProvider` | `openai` | Semantic backend (`local` = offline) |
 | Vector | `rerankEnabled` | `false` | Rerank switch |
+| Trust | `trustEpistemicWeighting` | `false` | Memory credibility weighting (observation>inferred>subjective, affects retrieval/inject/dream merge-conflict; opt-in, off by default) |
+| Eval | `evalPersistTestResults` | `false` | Persist `evaluateRetrieval` results to `recall_evals` (opt-in, off by default; production search unaffected) |
 
 ## 📦 Install
 
@@ -392,6 +397,7 @@ Memory grows:
 | **v0.4.2** | autoSummarize custom model | `summarizeProvider`/`summarizeModel` config, independent lightweight model for summaries | ✅ Done |
 | **v0.4.3** | autoDream large-memory fix | `dreamMaxTokens` cap 32768→131072 + `dreamReasoningEffort`/`sleepReasoningEffort` thinking switches (issue#9 B+A, none default) | ✅ 478 tests |
 | **v0.4.4** | autoDream decision-coverage fix | sliding window `dreamMaxSnapshotSize`(default 200) + implicit keep `dreamImplicitKeep` + min explicit coverage `dreamMinExplicitCoverage`(default 50%) + fixed decision schema (issue#9 plan C) | ✅ 487 tests |
+| **v0.4.5** | epistemic trust + recall eval | memory credibility tiers `trustEpistemicWeighting` (observation>inferred>subjective, weighted in retrieval/inject/dream merge-conflict) + retrieval eval `evaluateRetrieval` persisting to `recall_evals` (`evalPersistTestResults`, opt-in off by default, production isolated) | ✅ 518 tests |
 | **v0.5.0+** | Self-evolving memory | Interest drift + cross-workspace | long-term |
 
 Completed versions see [Release Notes](https://github.com/modusensus/dsh-mneme/releases).
