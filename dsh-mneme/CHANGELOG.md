@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.2] - 2026-08-20
+
+### 新增
+
+- **记忆溯源 `session_id`**：每条记忆记录出生会话 id——`memory_save` 工具从 `exec.agent.session.id` 取（无会话上下文置 null 不伪造），`autoSummarize` 从 turn/end 钩子的 `session.id` 取；merge 保留原记忆的出生会话（溯源只记出生点，`store.update` 不触碰该字段）。旧库打开自动补列（`addColumn` 幂等迁移，存量数据 session_id 为 null，无迁移成本）。为 v0.6.0 推理路径可视化与兴趣漂移分析攒原材料。
+
+### 测试
+
+- 597 → **603**（新增 `test/provenance.test.js` 6 例：写入/缺省置空/merge 保留原会话/工具路径带与不带 agent/旧库迁移）
+
 ## [0.5.1] - 2026-08-20
 
 ### 修复
