@@ -548,51 +548,39 @@ export function createStore(path) {
   db.exec("PRAGMA journal_mode = WAL;");
   db.exec(SCHEMA);
 
-  // Schema migrations for legacy databases (idempotent).
-  const columns = db.prepare("PRAGMA table_info(memories)").all().map((c) => c.name);
-  if (!columns.includes("archived")) {
-    db.exec("ALTER TABLE memories ADD COLUMN archived INTEGER NOT NULL DEFAULT 0");
-  }
-  if (!columns.includes("embedding")) {
-    db.exec("ALTER TABLE memories ADD COLUMN embedding TEXT");
-  }
-  if (!columns.includes("last_accessed_at")) {
-    db.exec("ALTER TABLE memories ADD COLUMN last_accessed_at TEXT");
-  }
-  if (!columns.includes("_full_content")) {
-    db.exec("ALTER TABLE memories ADD COLUMN _full_content TEXT");
-  }
-  if (!columns.includes("epistemic_status")) {
-    db.exec("ALTER TABLE memories ADD COLUMN epistemic_status TEXT NOT NULL DEFAULT 'subjective'");
-  }
-  if (!columns.includes("content_history")) {
-    db.exec("ALTER TABLE memories ADD COLUMN content_history TEXT");
-  }
-  if (!columns.includes("quality_score")) {
-    db.exec("ALTER TABLE memories ADD COLUMN quality_score REAL");
-  }
+  // Schema migrations for legacy databases (idempotent). Each ADD COLUMN is
+  // also race-safe: two concurrently-opening processes can both pass the
+  // PRAGMA table_info check before either ALTERs, so the ALTER itself is
+  // guarded against the "duplicate column name" error SQLite raises when the
+  // other process won the race (SQLite has no ADD COLUMN IF NOT EXISTS).
+  const addColumn = (table, column, ddl) => {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+    if (!cols.includes(column)) {
+      try {
+        db.exec(ddl);
+      } catch (e) {
+        if (!/duplicate column name/i.test(String(e?.message ?? e))) throw e;
+      }
+    }
+  };
+
+  addColumn("memories", "archived", "ALTER TABLE memories ADD COLUMN archived INTEGER NOT NULL DEFAULT 0");
+  addColumn("memories", "embedding", "ALTER TABLE memories ADD COLUMN embedding TEXT");
+  addColumn("memories", "last_accessed_at", "ALTER TABLE memories ADD COLUMN last_accessed_at TEXT");
+  addColumn("memories", "_full_content", "ALTER TABLE memories ADD COLUMN _full_content TEXT");
+  addColumn("memories", "epistemic_status", "ALTER TABLE memories ADD COLUMN epistemic_status TEXT NOT NULL DEFAULT 'subjective'");
+  addColumn("memories", "content_history", "ALTER TABLE memories ADD COLUMN content_history TEXT");
+  addColumn("memories", "quality_score", "ALTER TABLE memories ADD COLUMN quality_score REAL");
 
   // Legacy dream_runs without policy_epoch → backfill with the default epoch.
-  const dreamCols = db.prepare("PRAGMA table_info(dream_runs)").all().map((c) => c.name);
-  if (!dreamCols.includes("policy_epoch")) {
-    db.exec("ALTER TABLE dream_runs ADD COLUMN policy_epoch INTEGER NOT NULL DEFAULT 0");
-  }
-  if (!dreamCols.includes("run_type")) {
-    db.exec("ALTER TABLE dream_runs ADD COLUMN run_type TEXT NOT NULL DEFAULT 'auto'");
-  }
+  addColumn("dream_runs", "policy_epoch", "ALTER TABLE dream_runs ADD COLUMN policy_epoch INTEGER NOT NULL DEFAULT 0");
+  addColumn("dream_runs", "run_type", "ALTER TABLE dream_runs ADD COLUMN run_type TEXT NOT NULL DEFAULT 'auto'");
 
   // Legacy mirror_state without v0.3.6 generation columns → add each missing
   // column idempotently (old DBs open cleanly, no data loss).
-  const mirrorCols = db.prepare("PRAGMA table_info(mirror_state)").all().map((c) => c.name);
-  if (!mirrorCols.includes("generation")) {
-    db.exec("ALTER TABLE mirror_state ADD COLUMN generation INTEGER NOT NULL DEFAULT 0");
-  }
-  if (!mirrorCols.includes("applied_generation")) {
-    db.exec("ALTER TABLE mirror_state ADD COLUMN applied_generation INTEGER NOT NULL DEFAULT 0");
-  }
-  if (!mirrorCols.includes("type_status")) {
-    db.exec("ALTER TABLE mirror_state ADD COLUMN type_status TEXT");
-  }
+  addColumn("mirror_state", "generation", "ALTER TABLE mirror_state ADD COLUMN generation INTEGER NOT NULL DEFAULT 0");
+  addColumn("mirror_state", "applied_generation", "ALTER TABLE mirror_state ADD COLUMN applied_generation INTEGER NOT NULL DEFAULT 0");
+  addColumn("mirror_state", "type_status", "ALTER TABLE mirror_state ADD COLUMN type_status TEXT");
 
   // Audit peer F: a legacy DB may hold a non-integer generation/applied_generation
   // (pre-v0.3.9 the JS gate truncated with Math.trunc and SQLite's CHECK only
