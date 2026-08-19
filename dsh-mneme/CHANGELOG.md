@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.1] - 2026-08-20
+
+### 修复
+
+- **热记忆负参数防御**（复验发现）：`createHotMemory` 的 `maxRounds`/`maxTokens` 非正整数/非有限值时 fallback 到默认 5/2000，堵死负数 `maxRounds` 触发的同步死循环（此前插件配置钳制 ≥1 不可达，但导出的公开 API 不设防）
+- **#13 修复补全（reranker 侧）**：`reranker.js` 的 `defaultPipelineLoader` 镜像 `env.cacheDir = options.cache_dir`（与 `local-embedder.js` 同款），`rerankProvider=local` + `embedProvider=openai`（默认）场景下断网也能本地加载 tokenizer
+- **融合分数钳制 [0,1]**：hybrid 三路召回融合后分数 `clamp` 到 0..1（sort 后 map，不改变排序相对顺序），修复向量+BM25 叠加可突破 1.0 的归一化契约破坏
+
+### 文档
+
+- 根/子 README 配置表补 `hotMemoryEnabled`、`searchSemanticDedupThreshold` 两键（此前 v0.5.0 漏写）
+- 测试 593 → **597**（新增负参数边界 / 融合 clamp / cache_dir 镜像用例）
+
 ## [0.5.0] - 2026-08-19
 
 ### 新增
