@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.4.7] - 2026-08-19
+
+### 修复
+
+- **schema 迁移幂等化，修复并发 createStore 竞态**：并发打开同一 db 时 `PRAGMA table_info` 检查与 ALTER 非原子，可能重复 `ADD COLUMN` 报 `duplicate column name`（v0.4.6 CI peer 并发测试暴露）。改用 `addColumn` helper——检查 + try/catch 吞掉 duplicate 竞态，12 处迁移统一收口。
+
 ## [0.4.6] - 2026-08-19
 
 ### 修复

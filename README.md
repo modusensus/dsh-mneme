@@ -210,6 +210,7 @@ npm run sync      # src → lib 同步
 | **v0.4.4** | autoDream 决策覆盖修复 | 滑动窗口 `dreamMaxSnapshotSize`(默认200) + 隐式 keep `dreamImplicitKeep` + 覆盖率下限 `dreamMinExplicitCoverage`(默认50%) + 固定决策 schema（issue#9 方案C） | ✅ 487 测试 |
 | **v0.4.5** | epistemic trust + recall eval | 记忆可信度分级 `trustEpistemicWeighting`（observation>inferred>subjective，检索/注入/dream 合并冲突加权）+ 检索评估 `evaluateRetrieval` 落库 `recall_evals`（`evalPersistTestResults`，opt-in 默认关，生产隔离） | ✅ 518 测试 |
 | **v0.4.6** | 8 项修复 | 向量链路（embedSingle 适配 / `autoReindexOnBoot` 存量回填 / `vector_meta` 元数据）+ 注入语义召回 `hybridInject` + 同标题追加 `content_history` + 注入长度上限 + 质量过滤 `memoryQualityFilter` + LLM 审计 `llmAudit` | ✅ 553 测试 |
+| **v0.4.7** | 迁移幂等化 | schema 迁移改用 `addColumn` helper 吞掉 duplicate column name 并发竞态（v0.4.6 CI peer 并发测试暴露，12 处统一收口） | ✅ 已完成 |
 | **v0.5.0+** | 自进化记忆 | 兴趣漂移 + 跨 workspace | 远期 |
 
 已完成版本详见 [Release Notes](https://github.com/modusensus/dsh-mneme/releases)。
@@ -412,6 +413,7 @@ Memory grows:
 | **v0.4.4** | autoDream decision-coverage fix | sliding window `dreamMaxSnapshotSize`(default 200) + implicit keep `dreamImplicitKeep` + min explicit coverage `dreamMinExplicitCoverage`(default 50%) + fixed decision schema (issue#9 plan C) | ✅ 487 tests |
 | **v0.4.5** | epistemic trust + recall eval | memory credibility tiers `trustEpistemicWeighting` (observation>inferred>subjective, weighted in retrieval/inject/dream merge-conflict) + retrieval eval `evaluateRetrieval` persisting to `recall_evals` (`evalPersistTestResults`, opt-in off by default, production isolated) | ✅ 518 tests |
 | **v0.4.6** | 8 fixes | vector chain (embedSingle / `autoReindexOnBoot` backfill / `vector_meta`) + semantic-first injection `hybridInject` + same-title `content_history` + inject length caps + quality filter `memoryQualityFilter` + LLM audit `llmAudit` | ✅ 553 tests |
+| **v0.4.7** | Migration idempotency | schema migration uses `addColumn` helper to swallow duplicate-column-name concurrency races (exposed by v0.4.6 CI peer concurrency tests; unified across 12 sites) | ✅ Done |
 | **v0.5.0+** | Self-evolving memory | Interest drift + cross-workspace | long-term |
 
 Completed versions see [Release Notes](https://github.com/modusensus/dsh-mneme/releases).
