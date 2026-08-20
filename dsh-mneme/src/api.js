@@ -422,6 +422,107 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
     }
   });
 
+  // --- wiki-link back links (v0.6.1) --------------------------------------
+  // Read-only like the graph endpoints, so it stays open when apiToken is set.
+  // GET /api/dsh-mneme/wikilinks/backlinks?id=<memoryId> → memories whose
+  // content carries a [[wiki-link]] resolving to the given memory.
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/wikilinks/backlinks",
+    handler(req, res) {
+      try {
+        const url = new URL(req.url, "http://localhost");
+        const id = (url.searchParams.get("id") ?? "").trim();
+        if (!id) {
+          sendJson(res, 400, { error: "missing-id" });
+          return;
+        }
+        const memory = service.getById?.(id) ?? null;
+        const backlinks = (service.getBacklinks?.(id) ?? []).map(({ source, relation }) => ({
+          id: source.id,
+          title: source.title,
+          type: source.type,
+          created_at: relation.created_at
+        }));
+        sendJson(res, 200, {
+          memoryId: id,
+          memory: memory ? { id: memory.id, title: memory.title, type: memory.type } : null,
+          backlinks
+        });
+      } catch {
+        sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
+  // --- wiki-link forward links (v0.6.1) -----------------------------------
+  // GET /api/dsh-mneme/wikilinks/forward?id=<memoryId> → memories the given
+  // memory explicitly links to. Unresolved target titles surface with id:null.
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/wikilinks/forward",
+    handler(req, res) {
+      try {
+        const url = new URL(req.url, "http://localhost");
+        const id = (url.searchParams.get("id") ?? "").trim();
+        if (!id) {
+          sendJson(res, 400, { error: "missing-id" });
+          return;
+        }
+        const memory = service.getById?.(id) ?? null;
+        const links = (service.getForwardLinks?.(id) ?? []).map(({ target, relation }) => ({
+          id: target?.id ?? null,
+          title: target?.title ?? relation.to_entity,
+          type: target?.type ?? null,
+          created_at: relation.created_at
+        }));
+        sendJson(res, 200, {
+          memoryId: id,
+          memory: memory ? { id: memory.id, title: memory.title, type: memory.type } : null,
+          links
+        });
+      } catch {
+        sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
+  // --- wiki-link resolve (v0.6.1) -----------------------------------------
+  // GET /api/dsh-mneme/wikilinks/resolve?title=<title> → case-insensitive exact
+  // title match against the memories table (the resolution used when writing
+  // links_to relations). 404 when no memory matches.
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/wikilinks/resolve",
+    handler(req, res) {
+      try {
+        const url = new URL(req.url, "http://localhost");
+        const title = (url.searchParams.get("title") ?? "").trim();
+        if (!title) {
+          sendJson(res, 400, { error: "missing-title" });
+          return;
+        }
+        const memory = service.resolveWikiLink?.(title) ?? null;
+        if (!memory) {
+          sendJson(res, 404, { error: "memory-not-found", title });
+          return;
+        }
+        // Note: no `source` field — it may carry file paths/internal host info
+        // and this endpoint is read-only without auth when apiToken is set.
+        sendJson(res, 200, {
+          title,
+          memory: {
+            id: memory.id,
+            title: memory.title,
+            type: memory.type
+          }
+        });
+      } catch {
+        sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
   // --- health: mirror sync state (F-NEW-03 / v0.3.6) ---
   // Auth-gated; only returns a sanitized error code (never raw last_error which
   // may leak paths/token-like strings/internal hosts). On state read failure it

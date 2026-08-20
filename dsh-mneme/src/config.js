@@ -166,6 +166,15 @@ export const Config = z.object({
   // Prefix/semantic search over entity names (used by recall).
   entitySearchEnabled: z.boolean().default(true),
 
+  // --- wiki-link: explicit cross-memory [[links]] (v0.6.1) ----------------
+  // Opt-in, off by default. When enabled, saveWithDedupe/update fire-and-forget
+  // a wiki-link resolution pass: [[target]] / [[显示|target]] markers in a
+  // memory's content become links_to relations in entity_relations (idempotent,
+  // deduped by the unique relation index). The storage layer + read APIs
+  // (getBacklinks/getForwardLinks/resolveWikiLink) are always available
+  // regardless of this flag.
+  wikiLinkEnabled: z.boolean().default(false),
+
   // --- sleep mode: idle-triggered deep maintenance (v0.4.0) ---------------
   // Opt-in, off by default. Unlike autoDream (threshold-triggered, lightweight)
   // sleep fires when the store has been quiet for sleepIdleMinutes and deep-

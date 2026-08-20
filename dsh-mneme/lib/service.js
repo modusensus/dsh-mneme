@@ -3,6 +3,7 @@ import { TYPE_FILE } from "./mirror.js";
 import { evaluateMemoryQuality } from "./quality-filter.js";
 import { createBM25Index } from "./search/bm25.js";
 import { adaptiveThreshold } from "./search/adaptive.js";
+import { parseWikiLinks } from "./parser/wiki-link.js";
 
 const INJECT_TYPES = new Set(["preference", "project", "decision", "summary"]);
 
@@ -225,6 +226,36 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       });
     } catch (err) {
       logger?.warn?.("entity extraction failed:", err);
+    }
+  }
+
+  /**
+   * Fire-and-forget wiki-link resolution for a freshly saved/updated memory
+   * (v0.6.1). Opt-in via config.wikiLinkEnabled. Parses [[target]] /
+   * [[显示|target]] markers out of the memory content and writes links_to
+   * relations (idempotent via the unique relation index). Runs through
+   * service.enqueue so it serializes with autoDream/sleep and never overlaps
+   * another background pass. Fully fail-safe: parse/store errors are swallowed
+   * and logged, never a write failure.
+   */
+  function scheduleWikiLinkResolve(memory) {
+    if (txDepth > 0) return; // deferred to the transaction's commit
+    if (!config.wikiLinkEnabled || !memory?.id) return;
+    try {
+      const links = parseWikiLinks(memory?.content ?? "");
+      if (!links.length) return;
+      const targets = [...new Set(links.map((l) => l.target).filter(Boolean))];
+      enqueue(() => {
+        try {
+          store.saveWikiLinks({ memoryId: memory.id, title: memory.title, targets });
+        } catch (err) {
+          logger?.warn?.("wiki link resolve failed:", err);
+        }
+      }).catch((err) => {
+        logger?.warn?.("wiki link resolve failed:", err);
+      });
+    } catch (err) {
+      logger?.warn?.("wiki link resolve failed:", err);
     }
   }
 
@@ -802,6 +833,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       afterSync("write");
       notifyWrite();
       scheduleEmbed(result);
+      scheduleWikiLinkResolve(result);
       return { action: "merged", memory: result };
     }
     const created = store.save({
@@ -821,6 +853,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     notifyWrite();
     scheduleEmbed(result);
     scheduleEntityExtraction(result);
+    scheduleWikiLinkResolve(result);
     return { action: "created", memory: result };
   }
 
@@ -1286,8 +1319,52 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     }
   }
 
+  /**
+   * Forward links (v0.6.1): memories the given memory explicitly links to via
+   * [[wiki-links]] in its content. Reads the links_to relations whose
+   * from_entity is this memory's title and resolves each to_entity back to a
+   * memory row (case-insensitive title match). Returns [{ target, relation }];
+   * a target title with no matching memory surfaces as { target: null }.
+   */
+  function getForwardLinks(memoryId) {
+    const memory = store.getById(memoryId);
+    if (!memory) return [];
+    const out = [];
+    for (const rel of store.getRelations(memory.title) ?? []) {
+      if (rel.relation_type !== "links_to" || rel.from_entity !== memory.title) continue;
+      out.push({ target: store.findByTitle?.(rel.to_entity) ?? null, relation: rel });
+    }
+    return out;
+  }
+
+  /**
+   * Back links (v0.6.1): memories that explicitly link TO the given memory
+   * (their content carries a wiki-link whose target resolves to this memory's
+   * title). Reads the links_to relations whose to_entity is this memory's
+   * title; the linking memory is rel.memory_id (the source that wrote the
+   * relation). Deduped per source memory; missing/self links are dropped.
+   * Returns [{ source, relation }].
+   */
+  function getBacklinks(memoryId) {
+    const memory = store.getById(memoryId);
+    if (!memory) return [];
+    const out = [];
+    const seen = new Set();
+    for (const rel of store.getRelations(memory.title) ?? []) {
+      if (rel.relation_type !== "links_to" || rel.to_entity !== memory.title) continue;
+      const source = rel.memory_id ? store.getById(rel.memory_id) : undefined;
+      if (!source || source.id === memory.id || seen.has(source.id)) continue;
+      seen.add(source.id);
+      out.push({ source, relation: rel });
+    }
+    return out;
+  }
+
   return {
     saveWithDedupe,
+    getBacklinks,
+    getForwardLinks,
+    resolveWikiLink: (title) => store.findByTitle?.(title),
     recoverMirror,
     getMirrorHealth,
     getMirrorState: () => store.getMirrorState(),
@@ -1393,6 +1470,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       const sync = afterSync("write");
       notifyWrite();
       scheduleEmbed(updated);
+      scheduleWikiLinkResolve(updated);
       // Audit peer B: when the mirror sync failed, the store write landed but
       // the mirror did not converge — return an explicit degraded receipt rather
       // than a plain success. Non-enumerable so existing deepEqual assertions on
@@ -1504,6 +1582,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     // migrates entity_attrs on merge. Bookkeeping writes like the audit
     // passthroughs above — never write-hook-triggering memory mutations.
     saveRelation: (r) => store.saveRelation(r),
+    saveWikiLinks: (r) => store.saveWikiLinks(r),
     listEntities: (o) => store.listEntities(o),
     getRelations: (id) => store.getRelations(id),
     saveAttr: (r) => store.saveAttr(r),

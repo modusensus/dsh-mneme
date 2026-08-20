@@ -142,7 +142,12 @@ window.__ModuleLoader__.load({
         "memory.settings.apiTokenHint": "设置后，写操作与密钥接口（画像/规则/命令/向量配置）需携带 Authorization: Bearer <token>；面板只读操作不受影响。清空并保存可关闭鉴权。",
         "memory.settings.apiTokenPlaceholder": "留空 = 不鉴权（默认）",
         "memory.settings.apiTokenSave": "保存 Token",
-        "memory.settings.apiTokenSaved": "Token 已保存"
+        "memory.settings.apiTokenSaved": "Token 已保存",
+        "memory.wikilink.backlinks": "链接到此记忆",
+        "memory.wikilink.forward": "此记忆链接到",
+        "memory.wikilink.empty": "暂无关联记忆",
+        "memory.wikilink.loading": "加载中…",
+        "memory.wikilink.unresolved": "目标记忆不存在"
       },
       en: {
         "memory.panel.empty": "No memories yet",
@@ -229,7 +234,12 @@ window.__ModuleLoader__.load({
         "memory.settings.apiTokenHint": "When set, write operations and secret endpoints (profile/rules/commands/vector config) require Authorization: Bearer <token>. Read-only panel calls stay open. Save empty to disable.",
         "memory.settings.apiTokenPlaceholder": "Empty = no auth (default)",
         "memory.settings.apiTokenSave": "Save Token",
-        "memory.settings.apiTokenSaved": "Token saved"
+        "memory.settings.apiTokenSaved": "Token saved",
+        "memory.wikilink.backlinks": "Links to this memory",
+        "memory.wikilink.forward": "This memory links to",
+        "memory.wikilink.empty": "No linked memories",
+        "memory.wikilink.loading": "Loading…",
+        "memory.wikilink.unresolved": "Target memory not found"
       }
     };
 
@@ -333,6 +343,21 @@ window.__ModuleLoader__.load({
       ".mneme-xdmeta{display:flex;flex-wrap:wrap;gap:4px 14px;margin-bottom:6px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}",
       ".mneme-xdcontent{margin-top:14px;font-size:14px;line-height:1.75;color:var(--dsw-alias-label-primary);white-space:pre-wrap;word-break:break-word}",
       ".mneme-xdactions{display:flex;gap:8px;margin-top:18px}",
+      // --- wiki-link backlinks panel (detail pane footer) ---
+      ".mneme-backlinks{margin-top:18px;padding-top:14px;border-top:1px solid var(--dsw-alias-border-l1);display:flex;flex-direction:column;gap:12px}",
+      ".mneme-bl-block{display:flex;flex-direction:column;gap:4px}",
+      ".mneme-bl-head{font-size:12px;font-weight:500;color:var(--dsw-alias-label-tertiary)}",
+      ".mneme-bl-list{display:flex;flex-wrap:wrap;gap:6px}",
+      ".mneme-bl-link{display:inline-flex;align-items:center;gap:6px;max-width:100%;border:none;background:none;color:var(--dsw-alias-state-business-primary);cursor:pointer;font-family:inherit;font-size:13px;line-height:18px;padding:2px 8px;border-radius:6px;text-align:left}",
+      ".mneme-bl-link:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent)}",
+      ".mneme-bl-link.mneme-bl-link--dim{color:var(--dsw-alias-label-tertiary);cursor:default}",
+      ".mneme-bl-link.mneme-bl-link--dim:hover{background:none}",
+      ".mneme-bl-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+      ".mneme-bl-meta{flex:none;font-size:11px;color:var(--dsw-alias-label-tertiary)}",
+      ".mneme-bl-empty{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}",
+      // --- inline [[wiki-link]] links inside the detail content ---
+      ".mneme-wikilink{display:inline;padding:0 2px;border:none;background:none;color:var(--dsw-alias-state-business-primary);cursor:pointer;font-family:inherit;font-size:inherit;line-height:inherit;text-decoration:underline;text-underline-offset:2px;border-radius:3px}",
+      ".mneme-wikilink:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 8%,transparent)}",
       // --- graph sub-view (fills the content area under the tabs) ---
       ".mneme-graph{flex:1;min-height:0;width:100%;display:flex;flex-direction:column;padding:12px 16px 16px;box-sizing:border-box}",
       ".mneme-graphbar{display:flex;gap:8px;align-items:center;flex:none;margin-bottom:10px}",
@@ -407,6 +432,92 @@ window.__ModuleLoader__.load({
         const a = i * 2.39996;
         return { ...n, x: cx + r * Math.cos(a), y: cy + r * Math.sin(a), vx: 0, vy: 0, pinned: false };
       });
+    }
+
+    // --- wiki-link (v0.6.1) -------------------------------------------------
+    // Splits detail content into literal text and clickable [[target]] /
+    // [[display|target]] links. Mirrors src/parser/wiki-link.js: single pipe
+    // only, empty / multi-pipe / unclosed markers stay literal text.
+    function wikilinkSegments(text, onClick) {
+      if (typeof text !== "string" || text.length === 0) return text;
+      const out = [];
+      let last = 0;
+      let key = 0;
+      const re = /\[\[([^\[\]]*)\]\]/g;
+      let m;
+      while ((m = re.exec(text)) !== null) {
+        const parts = m[1].split("|");
+        if (parts.length > 2) continue; // 多管道 → 非法，保留字面文本
+        const target = (parts.length === 2 ? parts[1] : parts[0]).trim();
+        if (!target) continue; // 空目标 → 非法
+        if (m.index > last) out.push(text.slice(last, m.index));
+        out.push(h("button", {
+          key: `w${key++}`,
+          type: "button",
+          className: "mneme-wikilink",
+          title: target,
+          onClick: () => onClick(target)
+        }, parts[0].trim() || target));
+        last = m.index + m[0].length;
+      }
+      if (last < text.length) out.push(text.slice(last));
+      return out.length ? out : text;
+    }
+
+    // Backlinks panel: the two wiki-link relation blocks under the detail pane.
+    // Backlinks = memories whose content links to this one; forward = memories
+    // this one links to (unresolved targets surface as dim, non-clickable).
+    // Mounted per-selection (the surrounding Fragment keys on selected.id), so
+    // state resets and the fetches re-run on every switch.
+    function BacklinksPanel({ memory, t, onJump }) {
+      const [back, setBack] = useState(null); // null = loading
+      const [forward, setForward] = useState(null);
+
+      useEffect(() => {
+        let cancelled = false;
+        if (!memory || !memory.id) return;
+        apiFetch(`/api/dsh-mneme/wikilinks/backlinks?id=${encodeURIComponent(memory.id)}`)
+          .then((r) => (r.ok ? r.json() : { backlinks: [] }))
+          .then((j) => { if (!cancelled) setBack(Array.isArray(j.backlinks) ? j.backlinks : []); })
+          .catch(() => { if (!cancelled) setBack([]); });
+        apiFetch(`/api/dsh-mneme/wikilinks/forward?id=${encodeURIComponent(memory.id)}`)
+          .then((r) => (r.ok ? r.json() : { links: [] }))
+          .then((j) => { if (!cancelled) setForward(Array.isArray(j.links) ? j.links : []); })
+          .catch(() => { if (!cancelled) setForward([]); });
+        return () => { cancelled = true; };
+      }, [memory && memory.id]);
+
+      if (!memory || !memory.id) return null;
+
+      const loading = back === null || forward === null;
+      const row = (link, i) => {
+        const canJump = !!link.id;
+        return h("button", {
+          key: link.id ?? `unresolved-${i}`,
+          type: "button",
+          className: canJump ? "mneme-bl-link" : "mneme-bl-link mneme-bl-link--dim",
+          title: canJump ? t("memory.card.open") : t("memory.wikilink.unresolved"),
+          disabled: !canJump,
+          onClick: () => onJump && onJump({ id: link.id })
+        },
+          h("span", { className: "mneme-bl-title" }, link.title || "—"),
+          link.type && h("span", { className: "mneme-bl-meta" }, typeLabel(t, link.type))
+        );
+      };
+      const section = (label, items) =>
+        h("div", { className: "mneme-bl-block" },
+          h("div", { className: "mneme-bl-head" }, label),
+          loading
+            ? h("div", { className: "mneme-bl-empty" }, t("memory.wikilink.loading"))
+            : items.length === 0
+              ? h("div", { className: "mneme-bl-empty" }, t("memory.wikilink.empty"))
+              : h("div", { className: "mneme-bl-list" }, items.map(row))
+        );
+
+      return h("div", { className: "mneme-backlinks" },
+        section(t("memory.wikilink.backlinks"), back || []),
+        section(t("memory.wikilink.forward"), forward || [])
+      );
     }
 
     // --- Graph view: ego-graph of one entity, zero-dependency SVG force layout ---
@@ -1083,6 +1194,17 @@ window.__ModuleLoader__.load({
         setSelectedId(target.id);
       };
 
+      // [[wiki-link]] click in the detail content: resolve the title to a
+      // memory (case-insensitive exact match) then jump to it. Unresolvable
+      // titles silently no-op — the link stays as display text.
+      const onWikilinkClick = (target) => {
+        if (!target) return;
+        apiFetch(`/api/dsh-mneme/wikilinks/resolve?title=${encodeURIComponent(target)}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((j) => { if (j?.memory?.id) jumpToMemory(j.memory); })
+          .catch(() => {});
+      };
+
       const openGraphFor = (name) => {
         setGraphFocus(name || "");
         setView("graph");
@@ -1174,11 +1296,14 @@ window.__ModuleLoader__.load({
                       Array.isArray(selected.tags) && selected.tags.length > 0 && h("div", { className: "mneme-xdmeta" },
                         h("span", null, `${t("memory.explorer.tags")}: ${selected.tags.join(" · ")}`)
                       ),
-                      h("div", { className: "mneme-xdcontent" }, selected.content),
+                      h("div", { className: "mneme-xdcontent" },
+                        selected.content ? wikilinkSegments(selected.content, onWikilinkClick) : selected.content
+                      ),
                       h("div", { className: "mneme-xdactions" },
                         h("button", { className: "mneme-footbtn", onClick: copyContent },
                           copied ? t("memory.explorer.copied") : t("memory.explorer.copy"))
-                      )
+                      ),
+                      h(BacklinksPanel, { memory: selected, t, onJump: jumpToMemory })
                     )
                   )
                 : h("div", { className: "mneme-xempty" }, t("memory.explorer.emptyDetail"))

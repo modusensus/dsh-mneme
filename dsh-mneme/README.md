@@ -112,6 +112,10 @@ dsh web
 - **幂等 + 熔断**：dispose/restore 状态守卫幂等（重复调用 no-op）；事件回调内部异常 catch 住，不抛进 DSH 会话清理流程
 - **恢复**：整会话 `service.restoreBySession(sessionId)` 一键还原；`service.listBySession(sessionId, { includeDisposed: true })` 可查看当前隐藏了哪些（DTO 带 `disposed` 标记）
 
+### Wiki-Link 双向链接 🔗（v0.6.1，opt-in）
+
+**默认关闭**（`wikiLinkEnabled: false`）。开启后，记忆正文支持 `[[target]]` / `[[显示|target]]` 双括号链接语法：保存时自动解析并记录跨记忆 `links_to` 关系（partial 唯一索引只对 links_to 去重），记忆详情旁出现反向链接面板，点击可跳转来源记忆。提供只读 API：backlinks / forward-links / wikilink-resolve（输出脱敏）。
+
 
 
 官方设置面板 → 「记忆库设置」→「记忆」标签：按类型浏览、全文搜索；启用向量搜索后可用「语义」切换做向量召回。
@@ -212,6 +216,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 
 | 版本 | 亮点 |
 |------|------|
+| **v0.6.1** | Wiki-Link 双向链接（笔记化记忆库第一步）：[[笔记]] 跨记忆链接 + 反向链接面板 + links_to partial 唯一索引；654 测试全绿 |
 | **v0.6.0** | 会话生命周期（把对话当存档点）：`session_disposed_at` 独立字段软隐藏会话删除的记忆（与 `archived` 正交，可恢复）+ `memory_delete` 支持描述删除 + 事件订阅熔断；阿里云 kimi-k2.7-code 审查 4 项修复；628 测试全绿 |
 | **v0.5.0** | 主区「记忆库」视图（取代侧边栏抽屉）+ 记忆图谱可视化（ego-graph API + 零依赖 SVG 力导向）+ BM25 三路召回融合 + 自适应阈值 + 会话热记忆 + 召回基准评测；593 测试全绿 |
 | **v0.4.2** | autoSummarize 自定义模型：`summarizeProvider`/`summarizeModel` 配置项，可独立指定轻量模型（如 qwen3.6-plus）用于会话摘要，节省主模型 token；473 测试全绿 |
@@ -239,6 +244,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 | **v0.4.7** | ✅ 完成 | schema 迁移幂等化 | 并发打开同一 db 时 `PRAGMA table_info` 检查与 ALTER 非原子，可能重复 `ADD COLUMN` 报 duplicate column name；改用 `addColumn` helper 吞掉竞态（try/catch），12 处迁移统一收口 |
 | **v0.5.0** | ✅ 完成 | 召回融合与记忆可视化 | 主区「记忆库」视图 + 记忆图谱（ego-graph API + 零依赖 SVG 力导向）+ BM25 三路召回融合 + 自适应阈值 + 会话热记忆 + 召回基准；593 测试全绿 |
 | **v0.6.0** | ✅ 完成 | 会话生命周期 | 把对话当存档点：`session_disposed_at` 软隐藏会话删除的记忆（与 `archived` 正交、可恢复）+ `memory_delete` 描述删除 + 事件熔断；628 测试全绿 |
+| **v0.6.1** | ✅ 完成 | Wiki-Link 双向链接 | 笔记化记忆库第一步：`[[target]]` 跨记忆链接 + 反向链接面板 + links_to partial 唯一索引；654 测试全绿 |
 | **v0.7.0+** | 🚀 远期 | 自进化记忆 | 兴趣漂移跟踪 + 跨 workspace 记忆共享（等 DSH 支持） |
 
 > 新能力一律做成**可开关的功能**（配置启用/关闭），默认保守开启、不破坏现有行为。`failure_memories` 表与 autoDream 决策引擎已为后续反思性成长铺好路。

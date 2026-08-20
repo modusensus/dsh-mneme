@@ -552,6 +552,17 @@ export function createStore(path) {
   db.exec("PRAGMA journal_mode = WAL;");
   db.exec(SCHEMA);
 
+  // Wiki-link dedup (v0.6.1): a (from_entity, to_entity) pair is unique only for
+  // relation_type='links_to'. This is a PARTIAL index scoped to links_to, so the
+  // append-only semantics of all other relation types (uses/depends_on/part_of/
+  // related_to/supersedes — the extractor and autoDream write these per-run
+  // without global dedup, and supersedes rows carry distinct metadata like
+  // attr_key/old_value) are preserved. Idempotent (IF NOT EXISTS), atomic, and
+  // race-safe. Legacy DBs have no links_to rows yet, so the index builds cleanly
+  // everywhere and never breaks plugin startup (a full-table UNIQUE index would
+  // fail on legacy duplicates).
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_relations_wikilink ON entity_relations(from_entity, to_entity, relation_type) WHERE relation_type = 'links_to'");
+
   // Schema migrations for legacy databases (idempotent). Each ADD COLUMN is
   // also race-safe: two concurrently-opening processes can both pass the
   // PRAGMA table_info check before either ALTERs, so the ALTER itself is
@@ -650,6 +661,19 @@ export function createStore(path) {
   function getById(id) {
     const row = db.prepare("SELECT * FROM memories WHERE id = ?").get(id);
     return toRow(row);
+  }
+
+  /**
+   * Case-insensitive exact title lookup (v0.6.1 wiki-link). COLLATE NOCASE
+   * folds ASCII case (CJK titles are inherently case-free, so they match
+   * verbatim). Returns the first matching memory or undefined. Best-effort —
+   * used by wiki-link target resolution and the read APIs.
+   */
+  function findByTitle(title) {
+    if (typeof title !== "string" || !title.trim()) return undefined;
+    return toRow(db.prepare(
+      "SELECT * FROM memories WHERE title = ? COLLATE NOCASE LIMIT 1"
+    ).get(title.trim()));
   }
 
   function save(memory) {
@@ -1662,7 +1686,10 @@ export function createStore(path) {
 
   /**
    * Record a typed relation between two entities. metadata (optional) is a
-   * free-form JSON blob describing the relation. Relations are append-only.
+   * free-form JSON blob describing the relation. Relations are append-only —
+   * callers that need idempotency (e.g. wiki-links, via saveWikiLinks) guard
+   * with their own existence check plus the partial links_to unique index
+   * (idx_relations_wikilink) as a race backstop.
    */
   function saveRelation({ from_entity, to_entity, relation_type, memory_id, metadata }) {
     const id = randomUUID();
@@ -1676,7 +1703,56 @@ export function createStore(path) {
       `INSERT INTO entity_relations (id, from_entity, to_entity, relation_type, memory_id, created_at, metadata)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     ).run(id, from_entity, to_entity, relation_type, memory_id ?? null, now, metaStr);
-    return toRelation(db.prepare("SELECT * FROM entity_relations WHERE id = ?").get(id));
+    return toRelation(db.prepare(
+      "SELECT * FROM entity_relations WHERE from_entity = ? AND to_entity = ? AND relation_type = ? LIMIT 1"
+    ).get(from_entity, to_entity, relation_type));
+  }
+
+  /**
+   * Record wiki-link relations (v0.6.1). For each target title, resolve the
+   * target memory (case-insensitive title match via findByTitle) and write a
+   * links_to relation:
+   *   from_entity = source memory title, to_entity = canonical target memory
+   *   title, relation_type = 'links_to', memory_id = source memory id.
+   * Using the canonical resolved title keeps the graph case-consistent
+   * ([[beta]] and [[Beta]] collapse onto the same to_entity), so backlink
+   * lookups never fight the way a target was typed.
+   * Fail-safe: a target with no matching memory is skipped (never an error).
+   * Idempotent: an already-existing triple is a silent no-op (existence check
+   * here + the idx_relations_wikilink partial unique index as a race backstop),
+   * so `saved` only counts newly written relations. Returns { saved, skipped }.
+   */
+  function saveWikiLinks({ memoryId, title, targets }) {
+    const saved = [];
+    const skipped = [];
+    const seen = new Set(); // canonical (lowercased) targets already handled
+    const existsStmt = db.prepare(
+      "SELECT id FROM entity_relations WHERE from_entity = ? AND to_entity = ? AND relation_type = ?"
+    );
+    const list = Array.isArray(targets)
+      ? targets.filter((t) => typeof t === "string" && t.trim())
+      : [];
+    for (const raw of list) {
+      const target = raw.trim();
+      const key = target.toLowerCase();
+      if (seen.has(key)) continue; // dedupe within a single call (case-insensitive)
+      seen.add(key);
+      const targetMem = findByTitle(target);
+      if (!targetMem) {
+        skipped.push(target); // 目标不存在 → 跳过（Fail-safe）
+        continue;
+      }
+      const toEntity = targetMem.title;
+      if (existsStmt.get(title, toEntity, "links_to")) continue; // already linked → no-op
+      saved.push(saveRelation({
+        from_entity: title,
+        to_entity: toEntity,
+        relation_type: "links_to",
+        memory_id: memoryId,
+        metadata: { target_memory_id: targetMem.id }
+      }));
+    }
+    return { saved, skipped };
   }
 
   /**
@@ -1980,6 +2056,8 @@ export function createStore(path) {
     getAttrsByMemory,
     findMemoriesByAttr,
     saveRelation,
+    saveWikiLinks,
+    findByTitle,
     migrateAttrsToMemory,
     getRelations,
     setMirrorState,

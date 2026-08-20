@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.6.1] - 2026-08-20
+
+### 新增
+
+- **Wiki-Link 双向链接（笔记化记忆库第一步）**：记忆正文支持 `[[target]]` / `[[显示|target]]` 双括号链接语法，新解析器 `src/parser/wikilink.js` 统一在保存时抽取目标，写入 `entity_relations` 的 `links_to` 关系（新增 `partial` 唯一索引 `(source_memory_id, relation)` 仅对 `links_to` 去重，其余关系保持 append-only 不丢 supersedes 审计）。
+- **service 三 API + 保存后异步解析**：`service.getBacklinks(memoryId)` / `service.getForwardLinks(memoryId)` / `service.resolveWikiLink(name)`；记忆保存后经 `enqueue` 串行 fire-and-forget 异步解析链接，不阻塞主保存流程。
+- **3 只读 HTTP 端点**：backlinks / forward-links / wikilink-resolve，输出脱敏（不泄漏 source 原文），配套前端 BackLinksPanel React 组件 + 正文 wikilink 渲染。
+- **`wikiLinkEnabled` 配置**：默认 `false`（opt-in），开启后才解析/渲染链接，保持旧行为。
+
+### 修复
+
+- **code review 2 项**：全表 UNIQUE 索引改为 `partial` 唯一索引（仅 `links_to`），防老库启动崩溃（存量其他关系撞唯一约束）；`saveRelation` 还原 append-only 语义，不再吞 supersedes 审计。
+
+### 测试
+
+- 628 → **654** 全绿（新增 `test/wiki-link.test.js`：parser 语法/别名/转义 + store partial 索引去重 + service 三 API + 异步解析串行 + 端点脱敏）。
+
 ## [0.6.0] - 2026-08-20
 
 ### 新增

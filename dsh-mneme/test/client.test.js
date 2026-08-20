@@ -232,3 +232,39 @@ test("explorer chrome aligns with the host design system", () => {
     "pill chips belong to the drawer era and must stay gone"
   );
 });
+
+// The v0.6.1 wiki-link feature: the detail pane mounts a BacklinksPanel that
+// fetches the two read-only link endpoints by the selected memory id and
+// renders back/forward rows, each jumping back into the browser.
+test("detail pane mounts a BacklinksPanel backed by the two link endpoints", () => {
+  assert.ok(
+    clientSource.includes("h(BacklinksPanel, { memory: selected, t, onJump: jumpToMemory })"),
+    "the detail pane must mount BacklinksPanel after the actions row"
+  );
+  assert.ok(
+    clientSource.includes("/api/dsh-mneme/wikilinks/backlinks?id="),
+    "BacklinksPanel must fetch the backlinks endpoint by memory id"
+  );
+  assert.ok(
+    clientSource.includes("/api/dsh-mneme/wikilinks/forward?id="),
+    "BacklinksPanel must fetch the forward-links endpoint by memory id"
+  );
+});
+
+// Detail content turns [[target]] / [[display|target]] into clickable links:
+// the display text survives, the target title is kept for hover, and a click
+// resolves the title through the resolve endpoint before jumping.
+test("detail content renders wiki-links and resolves them on click", () => {
+  assert.ok(
+    clientSource.includes('className: "mneme-wikilink"'),
+    "inline [[target]] links must use the .mneme-wikilink style"
+  );
+  assert.ok(
+    clientSource.includes("/api/dsh-mneme/wikilinks/resolve?title="),
+    "clicking a wiki-link must resolve the title via the resolve endpoint"
+  );
+  assert.ok(
+    clientSource.includes('className: "mneme-backlinks"'),
+    "the panel must render inside a .mneme-backlinks block"
+  );
+});
