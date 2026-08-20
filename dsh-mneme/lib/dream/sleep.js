@@ -108,7 +108,7 @@ async function phaseConflicts(ctx, service, config, logger, runId, semantic = nu
   }
   const strictness = config.sleepConflictStrictness ?? "normal";
   const threshold = CONFLICT_THRESHOLDS[strictness] ?? CONFLICT_THRESHOLDS.normal;
-  const memories = service.all().filter((m) => !m.archived && !m.forgotten && m.type !== "summary");
+  const memories = service.all().filter((m) => !m.archived && !m.session_disposed_at && !m.forgotten && m.type !== "summary");
   if (memories.length < 2) return { status: "skipped", reason: "too few memories" };
   if (signal?.aborted) return { status: "aborted", reason: "user activity" };
 
@@ -239,7 +239,7 @@ function phaseDemotion(service, config, logger, runId, signal = null) {
   const archived = [];
   for (const m of service.all()) {
     if (signal?.aborted) break;
-    if (m.archived || m.forgotten) continue;
+    if (m.archived || m.forgotten || m.session_disposed_at) continue;
     const ref = m.last_accessed_at ?? m.updated_at ?? m.created_at;
     if (!ref) continue;
     const t = new Date(ref).getTime();
@@ -273,7 +273,7 @@ async function phasePatterns(ctx, service, config, logger, runId, signal = null)
   const limit = config.sleepPatternMinMemories ?? 100;
   const memories = service
     .list({ limit: 200, includeForgotten: false })
-    .filter((m) => !m.archived && m.type !== "summary" && m.type !== "pattern")
+    .filter((m) => !m.archived && !m.session_disposed_at && m.type !== "summary" && m.type !== "pattern")
     .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1))
     .slice(0, limit);
   if (memories.length === 0) return { status: "skipped", reason: "no memories to scan" };
@@ -342,7 +342,7 @@ function phaseRelations(service, config, logger, runId, signal = null) {
   if (entities.length < 2) return { status: "skipped", reason: "too few entities" };
   const orphans = entities.filter((e) => (service.getRelations(e.id) ?? []).length === 0);
   if (orphans.length === 0) return { status: "skipped", reason: "no orphan entities" };
-  const memories = service.all().filter((m) => !m.archived && !m.forgotten);
+  const memories = service.all().filter((m) => !m.archived && !m.session_disposed_at && !m.forgotten);
   const seen = new Set();
   const related = [];
   const MAX_RELATIONS_PER_ORPHAN = 3;
