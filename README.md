@@ -10,7 +10,7 @@
   <a href="https://github.com/awesome-dsh-plugin/awesome-dsh-plugin"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="Awesome"></a>
   <a href="https://github.com/modusensus/dsh-mneme/actions"><img src="https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/test.yml" alt="CI"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-24%2B-blue" alt="node"></a>
-  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-603%20passed-success" alt="tests"></a>
+  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-628%20passed-success" alt="tests"></a>
 </p>
 
 <p align="center"><strong><a href="#中文">中文</a> | <a href="#english">English</a></strong></p>
@@ -50,6 +50,7 @@ dsh web
 - 不是向量数据库——语义搜索是可选增强，默认零额外依赖
 - 不替代会话日志——它存的是「值得跨会话记住的」精炼知识
 - 不改变模型本身——进化的是记忆库与每次注入的上下文
+- 删对话 ≠ 删记忆——开启会话生命周期后，删除会话只是把该会话出生的记忆**软隐藏**（可恢复），数据不丢
 
 ---
 
@@ -134,6 +135,16 @@ autoDream 是"被动阈值触发"，Sleep Mode 升级为"主动定时维护 + �
 - **三路召回融合**：在向量召回 + FTS5/LIKE 关键词之外新增 **BM25 稀疏召回**（ASCII 词元 + CJK bigram，IDF 加权）——专有名词、ID、代码片段等散词查询不再依赖子串命中；配合**自适应阈值**（按查询形态动态调整截断），召回率可用内置基准（Recall@5 / MRR，legacy vs fused 双跑）重复验证。
 - **会话级短期热记忆**：最近 N 轮对话（默认 5 轮 / 2000 token 预算）滚动截断，注入顺序为「短期上下文 → 长期记忆召回 → 摘要」，不落库、无状态重建。
 
+## 💾 会话生命周期（v0.6.0，opt-in）
+
+**把对话当存档点——删会话 ≠ 删记忆。**
+
+- **默认关闭**（`sessionLifecycleEnabled: false`，保持旧行为）。开启后，会话被删除/销毁（DSH `session/disposed` 事件）时，自动把该会话内出生（`session_id` 溯源）的记忆**软隐藏**——不再出现在检索/注入/列表/整理，但**不删除**，随时可恢复
+- **与 `archived` 正交**：`archived` 是用户/AI 主动"长期保留但安静"，`session_disposed_at` 是会话删除被动隔离，两者互不覆盖。恢复会话绝不复活手动归档的记忆
+- **全局记忆免疫**：存量无 `session_id` 的记忆视为全局，永不参与会话清理
+- **幂等 + 熔断**：dispose/restore 状态守卫幂等（重复调用 no-op）；事件回调内部异常 catch 住，不抛进 DSH 会话清理流程
+- **恢复**：`service.restoreBySession(sessionId)` 一键还原；`listBySession(sessionId, { includeDisposed: true })` 查看当前隐藏了什么（DTO 带 `disposed` 标记）
+
 ## 🏛️ 记忆主权
 
 记忆透明、可审查、归你所有：
@@ -162,7 +173,7 @@ autoDream 是"被动阈值触发"，Sleep Mode 升级为"主动定时维护 + �
 - **安全审计 peer 复验**：真实 npm 包隔离独立回归，7 项发布门槛 + F-03 诚实审计
 - **LLM 消耗审计（v0.4.6）**：autoDream / autoSummarize 每次后台 LLM 调用写入 `llm_audit_logs`（tokens / duration / status / source），只读 API 汇总近 N 天预算
 - **记忆质量过滤（v0.4.6）**：`memoryQualityFilter` 写库前启发式打分，低质记忆降权或归档（`low_quality` 仍可显式搜索，永不自动注入）
-- **603 个测试 + 三轴压测**全绿
+- **628 个测试 + 三轴压测**全绿
 
 ## ⚙️ 配置（节选）
 
@@ -189,6 +200,7 @@ autoDream 是"被动阈值触发"，Sleep Mode 升级为"主动定时维护 + �
 | 召回 | `searchSemanticDedupThreshold` | `0.95` | 搜索时语义去重相似度阈值（v0.5.0，默认 0.95，`searchSemanticDedup=true` 时生效）|
 | 质量 | `memoryQualityFilter` | 开 | 记忆质量过滤（0-100 打分，低质降权/归档，`low_quality` 仍可显式搜索）|
 | 审计 | `llmAudit` | 开 | LLM 消耗审计（`llm_audit_logs` 表 + 埋点 + 只读 API）|
+| 会话 | `sessionLifecycleEnabled` | `false` | 会话生命周期（v0.6.0，默认关）：会话被删/销毁时软隐藏其出生记忆（与 `archived` 正交、可恢复）|
 
 ## 📦 安装
 
@@ -205,7 +217,7 @@ dsh web
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 603 个测试
+npm test          # 628 个测试
 npm run stress    # 三轴线压测
 npm run sync      # src → lib 同步
 ```
@@ -250,7 +262,8 @@ npm run sync      # src → lib 同步
 | **v0.5.0** | 召回融合与记忆可视化 | 主区「记忆库」视图（取代侧边栏抽屉）+ 记忆图谱（ego-graph API + 零依赖 SVG 力导向）+ BM25 三路召回融合 + 自适应阈值 + 会话热记忆 + 召回基准评测 | ✅ 593 测试 |
 | **v0.5.2** | 记忆溯源 session_id | memories 表 `session_id` 列 + `memory_save`/摘要记录出生会话（birth provenance，为 v0.6.0 推理路径 / 兴趣漂移分析打底） | ✅ 已发布（部署环境） |
 | **v0.5.3** | autoDream 思考关闭 + 字段归一化 | `dreamReasoningEffort`/`sleepReasoningEffort` 支持 `off` 显式关思考（deepseek-v4-flash 实测 8192 预算不再被推理吃光，12s/2075 token 完成）+ 决策字段名归一化兜底（`target_ids`→`ids`、wrapper 解包等） | ✅ 613 测试 |
-| **v0.6.0+** | 自进化记忆 | 兴趣漂移 + 跨 workspace | 远期 |
+| **v0.6.0** | 会话生命周期 | 把对话当存档点：`session_disposed_at` 独立字段软隐藏会话删除的记忆（与 `archived` 正交、可恢复）+ `memory_delete` 描述删除 + 事件熔断 | ✅ 628 测试 |
+| **v0.7.0+** | 自进化记忆 | 兴趣漂移 + 跨 workspace | 远期 |
 
 已完成版本详见 [Release Notes](https://github.com/modusensus/dsh-mneme/releases)。
 
@@ -293,6 +306,7 @@ dsh web
 - Not a vector database — semantic search is an optional enhancement; zero extra deps by default
 - Not a replacement for session logs — it stores distilled knowledge "worth remembering across sessions"
 - Does not change the model itself — what evolves is the memory store and the context injected each turn
+- Deleting a session ≠ deleting memories — with session lifecycle enabled, deleting a session only **soft-hides** its memories (recoverable), data is never lost
 
 ---
 
@@ -377,6 +391,16 @@ Interruptible (user activity aborts the cycle), serial-safe (shares the `service
 - **Three-way recall fusion**: a **BM25 sparse recall** path (ASCII tokens + CJK bigrams, IDF-weighted) joins vector recall and FTS5/LIKE keyword — proper nouns, IDs, and code snippets no longer depend on substring hits; combined with **adaptive thresholds** (dynamic cutoff by query shape), recall gains are reproducibly verifiable via the built-in benchmark (Recall@5 / MRR, legacy vs fused).
 - **Session-level hot memory**: the last N conversation turns (default 5 rounds / 2000-token budget) roll-trimmed and injected as "short-term context → long-term recall → summary" — stateless rebuild, never persisted.
 
+## 💾 Session Lifecycle (v0.6.0, opt-in)
+
+**Treat conversations as save points — deleting a session ≠ deleting memories.**
+
+- **Off by default** (`sessionLifecycleEnabled: false`, old behavior preserved). When enabled, deleting/destroying a session (DSH `session/disposed` event) **soft-hides** memories born in that session (`session_id` provenance) — excluded from retrieval/inject/list/consolidation, but **not deleted**, recoverable anytime
+- **Orthogonal to `archived`**: `archived` is the user/AI actively choosing "keep long-term but quiet"; `session_disposed_at` is passive quarantine from session deletion — they never clobber each other. Restoring a session never resurrects memories you manually archived
+- **Global memories immune**: pre-existing memories without `session_id` are treated as global and never participate in session cleanup
+- **Idempotent + circuit-breaker**: dispose/restore guarded by state (no-op on repeat); the event callback catches internal exceptions, never thrown into DSH's session cleanup flow
+- **Recovery**: `service.restoreBySession(sessionId)` restores in one call; `listBySession(sessionId, { includeDisposed: true })` shows what is currently hidden (DTO carries a `disposed` flag)
+
 ## 🏛️ Memory Sovereignty
 
 Transparent, auditable, yours:
@@ -405,7 +429,7 @@ Every decision is replayable; every claim has evidence:
 - **Security audit peer re-verification**: isolated regression on real npm tarballs, 7 release gates + F-03 honest audit
 - **LLM cost audit (v0.4.6)**: every background LLM call (autoDream / autoSummarize) writes to `llm_audit_logs` (tokens/duration/status/source); read-only API aggregates budget over recent days
 - **Memory quality filter (v0.4.6)**: `memoryQualityFilter` scores before write; low-quality memories demoted or archived (`low_quality` stays searchable, never auto-injected)
-- **603 tests + three-axis stress** all green
+- **628 tests + three-axis stress** all green
 
 ## ⚙️ Configuration (excerpt)
 
@@ -432,6 +456,7 @@ Every decision is replayable; every claim has evidence:
 | Recall | `searchSemanticDedupThreshold` | `0.95` | Semantic dedup similarity threshold (v0.5.0, default 0.95; effective when `searchSemanticDedup=true`) |
 | Quality | `memoryQualityFilter` | on | Memory quality filter (0-100 scoring; low-quality demoted/archived, `low_quality` still searchable) |
 | Audit | `llmAudit` | on | LLM cost audit (`llm_audit_logs` table + instrumentation + read-only API) |
+| Session | `sessionLifecycleEnabled` | `false` | Session lifecycle (v0.6.0, off by default): deleting/destroying a session soft-hides its born memories (orthogonal to `archived`, recoverable) |
 
 ## 📦 Install
 
@@ -447,7 +472,7 @@ dsh web
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 603 tests
+npm test          # 628 tests
 npm run stress    # three-axis stress test
 npm run sync      # src → lib sync
 ```
@@ -492,7 +517,8 @@ Memory grows:
 | **v0.5.0** | Recall fusion & memory visualization | main-area "Memory" view (replaces sidebar drawer) + memory graph (ego-graph API + zero-dependency SVG force layout) + BM25 three-way recall fusion + adaptive threshold + session hot memory + recall benchmark | ✅ 593 tests |
 | **v0.5.2** | Memory provenance session_id | `session_id` column on memories + `memory_save`/summary record birth session (birth provenance, raw material for v0.6.0 reasoning-path / drift analysis) | ✅ Released (deployment env) |
 | **v0.5.3** | autoDream thinking-off + field normalization | `dreamReasoningEffort`/`sleepReasoningEffort` now accept `off` to explicitly disable thinking (deepseek-v4-flash: 8192 budget no longer drained by reasoning, 12s/2075 tokens) + decision field-name normalization fallback (`target_ids`→`ids`, wrapper unwrap) | ✅ 613 tests |
-| **v0.6.0+** | Self-evolving memory | Interest drift + cross-workspace | long-term |
+| **v0.6.0** | Session lifecycle | Treat conversations as save points: `session_disposed_at` independent column soft-hides a deleted session's memories (orthogonal to `archived`, recoverable) + `memory_delete` query-based deletion + event circuit-breaker | ✅ 628 tests |
+| **v0.7.0+** | Self-evolving memory | Interest drift + cross-workspace | long-term |
 
 Completed versions see [Release Notes](https://github.com/modusensus/dsh-mneme/releases).
 
