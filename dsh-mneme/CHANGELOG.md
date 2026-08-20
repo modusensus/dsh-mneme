@@ -4,12 +4,18 @@
 
 ### 新增
 
-- **会话生命周期（把会话当存档点）**：新配置 `sessionLifecycleEnabled`（默认 `false`）。开启后，会话被删除/销毁（`session/disposed`）时自动把该会话内出生（`session_id` 溯源）的记忆**软归档**——隐藏于检索/注入/列表，但不删除，随时可恢复。恢复路径：单条用 `memory_archive ... archived:false`，整会话用新接口 `service.restoreBySession(sessionId)`。存量无 `session_id` 的记忆视为全局，永不参与会话清理。默认关闭保持旧行为，销毁会话不影响记忆。
-- **store/service 新增接口**：`store.listBySession(sessionId)`、`store.setArchivedBySession(sessionId, archived)`（幂等，返回实际翻转行数）、`service.archiveBySession(sessionId)`、`service.restoreBySession(sessionId)`、`service.listBySession(sessionId)`。复用既有 `archived` 列，无 schema 变更。
+- **会话生命周期（把会话当存档点）**：新配置 `sessionLifecycleEnabled`（默认 `false`）。开启后，会话被删除/销毁（`session/disposed` 宿主事件）时自动把该会话内出生（`session_id` 溯源）的记忆**软隐藏**——`session_disposed_at` 标记，隐藏于检索/注入/列表/整理，但不删除，随时可恢复。独立 `session_disposed_at` 字段与 `archived`（用户/AI 主动归档）**正交**：restore 只清 disposed 标记，绝不复活用户手动归档的记忆。存量无 `session_id` 的记忆视为全局，永不参与会话清理。默认关闭保持旧行为，销毁会话不影响记忆。
+- **store/service 新增接口**：`store.setDisposedBySession(sessionId, disposed)`（幂等，状态守卫 WHERE 只动 IS NULL / IS NOT NULL 行，返回实际翻转行数）、`service.disposeBySession(sessionId)`、`service.restoreBySession(sessionId)`、`service.listBySession(sessionId, { includeDisposed })`（默认隐藏 disposed）。
+- **memory_delete 支持描述删除**：`memory_delete` 增加 `query` 参数，可按描述匹配删除，不只靠记忆 ID（PR #16）。
+- **事件订阅熔断**：`session/disposed` 事件回调内部异常 catch 住，不抛进 DSH 会话清理流程——用户删个对话不会搞崩插件。
+
+### 修复
+
+- **code-review 4 项（阿里云 kimi-k2.7-code 审查）**：`store.listBySession` 默认过滤 `session_disposed_at` + `service.listBySession` 透传 `includeDisposed`（已隐藏记忆不再从该路径重新暴露）；`toApiList` 条件输出 `disposed` 标记（restore 不再盲操作）；补 `(session_id, session_disposed_at)` 复合索引（置于 addColumn 迁移后，兼容 legacy 库）。
 
 ### 测试
 
-- 613 → **621** 全绿（新增 `test/service.test.js` 会话生命周期 6 例：按会话归档只影响该会话/恢复可见/幂等/未知会话空操作/无 session 全局记忆不受影响/`toApiList` 携带 session_id 可选字段）。
+- 613 → **628** 全绿（新增会话生命周期 13 例：store 4 例——迁移重启存活/dispose 幂等 round-trip/search+list 排除/searchVector 排除/setDisposedBySession 状态守卫，service 7 例——dispose 只影响该会话/restore 清标记/幂等/未知会话空操作/legacy 全局记忆/restore 不复活手动归档/正交性/listBySession 默认隐藏 + includeDisposed 可见 + DTO 携带 `disposed` 标记；另含 memory_delete `query` 删除 2 例）。
 
 ## [0.5.3] - 2026-08-20
 
