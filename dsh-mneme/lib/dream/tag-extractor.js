@@ -78,8 +78,12 @@ export async function runAutoTag({ ctx, service, config, route }) {
     ? config.autoTagMaxPerRun
     : 10;
   // Retained = post-consolidation active memories, newest first, capped.
+  // Skip memories that already carry live tags — otherwise every run re-picks
+  // the same "newest" batch (tagging doesn't bump updated_at) and older
+  // memories starve; manual tags are also left untouched this way.
   const memories = service.all()
     .filter((m) => !m.forgotten && !m.archived && !m.session_disposed_at && m.type !== "summary")
+    .filter((m) => (service.getMemoryTags?.(m.id) ?? []).length === 0)
     .sort((a, b) => {
       const ta = String(a.updated_at ?? "");
       const tb = String(b.updated_at ?? "");
@@ -137,7 +141,10 @@ export async function runAutoTag({ ctx, service, config, route }) {
   try {
     service.transaction(() => {
       for (const { id, tags } of toWrite) {
-        service.applyMemoryTags(id, tags);
+        // Merge with existing live tags (never clobber manual tags that landed
+        // between selection and write).
+        const existing = service.getMemoryTags?.(id) ?? [];
+        service.applyMemoryTags(id, [...new Set([...existing, ...tags])]);
         tagged++;
       }
     });

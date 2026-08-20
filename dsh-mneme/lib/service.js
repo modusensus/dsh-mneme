@@ -373,7 +373,9 @@ export function createService({ store, mirror, config, onWrite, logger }) {
           .sort((a, b) => b.score - a.score)
       : hits.map((m) => ({ ...m, source: "tag" }));
     const result = hits.slice(0, topK);
-    touchRecalled(result);
+    // Only count toward recall stats/forgetting when the caller asked for
+    // recording — the panel's `tag:` search must not pollute the curve.
+    if (options.recordRecall) touchRecalled(result);
     return result;
   }
 

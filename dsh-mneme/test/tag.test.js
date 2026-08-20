@@ -186,6 +186,24 @@ test("runAutoTag writes validated tags into entity_attrs", async () => {
   store.close();
 });
 
+test("runAutoTag: skips already-tagged memories, merges into fresh ones", async () => {
+  const { store, service } = makeService();
+  const a = seed(service, "Linux", "内核");
+  const b = seed(service, "考研", "公共管理");
+  store.setMemoryTags(a.id, ["已有"]); // manual tag
+  const text = JSON.stringify([
+    { id: a.id, tags: ["linux"] },
+    { id: b.id, tags: ["考研"] }
+  ]);
+  const ctx = makeCtx([text]);
+  const result = await runAutoTag({ ctx, service, config: { dreamProvider: "d", dreamModel: "m" } });
+  assert.equal(result.ok, true);
+  assert.equal(result.tagged, 1, "only the untagged memory is tagged");
+  assert.deepEqual(store.getMemoryTags(a.id), ["已有"], "manual tags left untouched");
+  assert.deepEqual(store.getMemoryTags(b.id), ["考研"]);
+  store.close();
+});
+
 test("runAutoTag fail-safe: garbage / aborted LLM output never throws and writes nothing", async () => {
   const { store, service } = makeService();
   const a = seed(service, "Alpha", "正文");
