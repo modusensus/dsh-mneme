@@ -1684,6 +1684,118 @@ export function createStore(path) {
     return memories;
   }
 
+  // --- tag storage (v0.6.2) ------------------------------------------------
+  // Tags ride the snapshot-style entity_attrs table (attr_key='tags'), so one
+  // memory has exactly one live tags row; setMemoryTags invalidates any prior
+  // live row and inserts a fresh one (idempotent overwrite). entity_id is the
+  // memory id itself (the memory is its own tag entity), memory_id is kept so
+  // the existing memory-scoped attr queries (getAttrsByMemory / findMemoriesByAttr)
+  // and the bulk tag map all work without a special path.
+
+  /** Normalize an arbitrary tags input to a deduplicated string array.
+   *  Non-string entries, blanks and over-long tags are dropped (fail-safe). */
+  function normalizeTags(tags) {
+    if (!Array.isArray(tags)) return [];
+    const seen = new Set();
+    const out = [];
+    for (const t of tags) {
+      if (typeof t !== "string") continue;
+      const tag = t.trim();
+      if (!tag || tag.length > 20 || seen.has(tag)) continue;
+      seen.add(tag);
+      out.push(tag);
+    }
+    return out;
+  }
+
+  /**
+   * Set (overwrite) the live tag set for a memory. Exactly one tags row stays
+   * live per memory: any prior live row is invalidated first, then one fresh
+   * row is written (no-op when tags is empty — the invalidated row is removed
+   * so "clear tags" = no live row). Returns the stored tag array.
+   */
+  function setMemoryTags(memoryId, tags) {
+    const arr = normalizeTags(tags);
+    const now = nowIso();
+    db.prepare(
+      `UPDATE entity_attrs SET valid_until = ?
+       WHERE attr_key = 'tags' AND memory_id = ? AND valid_until IS NULL`
+    ).run(now, memoryId);
+    if (arr.length) {
+      const id = randomUUID();
+      db.prepare(
+        `INSERT INTO entity_attrs (id, entity_id, attr_key, attr_value, memory_id, valid_from, valid_until, confidence, source)
+         VALUES (?, ?, 'tags', ?, ?, ?, NULL, 1.0, 'manual')`
+      ).run(id, memoryId, JSON.stringify(arr), memoryId, now);
+    }
+    return arr;
+  }
+
+  /** Live tags for a memory ([] when none / unknown). */
+  function getMemoryTags(memoryId) {
+    const row = db.prepare(
+      `SELECT attr_value FROM entity_attrs
+       WHERE attr_key = 'tags' AND memory_id = ? AND valid_until IS NULL
+       ORDER BY valid_from DESC LIMIT 1`
+    ).get(memoryId);
+    if (!row) return [];
+    try {
+      const arr = JSON.parse(row.attr_value);
+      return Array.isArray(arr) ? arr : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /** Bulk live-tags lookup for mirror rendering. Returns Map<memoryId, string[]>. */
+  function getMemoryTagsMap(ids) {
+    const out = new Map();
+    const list = (Array.isArray(ids) ? ids : []).filter(Boolean);
+    for (let i = 0; i < list.length; i += 100) {
+      const chunk = list.slice(i, i + 100);
+      const rows = db.prepare(
+        `SELECT memory_id, attr_value FROM entity_attrs
+         WHERE attr_key = 'tags' AND valid_until IS NULL
+           AND memory_id IN (${chunk.map(() => "?").join(",")})`
+      ).all(...chunk);
+      for (const row of rows) {
+        try {
+          const arr = JSON.parse(row.attr_value);
+          if (Array.isArray(arr) && arr.length) out.set(row.memory_id, arr);
+        } catch { /* corrupt row: skip */ }
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Memories carrying a live tags row that contains EVERY requested tag
+   * (AND semantics for a multi-tag query). attr_value is a JSON array, so the
+   * match uses quoted `"tag"` substrings — `tag:lin` never collides with
+   * `linux` because JSON array elements are quote-delimited. Only live rows
+   * (valid_until IS NULL) with a memory reference participate; each memory
+   * appears once.
+   */
+  function findMemoriesByTags(tags) {
+    const list = normalizeTags(tags);
+    if (!list.length) return [];
+    const where = list.map(() => `attr_value LIKE ? ESCAPE '\\'`).join(" AND ");
+    const params = list.map((t) => `%"${escapeLike(t)}"%`);
+    const rows = db.prepare(
+      `SELECT DISTINCT memory_id FROM entity_attrs
+       WHERE attr_key = 'tags' AND valid_until IS NULL
+         AND memory_id IS NOT NULL AND memory_id != ''
+         AND (${where})`
+    ).all(...params);
+    const stmt = db.prepare("SELECT * FROM memories WHERE id = ?");
+    const memories = [];
+    for (const { memory_id } of rows) {
+      const row = stmt.get(memory_id);
+      if (row) memories.push(toRow(row));
+    }
+    return memories;
+  }
+
   /**
    * Record a typed relation between two entities. metadata (optional) is a
    * free-form JSON blob describing the relation. Relations are append-only —
@@ -2055,6 +2167,10 @@ export function createStore(path) {
     getAttrHistory,
     getAttrsByMemory,
     findMemoriesByAttr,
+    setMemoryTags,
+    getMemoryTags,
+    getMemoryTagsMap,
+    findMemoriesByTags,
     saveRelation,
     saveWikiLinks,
     findByTitle,

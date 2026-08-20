@@ -467,3 +467,49 @@ test("Bug10: vector-reindex with an embed-only OpenAI-compatible embedder return
   assert.equal(vectorIndex.dimension(), 3, "dimension written to vector_meta");
   assert.equal(vectorIndex.getEmbedding(service.all()[0].id).length, 3, "embedding persisted");
 });
+
+// --- memory tags (v0.6.2) ---------------------------------------------------
+
+test("GET /api/dsh-mneme/memory/tags returns live tags and the manual gate", async () => {
+  const { routes, service } = setup();
+  const mem = service.saveWithDedupe({ type: "preference", title: "A", content: "x" }).memory;
+  service.setMemoryTags(mem.id, ["bash", "考研"]);
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/memory/tags");
+  const res = new FakeRes();
+  await route.handler(req(`/api/dsh-mneme/memory/tags?id=${mem.id}`), res);
+  assert.equal(res.statusCode, 200);
+  const data = JSON.parse(res.body);
+  assert.deepEqual(data.tags, ["bash", "考研"], "authoritative entity_attrs tags");
+  assert.equal(data.manualTagEnabled, true, "gate defaults on");
+});
+
+test("POST /api/dsh-mneme/memory/tags overwrites the tag set", async () => {
+  const { routes, service } = setup();
+  const mem = service.saveWithDedupe({ type: "preference", title: "A", content: "x" }).memory;
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/memory/tags");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/memory/tags", "POST", { id: mem.id, tags: ["linux"] }), res);
+  assert.equal(res.statusCode, 200);
+  const data = JSON.parse(res.body);
+  assert.equal(data.ok, true);
+  assert.deepEqual(data.tags, ["linux"]);
+  assert.deepEqual(service.getMemoryTags(mem.id), ["linux"], "tag set persisted");
+});
+
+test("POST /api/dsh-mneme/memory/tags 409s when manualTagEnabled is off", async () => {
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config: { manualTagEnabled: false } });
+  const settings = createSettings(store.db);
+  const routes = [];
+  const ctx = { webServer: { register(route) { routes.push(route); return () => {}; } } };
+  createApi(ctx, service, settings, { add() {}, remove() {}, list() { return []; } });
+  const mem = service.saveWithDedupe({ type: "preference", title: "A", content: "x" }).memory;
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/memory/tags");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/memory/tags", "POST", { id: mem.id, tags: ["x"] }), res);
+  assert.equal(res.statusCode, 409, "manual tag write rejected");
+  assert.match(JSON.parse(res.body).error, /manualTagEnabled/);
+  const get = new FakeRes();
+  await route.handler(req(`/api/dsh-mneme/memory/tags?id=${mem.id}`), get);
+  assert.equal(JSON.parse(get.body).manualTagEnabled, false, "GET reports the gate off");
+});

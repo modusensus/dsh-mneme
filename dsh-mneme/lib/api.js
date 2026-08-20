@@ -608,8 +608,66 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
     }
   });
 
+  // --- memory tags (v0.6.2) ------------------------------------------------
+  // GET  /api/dsh-mneme/memory/tags?id=<memoryId> → live entity_attrs-backed
+  //       tag set for one memory plus the manualTagEnabled gate (so the panel
+  //       can hide tag editing when the manual path is off). Read-only, stays
+  //       open when apiToken is set (like list/search/semantic).
+  // POST /api/dsh-mneme/memory/tags { id, tags } → overwrite the live tag set
+  //       via service.setMemoryTags (manualTagEnabled gate); 409 when the gate
+  //       is closed. Auth-gated like the other write endpoints.
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/memory/tags",
+    handler(req, res) {
+      try {
+        if (req.method === "POST" || req.method === "PUT") {
+          if (!requireAuth(req, res, apiToken)) return;
+          return readBody(req).then((text) => {
+            const body = parseBody(text);
+            const id = typeof body.id === "string" ? body.id.trim() : "";
+            if (!id) {
+              sendJson(res, 400, { error: "missing-id" });
+              return;
+            }
+            const memory = service.getById?.(id) ?? null;
+            if (!memory) {
+              sendJson(res, 404, { error: "memory-not-found" });
+              return;
+            }
+            const result = service.setMemoryTags(id, Array.isArray(body.tags) ? body.tags : []);
+            if (result?.ok === false) {
+              sendJson(res, 409, { error: result.error || "tags-disabled" });
+              return;
+            }
+            sendJson(res, 200, { ok: true, memoryId: id, tags: result?.tags ?? [] });
+          });
+        }
+        const url = new URL(req.url, "http://localhost");
+        const id = (url.searchParams.get("id") ?? "").trim();
+        if (!id) {
+          sendJson(res, 400, { error: "missing-id" });
+          return;
+        }
+        const memory = service.getById?.(id) ?? null;
+        if (!memory) {
+          sendJson(res, 404, { error: "memory-not-found" });
+          return;
+        }
+        const tags = service.getMemoryTags?.(id) ?? [];
+        sendJson(res, 200, {
+          memoryId: id,
+          tags: Array.isArray(tags) ? tags : [],
+          manualTagEnabled: service.manualTagEnabled?.() ?? true
+        });
+      } catch {
+        sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
   return {
-    routes: 11,
+    routes: 18,
     dispose: () => {
       for (const dispose of disposers) dispose();
     }

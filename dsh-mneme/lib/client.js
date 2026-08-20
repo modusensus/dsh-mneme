@@ -104,6 +104,10 @@ window.__ModuleLoader__.load({
         "memory.explorer.created": "创建",
         "memory.explorer.updated": "更新",
         "memory.explorer.tags": "标签",
+        "memory.explorer.tagAdd": "添加标签",
+        "memory.explorer.tagRemove": "移除标签",
+        "memory.explorer.tagPlaceholder": "输入标签，回车添加",
+        "memory.explorer.tagsEmpty": "暂无标签",
         "memory.explorer.importance": "重要性",
         "memory.explorer.topK": "返回数量",
         "memory.explorer.topKOption": "返回 {n} 条",
@@ -196,6 +200,10 @@ window.__ModuleLoader__.load({
         "memory.explorer.created": "Created",
         "memory.explorer.updated": "Updated",
         "memory.explorer.tags": "Tags",
+        "memory.explorer.tagAdd": "Add tag",
+        "memory.explorer.tagRemove": "Remove tag",
+        "memory.explorer.tagPlaceholder": "Type a tag, press Enter",
+        "memory.explorer.tagsEmpty": "No tags",
         "memory.explorer.importance": "Importance",
         "memory.explorer.topK": "Results limit",
         "memory.explorer.topKOption": "Return {n}",
@@ -299,6 +307,17 @@ window.__ModuleLoader__.load({
       ".mneme-hint{color:var(--dsw-alias-label-tertiary);padding:24px 0;text-align:center;font-size:13px}",
       ".mneme-entitychip{flex:none;height:26px;padding:0 10px;border-radius:8px;border:none;background:none;color:var(--dsw-alias-state-business-primary);cursor:pointer;font-family:inherit;font-size:12px;line-height:16px;display:inline-flex;align-items:center}",
       ".mneme-entitychip:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent)}",
+      // --- tag chips in the detail meta (v0.6.2) ---
+      ".mneme-tagrow{display:flex;flex-wrap:wrap;gap:6px;align-items:center}",
+      ".mneme-tagchip{display:inline-flex;align-items:center;gap:4px;max-width:100%;height:22px;padding:0 4px 0 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base,transparent);color:var(--dsw-alias-state-business-primary);cursor:pointer;font-family:inherit;font-size:12px;line-height:16px}",
+      ".mneme-tagchip:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent)}",
+      ".mneme-tagremove{flex:none;display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border:none;border-radius:4px;background:none;color:var(--dsw-alias-label-tertiary);cursor:pointer;font-family:inherit;font-size:12px;line-height:1;padding:0}",
+      ".mneme-tagremove:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}",
+      ".mneme-tagadd{border:none;background:none;color:var(--dsw-alias-label-secondary);cursor:pointer;font-family:inherit;font-size:12px;line-height:16px;padding:2px 8px;border-radius:6px;flex:none}",
+      ".mneme-tagadd:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}",
+      ".mneme-taginput{box-sizing:border-box;height:22px;padding:0 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base,transparent);color:var(--dsw-alias-label-primary);font-family:inherit;font-size:12px;outline:none;width:150px}",
+      ".mneme-taginput:focus{border-color:var(--dsw-alias-state-business-primary)}",
+      ".mneme-tagempty{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:16px}",
       // --- main-area memory library page ---
       ".mneme-x{flex:1;min-height:0;height:100%;width:100%;box-sizing:border-box;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1);--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2)}",
       ".mneme-xbar{flex:none;display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--dsw-alias-border-l2);padding:0 16px}",
@@ -1085,6 +1104,13 @@ window.__ModuleLoader__.load({
       const [copied, setCopied] = useState(false);
       const [reloadKey, setReloadKey] = useState(0);
       const [graphFocus, setGraphFocus] = useState("");
+      // v0.6.2 tag editing state for the detail pane. The authoritative tag set
+      // lives server-side (entity_attrs), so it is fetched per selected memory
+      // and refreshed after every write instead of trusting the list snapshot.
+      const [tagTags, setTagTags] = useState([]);
+      const [tagManual, setTagManual] = useState(true);
+      const [tagInput, setTagInput] = useState("");
+      const [tagAdding, setTagAdding] = useState(false);
       const itemRefs = useRef(new Map());
 
       useEffect(() => {
@@ -1105,10 +1131,12 @@ window.__ModuleLoader__.load({
       }, [reloadKey]);
 
       // Semantic search: server-side ranking replaces the client filter
-      // while enabled and a query is present (debounced).
+      // while enabled and a query is present (debounced). tag: queries always
+      // go server-side (searchMemories resolves them without vector support),
+      // so they bypass the semantic toggle and use the same search endpoint.
       useEffect(() => {
         const q = query.trim();
-        if (!semantic || !q || q.startsWith("entity:")) { setRemoteItems(null); return; }
+        if ((!semantic && !q.startsWith("tag:")) || !q || q.startsWith("entity:")) { setRemoteItems(null); return; }
         let cancelled = false;
         const timer = setTimeout(() => {
           apiFetch(`/api/dsh-mneme/search?q=${encodeURIComponent(q)}&mode=vector&topK=${searchTopK}`)
@@ -1122,6 +1150,30 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         if (!selectedId) return;
         itemRefs.current.get(selectedId)?.scrollIntoView({ block: "nearest" });
+      }, [selectedId]);
+
+      // Load the authoritative tag set for the selected memory (entity_attrs-
+      // backed) plus the manualTagEnabled gate that hides editing when off.
+      const loadTags = (id) => {
+        if (!id) { setTagTags([]); setTagManual(true); setTagInput(""); return; }
+        apiFetch(`/api/dsh-mneme/memory/tags?id=${encodeURIComponent(id)}`)
+          .then((res) => (res.ok ? res.json() : null))
+          .then((j) => { if (j) { setTagTags(Array.isArray(j.tags) ? j.tags : []); setTagManual(j.manualTagEnabled !== false); } })
+          .catch(() => {});
+      };
+      useEffect(() => {
+        let cancelled = false;
+        if (selectedId) {
+          apiFetch(`/api/dsh-mneme/memory/tags?id=${encodeURIComponent(selectedId)}`)
+            .then((res) => (res.ok ? res.json() : null))
+            .then((j) => { if (!cancelled && j) { setTagTags(Array.isArray(j.tags) ? j.tags : []); setTagManual(j.manualTagEnabled !== false); } })
+            .catch(() => {});
+        } else {
+          setTagTags([]);
+          setTagManual(true);
+        }
+        setTagAdding(false);
+        return () => { cancelled = true; };
       }, [selectedId]);
 
       const q = query.trim().toLowerCase();
@@ -1181,6 +1233,42 @@ window.__ModuleLoader__.load({
           () => { setCopied(true); setTimeout(() => setCopied(false), 1500); },
           () => {}
         );
+      };
+
+      // v0.6.2 tag editing: a chip click jumps to a tag:xxx search (reusing
+      // the query-driven search flow), the + entry and per-chip × post the new
+      // tag set through the tags endpoint then re-fetch. A 409 from the server
+      // means manualTagEnabled turned off — flip the gate so editing hides.
+      const submitTag = () => {
+        const tag = tagInput.trim();
+        if (!tag || !selectedId) return;
+        apiFetch("/api/dsh-mneme/memory/tags", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: selectedId, tags: [...tagTags, tag] })
+        }).then((res) => {
+          if (res.status === 409) { setTagManual(false); setTagAdding(false); setTagInput(""); return; }
+          return res.json();
+        }).then((j) => {
+          if (j?.ok) { setTagAdding(false); setTagInput(""); loadTags(selectedId); }
+        }).catch(() => {});
+      };
+      const removeTag = (tag) => {
+        if (!selectedId) return;
+        apiFetch("/api/dsh-mneme/memory/tags", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: selectedId, tags: tagTags.filter((x) => x !== tag) })
+        }).then((res) => {
+          if (res.status === 409) { setTagManual(false); return; }
+          return res.json();
+        }).then((j) => {
+          if (j?.ok) loadTags(selectedId);
+        }).catch(() => {});
+      };
+      const onTagClick = (tag) => {
+        setType("all");
+        setQuery(`tag:${tag}`);
       };
 
       // Graph → memory jump: land on the browser tab with filters reset so
@@ -1293,8 +1381,44 @@ window.__ModuleLoader__.load({
                         h("span", { title: formatDate(selected.created_at) }, `${t("memory.explorer.created")}: ${formatDate(selected.created_at)}`),
                         h("span", { title: formatDate(selected.updated_at) }, `${t("memory.explorer.updated")}: ${formatDate(selected.updated_at)}`)
                       ),
-                      Array.isArray(selected.tags) && selected.tags.length > 0 && h("div", { className: "mneme-xdmeta" },
-                        h("span", null, `${t("memory.explorer.tags")}: ${selected.tags.join(" · ")}`)
+                      h("div", { className: "mneme-xdmeta" },
+                        h("span", null, t("memory.explorer.tags")),
+                        h("div", { className: "mneme-tagrow" },
+                          tagTags.length > 0
+                            ? tagTags.map((tag) =>
+                                h("span", {
+                                  key: tag,
+                                  className: "mneme-tagchip",
+                                  title: `tag:${tag}`,
+                                  onClick: () => onTagClick(tag)
+                                },
+                                  tag,
+                                  tagManual && h("button", {
+                                    type: "button",
+                                    className: "mneme-tagremove",
+                                    "aria-label": `${t("memory.explorer.tagRemove")}: ${tag}`,
+                                    onClick: (e) => { e.stopPropagation(); removeTag(tag); }
+                                  }, "×")
+                                )
+                              )
+                            : h("span", { className: "mneme-tagempty" }, t("memory.explorer.tagsEmpty")),
+                          tagManual && (tagAdding
+                            ? h("input", {
+                                key: selectedId,
+                                className: "mneme-taginput",
+                                autoFocus: true,
+                                value: tagInput,
+                                placeholder: t("memory.explorer.tagPlaceholder"),
+                                onChange: (e) => setTagInput(e.target.value),
+                                onKeyDown: (e) => { if (e.key === "Enter") submitTag(); },
+                                onBlur: () => { setTagAdding(false); setTagInput(""); }
+                              })
+                            : h("button", {
+                                type: "button",
+                                className: "mneme-tagadd",
+                                onClick: () => setTagAdding(true)
+                              }, `+ ${t("memory.explorer.tagAdd")}`))
+                        )
                       ),
                       h("div", { className: "mneme-xdcontent" },
                         selected.content ? wikilinkSegments(selected.content, onWikilinkClick) : selected.content

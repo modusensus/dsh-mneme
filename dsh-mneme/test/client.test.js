@@ -268,3 +268,44 @@ test("detail content renders wiki-links and resolves them on click", () => {
     "the panel must render inside a .mneme-backlinks block"
   );
 });
+
+// v0.6.2 tag system: the detail pane renders tags as clickable chips wired to
+// the memory/tags endpoints, and a tag: query always goes server-side.
+test("detail pane renders editable tag chips backed by the tags endpoint", () => {
+  assert.ok(
+    clientSource.includes("/api/dsh-mneme/memory/tags?id="),
+    "the panel must fetch the selected memory's tags via the GET endpoint"
+  );
+  assert.ok(
+    clientSource.includes('method: "POST"'),
+    "adding/removing a tag must POST to the tags endpoint"
+  );
+  assert.ok(
+    clientSource.includes("onClick: () => onTagClick(tag)"),
+    "a tag chip click must trigger a tag: search"
+  );
+  assert.ok(
+    clientSource.includes("tagManual"),
+    "the panel must read the manualTagEnabled gate to hide editing"
+  );
+});
+
+test("tag: queries run server-side regardless of the semantic toggle", () => {
+  assert.ok(
+    clientSource.includes('(!semantic && !q.startsWith("tag:"))'),
+    "tag: must bypass the semantic toggle and use the search endpoint"
+  );
+  assert.ok(
+    clientSource.includes('setQuery(`tag:${tag}`)'),
+    "a tag chip click must set the query to tag:<tag>"
+  );
+});
+
+test("tag UI ships localized labels in both dictionaries", () => {
+  for (const key of ["tagAdd", "tagRemove", "tagPlaceholder", "tagsEmpty"]) {
+    assert.ok(
+      clientSource.includes(`"memory.explorer.${key}"`),
+      `memory.explorer.${key} key must exist`
+    );
+  }
+});

@@ -175,6 +175,18 @@ export const Config = z.object({
   // regardless of this flag.
   wikiLinkEnabled: z.boolean().default(false),
 
+  // --- tag system (v0.6.2) ---------------------------------------------------
+  // Opt-in: when autoTagEnabled is true, a light LLM pass runs after each
+  // autoDream consolidation and extracts 1-3 tags per retained memory
+  // (autoTagMaxPerRun bounds how many memories are tagged per run). The tag
+  // storage layer (store.setMemoryTags/getMemoryTags + tag: search + mirror
+  // `#tag` line) is always available regardless of this flag.
+  autoTagEnabled: z.boolean().default(false),
+  autoTagMaxPerRun: z.natural().min(1).max(100).default(10),
+  // Manual tagging (service.setMemoryTags / memory tools) is on by default;
+  // set false to disable the manual write path too.
+  manualTagEnabled: z.boolean().default(true),
+
   // --- sleep mode: idle-triggered deep maintenance (v0.4.0) ---------------
   // Opt-in, off by default. Unlike autoDream (threshold-triggered, lightweight)
   // sleep fires when the store has been quiet for sleepIdleMinutes and deep-

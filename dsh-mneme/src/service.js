@@ -328,6 +328,55 @@ export function createService({ store, mirror, config, onWrite, logger }) {
   }
 
   /**
+   * Search for memories carrying a given tag set (v0.6.2). Multiple tag:
+   * tokens in one query use AND semantics — a memory must carry every tag.
+   * Combinable with the leftover query: an entity:/attr: prefix is intersected
+   * with the tag-matched set, and plain keyword text ranks it (only rows whose
+   * keyword score > 0 survive). Tags are first-class recall, not entity-gated:
+   * the tag match itself does not depend on config.entitySearchEnabled.
+   * @param {string[]} tagTokens
+   * @param {string} q — leftover query after tag: tokens were stripped
+   * @param {object} [options]
+   * @param {number} [options.topK=20]
+   * @returns {any[]}
+   */
+  function searchByTags(tagTokens, q, options) {
+    const { topK = 20 } = options;
+    const tags = (Array.isArray(tagTokens) ? tagTokens : [])
+      .map((t) => String(t).trim()).filter(Boolean);
+    if (!tags.length) return [];
+    let hits = store.findMemoriesByTags(tags);
+    if (!hits.length) return [];
+    // Intersect with entity:/attr: prefixes present in the leftover query.
+    if (config?.entitySearchEnabled) {
+      if (q.startsWith("entity:")) {
+        const ids = new Set(searchByEntity(q.slice(7).trim(), { topK: 10000 }).map((m) => m.id));
+        hits = hits.filter((m) => ids.has(m.id));
+      }
+      if (q.startsWith("attr:")) {
+        const [key, value] = q.slice(5).split("=");
+        const ids = new Set(searchByAttr(key, value, { topK: 10000 }).map((m) => m.id));
+        hits = hits.filter((m) => ids.has(m.id));
+      }
+    }
+    // Leftover plain text ranks the tag-matched set; only rows whose title or
+    // content actually mentions the keyword survive (scoreKeyword's 0.3 base is
+    // a non-match, so the containment check is the real gate); otherwise
+    // preserve insertion order.
+    const keywordOnly = q && !q.startsWith("entity:") && !q.startsWith("attr:");
+    hits = keywordOnly
+      ? hits
+          .map((m) => ({ ...m, score: scoreKeyword(m, q), source: "tag" }))
+          .filter((m) => (m.title ?? "").toLowerCase().includes(q.toLowerCase())
+            || (m.content ?? "").toLowerCase().includes(q.toLowerCase()))
+          .sort((a, b) => b.score - a.score)
+      : hits.map((m) => ({ ...m, source: "tag" }));
+    const result = hits.slice(0, topK);
+    touchRecalled(result);
+    return result;
+  }
+
+  /**
    * Semantic-aware memory search: keyword recall (store.search) plus optional
    * vector recall + rerank. mode:
    *   auto    (default) keyword first, vector fills remaining slots (legacy)
@@ -433,8 +482,18 @@ export function createService({ store, mirror, config, onWrite, logger }) {
 
   async function searchMemories(query, options = {}) {
     const { mode = "auto", topK = 20, threshold, useRerank = true, recordRecall = false } = options;
-    const q = String(query ?? "").trim();
-    if (!q) return [];
+    const raw = String(query ?? "").trim();
+    if (!raw) return [];
+
+    // tag: 前缀（v0.6.2）。先把所有 tag: 令牌从 query 里剥出来，剩余的 q 仍可带
+    // entity:/attr: 前缀或普通关键词 —— searchByTags 负责交集/排序。没有 tag:
+    // 令牌则走下面的 entity:/attr:/文本原逻辑（完全向后兼容）。
+    const tagTokens = [];
+    const q = raw.replace(/\btag:([^\s]+)/g, (_, tok) => {
+      if (tok) tagTokens.push(tok);
+      return "";
+    }).trim();
+    if (tagTokens.length) return searchByTags(tagTokens, q, options);
 
     // entity:/attr: 前缀路由（v0.3.0 Phase 3）。entitySearchEnabled 关闭时走原逻辑。
     if (config?.entitySearchEnabled) {
@@ -1150,8 +1209,14 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       // leaving committed files mislabeled as failed and masking partial state.
       // Absent entries (a type with no memories) count as success: sync prunes
       // the stale file, which is itself a completed physical state.
+      // v0.6.2: attach entity_attrs-backed tags (entityTags) after the human-edit
+      // merge so renderMemory can draw the `#tag` line under each title. The
+      // bulk map is a single query, and a missing row simply renders no line.
+      const reconciled = reconcileHumanEdits(list);
+      const tagsMap = store.getMemoryTagsMap(reconciled.map((m) => m.id));
+      const tagged = reconciled.map((m) => ({ ...m, entityTags: tagsMap.get(m.id) ?? [] }));
       let allOk = true;
-      const results = mirror.sync(reconcileHumanEdits(list)) ?? {};
+      const results = mirror.sync(tagged) ?? {};
       for (const type of Object.keys(TYPE_FILE)) {
         const r = results[type];
         const ok = !r || r.ok === true;
@@ -1585,6 +1650,25 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     saveWikiLinks: (r) => store.saveWikiLinks(r),
     listEntities: (o) => store.listEntities(o),
     getRelations: (id) => store.getRelations(id),
+    // Tag system (v0.6.2). setMemoryTags is the manual/user path: gated by
+    // config.manualTagEnabled (default true), re-renders the mirror and fires
+    // the write hook. applyMemoryTags is the raw write used by the autoDream
+    // tag pass (gated by autoTagEnabled, wrapped in a transaction by the
+    // extractor so the mirror re-renders exactly once).
+    setMemoryTags: (memoryId, tags) => {
+      if (config.manualTagEnabled === false) {
+        return { ok: false, error: "manualTagEnabled is off" };
+      }
+      const stored = store.setMemoryTags(memoryId, tags);
+      afterSync("write");
+      notifyWrite();
+      return { ok: true, tags: stored };
+    },
+    getMemoryTags: (memoryId) => store.getMemoryTags(memoryId),
+    // Read-only gate flag so the Web panel can hide tag editing when the
+    // manual path is disabled (default: manual tagging is on).
+    manualTagEnabled: () => config.manualTagEnabled !== false,
+    applyMemoryTags: (memoryId, tags) => store.setMemoryTags(memoryId, tags),
     saveAttr: (r) => store.saveAttr(r),
     createEntity: (r) => store.createEntity(r),
     findEntityByName: (n) => store.findEntityByName(n),

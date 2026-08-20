@@ -1,5 +1,6 @@
 import { validateDecisions, applyDecisions } from "./dream/decisions.js";
 import { clusterMemories, findPotentialConflicts } from "./dream/clustering.js";
+import { runAutoTag } from "./dream/tag-extractor.js";
 import { createHash, randomUUID } from "node:crypto";
 export { validateDecisions, applyDecisions, normalizeDecisions };
 
@@ -814,6 +815,25 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     // Frozen conflicts are substantive output (parked for review), so a run
     // that only froze conflicts is not a noop.
     const noChange = frozenCount === 0 && applied === 0 && committed.every((c) => c.action === "keep");
+
+    // v0.6.2 auto-tag: a light LLM pass over the retained (post-consolidation)
+    // memories. Opt-in via config.autoTagEnabled, bounded by autoTagMaxPerRun,
+    // and always fail-safe — a tag failure must never change the consolidation
+    // outcome reported below (it is logged and counted, nothing more).
+    let autoTagged = 0;
+    if (config.autoTagEnabled === true) {
+      try {
+        const tagResult = await runAutoTag({ ctx, service, config, route });
+        autoTagged = tagResult?.tagged ?? 0;
+        if (tagResult?.ok === false && tagResult?.skippedBy && tagResult.skippedBy !== "empty") {
+          logger?.warn?.(`dsh-mneme dream: auto-tag skipped (${tagResult.skippedBy})`);
+        } else if (autoTagged > 0) {
+          logger?.info?.(`[dsh-mneme] auto-tag: ${autoTagged} memory(ies) tagged`);
+        }
+      } catch (error) {
+        logger?.warn?.(`dsh-mneme dream: auto-tag failed: ${String(error)}`);
+      }
+    }
 
     // Keep the vector index consistent with the post-dream store state.
     if (semantic?.embedder && semantic?.vectorIndex) {
