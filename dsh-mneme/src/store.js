@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS memories (
   importance  INTEGER NOT NULL DEFAULT 3,
   forgotten   INTEGER NOT NULL DEFAULT 0,
   archived    INTEGER NOT NULL DEFAULT 0,
+  session_disposed_at TEXT,
   source      TEXT,
   session_id  TEXT,
   content_history TEXT,
@@ -321,6 +322,7 @@ function toRow(row) {
     importance: row.importance,
     forgotten: row.forgotten === 1,
     archived: row.archived === 1,
+    session_disposed_at: row.session_disposed_at ?? undefined,
     source: row.source ?? undefined,
     session_id: row.session_id ?? undefined,
     content_history: parseJsonArray(row.content_history),
@@ -567,6 +569,7 @@ export function createStore(path) {
   };
 
   addColumn("memories", "archived", "ALTER TABLE memories ADD COLUMN archived INTEGER NOT NULL DEFAULT 0");
+  addColumn("memories", "session_disposed_at", "ALTER TABLE memories ADD COLUMN session_disposed_at TEXT");
   addColumn("memories", "embedding", "ALTER TABLE memories ADD COLUMN embedding TEXT");
   addColumn("memories", "last_accessed_at", "ALTER TABLE memories ADD COLUMN last_accessed_at TEXT");
   addColumn("memories", "_full_content", "ALTER TABLE memories ADD COLUMN _full_content TEXT");
@@ -574,6 +577,12 @@ export function createStore(path) {
   addColumn("memories", "content_history", "ALTER TABLE memories ADD COLUMN content_history TEXT");
   addColumn("memories", "quality_score", "ALTER TABLE memories ADD COLUMN quality_score REAL");
   addColumn("memories", "session_id", "ALTER TABLE memories ADD COLUMN session_id TEXT");
+
+  // Composite index for session-lifecycle queries (dispose/restore/listBySession).
+  // Created post-migration, NOT in SCHEMA: on legacy DBs both columns arrive via
+  // ADD COLUMN above, so the index would fail at db.exec(SCHEMA) time. CREATE
+  // INDEX IF NOT EXISTS is atomic, so the two-process race is safe here.
+  db.exec("CREATE INDEX IF NOT EXISTS idx_memories_session ON memories(session_id, session_disposed_at)");
 
   // Legacy dream_runs without policy_epoch → backfill with the default epoch.
   addColumn("dream_runs", "policy_epoch", "ALTER TABLE dream_runs ADD COLUMN policy_epoch INTEGER NOT NULL DEFAULT 0");
@@ -618,7 +627,7 @@ export function createStore(path) {
     return ts;
   }
 
-  function count(type, { includeForgotten = false, includeArchived = false } = {}) {
+  function count(type, { includeForgotten = false, includeArchived = false, includeDisposed = false } = {}) {
     const clauses = [];
     const params = [];
     if (type !== undefined) {
@@ -630,6 +639,9 @@ export function createStore(path) {
     }
     if (!includeArchived) {
       clauses.push("archived = 0");
+    }
+    if (!includeDisposed) {
+      clauses.push("session_disposed_at IS NULL");
     }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     return db.prepare(`SELECT count(*) AS c FROM memories ${where}`).get(...params).c;
@@ -820,6 +832,45 @@ export function createStore(path) {
     return getById(id);
   }
 
+  // --- session lifecycle (v0.6.0) ------------------------------------------
+  // Session dispose is orthogonal to `archived`: memory_archive is the user/AI
+  // choosing to keep an entry long-term-but-quiet, while session_disposed_at
+  // marks entries hidden because the session they were born in was deleted
+  // (a reversible "undo" — restoreBySession clears it). They never clobber each
+  // other: restoreBySession must not resurrect user-archived memories.
+  // Mirrors list/search: disposed rows are hidden by default. A consumer that
+  // needs to see the full picture (e.g. a restore flow that tells the user
+  // "these N entries were hidden") opts in via includeDisposed.
+  function listBySession(sessionId, { includeDisposed = false } = {}) {
+    const disposedFilter = includeDisposed ? "" : "AND session_disposed_at IS NULL";
+    const rows = db.prepare(
+      `SELECT * FROM memories WHERE session_id = ? ${disposedFilter} ORDER BY updated_at DESC`
+    ).all(sessionId);
+    return rows.map(toRow);
+  }
+
+  // Idempotent by state guard, not timestamp compare (nowIso() differs every
+  // call, so a fresh-timestamp re-dispose would spuriously count): dispose only
+  // touches rows that are NOT yet disposed; restore only touches rows that ARE.
+  // updated_at is deliberately left alone — this is a lifecycle flag, not
+  // content — so a true flip is the sole trigger for a mirror generation.
+  function setDisposedBySession(sessionId, disposed) {
+    const at = disposed ? nowIso() : null;
+    let affected = 0;
+    runAtomically(() => {
+      const result = disposed
+        ? db.prepare(
+            "UPDATE memories SET session_disposed_at = ? WHERE session_id = ? AND session_disposed_at IS NULL"
+          ).run(at, sessionId)
+        : db.prepare(
+            "UPDATE memories SET session_disposed_at = NULL WHERE session_id = ? AND session_disposed_at IS NOT NULL"
+          ).run(sessionId);
+      affected = result.changes;
+      if (affected > 0) incrementGeneration();
+    });
+    return affected;
+  }
+
   // --- sleep-mode storage support (v0.4.0) ---------------------------------
   // touchLastAccess stamps the read time on recall/inject paths. It deliberately
   // does NOT bump the mirror generation: reads must not mark the mirror dirty.
@@ -876,6 +927,7 @@ export function createStore(path) {
     const rows = db.prepare(
       `SELECT * FROM memories
        WHERE forgotten = 0 AND archived = 0
+         AND session_disposed_at IS NULL
          AND (last_accessed_at IS NULL OR last_accessed_at < ?)
        ORDER BY COALESCE(last_accessed_at, created_at) ASC, id
        LIMIT ?`
@@ -883,7 +935,7 @@ export function createStore(path) {
     return rows.map(toRow);
   }
 
-  function list({ type, limit = 50, offset = 0, includeForgotten = false, includeArchived = false } = {}) {
+  function list({ type, limit = 50, offset = 0, includeForgotten = false, includeArchived = false, includeDisposed = false } = {}) {
     const clauses = [];
     const params = [];
     if (type) {
@@ -895,6 +947,9 @@ export function createStore(path) {
     }
     if (!includeArchived) {
       clauses.push("archived = 0");
+    }
+    if (!includeDisposed) {
+      clauses.push("session_disposed_at IS NULL");
     }
     const { limit: lim, offset: off } = sanitizePage(limit, offset, 50);
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
@@ -953,7 +1008,7 @@ export function createStore(path) {
     ).all(limit);
   }
 
-  function search(query, { limit = 20, includeArchived = false } = {}) {
+  function search(query, { limit = 20, includeArchived = false, includeDisposed = false } = {}) {
     const q = String(query).trim();
     if (!q) return [];
     // Plain LIKE substring scan over title/content/tags (wildcards escaped so
@@ -962,9 +1017,10 @@ export function createStore(path) {
     const like = `%${escapeLike(q)}%`;
     const { limit: lim } = sanitizePage(limit, 0, 20);
     const archivedFilter = includeArchived ? "" : "archived = 0 AND ";
+    const disposedFilter = includeDisposed ? "" : "session_disposed_at IS NULL AND ";
     const rows = db.prepare(
       `SELECT * FROM memories
-       WHERE ${archivedFilter}forgotten = 0 AND (title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\' OR tags LIKE ? ESCAPE '\\')
+       WHERE ${archivedFilter}${disposedFilter}forgotten = 0 AND (title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\' OR tags LIKE ? ESCAPE '\\')
        ORDER BY
          CASE WHEN title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END,
          importance DESC,
@@ -995,12 +1051,13 @@ export function createStore(path) {
    * Brute-force cosine similarity over embedded rows. Returns rows decorated
    * with a `score` (0..1). Only rows with a stored embedding participate.
    */
-  function searchVector(vector, { limit = 20, includeArchived = false, threshold = 0 } = {}) {
+  function searchVector(vector, { limit = 20, includeArchived = false, includeDisposed = false, threshold = 0 } = {}) {
     if (!Array.isArray(vector) || !vector.length) return [];
     const archivedFilter = includeArchived ? "" : "archived = 0 AND ";
+    const disposedFilter = includeDisposed ? "" : "session_disposed_at IS NULL AND ";
     const rows = db.prepare(
       `SELECT * FROM memories
-       WHERE ${archivedFilter}forgotten = 0 AND embedding IS NOT NULL AND embedding != ''`
+       WHERE ${archivedFilter}${disposedFilter}forgotten = 0 AND embedding IS NOT NULL AND embedding != ''`
     ).all();
     const scored = [];
     for (const row of rows) {
@@ -1871,6 +1928,8 @@ export function createStore(path) {
     remove,
     setForget,
     setArchived,
+    listBySession,
+    setDisposedBySession,
     touchLastAccess,
     demoteToSummary,
     restoreContent,

@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.0] - 2026-08-20
+
+### 新增
+
+- **会话生命周期（把会话当存档点）**：新配置 `sessionLifecycleEnabled`（默认 `false`）。开启后，会话被删除/销毁（`session/disposed`）时自动把该会话内出生（`session_id` 溯源）的记忆**软归档**——隐藏于检索/注入/列表，但不删除，随时可恢复。恢复路径：单条用 `memory_archive ... archived:false`，整会话用新接口 `service.restoreBySession(sessionId)`。存量无 `session_id` 的记忆视为全局，永不参与会话清理。默认关闭保持旧行为，销毁会话不影响记忆。
+- **store/service 新增接口**：`store.listBySession(sessionId)`、`store.setArchivedBySession(sessionId, archived)`（幂等，返回实际翻转行数）、`service.archiveBySession(sessionId)`、`service.restoreBySession(sessionId)`、`service.listBySession(sessionId)`。复用既有 `archived` 列，无 schema 变更。
+
+### 测试
+
+- 613 → **621** 全绿（新增 `test/service.test.js` 会话生命周期 6 例：按会话归档只影响该会话/恢复可见/幂等/未知会话空操作/无 session 全局记忆不受影响/`toApiList` 携带 session_id 可选字段）。
+
 ## [0.5.3] - 2026-08-20
 
 ### 新增

@@ -4,6 +4,11 @@ export const Config = z.object({
   memoryDir: z.string().default("~/.dsh/memory"),
   autoInject: z.boolean().default(true),
   autoSummarize: z.boolean().default(true),
+  // Session lifecycle (v0.6.0): when enabled, deleting/disposing a session also
+  // archives every memory that was born in it (treating the session as a save
+  // point — entries stay recoverable via memory_archive/restoreBySession).
+  // Default OFF: legacy behavior, a disposed session leaves its memories active.
+  sessionLifecycleEnabled: z.boolean().default(false),
   // Optional model override for summarization. When both are non-empty, they
   // take priority over the session's current model. Empty = use the session's
   // active provider/model (same as before).

@@ -358,3 +358,79 @@ test("conflict_pending table persists across store reopen", () => {
   assert.equal(pending[0].reason, "x");
   s2.close();
 });
+
+// --- session lifecycle (v0.6.0): disposed rows are filtered out ------------
+
+test("session_disposed_at column exists and survives migration", () => {
+  const dir = mkdtempSync(join(tmpdir(), "dsh-mneme-disposed-"));
+  const path = join(dir, "memory.db");
+  const s1 = createStore(path);
+  const { id } = s1.save({ type: "decision", title: "迁移", content: "c", session_id: "sess-m" });
+  s1.setDisposedBySession("sess-m", true);
+  const row = s1.db.prepare("SELECT session_disposed_at FROM memories WHERE id = ?").get(id);
+  assert.ok(row.session_disposed_at, "dispose timestamp persisted");
+  s1.close();
+  // reopen: column survives
+  const s2 = createStore(path);
+  const live = s2.list({ type: "decision" });
+  assert.ok(!live.some((m) => m.id === id), "disposed row excluded after reopen");
+  s2.close();
+});
+
+test("search and list exclude disposed rows unless includeDisposed", () => {
+  const store = createStore(":memory:");
+  const a = store.save({ type: "decision", title: "活着", content: "keyword alpha", session_id: "s1" });
+  const b = store.save({ type: "decision", title: "被销毁", content: "keyword beta", session_id: "s2" });
+  store.setDisposedBySession("s2", true);
+
+  const searchRes = store.search("keyword");
+  assert.ok(searchRes.some((m) => m.id === a.id), "live row found");
+  assert.ok(!searchRes.some((m) => m.id === b.id), "disposed row excluded from search");
+  const searchIncl = store.search("keyword", { includeDisposed: true });
+  assert.ok(searchIncl.some((m) => m.id === b.id), "includeDisposed surfaces it");
+
+  const listRes = store.list({ type: "decision" });
+  assert.ok(listRes.some((m) => m.id === a.id));
+  assert.ok(!listRes.some((m) => m.id === b.id), "disposed excluded from list");
+  const listIncl = store.list({ type: "decision", includeDisposed: true });
+  assert.ok(listIncl.some((m) => m.id === b.id), "includeDisposed lists it");
+  assert.equal(store.count("decision", { includeDisposed: true }), 2);
+});
+
+test("searchVector excludes disposed rows", () => {
+  const store = createStore(":memory:");
+  const a = store.save({ type: "decision", title: "向量A", content: "v", session_id: "s1" });
+  const b = store.save({ type: "decision", title: "向量B", content: "v", session_id: "s2" });
+  store.setEmbedding(a.id, [1, 0, 0]);
+  store.setEmbedding(b.id, [1, 0, 0]);
+  store.setDisposedBySession("s2", true);
+
+  const res = store.searchVector([1, 0, 0], { limit: 10 });
+  assert.ok(res.some((m) => m.id === a.id));
+  assert.ok(!res.some((m) => m.id === b.id), "disposed row excluded from vector search");
+});
+
+test("setDisposedBySession round-trips and listBySession sees all states", () => {
+  const store = createStore(":memory:");
+  const a = store.save({ type: "decision", title: "会话记忆", content: "c", session_id: "sess-z" });
+  assert.equal(store.setDisposedBySession("sess-z", true), 1, "first dispose flips 1");
+  assert.equal(store.setDisposedBySession("sess-z", true), 0, "re-dispose is a no-op");
+  assert.equal(store.setDisposedBySession("sess-z", false), 1, "restore flips 1");
+  assert.equal(store.setDisposedBySession("sess-z", false), 0, "re-restore is a no-op");
+  assert.equal(store.getById(a.id).session_disposed_at, undefined, "mark cleared after restore");
+
+  const bySession = store.listBySession("sess-z");
+  assert.equal(bySession.length, 1);
+  assert.equal(bySession[0].id, a.id);
+});
+
+test("listBySession hides disposed by default, includeDisposed opts in", () => {
+  const store = createStore(":memory:");
+  const a = store.save({ type: "decision", title: "会话记忆", content: "c", session_id: "sess-y" });
+  store.setDisposedBySession("sess-y", true);
+
+  assert.equal(store.listBySession("sess-y").length, 0, "disposed row hidden by default");
+  const all = store.listBySession("sess-y", { includeDisposed: true });
+  assert.equal(all.length, 1, "includeDisposed reveals it");
+  assert.equal(all[0].id, a.id);
+});

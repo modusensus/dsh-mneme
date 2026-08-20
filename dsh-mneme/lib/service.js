@@ -331,7 +331,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
   function bm25Recall(q, limit) {
     if (config?.bm25SearchEnabled === false) return [];
     try {
-      const docs = store.list({ limit: 500, includeForgotten: false }).filter((m) => !m.archived);
+      const docs = store.list({ limit: 500, includeForgotten: false }).filter((m) => !m.archived && !m.session_disposed_at);
       if (!docs.length) return [];
       return createBM25Index(docs).search(q, { limit });
     } catch {
@@ -999,6 +999,9 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       tags: m.tags,
       importance: m.importance,
       source: m.source,
+      // session_id is optional on the wire: only carry it when present, so the
+      // DTO stays a lossless JSON object (undefined would vanish on serialize).
+      ...(m.session_id != null ? { session_id: m.session_id } : {}),
       created_at: m.created_at,
       updated_at: m.updated_at
     }));
@@ -1339,6 +1342,28 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       afterSync("write");
       notifyWrite();
     },
+    // Session lifecycle (v0.6.0): mark/clear the session-disposed state on every
+    // memory born in a given session. Uses the dedicated `session_disposed_at`
+    // column, orthogonal to `archived` — restoring a session never resurrects
+    // memories the user archived on purpose. Nothing is destroyed; a session
+    // treated as a save point is fully recoverable via restoreBySession.
+    disposeBySession: (sessionId) => {
+      const disposed = store.setDisposedBySession(sessionId, true);
+      if (disposed > 0) {
+        afterSync("write");
+        notifyWrite();
+      }
+      return { disposed };
+    },
+    restoreBySession: (sessionId) => {
+      const restored = store.setDisposedBySession(sessionId, false);
+      if (restored > 0) {
+        afterSync("write");
+        notifyWrite();
+      }
+      return { restored };
+    },
+    listBySession: (sessionId) => toApiList(store.listBySession(sessionId)),
     update: (id, p, ctx = {}) => {
       const old = store.getById(id);
       const updated = store.update(id, p);

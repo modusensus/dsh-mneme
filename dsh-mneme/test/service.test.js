@@ -76,6 +76,10 @@ test("toApiList maps store rows to wire DTOs", () => {
   assert.equal(dto[0].title, "选型");
   assert.equal(dto[0].content, "node:sqlite");
   assert.equal(dto[0].importance, 3);
+  // session_id rides the DTO when present (session lifecycle needs it)
+  const withSession = service.saveWithDedupe({ type: "decision", title: "带会话", content: "y", session_id: "sess-x" });
+  const dto2 = service.toApiList([withSession.memory]);
+  assert.equal(dto2[0].session_id, "sess-x");
 });
 
 test("mergeHumanEdits skips edits without id and keeps applying the rest", () => {
@@ -326,4 +330,106 @@ test("Bug7: injection ranking re-weights by quality_score (degraded memories ran
   const candidates = svc.injectCandidates({ maxItems: 5, threshold: 3 });
   assert.equal(candidates[0].title, "高质量", "100-quality preference leads the degraded one");
   assert.equal(candidates[1].title, "元记忆");
+});
+
+// --- session lifecycle (v0.6.0): dispose/restore by session -----------------
+// session_disposed_at is orthogonal to `archived`: dispose hides only entries
+// born in the deleted session, and restore never resurrects user-archived ones.
+
+test("disposeBySession marks only that session's memories", () => {
+  const store = createStore(":memory:");
+  const svc = createService({ store, mirror: null, config: {} });
+  const s1 = svc.saveWithDedupe({ type: "project", title: "会话A记忆", content: "x", session_id: "sess-1" });
+  svc.saveWithDedupe({ type: "project", title: "会话B记忆", content: "y", session_id: "sess-2" });
+
+  const res = svc.disposeBySession("sess-1");
+  assert.deepEqual(res, { disposed: 1 });
+  assert.ok(svc.getById(s1.memory.id).session_disposed_at, "session-1 memory marked disposed");
+  // disposed memories vanish from default list (like archived)
+  assert.ok(!svc.list({ type: "project" }).some((m) => m.id === s1.memory.id), "disposed hidden from default list");
+  const other = svc.list({ type: "project", includeDisposed: true });
+  assert.ok(other.some((m) => m.title === "会话B记忆" && !m.session_disposed_at), "other session untouched");
+});
+
+test("restoreBySession clears the dispose mark and makes entries visible again", () => {
+  const store = createStore(":memory:");
+  const svc = createService({ store, mirror: null, config: {} });
+  const s1 = svc.saveWithDedupe({ type: "project", title: "存档会话", content: "x", session_id: "sess-9" });
+  svc.disposeBySession("sess-9");
+
+  assert.ok(!svc.list({ type: "project" }).some((m) => m.id === s1.memory.id), "hidden while disposed");
+  const res = svc.restoreBySession("sess-9");
+  assert.deepEqual(res, { restored: 1 });
+  assert.equal(svc.getById(s1.memory.id).session_disposed_at, undefined, "dispose mark cleared");
+  assert.ok(svc.list({ type: "project" }).some((m) => m.id === s1.memory.id), "visible again");
+});
+
+test("disposeBySession is idempotent: re-disposing returns 0", () => {
+  const store = createStore(":memory:");
+  const svc = createService({ store, mirror: null, config: {} });
+  svc.saveWithDedupe({ type: "project", title: "重复销毁", content: "x", session_id: "sess-3" });
+
+  assert.deepEqual(svc.disposeBySession("sess-3"), { disposed: 1 });
+  assert.deepEqual(svc.disposeBySession("sess-3"), { disposed: 0 }, "no rows flipped the second time");
+});
+
+test("disposeBySession on an unknown session is a no-op", () => {
+  const store = createStore(":memory:");
+  const svc = createService({ store, mirror: null, config: {} });
+  assert.deepEqual(svc.disposeBySession("nope"), { disposed: 0 });
+  assert.deepEqual(svc.restoreBySession("nope"), { restored: 0 });
+});
+
+test("legacy rows without session_id are never touched by session lifecycle", () => {
+  const store = createStore(":memory:");
+  const svc = createService({ store, mirror: null, config: {} });
+  const legacy = svc.saveWithDedupe({ type: "preference", title: "全局记忆", content: "no session", session_id: undefined });
+
+  svc.disposeBySession("sess-x");
+  assert.equal(svc.getById(legacy.memory.id).session_disposed_at, undefined, "global memory survives session dispose");
+});
+
+test("restoreBySession does NOT resurrect user-archived memories (orthogonal)", () => {
+  const store = createStore(":memory:");
+  const svc = createService({ store, mirror: null, config: {} });
+  // user manually archived this one (archived=true), then the session is disposed
+  const { memory: userArchived } = svc.saveWithDedupe({ type: "decision", title: "手动归档", content: "x", session_id: "sess-4" });
+  svc.setArchived(userArchived.id, true);
+  svc.disposeBySession("sess-4");
+
+  svc.restoreBySession("sess-4");
+  assert.equal(svc.getById(userArchived.id).archived, true, "user archive survives restore");
+  assert.equal(svc.getById(userArchived.id).session_disposed_at, undefined, "dispose mark cleared but archive kept");
+  assert.ok(!svc.list({ type: "decision" }).some((m) => m.id === userArchived.id), "still hidden by user archive");
+});
+
+test("listBySession returns only that session's memories via wire DTOs", () => {
+  const store = createStore(":memory:");
+  const svc = createService({ store, mirror: null, config: {} });
+  const { memory } = svc.saveWithDedupe({ type: "decision", title: "会话决策", content: "d", session_id: "sess-7" });
+  svc.saveWithDedupe({ type: "decision", title: "别会话", content: "e", session_id: "sess-8" });
+
+  const rows = svc.listBySession("sess-7");
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, memory.id);
+  assert.equal(rows[0].title, "会话决策");
+  assert.equal(rows[0].session_id, "sess-7");
+});
+
+test("listBySession DTO hides disposed by default and flags it when included", () => {
+  const store = createStore(":memory:");
+  const svc = createService({ store, mirror: null, config: {} });
+  const { memory } = svc.saveWithDedupe({ type: "decision", title: "会话决策", content: "d", session_id: "sess-9" });
+  svc.disposeBySession("sess-9");
+
+  assert.equal(svc.listBySession("sess-9").length, 0, "disposed hidden by default");
+  const visible = svc.listBySession("sess-9", { includeDisposed: true });
+  assert.equal(visible.length, 1);
+  assert.equal(visible[0].id, memory.id);
+  assert.equal(visible[0].disposed, true, "DTO carries disposed marker so restore is not blind");
+
+  svc.restoreBySession("sess-9");
+  const restored = svc.listBySession("sess-9");
+  assert.equal(restored.length, 1, "restore brings it back to default view");
+  assert.equal(restored[0].disposed, undefined, "marker cleared after restore");
 });

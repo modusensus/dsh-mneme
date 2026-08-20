@@ -317,6 +317,26 @@ export const apply = (ctx, config) => {
   const summarizer = createSummarizer(ctx, service, cfg);
   disposers.push(summarizer.dispose);
 
+  // Session lifecycle (v0.6.0): when a session leaves the store and the toggle
+  // is enabled, mark every memory born in it as session-disposed (hidden from
+  // injection/search/dream but never destroyed — recoverable via
+  // restoreBySession). Default off, so a disposed session leaves its memories
+  // active (legacy behavior). Every path is guarded: a failure inside the
+  // callback must never propagate into DSH's session teardown (that would crash
+  // the plugin on the very delete action it serves).
+  if (cfg.sessionLifecycleEnabled) {
+    disposers.push(ctx.on("session/disposed", (session) => {
+      const sessionId = session?.id;
+      if (!sessionId) return;
+      try {
+        const { disposed } = service.disposeBySession(sessionId);
+        ctx.logger?.info?.(`[dsh-mneme] session disposed, hid ${disposed} memory(s) for ${sessionId}`);
+      } catch (error) {
+        ctx.logger?.warn?.(`[dsh-mneme] session dispose failed for ${sessionId}: ${String(error)}`);
+      }
+    }));
+  }
+
   if (ctx.webServer) {
     const api = createApi(ctx, service, settings, commands ?? {
       add: () => { throw new Error("commands unavailable"); },

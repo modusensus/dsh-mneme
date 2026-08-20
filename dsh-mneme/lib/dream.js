@@ -495,7 +495,7 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
   let inFlight = null;
 
   function shouldTrigger(service) {
-    const memories = service.all().filter((m) => !m.archived && m.type !== "summary");
+    const memories = service.all().filter((m) => !m.archived && !m.session_disposed_at && m.type !== "summary");
     const count = memories.length;
     const chars = totalChars(memories);
     const overBase = count >= baseline.count + thresholdCount || chars >= baseline.chars + thresholdChars;
@@ -844,7 +844,7 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
           : {}),
         messages: [
           { role: "system", content: [{ type: "text", text: SUMMARY_PROMPT }] },
-          { role: "user", content: [{ type: "text", text: service.all().filter((m) => !m.archived && m.type !== "summary").map((m) => `- ${m.title}: ${m.content}`).join("\n") }] }
+          { role: "user", content: [{ type: "text", text: service.all().filter((m) => !m.archived && !m.session_disposed_at && m.type !== "summary").map((m) => `- ${m.title}: ${m.content}`).join("\n") }] }
         ]
       }, reportUsage));
     } catch (error) {
