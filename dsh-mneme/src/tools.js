@@ -180,9 +180,10 @@ export function createTools(ctx, service, config, embedder) {
 
     defineTool({
       name: "memory_delete",
-      description: "Permanently delete a memory entry.",
+      description: "Permanently delete a memory entry. Pass id for exact delete, or query to delete the single best-matching entry by text — lets the agent honor 'delete the memory about X' without a prior list/search round trip.",
       parameters: {
-        id: { type: "string", required: true }
+        id: { type: "string", description: "Exact memory id to delete (from memory_list/memory_search output)" },
+        query: { type: "string", description: "Delete the best-matching entry for this text (searches title/content/tags; uses hybrid recall when an embedder is configured)" }
       },
       output: {
         schema: {
@@ -193,9 +194,19 @@ export function createTools(ctx, service, config, embedder) {
         render: (_args, value) => TEXT_OUTPUT(value.deleted ? "Memory deleted." : "Memory not found.")
       },
       async execute(args) {
-        const existed = service.getById(args.id) !== undefined;
-        if (existed) service.remove(args.id);
-        return { deleted: existed };
+        if (args.id) {
+          const existed = service.getById(args.id) !== undefined;
+          if (existed) service.remove(args.id);
+          return { deleted: existed };
+        }
+        if (args.query) {
+          const [best] = await service.searchMemories(args.query, { mode: "auto", topK: 1, useRerank: true });
+          if (best) {
+            service.remove(best.id);
+            return { deleted: true };
+          }
+        }
+        return { deleted: false };
       }
     }),
 

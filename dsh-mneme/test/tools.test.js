@@ -142,6 +142,26 @@ test("memory_delete on missing id returns deleted:false", async () => {
   assert.equal(result.deleted, false);
 });
 
+test("memory_delete by query deletes the best match (no id round-trip)", async () => {
+  const { registered, service, store } = setup();
+  const { memory } = service.saveWithDedupe({ type: "preference", title: "喜欢 Rust", content: "用户偏好 Rust 优先于 Go", importance: 4 });
+  service.saveWithDedupe({ type: "preference", title: "喜欢 Python", content: "用户偏好 Python 写脚本", importance: 3 });
+  const del = registered.find((t) => t.name === "memory_delete");
+  const result = await del.execute({ query: "Rust" });
+  assert.equal(result.deleted, true);
+  assert.equal(service.getById(memory.id), undefined, "best-matching Rust entry removed");
+  assert.equal(store.count(), 1, "non-matching entry untouched");
+});
+
+test("memory_delete by query with no match returns deleted:false", async () => {
+  const { registered, service, store } = setup();
+  service.saveWithDedupe({ type: "preference", title: "喜欢 Rust", content: "用户偏好 Rust", importance: 4 });
+  const del = registered.find((t) => t.name === "memory_delete");
+  const result = await del.execute({ query: "完全不存在的关键词xyz" });
+  assert.equal(result.deleted, false);
+  assert.equal(store.count(), 1, "nothing removed when no match");
+});
+
 test("memory_forget suppresses injection without deleting", async () => {
   const { registered, service, store } = setup();
   const { memory } = service.saveWithDedupe({ type: "project", title: "t", content: "c", importance: 5 });
