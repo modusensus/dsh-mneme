@@ -415,3 +415,21 @@ test("listBySession returns only that session's memories via wire DTOs", () => {
   assert.equal(rows[0].title, "会话决策");
   assert.equal(rows[0].session_id, "sess-7");
 });
+
+test("listBySession DTO hides disposed by default and flags it when included", () => {
+  const store = createStore(":memory:");
+  const svc = createService({ store, mirror: null, config: {} });
+  const { memory } = svc.saveWithDedupe({ type: "decision", title: "会话决策", content: "d", session_id: "sess-9" });
+  svc.disposeBySession("sess-9");
+
+  assert.equal(svc.listBySession("sess-9").length, 0, "disposed hidden by default");
+  const visible = svc.listBySession("sess-9", { includeDisposed: true });
+  assert.equal(visible.length, 1);
+  assert.equal(visible[0].id, memory.id);
+  assert.equal(visible[0].disposed, true, "DTO carries disposed marker so restore is not blind");
+
+  svc.restoreBySession("sess-9");
+  const restored = svc.listBySession("sess-9");
+  assert.equal(restored.length, 1, "restore brings it back to default view");
+  assert.equal(restored[0].disposed, undefined, "marker cleared after restore");
+});

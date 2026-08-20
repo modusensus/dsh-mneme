@@ -578,6 +578,12 @@ export function createStore(path) {
   addColumn("memories", "quality_score", "ALTER TABLE memories ADD COLUMN quality_score REAL");
   addColumn("memories", "session_id", "ALTER TABLE memories ADD COLUMN session_id TEXT");
 
+  // Composite index for session-lifecycle queries (dispose/restore/listBySession).
+  // Created post-migration, NOT in SCHEMA: on legacy DBs both columns arrive via
+  // ADD COLUMN above, so the index would fail at db.exec(SCHEMA) time. CREATE
+  // INDEX IF NOT EXISTS is atomic, so the two-process race is safe here.
+  db.exec("CREATE INDEX IF NOT EXISTS idx_memories_session ON memories(session_id, session_disposed_at)");
+
   // Legacy dream_runs without policy_epoch → backfill with the default epoch.
   addColumn("dream_runs", "policy_epoch", "ALTER TABLE dream_runs ADD COLUMN policy_epoch INTEGER NOT NULL DEFAULT 0");
   addColumn("dream_runs", "run_type", "ALTER TABLE dream_runs ADD COLUMN run_type TEXT NOT NULL DEFAULT 'auto'");
@@ -832,9 +838,13 @@ export function createStore(path) {
   // marks entries hidden because the session they were born in was deleted
   // (a reversible "undo" — restoreBySession clears it). They never clobber each
   // other: restoreBySession must not resurrect user-archived memories.
-  function listBySession(sessionId) {
+  // Mirrors list/search: disposed rows are hidden by default. A consumer that
+  // needs to see the full picture (e.g. a restore flow that tells the user
+  // "these N entries were hidden") opts in via includeDisposed.
+  function listBySession(sessionId, { includeDisposed = false } = {}) {
+    const disposedFilter = includeDisposed ? "" : "AND session_disposed_at IS NULL";
     const rows = db.prepare(
-      "SELECT * FROM memories WHERE session_id = ? ORDER BY updated_at DESC"
+      `SELECT * FROM memories WHERE session_id = ? ${disposedFilter} ORDER BY updated_at DESC`
     ).all(sessionId);
     return rows.map(toRow);
   }

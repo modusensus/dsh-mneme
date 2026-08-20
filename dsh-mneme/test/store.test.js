@@ -423,3 +423,14 @@ test("setDisposedBySession round-trips and listBySession sees all states", () =>
   assert.equal(bySession.length, 1);
   assert.equal(bySession[0].id, a.id);
 });
+
+test("listBySession hides disposed by default, includeDisposed opts in", () => {
+  const store = createStore(":memory:");
+  const a = store.save({ type: "decision", title: "会话记忆", content: "c", session_id: "sess-y" });
+  store.setDisposedBySession("sess-y", true);
+
+  assert.equal(store.listBySession("sess-y").length, 0, "disposed row hidden by default");
+  const all = store.listBySession("sess-y", { includeDisposed: true });
+  assert.equal(all.length, 1, "includeDisposed reveals it");
+  assert.equal(all[0].id, a.id);
+});

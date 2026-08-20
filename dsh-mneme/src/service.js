@@ -1002,6 +1002,9 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       // session_id is optional on the wire: only carry it when present, so the
       // DTO stays a lossless JSON object (undefined would vanish on serialize).
       ...(m.session_id != null ? { session_id: m.session_id } : {}),
+      // Disposed state rides along when set, so a restore flow is not a blind
+      // op — the caller can see which entries are hidden before restoreBySession.
+      ...(m.session_disposed_at != null ? { disposed: true } : {}),
       created_at: m.created_at,
       updated_at: m.updated_at
     }));
@@ -1363,7 +1366,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       }
       return { restored };
     },
-    listBySession: (sessionId) => toApiList(store.listBySession(sessionId)),
+    listBySession: (sessionId, opts = {}) => toApiList(store.listBySession(sessionId, opts)),
     update: (id, p, ctx = {}) => {
       const old = store.getById(id);
       const updated = store.update(id, p);
