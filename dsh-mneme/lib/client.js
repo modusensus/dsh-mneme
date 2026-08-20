@@ -88,6 +88,7 @@ window.__ModuleLoader__.load({
         "memory.overlay.close": "关闭",
         "memory.explorer.tabMemory": "记忆",
         "memory.explorer.tabGraph": "图谱",
+        "memory.explorer.tabDirectory": "目录",
         "memory.explorer.tabSettings": "设置",
         "memory.explorer.search": "搜索标题或内容…",
         "memory.explorer.searchTitle": "语义检索",
@@ -111,6 +112,9 @@ window.__ModuleLoader__.load({
         "memory.explorer.importance": "重要性",
         "memory.explorer.topK": "返回数量",
         "memory.explorer.topKOption": "返回 {n} 条",
+        "memory.directory.untagged": "无标签",
+        "memory.directory.loading": "加载中…",
+        "memory.directory.empty": "暂无记忆条目",
         "memory.card.open": "在主区记忆库中查看全文",
         "memory.time.now": "刚刚",
         "memory.time.seconds": "{n}秒前",
@@ -184,6 +188,7 @@ window.__ModuleLoader__.load({
         "memory.overlay.close": "Close",
         "memory.explorer.tabMemory": "Memories",
         "memory.explorer.tabGraph": "Graph",
+        "memory.explorer.tabDirectory": "Directory",
         "memory.explorer.tabSettings": "Settings",
         "memory.explorer.search": "Search title or content…",
         "memory.explorer.searchTitle": "Semantic Search",
@@ -207,6 +212,9 @@ window.__ModuleLoader__.load({
         "memory.explorer.importance": "Importance",
         "memory.explorer.topK": "Results limit",
         "memory.explorer.topKOption": "Return {n}",
+        "memory.directory.untagged": "Untagged",
+        "memory.directory.loading": "Loading…",
+        "memory.directory.empty": "No memories yet",
         "memory.card.open": "Open full text in the Memory tab",
         "memory.time.now": "just now",
         "memory.time.seconds": "{n}s ago",
@@ -398,6 +406,21 @@ window.__ModuleLoader__.load({
       ".mneme-gs-attrval{color:var(--dsw-alias-label-secondary);word-break:break-word;font-size:13px}",
       ".mneme-gs-link{display:block;width:100%;text-align:left;border:none;background:none;color:var(--dsw-alias-label-secondary);cursor:pointer;font-family:inherit;font-size:13px;padding:3px 6px;border-radius:6px;word-break:break-word}",
       ".mneme-gs-link:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}",
+      // --- directory sub-view (v0.6.3): tag folders + memory entries ---
+      ".mneme-directory{flex:1;min-height:0;overflow-y:auto;padding:8px 10px 28px}",
+      ".mneme-dir-folder{margin-bottom:4px}",
+      ".mneme-dir-folderhead{display:flex;align-items:center;gap:6px;width:100%;padding:6px 8px;border:none;border-radius:8px;background:none;color:var(--dsw-alias-label-primary);cursor:pointer;font-family:inherit;font-size:13px;font-weight:500;line-height:18px;text-align:left}",
+      ".mneme-dir-folderhead:hover{background:var(--dsw-alias-interactive-bg-hover)}",
+      ".mneme-dir-caret{flex:none;width:10px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:12px}",
+      ".mneme-dir-fname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+      ".mneme-dir-fcount{flex:none;margin-left:auto;font-size:12px;line-height:16px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}",
+      ".mneme-dir-fbody{margin:2px 0 4px 22px;padding-left:8px;border-left:1px solid var(--dsw-alias-border-l2)}",
+      ".mneme-dir-item{display:flex;gap:8px;align-items:baseline;width:100%;padding:4px 8px;border:none;border-radius:8px;background:none;color:var(--dsw-alias-label-secondary);cursor:pointer;font-family:inherit;font-size:13px;line-height:18px;text-align:left}",
+      ".mneme-dir-item:hover{background:var(--dsw-alias-interactive-bg-hover)}",
+      ".mneme-dir-item.mneme-active{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary)}",
+      ".mneme-dir-ititle{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+      ".mneme-dir-itime{flex:none;font-size:12px;line-height:16px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}",
+      ".mneme-dir-empty{color:var(--dsw-alias-label-tertiary);padding:24px 0;text-align:center;font-size:13px}",
       // --- settings sub-view ---
       ".mneme-xsettings{flex:1;min-height:0;overflow-y:auto;padding:24px 24px 48px}",
       ".mneme-xsettings-inner{max-width:640px}",
@@ -1087,10 +1110,86 @@ window.__ModuleLoader__.load({
       return tree;
     }
 
+    // --- directory sub-view (v0.6.3) ---
+    // A tag folder tree over the live memory set. One-level folders keyed by
+    // tag (handled on the server, getDirectory), each with a 二级 memory
+    // entry list (title + updated time); memories without a live tag land in
+    // the "untagged" folder. Collapse state lives in MemoryExplorer (lifted via
+    // `collapsed`), so switching tabs does not drop it. Clicking an entry jumps
+    // back into the browser with that memory selected (onJump = jumpToMemory).
+    function DirectoryPanel({ t, onJump, collapsed, setCollapsed }) {
+      const [dir, setDir] = useState(null); // { groups: [...], untagged: [...] }
+      const [status, setStatus] = useState("loading"); // loading | ready | error
+
+      useEffect(() => {
+        let cancelled = false;
+        setStatus("loading");
+        apiFetch("/api/dsh-mneme/directory")
+          .then((res) => (res.ok ? res.json() : null))
+          .then((d) => {
+            if (cancelled) return;
+            if (!d) { setDir(null); setStatus("error"); return; }
+            setDir({ groups: Array.isArray(d.groups) ? d.groups : [], untagged: Array.isArray(d.untagged) ? d.untagged : [] });
+            setStatus("ready");
+          })
+          .catch(() => { if (!cancelled) { setDir(null); setStatus("error"); } });
+        return () => { cancelled = true; };
+      }, []);
+
+      const toggle = (key) => setCollapsed((c) => ({ ...c, [key]: !c[key] }));
+
+      const renderFolder = (name, memories, extraKey, emptyLabel) => {
+        const folderKey = extraKey || name;
+        const open = !collapsed[folderKey];
+        const rows = memories.map((m) =>
+          h("button", {
+            key: m.id,
+            type: "button",
+            className: "mneme-dir-item",
+            onClick: () => onJump(m)
+          },
+            h("span", { className: "mneme-dir-ititle" }, m.title || m.content?.slice(0, 40)),
+            h("span", { className: "mneme-dir-itime" }, formatDate(m.updated_at || m.created_at))
+          )
+        );
+        return h("div", {
+          key: folderKey,
+          className: "mneme-dir-folder",
+          "data-expanded": String(open)
+        },
+          h("button", {
+            type: "button",
+            className: "mneme-dir-folderhead",
+            "aria-expanded": String(open),
+            onClick: () => toggle(folderKey)
+          },
+            h("span", { className: "mneme-dir-caret" }, open ? "▾" : "▸"),
+            h("span", { className: "mneme-dir-fname" }, name),
+            h("span", { className: "mneme-dir-fcount" }, String(memories.length))
+          ),
+          open && h("div", { className: "mneme-dir-fbody" },
+            rows.length > 0 ? rows : h("div", { className: "mneme-dir-empty" }, emptyLabel || t("memory.directory.empty"))
+          )
+        );
+      };
+
+      if (status === "loading") {
+        return h("div", { className: "mneme-directory" }, h("div", { className: "mneme-dir-empty" }, t("memory.directory.loading")));
+      }
+      const hasAny = dir && (dir.groups.length > 0 || dir.untagged.length > 0);
+      if (status === "error" || !hasAny) {
+        return h("div", { className: "mneme-directory" }, h("div", { className: "mneme-dir-empty" }, t("memory.directory.empty")));
+      }
+      return h("div", { className: "mneme-directory" },
+        dir.groups.map((g) => renderFolder(g.tag, g.memories)),
+        dir.untagged.length > 0 && renderFolder(t("memory.directory.untagged"), dir.untagged, "mneme-untagged")
+      );
+    }
+
     const EXPLORER_TYPES = ["preference", "project", "decision", "summary", "history"];
 
     function MemoryExplorer({ t }) {
-      const [view, setView] = useState("memory"); // memory | graph | settings
+      const [view, setView] = useState("memory"); // memory | directory | graph | settings
       const [items, setItems] = useState([]);
       const [loading, setLoading] = useState(true);
       const [type, setType] = useState("all");
@@ -1101,6 +1200,10 @@ window.__ModuleLoader__.load({
       const [remoteItems, setRemoteItems] = useState(null);
       const [selectedId, setSelectedId] = useState(null);
       const [collapsed, setCollapsed] = useState({});
+      // v0.6.3 directory sub-view: its own folder-collapse state, kept in
+      // MemoryExplorer so switching tabs does not lose it and jumpToMemory's
+      // time-tree reset (setCollapsed({})) cannot clobber it.
+      const [dirCollapsed, setDirCollapsed] = useState({});
       const [copied, setCopied] = useState(false);
       const [reloadKey, setReloadKey] = useState(0);
       const [graphFocus, setGraphFocus] = useState("");
@@ -1300,6 +1403,7 @@ window.__ModuleLoader__.load({
 
       const subviews = [
         { key: "memory", label: t("memory.explorer.tabMemory") },
+        { key: "directory", label: t("memory.explorer.tabDirectory") },
         { key: "graph", label: t("memory.explorer.tabGraph") },
         { key: "settings", label: t("memory.explorer.tabSettings") }
       ];
@@ -1478,6 +1582,7 @@ window.__ModuleLoader__.load({
             )
           )
         ),
+        view === "directory" && h(DirectoryPanel, { t, onJump: jumpToMemory, collapsed: dirCollapsed, setCollapsed: setDirCollapsed }),
         view === "graph" && h(GraphPanel, { t, focusEntity: graphFocus, onJumpMemory: jumpToMemory }),
         view === "settings" && h("div", { className: "mneme-xsettings" },
           h("div", { className: "mneme-xsettings-inner" }, h(SettingsContent, { t }))

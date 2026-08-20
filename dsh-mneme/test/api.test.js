@@ -513,3 +513,37 @@ test("POST /api/dsh-mneme/memory/tags 409s when manualTagEnabled is off", async 
   await route.handler(req(`/api/dsh-mneme/memory/tags?id=${mem.id}`), get);
   assert.equal(JSON.parse(get.body).manualTagEnabled, false, "GET reports the gate off");
 });
+
+// v0.6.3 directory view endpoint: /api/dsh-mneme/directory returns the
+// tag-grouped directory (groups + untagged) as JSON.
+test("GET /api/dsh-mneme/directory groups tagged memories by tag", async () => {
+  const { routes, service } = setup();
+  const a = service.saveWithDedupe({ type: "preference", title: "Linux", content: "内核" }).memory;
+  const b = service.saveWithDedupe({ type: "preference", title: "考研", content: "公共管理" }).memory;
+  service.setMemoryTags(a.id, ["linux"]);
+  service.setMemoryTags(b.id, ["考研"]);
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/directory");
+  assert.ok(route, "directory route must be registered");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/directory"), res);
+  assert.equal(res.statusCode, 200);
+  const data = JSON.parse(res.body);
+  assert.deepEqual(Object.keys(data).sort(), ["groups", "untagged"]);
+  assert.equal(data.groups.length, 2);
+  const linux = data.groups.find((g) => g.tag === "linux");
+  assert.deepEqual(linux.memories.map((m) => m.id), [a.id]);
+  assert.equal(linux.memories[0].title, "Linux");
+});
+
+test("GET /api/dsh-mneme/directory reports untagged memories", async () => {
+  const { routes, service } = setup();
+  const tagged = service.saveWithDedupe({ type: "preference", title: "Tagged", content: "x" }).memory;
+  const bare = service.saveWithDedupe({ type: "project", title: "Bare", content: "y" }).memory;
+  service.setMemoryTags(tagged.id, ["linux"]);
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/directory");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/directory"), res);
+  assert.equal(res.statusCode, 200);
+  const data = JSON.parse(res.body);
+  assert.deepEqual(data.untagged.map((m) => m.id), [bare.id]);
+});

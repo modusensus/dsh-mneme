@@ -1103,6 +1103,21 @@ export function createService({ store, mirror, config, onWrite, logger }) {
   }
 
   /**
+   * Directory view (v0.6.3): group live memories by tag. Delegates to
+   * store.getDirectory (tag-sorted groups, importance/updated DESC members,
+   * live-only filtering) and maps every memory to the wire DTO so the result
+   * is JSON-safe for the API endpoint.
+   * @returns {{groups: {tag: string, memories: object[]}[], untagged: object[]}}
+   */
+  function getDirectory() {
+    const { groups, untagged } = store.getDirectory();
+    return {
+      groups: groups.map((g) => ({ tag: g.tag, memories: toApiList(g.memories) })),
+      untagged: toApiList(untagged)
+    };
+  }
+
+  /**
    * Three-way merge of in-flight human mirror edits before a re-render.
    * Runs on every syncMirror, so a human edit made between two store writes is
    * never silently overwritten by the next sync (human priority is not limited
@@ -1436,6 +1451,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     injectCandidates,
     mergeHumanEdits,
     toApiList,
+    getDirectory,
     transaction,
     enqueue,
     setDreamHook(fn) { dreamHook = fn; },

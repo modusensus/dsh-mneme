@@ -666,8 +666,26 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
     }
   });
 
+  // --- directory view (v0.6.3) ---------------------------------------------
+  // GET /api/dsh-mneme/directory → memories grouped by tag as
+  // { groups: [{ tag, memories: [...] }], untagged: [...] }. Live-only
+  // (forgotten/archived/session-disposed excluded), groups tag-sorted, members
+  // importance+updated DESC. Read-only, stays open when apiToken is set.
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/directory",
+    handler(req, res) {
+      try {
+        const dir = service.getDirectory?.() ?? { groups: [], untagged: [] };
+        sendJson(res, 200, dir);
+      } catch {
+        sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
   return {
-    routes: 18,
+    routes: 19,
     dispose: () => {
       for (const dispose of disposers) dispose();
     }

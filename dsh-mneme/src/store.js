@@ -1797,6 +1797,42 @@ export function createStore(path) {
   }
 
   /**
+   * Directory view (v0.6.3): group live memories by their entity_attrs-backed
+   * tag set. A memory carrying N tags appears under all N tag folders; a memory
+   * with no live tags lands in `untagged`. Only live rows participate —
+   * forgotten, archived and session-disposed memories are excluded. Groups are
+   * ordered by tag (locale-aware), group members and untagged follow the
+   * canonical memory order (importance DESC, updated_at DESC, id).
+   * @returns {{groups: {tag: string, memories: object[]}[], untagged: object[]}}
+   */
+  function getDirectory() {
+    const rows = db.prepare(
+      `SELECT * FROM memories
+       WHERE forgotten = 0 AND archived = 0 AND session_disposed_at IS NULL
+       ORDER BY importance DESC, updated_at DESC, id`
+    ).all();
+    const memories = rows.map(toRow);
+    const tagMap = getMemoryTagsMap(memories.map((m) => m.id));
+    const byTag = new Map(); // tag -> memory[]
+    const untagged = [];
+    for (const m of memories) {
+      const tags = tagMap.get(m.id);
+      if (!tags || tags.length === 0) {
+        untagged.push(m);
+        continue;
+      }
+      for (const tag of tags) {
+        if (!byTag.has(tag)) byTag.set(tag, []);
+        byTag.get(tag).push(m);
+      }
+    }
+    const groups = [...byTag.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([tag, ms]) => ({ tag, memories: ms }));
+    return { groups, untagged };
+  }
+
+  /**
    * Record a typed relation between two entities. metadata (optional) is a
    * free-form JSON blob describing the relation. Relations are append-only —
    * callers that need idempotency (e.g. wiki-links, via saveWikiLinks) guard
@@ -2171,6 +2207,7 @@ export function createStore(path) {
     getMemoryTags,
     getMemoryTagsMap,
     findMemoriesByTags,
+    getDirectory,
     saveRelation,
     saveWikiLinks,
     findByTitle,

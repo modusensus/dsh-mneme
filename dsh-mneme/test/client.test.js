@@ -309,3 +309,60 @@ test("tag UI ships localized labels in both dictionaries", () => {
     );
   }
 });
+
+// v0.6.3 directory view: a tag-folder tree backed by the directory endpoint.
+// Folders accordion via data-expanded controlled by MemoryExplorer-lifted
+// state; a memory entry click jumps back into the browser via onJump.
+test("directory sub-view mounts DirectoryPanel backed by the directory endpoint", () => {
+  assert.ok(
+    clientSource.includes("h(DirectoryPanel, { t, onJump: jumpToMemory, collapsed: dirCollapsed, setCollapsed: setDirCollapsed })"),
+    "the directory panel must be embedded as a sub-view with lifted collapse state"
+  );
+  assert.ok(
+    clientSource.includes("/api/dsh-mneme/directory"),
+    "DirectoryPanel must fetch the directory endpoint"
+  );
+  assert.ok(
+    clientSource.includes('className: "mneme-directory"'),
+    "the directory panel must render inside the .mneme-directory block"
+  );
+});
+
+test("directory folders accordion via data-expanded driven by MemoryExplorer state", () => {
+  assert.ok(
+    clientSource.includes('"data-expanded": String(open)'),
+    "folder expansion must be driven by the data-expanded attribute"
+  );
+  assert.ok(
+    clientSource.includes("const [dirCollapsed, setDirCollapsed] = useState({})"),
+    "collapse state must live in MemoryExplorer so tab switches keep it"
+  );
+  assert.ok(
+    clientSource.includes('"aria-expanded": String(open)'),
+    "folder headers must announce their expanded state"
+  );
+});
+
+test("directory entry click jumps to the memory detail via onJump", () => {
+  assert.ok(
+    clientSource.includes("onClick: () => onJump(m)"),
+    "clicking a memory entry must call onJump with the memory"
+  );
+  assert.ok(
+    clientSource.includes("formatDate(m.updated_at || m.created_at)"),
+    "entries must render a timestamp via formatDate"
+  );
+  assert.ok(
+    clientSource.includes("memory.directory.untagged"),
+    "untagged memories must be bucketed under a labeled fallback folder"
+  );
+});
+
+test("directory ships localized labels in both dictionaries", () => {
+  for (const key of ["memory.explorer.tabDirectory", "memory.directory.untagged", "memory.directory.loading", "memory.directory.empty"]) {
+    assert.ok(
+      clientSource.includes(`"${key}"`),
+      `${key} key must exist`
+    );
+  }
+});
