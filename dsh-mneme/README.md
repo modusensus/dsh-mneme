@@ -116,7 +116,17 @@ dsh web
 
 **默认关闭**（`wikiLinkEnabled: false`）。开启后，记忆正文支持 `[[target]]` / `[[显示|target]]` 双括号链接语法：保存时自动解析并记录跨记忆 `links_to` 关系（partial 唯一索引只对 links_to 去重），记忆详情旁出现反向链接面板，点击可跳转来源记忆。提供只读 API：backlinks / forward-links / wikilink-resolve（输出脱敏）。
 
+### Tag 系统 🏷️（v0.6.2，opt-in）
 
+`autoTagEnabled` 默认关。开启后：正文 `#标签` 即时标记（规则 `[a-zA-Z0-9_一-龥-]+`，≤20 字符，非法/超长自动丢弃）；autoDream 整理后 LLM 自动打 1-3 个标签（`autoTagMaxPerRun=10` 频控，fail-safe）；tags 存 `entity_attrs`；`tag:` 搜索前缀可与关键词/`entity:`/`attr:` 组合；mirror 顶部渲染 `#tag` 行；记忆面板标签可点击（过滤）、添加、移除（`manualTagEnabled` 默认开）。存储与搜索能力始终可用，`autoTagEnabled` 只控制自动打标。
+
+### 目录视图 📁（v0.6.3）
+
+记忆面板新增「目录」视图：以 Tag 为轴心的一级手风琴文件夹，无标签记忆自动沉底到「无标签」兜底组；组内按重要性/时间双降序；点击条目直达详情页。数据由 `GET /api/dsh-mneme/directory` 提供（只读、排除 disposed/archived/forgotten）。
+
+### Tag 加权召回 ⚖️（v0.6.4，opt-in）
+
+`tagBoostEnabled` 默认关。开启后，三路召回合并出候选后做 tag 加权重排：候选记忆 tags 与 Query 提取 tags（`#xxx` + 已知 tag 列表）交集 → 分数 `×1.15`；与当前 Session 热记忆 tags 交集 → `×1.08`（可叠加，上限 1.0）。关闭时行为与旧版完全一致，可用 `evaluateRetrieval` 开关对比调优。
 
 官方设置面板 → 「记忆库设置」→「记忆」标签：按类型浏览、全文搜索；启用向量搜索后可用「语义」切换做向量召回。
 
@@ -216,6 +226,10 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 
 | 版本 | 亮点 |
 |------|------|
+| **v0.6.5** | 整合 v0.6.2-0.6.4：Tag 系统 + 目录视图 + Tag 加权召回（全部 opt-in）；709 测试全绿 |
+| **v0.6.4** | Tag 加权召回：query/session tag 交集 boost（`tagBoostEnabled` 默认关） |
+| **v0.6.3** | 目录视图：Tag 文件夹 + 无标签兜底 + 点击跳详情 |
+| **v0.6.2** | Tag 系统：`#标签` + autoDream 自动打标 + `tag:` 搜索 + 面板 chips |
 | **v0.6.1** | Wiki-Link 双向链接（笔记化记忆库第一步）：[[笔记]] 跨记忆链接 + 反向链接面板 + links_to partial 唯一索引；654 测试全绿 |
 | **v0.6.0** | 会话生命周期（把对话当存档点）：`session_disposed_at` 独立字段软隐藏会话删除的记忆（与 `archived` 正交，可恢复）+ `memory_delete` 支持描述删除 + 事件订阅熔断；阿里云 kimi-k2.7-code 审查 4 项修复；628 测试全绿 |
 | **v0.5.0** | 主区「记忆库」视图（取代侧边栏抽屉）+ 记忆图谱可视化（ego-graph API + 零依赖 SVG 力导向）+ BM25 三路召回融合 + 自适应阈值 + 会话热记忆 + 召回基准评测；593 测试全绿 |
@@ -245,6 +259,9 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 | **v0.5.0** | ✅ 完成 | 召回融合与记忆可视化 | 主区「记忆库」视图 + 记忆图谱（ego-graph API + 零依赖 SVG 力导向）+ BM25 三路召回融合 + 自适应阈值 + 会话热记忆 + 召回基准；593 测试全绿 |
 | **v0.6.0** | ✅ 完成 | 会话生命周期 | 把对话当存档点：`session_disposed_at` 软隐藏会话删除的记忆（与 `archived` 正交、可恢复）+ `memory_delete` 描述删除 + 事件熔断；628 测试全绿 |
 | **v0.6.1** | ✅ 完成 | Wiki-Link 双向链接 | 笔记化记忆库第一步：`[[target]]` 跨记忆链接 + 反向链接面板 + links_to partial 唯一索引；654 测试全绿 |
+| **v0.6.2** | ✅ 完成 | Tag 系统 | `#标签` 解析 + autoDream 自动打标 + `tag:` 搜索 + 面板 chips + mirror `#tag` 行（全部 opt-in） |
+| **v0.6.3** | ✅ 完成 | 目录视图 | Tag 文件夹手风琴 + 无标签兜底 + 点击跳详情 + `GET /api/dsh-mneme/directory` 端点 |
+| **v0.6.4** | ✅ 完成 | Tag 加权召回 | query/session tag 交集 boost（×1.15 / ×1.08），`tagBoostEnabled` 默认关 |
 | **v0.7.0+** | 🚀 远期 | 自进化记忆 | 兴趣漂移跟踪 + 跨 workspace 记忆共享（等 DSH 支持） |
 
 > 新能力一律做成**可开关的功能**（配置启用/关闭），默认保守开启、不破坏现有行为。`failure_memories` 表与 autoDream 决策引擎已为后续反思性成长铺好路。
