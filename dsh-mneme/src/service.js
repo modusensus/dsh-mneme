@@ -4,6 +4,7 @@ import { evaluateMemoryQuality } from "./quality-filter.js";
 import { createBM25Index } from "./search/bm25.js";
 import { adaptiveThreshold } from "./search/adaptive.js";
 import { parseWikiLinks } from "./parser/wiki-link.js";
+import { extractQueryTags, applyTagBoost } from "./search/tag-boost.js";
 
 const INJECT_TYPES = new Set(["preference", "project", "decision", "summary"]);
 
@@ -625,6 +626,27 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     // embedding state.
     merged = mode === "keyword" ? merged : semanticDeduplicate(merged);
     merged = merged.slice(0, lim);
+
+    // Tag-weighted re-rank (v0.6.4): boost candidates whose tags overlap the
+    // query tags or the current session's hot-memory tags. Opt-in — off by
+    // default, and skipped entirely on the keyword-only path.
+    if (config.tagBoostEnabled === true && mode !== "keyword" && merged.length) {
+      const ids = merged.map((m) => m.id);
+      const tagsMap = store.getMemoryTagsMap(ids);
+      const enriched = merged.map((m) => ({ ...m, tags: tagsMap.get(m.id) ?? [] }));
+      const knownTags = [...tagsMap.values()].flat();
+      const queryTags = extractQueryTags(q, knownTags);
+      const sessionTags = Array.isArray(options?.sessionTags) ? options.sessionTags : [];
+      if (queryTags.length || sessionTags.length) {
+        merged = applyTagBoost(enriched, {
+          queryTags,
+          sessionTags,
+          factor: config.tagBoostFactor,
+          sessionFactor: config.sessionTagBoostFactor,
+        }).map(({ tags, ...rest }) => rest);
+      }
+    }
+
     let result = useRerank && reranker && merged.length
       ? await rerankCandidates(q, merged, lim)
       : merged;

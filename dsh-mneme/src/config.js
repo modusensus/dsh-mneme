@@ -187,6 +187,12 @@ export const Config = z.object({
   // set false to disable the manual write path too.
   manualTagEnabled: z.boolean().default(true),
 
+  // --- tag-weighted re-rank (v0.6.4) -------------------------------------
+  // Opt-in: boost candidates whose tags overlap the query/session tags.
+  tagBoostEnabled: z.boolean().default(false),
+  tagBoostFactor: z.number().min(1).max(2).default(1.15),
+  sessionTagBoostFactor: z.number().min(1).max(2).default(1.08),
+
   // --- sleep mode: idle-triggered deep maintenance (v0.4.0) ---------------
   // Opt-in, off by default. Unlike autoDream (threshold-triggered, lightweight)
   // sleep fires when the store has been quiet for sleepIdleMinutes and deep-
