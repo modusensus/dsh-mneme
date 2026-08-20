@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
+import { sanitizeTags } from "./parser/tag.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS memories (
@@ -1693,19 +1694,12 @@ export function createStore(path) {
   // and the bulk tag map all work without a special path.
 
   /** Normalize an arbitrary tags input to a deduplicated string array.
-   *  Non-string entries, blanks and over-long tags are dropped (fail-safe). */
+   *  Delegates to parser/tag.js sanitizeTags (shared validation with parseTags
+   *  and the autoDream tag-extractor): strips a leading `#`, trims, drops
+   *  non-strings/blanks/over-long/illegal-char tags. Kept as a thin alias so
+   *  the tag write path validates identically to the parser path. */
   function normalizeTags(tags) {
-    if (!Array.isArray(tags)) return [];
-    const seen = new Set();
-    const out = [];
-    for (const t of tags) {
-      if (typeof t !== "string") continue;
-      const tag = t.trim();
-      if (!tag || tag.length > 20 || seen.has(tag)) continue;
-      seen.add(tag);
-      out.push(tag);
-    }
-    return out;
+    return sanitizeTags(tags);
   }
 
   /**
@@ -1717,16 +1711,27 @@ export function createStore(path) {
   function setMemoryTags(memoryId, tags) {
     const arr = normalizeTags(tags);
     const now = nowIso();
-    db.prepare(
-      `UPDATE entity_attrs SET valid_until = ?
-       WHERE attr_key = 'tags' AND memory_id = ? AND valid_until IS NULL`
-    ).run(now, memoryId);
-    if (arr.length) {
-      const id = randomUUID();
+    // Atomic: the invalidation and the fresh row must land together, so a
+    // mid-write crash never leaves the old live row gone without a replacement.
+    // SAVEPOINT (not BEGIN) so this nests safely inside service.transaction().
+    db.exec("SAVEPOINT set_memory_tags");
+    try {
       db.prepare(
-        `INSERT INTO entity_attrs (id, entity_id, attr_key, attr_value, memory_id, valid_from, valid_until, confidence, source)
-         VALUES (?, ?, 'tags', ?, ?, ?, NULL, 1.0, 'manual')`
-      ).run(id, memoryId, JSON.stringify(arr), memoryId, now);
+        `UPDATE entity_attrs SET valid_until = ?
+         WHERE attr_key = 'tags' AND memory_id = ? AND valid_until IS NULL`
+      ).run(now, memoryId);
+      if (arr.length) {
+        const id = randomUUID();
+        db.prepare(
+          `INSERT INTO entity_attrs (id, entity_id, attr_key, attr_value, memory_id, valid_from, valid_until, confidence, source)
+           VALUES (?, ?, 'tags', ?, ?, ?, NULL, 1.0, 'manual')`
+        ).run(id, memoryId, JSON.stringify(arr), memoryId, now);
+      }
+      db.exec("RELEASE set_memory_tags");
+    } catch (e) {
+      db.exec("ROLLBACK TO set_memory_tags");
+      db.exec("RELEASE set_memory_tags");
+      throw e;
     }
     return arr;
   }
@@ -1787,7 +1792,11 @@ export function createStore(path) {
          AND memory_id IS NOT NULL AND memory_id != ''
          AND (${where})`
     ).all(...params);
-    const stmt = db.prepare("SELECT * FROM memories WHERE id = ?");
+    // Same live-memory filter as getDirectory/store.search: forgotten/archived/
+    // session-disposed memories are invisible to `tag:` recall.
+    const stmt = db.prepare(
+      "SELECT * FROM memories WHERE id = ? AND forgotten = 0 AND archived = 0 AND session_disposed_at IS NULL"
+    );
     const memories = [];
     for (const { memory_id } of rows) {
       const row = stmt.get(memory_id);

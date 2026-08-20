@@ -599,7 +599,10 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       const ranked = [...byId.values()]
         .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
         .map((r) => ({ ...r, score: Math.max(0, Math.min(1, r.score ?? 0)) }));
-      merged = ranked.slice(0, lim);
+      // Tag boost (v0.6.4) needs the full ranked pool, not just the top-lim
+      // slice, so a tagged candidate just below the line can be re-admitted
+      // after the boost. Without boost this is the legacy lim truncation.
+      merged = config.tagBoostEnabled === true ? ranked : ranked.slice(0, lim);
       if (merged.length < lim && !merged.length) {
         // Vector unavailable entirely: fall back to plain keyword.
         merged = keyword.slice(0, lim);
@@ -625,11 +628,13 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     // it is the documented text-only path and must not be altered by
     // embedding state.
     merged = mode === "keyword" ? merged : semanticDeduplicate(merged);
-    merged = merged.slice(0, lim);
 
     // Tag-weighted re-rank (v0.6.4): boost candidates whose tags overlap the
-    // query tags or the current session's hot-memory tags. Opt-in — off by
-    // default, and skipped entirely on the keyword-only path.
+    // query tags or the current session's hot-memory tags — applied BEFORE the
+    // final top-K cut so tagged candidates just below the line can be
+    // re-admitted. Opt-in, and skipped entirely on the keyword-only path. When
+    // a reranker is configured (opt-in), it remains the final authority on
+    // order; the boost still shapes which candidates reach it.
     if (config.tagBoostEnabled === true && mode !== "keyword" && merged.length) {
       const ids = merged.map((m) => m.id);
       const tagsMap = store.getMemoryTagsMap(ids);
@@ -646,6 +651,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
         }).map(({ tags, ...rest }) => rest);
       }
     }
+    merged = merged.slice(0, lim);
 
     let result = useRerank && reranker && merged.length
       ? await rerankCandidates(q, merged, lim)

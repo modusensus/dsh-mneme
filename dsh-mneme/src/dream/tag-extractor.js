@@ -79,7 +79,7 @@ export async function runAutoTag({ ctx, service, config, route }) {
     : 10;
   // Retained = post-consolidation active memories, newest first, capped.
   const memories = service.all()
-    .filter((m) => !m.archived && !m.session_disposed_at && m.type !== "summary")
+    .filter((m) => !m.forgotten && !m.archived && !m.session_disposed_at && m.type !== "summary")
     .sort((a, b) => {
       const ta = String(a.updated_at ?? "");
       const tb = String(b.updated_at ?? "");
