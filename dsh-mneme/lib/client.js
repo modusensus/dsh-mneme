@@ -379,6 +379,13 @@ window.__ModuleLoader__.load({
       // --- detail column ---
       ".mneme-xdetail{flex:none;max-height:44%;min-height:0;overflow-y:auto;padding:14px 20px 16px;border-bottom:1px solid var(--dsw-alias-border-l2)}",
       ".mneme-xtree{flex:1;min-height:0;overflow-y:auto;padding:8px 10px 28px}",
+      ".mneme-xmain{display:flex;flex-direction:column}",
+      ".mneme-xfilter-bar{flex:none;height:48px;display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--dsw-alias-border-l2,#ddd)}",
+      ".mneme-xcards{flex:1;display:flex;flex-direction:row;gap:12px;padding:12px;overflow:hidden}",
+      ".mneme-card{background:var(--dsw-alias-bg-base,#fafafa);border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.06);padding:12px;display:flex;flex-direction:column;overflow:auto}",
+      ".mneme-card--search{width:236px;flex:none}",
+      ".mneme-card--tree{width:260px;flex:none}",
+      ".mneme-card--detail{flex:1;min-width:0}",
       ".mneme-xdinner{max-width:720px}",
       ".mneme-xdtitle{font-size:16px;font-weight:600;line-height:24px;color:var(--dsw-alias-label-primary);margin-bottom:10px;word-break:break-word}",
       ".mneme-xdmeta{display:flex;flex-wrap:wrap;gap:4px 14px;margin-bottom:6px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}",
@@ -1514,38 +1521,8 @@ window.__ModuleLoader__.load({
           ),
           ),
         view === "memory" && h("div", { className: "mneme-xmain" },
-          h("div", { className: "mneme-xside" },
-            h("div", { className: "mneme-xcolhead" }, t("memory.explorer.searchTitle")),
-            h("input", {
-              className: "mneme-search mneme-xsearch",
-              placeholder: t("memory.explorer.search"),
-              value: query,
-              onChange: (e) => setQuery(e.target.value)
-            }),
-            entityQuery && h("button", {
-              className: "mneme-entitychip",
-              style: { textAlign: "left", justifyContent: "flex-start" },
-              onClick: () => openGraphFor(entityQuery)
-            }, `${t("memory.graph.viewInGraph")} “${entityQuery}”`),
-            h("div", { className: "mneme-xrow" },
-              vecEnabled && h("button", {
-                className: semantic ? "mneme-chip mneme-active" : "mneme-chip",
-                title: t("memory.settings.vectorTitle"),
-                onClick: () => setSemantic(!semantic)
-              }, t("memory.panel.semantic")),
-              h("select", {
-                className: "mneme-select mneme-xselect",
-                value: searchTopK,
-                onChange: (e) => setSearchTopK(Number(e.target.value)),
-                title: t("memory.explorer.topK")
-              }, [5, 10, 20, 50].map((n) => h("option", { key: n, value: n }, t("memory.explorer.topKOption").replace("{n}", String(n)))))
-            ),
-            h("div", { className: "mneme-xrow" },
-              h("span", { className: "mneme-xcount" }, t("memory.explorer.count").replace("{n}", String(visible.length))),
-              h("button", { className: "mneme-footbtn", onClick: () => setReloadKey((k) => k + 1) }, t("memory.explorer.refresh"))
-            )
-          ),
-          h("div", { className: "mneme-xside mneme-xside--filter" },
+          // 1. 中间分类栏
+          h("div", { className: "mneme-xfilter-bar" },
             h("div", { className: "mneme-xcolhead" }, t("memory.explorer.types")),
             h("button", {
               className: type === "all" ? "mneme-xtype mneme-active" : "mneme-xtype",
@@ -1561,8 +1538,88 @@ window.__ModuleLoader__.load({
                 h("span", { className: "mneme-xcount2" }, String(counts[key]))
               ))
           ),
-          h("div", { className: "mneme-xbrowse" },
-            h("div", { className: "mneme-xdetail" },
+          // 2. 底部三卡片
+          h("div", { className: "mneme-xcards" },
+            // 左卡：搜索
+            h("div", { className: "mneme-card mneme-card--search" },
+              h("div", { className: "mneme-xcolhead" }, t("memory.explorer.searchTitle")),
+              h("input", {
+                className: "mneme-search mneme-xsearch",
+                placeholder: t("memory.explorer.search"),
+                value: query,
+                onChange: (e) => setQuery(e.target.value)
+              }),
+              entityQuery && h("button", {
+                className: "mneme-entitychip",
+                style: { textAlign: "left", justifyContent: "flex-start" },
+                onClick: () => openGraphFor(entityQuery)
+              }, `${t("memory.graph.viewInGraph")} “${entityQuery}”`),
+              h("div", { className: "mneme-xrow" },
+                vecEnabled && h("button", {
+                  className: semantic ? "mneme-chip mneme-active" : "mneme-chip",
+                  title: t("memory.settings.vectorTitle"),
+                  onClick: () => setSemantic(!semantic)
+                }, t("memory.panel.semantic")),
+                h("select", {
+                  className: "mneme-select mneme-xselect",
+                  value: searchTopK,
+                  onChange: (e) => setSearchTopK(Number(e.target.value)),
+                  title: t("memory.explorer.topK")
+                }, [5, 10, 20, 50].map((n) => h("option", { key: n, value: n }, t("memory.explorer.topKOption").replace("{n}", String(n)))))
+              ),
+              h("div", { className: "mneme-xrow" },
+                h("span", { className: "mneme-xcount" }, t("memory.explorer.count").replace("{n}", String(visible.length))),
+                h("button", { className: "mneme-footbtn", onClick: () => setReloadKey((k) => k + 1) }, t("memory.explorer.refresh"))
+              )
+            ),
+            // 中卡：时间树
+            h("div", { className: "mneme-card mneme-card--tree" },
+              h("div", { className: "mneme-xcolhead" }, t("memory.explorer.timeline")),
+              loading
+                ? h("div", { className: "mneme-xempty" }, "…")
+                : months.length === 0
+                  ? h("div", { className: "mneme-xempty" }, t("memory.explorer.empty"))
+                  : months.map((month) =>
+                      h("div", { key: month.key },
+                        h("button", {
+                          className: "mneme-xmonth",
+                          "aria-expanded": String(!collapsed[month.key]),
+                          onClick: () => setCollapsed((c) => ({ ...c, [month.key]: !c[month.key] }))
+                        },
+                          h("span", { className: "mneme-xcaret" }, collapsed[month.key] ? "▸" : "▾"),
+                          month.label
+                        ),
+                        !collapsed[month.key] && month.days.map((day) =>
+                          h("div", { key: day.key },
+                            h("button", {
+                              className: "mneme-xday",
+                              "aria-expanded": String(!collapsed[day.key]),
+                              onClick: () => setCollapsed((c) => ({ ...c, [day.key]: !c[day.key] }))
+                            },
+                              h("span", { className: "mneme-xcaret" }, collapsed[day.key] ? "▸" : "▾"),
+                              day.label
+                            ),
+                            !collapsed[day.key] && day.items.map((m) => {
+                              const d = new Date(m.updated_at || m.created_at || 0);
+                              const time = Number.isNaN(d.getTime())
+                                ? ""
+                                : d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+                              return h("button", {
+                                key: m.id,
+                                ref: (el) => { if (el) itemRefs.current.set(m.id, el); else itemRefs.current.delete(m.id); },
+                                className: m.id === selectedId ? "mneme-xitem mneme-active" : "mneme-xitem",
+                                onClick: () => setSelectedId(m.id)
+                              },
+                                h("span", { className: "mneme-xtime" }, time),
+                                h("span", { className: "mneme-xname" }, m.title || m.content?.slice(0, 40))
+                              );
+                            })
+                          )
+                      )
+                  )
+            )),
+            // 右卡：详情
+            h("div", { className: "mneme-card mneme-card--detail" },
               selected
                 ? h(react.Fragment, { key: selected.id },
                     h("div", { className: "mneme-xdinner" },
@@ -1623,50 +1680,6 @@ window.__ModuleLoader__.load({
                     )
                   )
                 : h("div", { className: "mneme-xempty" }, t("memory.explorer.emptyDetail"))
-            ),
-            h("div", { className: "mneme-xtree" },
-              h("div", { className: "mneme-xcolhead" }, t("memory.explorer.timeline")),
-              loading
-                ? h("div", { className: "mneme-xempty" }, "…")
-                : months.length === 0
-                  ? h("div", { className: "mneme-xempty" }, t("memory.explorer.empty"))
-                  : months.map((month) =>
-                      h("div", { key: month.key },
-                        h("button", {
-                          className: "mneme-xmonth",
-                          "aria-expanded": String(!collapsed[month.key]),
-                          onClick: () => setCollapsed((c) => ({ ...c, [month.key]: !c[month.key] }))
-                        },
-                          h("span", { className: "mneme-xcaret" }, collapsed[month.key] ? "▸" : "▾"),
-                          month.label
-                        ),
-                        !collapsed[month.key] && month.days.map((day) =>
-                          h("div", { key: day.key },
-                            h("button", {
-                              className: "mneme-xday",
-                              "aria-expanded": String(!collapsed[day.key]),
-                              onClick: () => setCollapsed((c) => ({ ...c, [day.key]: !c[day.key] }))
-                            },
-                              h("span", { className: "mneme-xcaret" }, collapsed[day.key] ? "▸" : "▾"),
-                              day.label
-                            ),
-                            !collapsed[day.key] && day.items.map((m) => {
-                              const d = new Date(m.updated_at || m.created_at || 0);
-                              const time = Number.isNaN(d.getTime())
-                                ? ""
-                                : d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-                              return h("button", {
-                                key: m.id,
-                                ref: (el) => { if (el) itemRefs.current.set(m.id, el); else itemRefs.current.delete(m.id); },
-                                className: m.id === selectedId ? "mneme-xitem mneme-active" : "mneme-xitem",
-                                onClick: () => setSelectedId(m.id)
-                              },
-                                h("span", { className: "mneme-xtime" }, time),
-                                h("span", { className: "mneme-xname" }, m.title || m.content?.slice(0, 40))
-                              );
-                            })
-                          ))
-                      ))
             )
           )
         ),
