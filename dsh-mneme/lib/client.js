@@ -72,6 +72,11 @@ window.__ModuleLoader__.load({
         "memory.settings.profileSaved": "画像已保存",
         "memory.settings.rules": "规则",
         "memory.settings.rulesHint": "Agent 必须遵守的行为规则，每轮注入",
+        "memory.settings.autoTagTitle": "自动打标签",
+        "memory.settings.autoTagHint": "开启后，新记忆由轻量模型自动打标签，目录页按标签自动分类（opt-in，默认关）",
+        "memory.settings.autoTagEnabled": "自动打标签",
+        "memory.settings.autoTagSave": "保存",
+        "memory.settings.autoTagSaved": "已保存",
         "memory.settings.ruleAdd": "添加规则",
         "memory.settings.rulePlaceholder": "例如：回答时总是先给结论",
         "memory.settings.commands": "自定义指令",
@@ -174,6 +179,11 @@ window.__ModuleLoader__.load({
         "memory.settings.profileSaved": "Profile saved",
         "memory.settings.rules": "Rules",
         "memory.settings.rulesHint": "Behavior rules the agent must follow every turn",
+        "memory.settings.autoTagTitle": "Auto-Tag",
+        "memory.settings.autoTagHint": "When on, new memories are auto-tagged by a light model and the directory auto-grouped by tag (opt-in, off by default)",
+        "memory.settings.autoTagEnabled": "Auto-tagging",
+        "memory.settings.autoTagSave": "Save",
+        "memory.settings.autoTagSaved": "Saved",
         "memory.settings.ruleAdd": "Add Rule",
         "memory.settings.rulePlaceholder": "e.g. Always lead with a conclusion",
         "memory.settings.commands": "Custom Commands",
@@ -846,6 +856,8 @@ window.__ModuleLoader__.load({
         (typeof window !== "undefined" && window.localStorage) ? window.localStorage.getItem("dsh-mneme-api-token") || "" : ""
       );
       const [apiTokenSaved, setApiTokenSaved] = react.useState(false);
+      const [autoTag, setAutoTag] = react.useState(false);
+      const [autoTagSaved, setAutoTagSaved] = react.useState(false);
 
       const load = react.useCallback(async () => {
         try {
@@ -859,6 +871,11 @@ window.__ModuleLoader__.load({
           setRules(Array.isArray(r.rules) ? r.rules : []);
           setCommands(Array.isArray(c.commands) ? c.commands : []);
           setVector(v.config || { enabled: false, baseUrl: "", apiKey: "", model: "" });
+          // autoTag loads independently so a config failure can't cascade-block the rest.
+          try {
+            const g = await apiFetch("/api/dsh-mneme/config").then((res) => res.json());
+            setAutoTag(g.config?.autoTagEnabled === true);
+          } catch { /* keep default off */ }
         } catch { /* ignore */ }
       }, []);
 
@@ -955,6 +972,18 @@ window.__ModuleLoader__.load({
         } catch { /* ignore */ }
       }
 
+      async function saveAutoTag() {
+        try {
+          await apiFetch("/api/dsh-mneme/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ autoTagEnabled: autoTag })
+          });
+          setAutoTagSaved(true);
+          setTimeout(() => setAutoTagSaved(false), 1500);
+        } catch { /* ignore */ }
+      }
+
       const inputStyle = { boxSizing: "border-box", width: "100%", height: 34, padding: "0 12px", borderRadius: 10, border: "1px solid var(--dsw-alias-border-l2, #ddd)", background: "var(--dsw-alias-bg-base, transparent)", color: "var(--dsw-alias-label-primary)", fontFamily: "inherit", fontSize: 13, outline: "none", marginBottom: 8 };
       const labelStyle = { fontSize: 12, fontWeight: 600, margin: "12px 0 4px", color: "var(--dsw-alias-label-primary)" };
       const hintStyle = { fontSize: 11, color: "var(--dsw-alias-label-tertiary, #999)", marginBottom: 8 };
@@ -1020,6 +1049,17 @@ window.__ModuleLoader__.load({
           h("textarea", { style: { ...inputStyle, marginBottom: 0, minHeight: 48, resize: "vertical", fontFamily: "inherit", padding: "8px 12px", height: "auto" }, value: newCmd.instruction, placeholder: t("memory.settings.cmdInstruction"), onChange: (e) => setNewCmd({ ...newCmd, instruction: e.target.value }) }),
           h("button", { style: styles.footerButton, onClick: addCommand }, t("memory.settings.cmdAdd")),
           cmdError && h("div", { style: { fontSize: 12, color: "var(--dsw-alias-state-error, #c33)" } }, cmdError)
+        ),
+        // auto-tag switch
+        h("div", { style: { ...labelStyle, marginTop: 20 } }, t("memory.settings.autoTagTitle")),
+        h("div", { style: hintStyle }, t("memory.settings.autoTagHint")),
+        h("label", { style: { display: "flex", alignItems: "center", gap: 6, marginBottom: 8, fontSize: 13 } },
+          h("input", { type: "checkbox", checked: autoTag, onChange: (e) => setAutoTag(e.target.checked) }),
+          h("span", null, t("memory.settings.autoTagEnabled"))
+        ),
+        h("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
+          h("button", { style: styles.footerButton, onClick: saveAutoTag }, t("memory.settings.autoTagSave")),
+          autoTagSaved && h("span", { style: { fontSize: 12, color: "var(--dsw-alias-state-success, #2a7)" } }, t("memory.settings.autoTagSaved"))
         ),
         // vector search
         h("div", { style: { ...labelStyle, marginTop: 20 } }, t("memory.settings.vectorTitle")),
