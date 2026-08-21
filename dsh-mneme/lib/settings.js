@@ -137,6 +137,36 @@ export function createSettings(db) {
       };
       setSetting("vector", JSON.stringify(cfg));
       return cfg;
+    },
+    /** Tagging switches (autoTag opt-in LLM pass + manual tag editing gate). */
+    getAutoTagConfig() {
+      const raw = getSetting("autoTag");
+      let stored = {};
+      if (raw) {
+        try {
+          const j = JSON.parse(raw);
+          if (j && typeof j === "object") stored = j;
+        } catch { /* fall through to defaults */ }
+      }
+      return {
+        autoTagEnabled: stored.autoTagEnabled === true,
+        manualTagEnabled: stored.manualTagEnabled === true
+      };
+    },
+    setAutoTagConfig(partial) {
+      const cur = (() => {
+        const raw = getSetting("autoTag");
+        try {
+          const j = JSON.parse(raw);
+          return j && typeof j === "object" ? j : {};
+        } catch { return {}; }
+      })();
+      const cfg = {
+        autoTagEnabled: partial.autoTagEnabled === undefined ? cur.autoTagEnabled === true : partial.autoTagEnabled === true,
+        manualTagEnabled: partial.manualTagEnabled === undefined ? cur.manualTagEnabled === true : partial.manualTagEnabled === true
+      };
+      setSetting("autoTag", JSON.stringify(cfg));
+      return cfg;
     }
   };
 }

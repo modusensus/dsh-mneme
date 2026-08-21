@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.6.7] - 2026-08-22
+
+### 新增（记忆面板前端增强）
+- **记忆删除端点**：新增 `DELETE /api/dsh-mneme/memories`（按 `id` 或 `query` 删除，对齐 `memory_delete` 工具）；`GET`/`PUT /api/dsh-mneme/config` 提供 `autoTagEnabled`/`manualTagEnabled` 读写（partial 更新，默认关）。
+- **记忆删除 UI**：目录视图支持选中删除记忆（二次确认 + 本地不可变移除）；新增「编辑模式」开关（读写 `manualTagEnabled`），编辑态删除按钮常显，移动端可删。
+- **autoTag 手动开关**：settings 面板新增 autoTag（自动打标签）开关，独立加载 `GET /api/dsh-mneme/config`（不阻塞 profile/rules/commands/vector），saveAutoTag 写 `autoTagEnabled`。
+- **记忆页卡片式布局**：中间分类栏（`.mneme-xfilter-bar`）+ 底部三卡片（search/tree/detail，`.mneme-xcards`），替换原横向三栏。
+
+### 修复
+- **卡片布局 CRITICAL 括号错位**（子 agent 复核 + 逐层核验）：tree 卡嵌套 months.map 后缺一个关闭 `)`，导致 detail 卡被错误吞进 tree 卡内部（括号总数平衡故语法检查/测试均过，仅渲染时三卡布局错位）。修复：补关 tree 卡 + 去掉补偿性多余括号，核验三卡已平级为 xcards 直接子节点。
+
+### 测试
+- 710 → **716** 全绿（新增删除端点 / config 读写 / 目录文件树 / 卡片布局用例）。
+
 ## [0.6.6] - 2026-08-20
 
 ### 修复

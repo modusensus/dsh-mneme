@@ -218,6 +218,96 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
     }
   });
 
+  // --- app config read/write (partial: pass only the fields to change) ---
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/config",
+    handler: async (req, res) => {
+      try {
+        if (!requireAuth(req, res, apiToken)) return;
+        if (req.method === "PUT" || req.method === "POST") {
+          const body = parseBody(await readBody(req));
+          const patch = {};
+          const setIfBoolean = (key) => {
+            if (Object.prototype.hasOwnProperty.call(body, key)) {
+              if (typeof body[key] !== "boolean") {
+                sendJson(res, 400, { error: `${key} must be a boolean` });
+                return false;
+              }
+              patch[key] = body[key];
+            }
+            return true;
+          };
+          if (!setIfBoolean("autoTagEnabled") || !setIfBoolean("manualTagEnabled")) return;
+          if (Object.keys(patch).length === 0) {
+            sendJson(res, 400, { error: "no valid config field provided" });
+            return;
+          }
+          const config = settings.setAutoTagConfig(patch);
+          sendJson(res, 200, { config });
+          return;
+        }
+        sendJson(res, 200, { config: settings.getAutoTagConfig() });
+      } catch {
+        sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
+  // --- delete a memory by exact id or best query match (mirrors memory_delete tool) ---
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/memories",
+    handler: async (req, res) => {
+      try {
+        if (!requireAuth(req, res, apiToken)) return;
+        if (req.method !== "DELETE") {
+          sendJson(res, 405, { error: "method not allowed" });
+          return;
+        }
+        const body = parseBody(await readBody(req));
+        const hasId = Object.prototype.hasOwnProperty.call(body, "id");
+        const hasQuery = Object.prototype.hasOwnProperty.call(body, "query");
+        if ((hasId && hasQuery) || (!hasId && !hasQuery)) {
+          sendJson(res, 400, { error: "provide exactly one of id or query" });
+          return;
+        }
+        if (hasId) {
+          if (typeof body.id !== "string" || !body.id.trim()) {
+            sendJson(res, 400, { error: "invalid id" });
+            return;
+          }
+          const mem = service.getById(body.id);
+          if (!mem) {
+            sendJson(res, 200, { deleted: false });
+            return;
+          }
+          service.remove(body.id);
+          sendJson(res, 200, { deleted: true, id: body.id });
+          return;
+        }
+        if (typeof body.query !== "string" || !body.query.trim()) {
+          sendJson(res, 400, { error: "invalid query" });
+          return;
+        }
+        const results = await service.searchMemories(body.query, { mode: "auto", topK: 1, useRerank: true });
+        if (!Array.isArray(results) || results.length === 0) {
+          sendJson(res, 200, { deleted: false });
+          return;
+        }
+        const mem = results[0];
+        if (!mem || !mem.id) {
+          sendJson(res, 200, { deleted: false });
+          return;
+        }
+        service.remove(mem.id);
+        sendJson(res, 200, { deleted: true, id: mem.id });
+      } catch {
+        sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
   // --- vector re-index (backfill embeddings for rows missing them) ---
   register({
     kind: "exact",
