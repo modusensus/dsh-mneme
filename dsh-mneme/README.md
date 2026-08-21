@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Awesome](https://awesome-dsh-plugin.com/badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
-[![tests](https://img.shields.io/badge/tests-628%20passed-success)](https://github.com/modusensus/dsh-mneme)
+[![tests](https://img.shields.io/badge/tests-710%20passed-success)](https://github.com/modusensus/dsh-mneme)
 
 > 给 DeepSeek Harness 的跨会话记忆插件：让 Agent 记住你、记住项目、自动整理记忆。**Mneme**（Μνήμη）——希腊记忆女神 Mnemosyne 之名，掌管记忆与梦境，正如 autoDream 在后台巩固记忆。
 
@@ -226,6 +226,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 
 | 版本 | 亮点 |
 |------|------|
+| **v0.6.6** | kimi-k3 复验 4 项修复：autoTag 跳过已打标记忆并合并、tag: 搜索召回统计门控（避免零召回拖垮 TopK）；710 测试全绿 |
 | **v0.6.5** | 整合 v0.6.2-0.6.4：Tag 系统 + 目录视图 + Tag 加权召回（全部 opt-in）；709 测试全绿 |
 | **v0.6.4** | Tag 加权召回：query/session tag 交集 boost（`tagBoostEnabled` 默认关） |
 | **v0.6.3** | 目录视图：Tag 文件夹 + 无标签兜底 + 点击跳详情 |
@@ -425,7 +426,7 @@ src/
 lib/
 ├── client.js         # Web 面板（手写 ModuleLoader bundle）
 └── *.js              # src 的同步分发产物
-test/                 # 628 个 node:test 测试（含审计与三轴线压测不变量）
+test/                 # 710 个 node:test 测试（含审计与三轴线压测不变量）
 scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压测 · sync-lib.js 同步 · benchmark-recall.js 召回基准
 ```
 
@@ -434,7 +435,7 @@ scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压
 ```bash
 cd dsh-mneme
 npm install        # 安装 peer 依赖（以 devDependencies 形式，用于本地测试）
-npm test           # 运行 628 个测试
+npm test           # 运行 710 个测试
 npm run stress     # 三轴线压测：长会话检索 / 冲突仲裁 / 多 Agent 并发（离线 mock LLM）
 npm run sync       # 把 src/ 同步到 lib/（发布时由 prepack 钩子自动执行）
 ```
