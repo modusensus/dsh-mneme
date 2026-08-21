@@ -115,6 +115,8 @@ window.__ModuleLoader__.load({
         "memory.directory.untagged": "无标签",
         "memory.directory.loading": "加载中…",
         "memory.directory.empty": "暂无记忆条目",
+        "directory.editToggle": "编辑模式（显示删除）",
+        "directory.deleteConfirm": "确定删除这条记忆吗？",
         "memory.card.open": "在主区记忆库中查看全文",
         "memory.time.now": "刚刚",
         "memory.time.seconds": "{n}秒前",
@@ -215,6 +217,8 @@ window.__ModuleLoader__.load({
         "memory.directory.untagged": "Untagged",
         "memory.directory.loading": "Loading…",
         "memory.directory.empty": "No memories yet",
+        "directory.editToggle": "Edit mode",
+        "directory.deleteConfirm": "Delete this memory?",
         "memory.card.open": "Open full text in the Memory tab",
         "memory.time.now": "just now",
         "memory.time.seconds": "{n}s ago",
@@ -408,6 +412,16 @@ window.__ModuleLoader__.load({
       ".mneme-gs-link:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}",
       // --- directory sub-view (v0.6.3): tag folders + memory entries ---
       ".mneme-directory{flex:1;min-height:0;overflow-y:auto;padding:8px 10px 28px}",
+      ".mneme-edit-toggle{margin:6px 10px;display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;user-select:none}",
+      ".mneme-dir-item{position:relative;display:flex;align-items:center;gap:6px;padding:2px 6px;border-radius:4px}",
+      ".mneme-dir-item:hover{background:rgba(127,127,127,.18)}",
+      ".mneme-tree-line{width:14px;height:1px;border-top:1px dashed rgba(127,127,127,.5);flex:none}",
+      ".mneme-dir-item .mneme-dir-del{opacity:0;transition:opacity .12s}",
+      ".mneme-dir-item:hover .mneme-dir-del{opacity:1}",
+      ".mneme-dir-del{margin-left:auto;background:none;border:none;color:#e5484d;cursor:pointer;font-size:13px;line-height:1;padding:2px 4px}",
+      ".mneme-dir-del:hover{filter:brightness(1.25)}",
+      ".mneme-edit-on .mneme-dir-del{opacity:1}",
+      ".mneme-dir-ititle{background:none;border:none;padding:0;font:inherit;color:inherit;cursor:pointer;flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
       ".mneme-dir-folder{margin-bottom:4px}",
       ".mneme-dir-folderhead{display:flex;align-items:center;gap:6px;width:100%;padding:6px 8px;border:none;border-radius:8px;background:none;color:var(--dsw-alias-label-primary);cursor:pointer;font-family:inherit;font-size:13px;font-weight:500;line-height:18px;text-align:left}",
       ".mneme-dir-folderhead:hover{background:var(--dsw-alias-interactive-bg-hover)}",
@@ -1120,6 +1134,7 @@ window.__ModuleLoader__.load({
     function DirectoryPanel({ t, onJump, collapsed, setCollapsed }) {
       const [dir, setDir] = useState(null); // { groups: [...], untagged: [...] }
       const [status, setStatus] = useState("loading"); // loading | ready | error
+      const [editMode, setEditMode] = useState(false); // manual tag/delete UI gate
 
       useEffect(() => {
         let cancelled = false;
@@ -1133,23 +1148,52 @@ window.__ModuleLoader__.load({
             setStatus("ready");
           })
           .catch(() => { if (!cancelled) { setDir(null); setStatus("error"); } });
+        apiFetch("/api/dsh-mneme/config")
+          .then((res) => (res.ok ? res.json() : null))
+          .then((d) => { if (!cancelled && d?.config && typeof d.config.manualTagEnabled === "boolean") setEditMode(d.config.manualTagEnabled); })
+          .catch(() => {});
         return () => { cancelled = true; };
       }, []);
 
       const toggle = (key) => setCollapsed((c) => ({ ...c, [key]: !c[key] }));
 
+      const toggleEdit = () => {
+        const next = !editMode;
+        apiFetch("/api/dsh-mneme/config", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ manualTagEnabled: next })
+        }).then((res) => { if (res.ok) setEditMode(next); }).catch(() => {});
+      };
+
+      const handleDelete = (memId, e) => {
+        e?.stopPropagation?.();
+        if (typeof window === "undefined" || !window.confirm(t("directory.deleteConfirm"))) return;
+        apiFetch("/api/dsh-mneme/memories", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: memId })
+        })
+          .then((res) => (res.ok ? res.json() : null))
+          .then((d) => {
+            if (!d || d.deleted !== true) return;
+            setDir((prev) => ({
+              groups: prev.groups.map((g) => ({ ...g, memories: g.memories.filter((m) => m.id !== memId) })),
+              untagged: prev.untagged.filter((m) => m.id !== memId)
+            }));
+          })
+          .catch(() => {});
+      };
+
       const renderFolder = (name, memories, extraKey, emptyLabel) => {
         const folderKey = extraKey || name;
         const open = !collapsed[folderKey];
         const rows = memories.map((m) =>
-          h("button", {
-            key: m.id,
-            type: "button",
-            className: "mneme-dir-item",
-            onClick: () => onJump(m)
-          },
-            h("span", { className: "mneme-dir-ititle" }, m.title || m.content?.slice(0, 40)),
-            h("span", { className: "mneme-dir-itime" }, formatDate(m.updated_at || m.created_at))
+          h("div", { key: m.id, className: "mneme-dir-item" },
+            h("span", { className: "mneme-tree-line" }),
+            h("button", { type: "button", className: "mneme-dir-ititle", onClick: () => onJump(m) }, m.title || m.content?.slice(0, 40)),
+            h("span", { className: "mneme-dir-itime" }, formatDate(m.updated_at || m.created_at)),
+            editMode && h("button", { type: "button", className: "mneme-dir-del", "aria-label": "delete", onClick: (e) => handleDelete(m.id, e) }, "✕")
           )
         );
         return h("div", {
@@ -1164,7 +1208,7 @@ window.__ModuleLoader__.load({
             onClick: () => toggle(folderKey)
           },
             h("span", { className: "mneme-dir-caret" }, open ? "▾" : "▸"),
-            h("span", { className: "mneme-dir-fname" }, name),
+            h("span", { className: "mneme-dir-fname" }, `📁 ${name}`),
             h("span", { className: "mneme-dir-fcount" }, String(memories.length))
           ),
           open && h("div", { className: "mneme-dir-fbody" },
@@ -1180,7 +1224,11 @@ window.__ModuleLoader__.load({
       if (status === "error" || !hasAny) {
         return h("div", { className: "mneme-directory" }, h("div", { className: "mneme-dir-empty" }, t("memory.directory.empty")));
       }
-      return h("div", { className: "mneme-directory" },
+      return h("div", { className: editMode ? "mneme-directory mneme-edit-on" : "mneme-directory" },
+        h("label", { className: "mneme-edit-toggle" },
+          h("input", { type: "checkbox", checked: editMode, onChange: toggleEdit }),
+          t("directory.editToggle")
+        ),
         dir.groups.map((g) => renderFolder(g.tag, g.memories)),
         dir.untagged.length > 0 && renderFolder(t("memory.directory.untagged"), dir.untagged, "mneme-untagged")
       );
