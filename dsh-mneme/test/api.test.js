@@ -547,3 +547,48 @@ test("GET /api/dsh-mneme/directory reports untagged memories", async () => {
   const data = JSON.parse(res.body);
   assert.deepEqual(data.untagged.map((m) => m.id), [bare.id]);
 });
+
+test("GET/PUT /api/dsh-mneme/config round-trips autoTag switches", async () => {
+  const { routes } = setup();
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/config");
+  const res1 = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/config"), res1);
+  assert.equal(res1.statusCode, 200);
+  assert.deepEqual(JSON.parse(res1.body).config, { autoTagEnabled: false, manualTagEnabled: false });
+  const res2 = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/config", "PUT", { autoTagEnabled: true, manualTagEnabled: false }), res2);
+  assert.equal(res2.statusCode, 200);
+  assert.deepEqual(JSON.parse(res2.body).config, { autoTagEnabled: true, manualTagEnabled: false });
+});
+
+test("DELETE /api/dsh-mneme/memories removes by id and reports misses", async () => {
+  const { routes, service } = setup();
+  service.saveWithDedupe({ type: "preference", title: "语言", content: "中文" });
+  const target = service.list().find((m) => m.title === "语言");
+  const id = target.id;
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/memories");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/memories", "DELETE", { id }), res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(JSON.parse(res.body).deleted, true);
+  const res2 = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/memories", "DELETE", { id }), res2);
+  assert.equal(JSON.parse(res2.body).deleted, false);
+});
+
+test("DELETE /api/dsh-mneme/memories rejects id+query together", async () => {
+  const { routes } = setup();
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/memories");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/memories", "DELETE", { id: "x", query: "y" }), res);
+  assert.equal(res.statusCode, 400);
+});
+
+test("PUT /api/dsh-mneme/config supports partial update", async () => {
+  const { routes } = setup();
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/config");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/config", "PUT", { autoTagEnabled: true }), res);
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(JSON.parse(res.body).config, { autoTagEnabled: true, manualTagEnabled: false });
+});

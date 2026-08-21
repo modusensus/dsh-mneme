@@ -99,3 +99,20 @@ test("vector config disabled value is stored as false", () => {
   assert.equal(settings.getVectorConfig().enabled, false);
   store.close();
 });
+
+test("autoTag config defaults to disabled and round-trips", () => {
+  const { store, settings } = setup();
+  assert.deepEqual(settings.getAutoTagConfig(), { autoTagEnabled: false, manualTagEnabled: false });
+  settings.setAutoTagConfig({ autoTagEnabled: true, manualTagEnabled: true });
+  assert.deepEqual(settings.getAutoTagConfig(), { autoTagEnabled: true, manualTagEnabled: true });
+  settings.setAutoTagConfig({ autoTagEnabled: false });
+  assert.deepEqual(settings.getAutoTagConfig(), { autoTagEnabled: false, manualTagEnabled: true });
+  store.close();
+});
+
+test("autoTag config coerces non-boolean to false", () => {
+  const { store, settings } = setup();
+  settings.setAutoTagConfig({ autoTagEnabled: "yes", manualTagEnabled: 1 });
+  assert.deepEqual(settings.getAutoTagConfig(), { autoTagEnabled: false, manualTagEnabled: false });
+  store.close();
+});
