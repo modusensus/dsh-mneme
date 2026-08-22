@@ -339,7 +339,7 @@ dsh web
 | `dreamThresholdCount` | `10` | 触发整理的记忆条数阈值 |
 | `dreamThresholdChars` | `5000` | 触发整理的总字符阈值 |
 | `dreamDelayMs` | `2000` | 整理异步延迟（去抖） |
-| `dreamProvider` / `dreamModel` | 空 | dream 的 LLM 路由回退（默认用 agent 默认模型） |
+| `dreamProvider` / `dreamModel` | 空 | dream 的 LLM 路由覆盖（显式配置优先于 agent 默认模型；留空则回退到 agent 默认模型） |
 | `dreamMaxTokens` | `8192` | dream LLM 调用最大 token 数（上限 131072；大记忆量建议调大，见下方调优指南） |
 | `dreamReasoningEffort` | `none` | dream LLM 推理强度透传：`off` / `low` / `medium` / `high` / `none`（`off`=显式关闭思考，思考型模型（如 deepseek-v4-flash）必须用它，否则推理会烧光 token 预算导致正文为空；`none`=不传该字段，沿用模型默认） |
 | `apiToken` | 空 | 可选 API 鉴权 token；设置后写操作与密钥接口要求 `Authorization: Bearer <apiToken>` |

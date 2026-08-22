@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.8] - 2026-08-22
+
+### 修复
+- **dream/sleep LLM 路由优先级（Issue #25）**：`resolveRoute` / `resolveSleepRoute` 原先总是先取 `agentDefaultModel.currentSelection()` 并直接返回，导致 `dreamProvider`/`dreamModel`、`sleepProvider`/`sleepModel` 在标准 DSH 安装下恒为死代码（`dream_runs` 审计表的 `provider`/`model` 始终是 agent 默认模型，配置的模型从未生效）。现改为显式 config 路由优先、agent 默认降为回退：dream 顺序为 `dreamProvider/dreamModel` → agent 默认；sleep 顺序为 `sleepProvider/sleepModel` → `dreamProvider/dreamModel` → agent 默认。这同时打通了 #9 的「换用非思考模型」出路——此前即便配置了廉价/非思考模型也无法生效。
+
+### 测试
+- 用例总数不变（716）；更新 `dream.test.js` / `llm-audit.test.js` 的 `model_id` 断言为配置路由（`deepseek:deepseek-chat`）。
+
 ## [0.6.7] - 2026-08-22
 
 ### 新增（记忆面板前端增强）

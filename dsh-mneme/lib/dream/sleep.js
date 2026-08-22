@@ -72,16 +72,23 @@ async function streamText(ctx, options) {
   return text;
 }
 
-/** LLM route: agent default model first, then sleepProvider/Model, then the
- *  dream route as a shared fallback. Sleep can pin a cheaper model for its
- *  bulk passes without disturbing the dream route. */
+// LLM route (Issue #25): explicit config wins — sleepProvider/sleepModel first,
+// then the dream route as a shared fallback (config is the user's declared
+// override), and agent default model only last as the generic fallback. Sleep
+// can pin a cheaper model for its bulk passes without disturbing the dream
+// route. The agent-default-last ordering matters: in a standard DSH install
+// agentDefaultModel always resolves, so putting it first would make every
+// config route dead code.
 function resolveSleepRoute(ctx, config, logger) {
-  try {
-    const sel = ctx?.agentDefaultModel?.currentSelection?.();
-    if (sel?.provider && sel?.model) return { provider: sel.provider, model: sel.model };
-  } catch { /* fall through to config route */ }
   if (config.sleepProvider && config.sleepModel) return { provider: config.sleepProvider, model: config.sleepModel };
   if (config.dreamProvider && config.dreamModel) return { provider: config.dreamProvider, model: config.dreamModel };
+  try {
+    const sel = ctx?.agentDefaultModel?.currentSelection?.();
+    if (sel?.provider && sel?.model) {
+      logger?.info?.("dsh-mneme sleep: no sleepProvider/sleepModel config, falling back to agent default");
+      return { provider: sel.provider, model: sel.model };
+    }
+  } catch { /* fall through */ }
   logger?.warn?.("dsh-mneme sleep: no llm route available");
   return undefined;
 }

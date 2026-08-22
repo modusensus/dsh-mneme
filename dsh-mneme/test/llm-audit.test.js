@@ -50,10 +50,10 @@ test("autoDream writes llm_audit_logs rows for consolidation and summary", async
   assert.equal(summarize.trigger_source, "autoDream");
   assert.equal(consolidate.status, "success");
   assert.equal(summarize.status, "success");
-  // mockCtx resolves the route from agentDefaultModel (mock:stress-model), not
-  // the config fallback — assert the actually-used route.
-  assert.equal(consolidate.model_id, "mock:stress-model");
-  assert.equal(summarize.model_id, "mock:stress-model");
+  // Issue #25: config route (dreamProvider/dreamModel) wins over the agent
+  // default from mockCtx — the audit must reflect the actually-used route.
+  assert.equal(consolidate.model_id, "deepseek:deepseek-chat");
+  assert.equal(summarize.model_id, "deepseek:deepseek-chat");
   assert.ok(Array.isArray(consolidate.related_memory_ids) && consolidate.related_memory_ids.length === 2,
     "consolidation audit records the snapshot ids");
   assert.ok(consolidate.total_tokens >= 0 && summarize.total_tokens >= 0);

@@ -401,20 +401,26 @@ async function runAuditedLlm(ctx, service, config, spec, body) {
 }
 
 /**
- * Resolve the LLM route: agent default model (deployment) first, plugin config
- * (dreamProvider/dreamModel) as fallback. Falls through to undefined when no
- * route exists — runDream then fails safe. Fallback is logged so a silent
- * route switch is observable.
+ * Resolve the LLM route (Issue #25): an explicit plugin config
+ * (dreamProvider/dreamModel) is the user's declared override and wins; the
+ * agent default model (deployment) is only a fallback when no config route is
+ * set. In a standard DSH install agentDefaultModel always resolves, so without
+ * this ordering the config route would be dead code and dreamProvider/dreamModel
+ * could never take effect. Falls through to undefined when no route exists —
+ * runDream then fails safe. A config→default switch is logged so it is observable.
  */
 function resolveRoute(ctx, config, logger) {
+  if (config.dreamProvider && config.dreamModel) return { provider: config.dreamProvider, model: config.dreamModel };
   try {
     const sel = ctx.agentDefaultModel?.currentSelection?.();
-    if (sel?.provider && sel?.model) return { provider: sel.provider, model: sel.model };
-    logger?.warn?.("dsh-mneme dream: agentDefaultModel unavailable, falling back to config route");
+    if (sel?.provider && sel?.model) {
+      logger?.info?.("dsh-mneme dream: no dreamProvider/dreamModel config, falling back to agent default");
+      return { provider: sel.provider, model: sel.model };
+    }
+    logger?.warn?.("dsh-mneme dream: agentDefaultModel unavailable, no config route either");
   } catch (error) {
-    logger?.warn?.(`dsh-mneme dream: agentDefaultModel lookup failed, falling back to config route: ${String(error)}`);
+    logger?.warn?.(`dsh-mneme dream: agentDefaultModel lookup failed: ${String(error)}`);
   }
-  if (config.dreamProvider && config.dreamModel) return { provider: config.dreamProvider, model: config.dreamModel };
   return undefined;
 }
 
