@@ -137,6 +137,100 @@ test("merge across types rejects", () => {
   assert.ok(errors.some((e) => e.includes("multiple types")), "multi-type error present");
 });
 
+// --- Issue #26 (P0): skipInvalid — 单条非法决策跳过，合法子集照常应用 ---------
+
+test("validateDecisions skipInvalid: a single invalid decision is skipped, valid subset survives", () => {
+  const snap = new Map([
+    ["p", { id: "p", type: "preference", title: "语言", content: "中文", importance: 3, archived: false, forgotten: false }],
+    ["j", { id: "j", type: "project", title: "插件", content: "内容", importance: 3, archived: false, forgotten: false }],
+    ["a", { id: "a", type: "project", title: "旧A", content: "过时A", importance: 3, archived: false, forgotten: false }],
+    ["b", { id: "b", type: "project", title: "旧B", content: "过时B", importance: 3, archived: false, forgotten: false }]
+  ]);
+  const decisions = [
+    { action: "merge", ids: ["p", "j"], keepSource: "p", title: "跨类型", content: "不应合并", importance: 4 },
+    { action: "archive", ids: ["a"], reason: "stale" },
+    { action: "archive", ids: ["b"], reason: "stale" }
+  ];
+  const { ok, errors, skipped } = validateDecisions(decisions, snap, { skipInvalid: true });
+  assert.equal(ok, true, `valid subset should survive, got: ${errors.join("; ")}`);
+  assert.equal(skipped.length, 1, "cross-type merge recorded as skipped");
+  assert.equal(skipped[0].index, 0, "the skipped one is the cross-type merge");
+  assert.match(skipped[0].error, /multiple types/, "skip reason mentions types");
+  // invalid merge spliced out of the caller's array; valid archives + implicit
+  // keeps for p/j survive (p/j were left unclaimed by the skipped merge)
+  assert.deepEqual(decisions.map((d) => d.action), ["archive", "archive", "keep", "keep"]);
+  assert.deepEqual(decisions[0].ids, ["a"]);
+  assert.ok(decisions.some((d) => d.action === "keep" && d.ids.includes("p")), "p auto-kept");
+  assert.ok(decisions.some((d) => d.action === "keep" && d.ids.includes("j")), "j auto-kept");
+});
+
+test("validateDecisions skipInvalid: an all-invalid batch still rejects (coverage floor guards truncation)", () => {
+  const snap = new Map([
+    ["p", { id: "p", type: "preference", title: "语言", content: "中文", importance: 3, archived: false, forgotten: false }],
+    ["j", { id: "j", type: "project", title: "插件", content: "内容", importance: 3, archived: false, forgotten: false }],
+    ["d1", { id: "d1", type: "decision", title: "决定", content: "内容D", importance: 3, archived: false, forgotten: false }],
+    ["b", { id: "b", type: "project", title: "旧B", content: "过时B", importance: 3, archived: false, forgotten: false }]
+  ]);
+  // both decisions are cross-type merges → both skipped → valid claims = 0
+  const decisions = [
+    { action: "merge", ids: ["p", "j"], keepSource: "p", title: "跨类型", content: "不应合并", importance: 4 },
+    { action: "merge", ids: ["d1", "b"], keepSource: "d1", title: "跨类型2", content: "不应合并", importance: 4 }
+  ];
+  const { ok, errors, skipped } = validateDecisions(decisions, snap, { skipInvalid: true });
+  assert.equal(ok, false, "no valid decisions left → whole batch rejected");
+  assert.equal(skipped.length, 2);
+  assert.ok(errors.some((e) => e.includes("coverage")), "coverage error present");
+  assert.equal(decisions.length, 2, "rejected batch left untouched (splice only on the success path)");
+});
+
+test("validateDecisions skipInvalid: runaway update count still rejects the whole batch (global cap)", () => {
+  const snap = new Map([
+    ["a", { id: "a", type: "project", title: "A", content: "旧A", importance: 3, archived: false, forgotten: false, created_at: "2020-01-01T00:00:00.000Z" }],
+    ["b", { id: "b", type: "project", title: "B", content: "旧B", importance: 3, archived: false, forgotten: false, created_at: "2020-01-01T00:00:00.000Z" }],
+    ["c", { id: "c", type: "project", title: "C", content: "旧C", importance: 3, archived: false, forgotten: false, created_at: "2020-01-01T00:00:00.000Z" }]
+  ]);
+  const decisions = [
+    { action: "update", ids: ["a"], content: "新A" },
+    { action: "update", ids: ["b"], content: "新B" },
+    { action: "update", ids: ["c"], content: "新C" }
+  ];
+  const { ok, errors } = validateDecisions(decisions, snap, { skipInvalid: true });
+  assert.equal(ok, false, "3 updates > default cap 2 → still rejects");
+  assert.ok(errors.some((e) => e.includes("too many update decisions")), "global cap error present");
+});
+
+// --- Issue #26 (P1): allowCrossTypeMerge — 显式放宽跨类型合并 -----------------
+
+test("validateDecisions allowCrossTypeMerge: cross-type merge is allowed when the flag is on", () => {
+  const snap = new Map([
+    ["p", { id: "p", type: "preference", title: "语言", content: "中文", importance: 3, archived: false, forgotten: false }],
+    ["j", { id: "j", type: "project", title: "插件", content: "内容", importance: 3, archived: false, forgotten: false }]
+  ]);
+  const decisions = [
+    { action: "merge", ids: ["p", "j"], keepSource: "p", title: "合并", content: "合并内容", importance: 4 }
+  ];
+  const { ok, errors } = validateDecisions(decisions, snap, { allowCrossTypeMerge: true });
+  assert.equal(ok, true, `cross-type merge allowed with the flag, got: ${errors.join("; ")}`);
+  assert.equal(decisions.length, 1, "no keep appended (both snapshot ids claimed)");
+});
+
+test("validateDecisions allowCrossTypeMerge off + skipInvalid: cross-type merge is skipped, not applied", () => {
+  const snap = new Map([
+    ["p", { id: "p", type: "preference", title: "语言", content: "中文", importance: 3, archived: false, forgotten: false }],
+    ["j", { id: "j", type: "project", title: "插件", content: "内容", importance: 3, archived: false, forgotten: false }],
+    ["a", { id: "a", type: "project", title: "旧A", content: "过时A", importance: 3, archived: false, forgotten: false }],
+    ["b", { id: "b", type: "project", title: "旧B", content: "过时B", importance: 3, archived: false, forgotten: false }]
+  ]);
+  const decisions = [
+    { action: "merge", ids: ["p", "j"], keepSource: "p", title: "跨类型", content: "不应合并", importance: 4 },
+    { action: "archive", ids: ["a"], reason: "stale" },
+    { action: "archive", ids: ["b"], reason: "stale" }
+  ];
+  const { ok, skipped } = validateDecisions(decisions, snap, { skipInvalid: true, allowCrossTypeMerge: false });
+  assert.equal(ok, true);
+  assert.equal(skipped.length, 1, "flag off → cross-type merge still skipped");
+});
+
 function dreamSetup() {
   const store = createStore(":memory:");
   const service = createService({ store, mirror: null, config: {} });
@@ -480,6 +574,69 @@ test("runDream fails safe on invalid decisions", async () => {
   assert.equal(lang.archived, false, "original memory not archived");
   assert.equal(lang.content, "中文", "original memory content untouched");
   assert.ok(warnings.length >= 1, "failure was logged");
+  store.close();
+});
+
+// --- Issue #26: 部分非法决策 → 跳过非法、应用合法子集、run 记为 degraded ----
+
+test("runDream applies the valid subset and records degraded when some decisions are invalid (Issue #26)", async () => {
+  const { store, service } = dreamSetup();
+  const a = service.saveWithDedupe({ type: "project", title: "项目A", content: "内容A", importance: 3 });
+  const b = service.saveWithDedupe({ type: "project", title: "项目B", content: "内容B", importance: 3 });
+  const c = service.saveWithDedupe({ type: "preference", title: "偏好C", content: "内容C", importance: 3 });
+  const d = service.saveWithDedupe({ type: "preference", title: "偏好D", content: "内容D", importance: 3 });
+  // 2 个合法同类型 merge + 1 个非法跨类型 merge（a×c，且 a/c 已被合法决策占用）
+  const decisions = [
+    { action: "merge", ids: [a.memory.id, b.memory.id], title: "项目总览", content: "AB 合并", importance: 4, keepSource: a.memory.id },
+    { action: "merge", ids: [c.memory.id, d.memory.id], title: "偏好总览", content: "CD 合并", importance: 4, keepSource: c.memory.id },
+    { action: "merge", ids: [a.memory.id, c.memory.id], title: "非法跨类型", content: "不应合并", importance: 4, keepSource: a.memory.id }
+  ];
+  const warnings = [];
+  const ctx = mockCtx({ onConsolidation: () => JSON.stringify(decisions) });
+  ctx.logger.warn = (m) => warnings.push(m);
+  const dream = createDreamScheduler({ thresholdCount: 1, thresholdChars: 0, delayMs: 0 });
+  const result = await dream.runDream(ctx, service, { dreamProvider: "deepseek", dreamModel: "deepseek-chat" });
+  assert.equal(result.status, "degraded", "partial-invalid run recorded as degraded");
+  assert.equal(result.ok, true, "degraded is ok for the scheduler baseline");
+  assert.equal(result.applied, 2, "2 valid merges applied");
+  assert.equal(result.skipped.length, 1, "cross-type merge skipped");
+  // valid merges landed
+  assert.equal(store.getById(a.memory.id).title, "项目总览", "keeper A updated");
+  assert.equal(store.getById(b.memory.id).archived, true, "B archived");
+  assert.equal(store.getById(c.memory.id).title, "偏好总览", "keeper C updated");
+  assert.equal(store.getById(d.memory.id).archived, true, "D archived");
+  // audit row records degraded + the skipped decision, never a fake ok
+  const run = store.listDreamRuns()[0];
+  assert.equal(run.status, "degraded", "audit row records degraded");
+  assert.equal(run.applied, 2, "audit row applied count");
+  assert.equal(run.outcome.skipped.length, 1, "audit outcome records the skipped decision");
+  assert.match(run.error, /skipped 1 invalid decision/, "audit error explains the skip");
+  assert.ok(warnings.some((m) => m.includes("skipping invalid decision")), "skip logged");
+  store.close();
+});
+
+test("runDream with dreamSkipInvalid=false keeps the old whole-batch rejection (Issue #26 opt-out)", async () => {
+  const { store, service } = dreamSetup();
+  const a = service.saveWithDedupe({ type: "project", title: "项目A", content: "内容A", importance: 3 });
+  const b = service.saveWithDedupe({ type: "project", title: "项目B", content: "内容B", importance: 3 });
+  const c = service.saveWithDedupe({ type: "preference", title: "偏好C", content: "内容C", importance: 3 });
+  const d = service.saveWithDedupe({ type: "preference", title: "偏好D", content: "内容D", importance: 3 });
+  const decisions = [
+    { action: "merge", ids: [a.memory.id, c.memory.id], title: "非法跨类型", content: "不应合并", importance: 4, keepSource: a.memory.id },
+    { action: "merge", ids: [b.memory.id, d.memory.id], title: "项目B", content: "合并", importance: 4, keepSource: b.memory.id }
+  ];
+  const warnings = [];
+  const ctx = mockCtx({ onConsolidation: () => JSON.stringify(decisions) });
+  ctx.logger.warn = (m) => warnings.push(m);
+  const dream = createDreamScheduler({ thresholdCount: 1, thresholdChars: 0, delayMs: 0 });
+  const result = await dream.runDream(ctx, service, {
+    dreamProvider: "deepseek", dreamModel: "deepseek-chat",
+    dreamSkipInvalid: false
+  });
+  assert.equal(result.ok, false, "opt-out rejects the whole batch");
+  assert.equal(store.listDreamRuns()[0].status, "failed", "audited as failed");
+  assert.equal(store.getById(a.memory.id).content, "内容A", "nothing changed");
+  assert.equal(store.getById(b.memory.id).archived, false, "valid-looking decision also not applied");
   store.close();
 });
 

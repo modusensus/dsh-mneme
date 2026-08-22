@@ -720,17 +720,26 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       logger?.warn?.(`dsh-mneme dream: no json array in llm output (raw length ${decisionText?.length ?? 0})`);
       return finish({ ok: false, error: "no json array in llm output", summary: false });
     }
-    const { ok, errors } = validateDecisions(decisions, snapshot, {
+    const { ok, errors, skipped = [] } = validateDecisions(decisions, snapshot, {
       maxUpdatePerRun: config.reflectionUpdateMaxPerRun,
       minAgeHours: config.reflectionUpdateMinAgeHours,
       // v0.4.4 fix：显式透传，用户配 dreamImplicitKeep:false 时严格模式必须
       // 真正生效，dreamMinExplicitCoverage 决定隐式 keep 下的覆盖率下限。
       dreamImplicitKeep: config.dreamImplicitKeep,
-      dreamMinExplicitCoverage: config.dreamMinExplicitCoverage
+      dreamMinExplicitCoverage: config.dreamMinExplicitCoverage,
+      // Issue #26 (P0)：跨类型 merge 等"单条非法"决策不再拖垮整批——默认开启
+      // skipInvalid，非法决策跳过、合法子集照常应用（run 记为 degraded）。
+      // dreamSkipInvalid:false 可恢复旧的"任意非法即整单拒绝"。
+      skipInvalid: config.dreamSkipInvalid !== false,
+      // Issue #26 (P1)：显式开启 allowCrossTypeMerge 后放宽跨类型合并检查。
+      allowCrossTypeMerge: config.allowCrossTypeMerge === true
     });
     if (!ok) {
       logger?.warn?.(`dsh-mneme dream: invalid decisions: ${errors.join("; ")}`);
       return finish({ ok: false, error: `invalid decisions: ${errors.length} errors`, summary: false });
+    }
+    for (const s of skipped) {
+      logger?.warn?.(`dsh-mneme dream: skipping invalid decision[${s.index}] (${s.action}): ${s.error}`);
     }
 
     // Capture pre-update snapshots so the audit records what each update changed.
@@ -804,9 +813,11 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     );
     // Outcome is derived from the ACTUALLY committed sub-steps, never from the
     // raw LLM decision list — a merge whose archive step rolled back must not
-    // claim "merge-archived" (item ②). Conflicts/failures ride along so the
-    // audit row records why the run diverged.
-    const outcome = { ...buildOutcome(committed), conflicts, failures };
+    // claim "merge-archived" (item ②). Conflicts/failures/skipped ride along
+    // so the audit row records why the run diverged (Issue #26: skipped =
+    // decisions dropped by skipInvalid because they were individually invalid,
+    // e.g. cross-type merge).
+    const outcome = { ...buildOutcome(committed), conflicts, failures, skipped };
     // Frozen conflicts were not adjudicated: mark both sides pending in the
     // per-id outcome so the audit row shows they were parked, not skipped.
     if (frozenIds.length) {
@@ -903,9 +914,12 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     //               run. ok:false keeps the scheduler from moving the baseline.
     //   ok        — either real changes landed, or a fresh summary was stored
     //               (all-keep + summary is a substantive summary refresh).
-    //   degraded  — real consolidation landed but the summary came back empty/
-    //               missing: the store was absorbed (ok for the baseline) but
-    //               the run did not produce its full output (marked, not faked).
+    //   degraded  — real consolidation landed but the run did not produce its
+    //               full output: the summary came back empty/missing, or
+    //               (Issue #26) some individually-invalid decisions were
+    //               skipped by skipInvalid. The valid subset was absorbed (ok
+    //               for the baseline — a future run won't re-fail on the same
+    //               permanently-invalid pairs), but the run is marked, not faked.
     let status;
     let okResult;
     if (partial) {
@@ -914,6 +928,13 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     } else if (noChange) {
       status = summaryStored ? "ok" : "noop";
       okResult = summaryStored;
+    } else if (skipped.length > 0) {
+      // Issue #26: valid subset landed but at least one decision was dropped as
+      // invalid (e.g. cross-type merge). degraded (not ok) — never a fake ok.
+      // autoTag still runs on degraded runs, so it is not blocked behind a
+      // "success" that a skipped-invalid run can never reach.
+      status = "degraded";
+      okResult = true;
     } else {
       status = summaryStored ? "ok" : "degraded";
       okResult = true;
@@ -926,8 +947,10 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       outcome,
       conflicts,
       failures,
+      skipped,
       frozen: frozenCount,
-      summary: summaryStored
+      summary: summaryStored,
+      error: skipped.length > 0 ? `skipped ${skipped.length} invalid decision(s)` : undefined
     });
   }
 

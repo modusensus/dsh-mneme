@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Awesome](https://awesome-dsh-plugin.com/badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
-[![tests](https://img.shields.io/badge/tests-716%20passed-success)](https://github.com/modusensus/dsh-mneme)
+[![tests](https://img.shields.io/badge/tests-723%20passed-success)](https://github.com/modusensus/dsh-mneme)
 [![CI](https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/test.yml)](https://github.com/modusensus/dsh-mneme/actions)
 [![node](https://img.shields.io/badge/node-24%2B-blue)](https://nodejs.org)
 [![npm downloads](https://img.shields.io/npm/dm/@modusensus/dsh-mneme?color=blue&label=downloads)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
@@ -76,7 +76,7 @@ dsh web
   - `update`（v0.2.1）：直接修正单条记忆的过时/错误内容（单 id / 必须实际变化 / 非 summary / 24h 保护 / 每次 ≤2）
 - **失败追踪（v0.2.1）**：用户纠正记忆时写入 `failure_memories` 表（旧值/新值），为后续自进化积累数据
 - **摘要生成**：整理后生成"记忆库总览"（单一实例），作为下次会话的优先注入
-- **Fail-safe**：非法 LLM 输出（未知 id / 非法 action / 跨类型合并 / 越界 importance）拒绝整单，绝不破坏记忆库
+- **Fail-safe**：非法 LLM 输出（未知 id / 非法 action / 越界 importance 等）拒绝整单，绝不破坏记忆库；跨类型合并这类"单条非法"决策（Issue #26）默认跳过并应用合法子集（run 记为 `degraded`），`dreamSkipInvalid:false` 可恢复旧的整单拒绝
 - **裁决审计**：每次运行写入 `dream_runs` 审计表（输入快照 sha256 digest + 完整输入快照 + 决策清单 + 逐 id 去向 + receipt），可离线回放；merge / conflict / update 幂等应用，重放/并发重复执行无累积副作用；update 记录 `_before` 快照
 
 #### dreamMaxTokens 调优指南
@@ -342,6 +342,8 @@ dsh web
 | `dreamProvider` / `dreamModel` | 空 | dream 的 LLM 路由覆盖（显式配置优先于 agent 默认模型；留空则回退到 agent 默认模型） |
 | `dreamMaxTokens` | `8192` | dream LLM 调用最大 token 数（上限 131072；大记忆量建议调大，见下方调优指南） |
 | `dreamReasoningEffort` | `none` | dream LLM 推理强度透传：`off` / `low` / `medium` / `high` / `none`（`off`=显式关闭思考，思考型模型（如 deepseek-v4-flash）必须用它，否则推理会烧光 token 预算导致正文为空；`none`=不传该字段，沿用模型默认） |
+| `dreamSkipInvalid` | `true` | 跳过非法决策（Issue #26，默认开）：跨类型 merge 等"单条非法"决策不再整单拒绝，而是跳过该决策、应用合法子集，run 记为 `degraded`（`applied>0`，autoTag 照常触发）；设为 `false` 恢复旧的"任意非法即整单拒绝"（`applied=0`）。防洗白语义不变——显式覆盖率不足 / update 超量等全局错误仍整单拒绝 |
+| `allowCrossTypeMerge` | `false` | 允许跨类型合并（Issue #26，默认关）：类型有语义边界（`preference` 注入权重更高、`decision`/`project` 注入上下文不同），跨类型合并默认视为非法并被跳过；显式开启后放宽该检查，跨类型 merge 可被应用，类型边界由用户自行承担 |
 | `apiToken` | 空 | 可选 API 鉴权 token；设置后写操作与密钥接口要求 `Authorization: Bearer <apiToken>` |
 | `embedProvider` | `openai` | 语义后端：`openai`（默认，兼容 v0.1）/ `local`（ONNX 离线）/ `ollama` |
 | `localEmbedModel` | `Xenova/bge-small-zh-v1.5` | 本地 ONNX embedding 模型 |

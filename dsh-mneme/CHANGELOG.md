@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.9] - 2026-08-23
+
+### 修复
+- **autoDream 恒失败（Issue #26，P0：跳过非法决策）**：模型几乎必然为语义相关性产出跨类型 merge（`decision[4]: merge ids span multiple types (decision, preference)`），而 `validateDecisions` 硬性禁止跨类型合并（提示词亦注明「仅合并同类型」），此前「任意非法即整单拒绝」导致整批 consolidation 完全不应用（`applied=0`、空转一次 LLM 调用），并连带阻塞依赖 dream 成功的 `autoTag`。现改为：`dreamSkipInvalid`（默认 `true`）下逐条非法的决策被**跳过**、应用合法子集（`applied>0`），run 状态记为 **`degraded`**（不再是 `failed`），审计行 `outcome.skipped` 记录被跳过的决策、`error` 注明跳过数；`autoTag` 照常触发。防洗白语义不变：显式覆盖率不足（截断输出）、update/create 超量等**全局**错误仍整单拒绝。`dreamSkipInvalid:false` 可恢复旧的整单拒绝行为。
+
+### 新增
+- **`allowCrossTypeMerge`（Issue #26，P1：显式放开跨类型合并）**：默认 `false` 保持现有类型边界（`preference` 注入权重更高、`decision`/`project` 注入上下文不同，合并会丢类型信息）；显式开启后跨类型 merge 被视为合法、可被应用，类型边界由用户自行承担。
+
+### 测试
+- 716 → **723** 全绿（新增 skipInvalid 单元/集成、allowCrossTypeMerge、退出开关共 7 用例；环境既有 2 例除外：graph-api 时序 <50ms、reranker 本地缺 `@huggingface/transformers`）。
+
 ## [0.6.8] - 2026-08-22
 
 ### 修复

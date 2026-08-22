@@ -49,6 +49,16 @@ export const Config = z.object({
   // → 整单拒绝，防止残缺输出被隐式 keep 洗白成 ok 后再被真实 apply。0-1，
   // 默认 0.5（至少显式覆盖一半 snapshot）。
   dreamMinExplicitCoverage: z.number().min(0).max(1).default(0.5),
+  // 跳过非法决策（Issue #26 P0，默认开）：跨类型 merge 等"单条非法"决策不再
+  // 让整批校验失败 → 跳过该决策、应用合法子集，run 记为 degraded（applied>0）。
+  // 关闭后恢复旧的"任意非法即整单拒绝"（applied=0）。防洗白语义不受影响——
+  // 显式覆盖率不足/update 超量等全局错误仍整单拒绝。
+  dreamSkipInvalid: z.boolean().default(true),
+  // 允许跨类型合并（Issue #26 P1，默认关）：类型有语义边界（preference 注入
+  // 权重更高、decision/project 注入上下文不同），跨类型合并会丢类型信息，故
+  // 默认禁止并在 skipInvalid 下被跳过；显式开启后放宽该检查，类型边界由用户
+  // 自行承担（需与 dreamSkipInvalid 配合：开启后跨类型 merge 视为合法、可应用）。
+  allowCrossTypeMerge: z.boolean().default(false),
   // Rule version for dream adjudication: when this bumps, older dream_runs
   // degrade to historical evidence (their receipts no longer drive live
   // decisions). Default 0 = no versioning in use yet.
