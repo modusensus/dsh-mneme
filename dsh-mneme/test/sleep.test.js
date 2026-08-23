@@ -45,6 +45,14 @@ function baseConfig(overrides = {}) {
   };
 }
 
+// v0.7.0 热联合判定：慢衰减类型（project λ=0.0008）默认受热闸保护——40 天热值
+// ≈0.5、100 天 ≈0.28，始终高于 sleepHeatThreshold(0.05)，demotion 不触发。
+// 降级语义测试把 project 的 λ 调快到 0.02（40 天热值≈0.03），复现"时间窗冷态
+// 即降级"的旧路径；默认保守语义由 sleep-heat.test.js 单独覆盖。
+function demotionConfig(overrides = {}) {
+  return baseConfig({ heatTypeDecay: { project: 0.02 }, ...overrides });
+}
+
 function setup() {
   const store = createStore(":memory:");
   const service = createService({ store, mirror: null, config: {} });
@@ -173,7 +181,7 @@ test("sleep: demotion shrinks cold memory to summary, keeps _full_content", asyn
   const m = makeMemory(service, "cold", "原内容".repeat(60), "project");
   service.touchLastAccess(m.id, new Date(now - 40 * 86400000).toISOString());
   const ctx = mockCtx(() => "[]");
-  const result = await runSleep(ctx, service, baseConfig(), ctx.logger, null, null);
+  const result = await runSleep(ctx, service, demotionConfig(), ctx.logger, null, null);
   const after = service.getById(m.id);
   assert.equal(result.status, "ok");
   assert.ok(after._full_content && after._full_content.length > 0, "full body preserved");
@@ -188,7 +196,7 @@ test("sleep: demotion fully archives memory past sleepCompressDays", async () =>
   const m = makeMemory(service, "ancient", "很老的记忆", "project");
   service.touchLastAccess(m.id, new Date(now - 100 * 86400000).toISOString());
   const ctx = mockCtx(() => "[]");
-  const result = await runSleep(ctx, service, baseConfig(), ctx.logger, null, null);
+  const result = await runSleep(ctx, service, demotionConfig(), ctx.logger, null, null);
   const after = service.getById(m.id);
   assert.equal(result.status, "ok");
   assert.equal(after.archived, true, "past compress days → archived");
@@ -275,7 +283,7 @@ test("sleep: a failing phase does not block the others (fail-safe)", async () =>
   const m = makeMemory(service, "cold", "内容".repeat(60), "project");
   service.touchLastAccess(m.id, new Date(now - 40 * 86400000).toISOString());
   const ctx = mockCtx(() => "[]");
-  const result = await runSleep(ctx, service, baseConfig(), ctx.logger, null, null);
+  const result = await runSleep(ctx, service, demotionConfig(), ctx.logger, null, null);
   assert.equal(result.phases.conflicts.status, "skipped", "conflicts phase degraded gracefully (no usable vectors)");
   assert.equal(result.phases.demotion.status, "ok", "demotion still ran");
   assert.equal(result.status, "ok", "overall run still ok despite conflicts degrading");
@@ -289,7 +297,7 @@ test("sleep: no LLM route skips LLM phases but demotion still runs", async () =>
   const m = makeMemory(service, "cold", "内容".repeat(60), "project");
   service.touchLastAccess(m.id, new Date(now - 40 * 86400000).toISOString());
   const ctx = mockCtx(() => "[]", null); // currentSelection() → null, no route
-  const result = await runSleep(ctx, service, baseConfig(), ctx.logger, null, null);
+  const result = await runSleep(ctx, service, demotionConfig(), ctx.logger, null, null);
   assert.equal(result.phases.conflicts.status, "skipped", "no llm route → conflicts skipped");
   assert.equal(result.phases.patterns.status, "skipped", "no llm route → patterns skipped");
   assert.equal(result.phases.demotion.status, "ok", "demotion is LLM-free and runs");

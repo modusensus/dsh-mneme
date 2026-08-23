@@ -1,4 +1,5 @@
 import z from "@deepseek-ai/schemastery";
+import { TYPE_DECAY_DEFAULTS } from "./heat.js";
 
 export const Config = z.object({
   memoryDir: z.string().default("~/.dsh/memory"),
@@ -295,4 +296,20 @@ export const Config = z.object({
   // audits to recall_runs and NEVER touches recall_evals, regardless of this
   // flag (production isolation is unconditional).
   evalPersistTestResults: z.boolean().default(false),
+
+  // --- heat: v0.7.0 self-evolution (heat + interest drift) ----------------
+  // 总开关，默认开但保守：不改变召回排序，只提供热度字段 / sleep 降级
+  // 联合判定保护 / 前端热度投影。关闭后跳过所有 heat 计算与热度触达。
+  heatEnabled: z.boolean().default(true),
+  // 幂律形状参数 α（heat = 1/(1+λΔt)^α），越大衰减越快。
+  heatGlobalAlpha: z.number().min(0.1).max(5).default(1.2),
+  // per-type 衰减因子 λ；λ=0 的类型免疫（热度恒 1.0，sleep 永不降级）。
+  // 未知类型走默认 0.002。z.dict 的键为 type 字符串、值为数字 λ。
+  heatTypeDecay: z.dict(z.number(), z.string()).default({ ...TYPE_DECAY_DEFAULTS }),
+  // sleep 降级联合判定的热度下限：heat < 该值 且 importance<5 才允许降级。
+  sleepHeatThreshold: z.number().min(0).max(1).default(0.05),
+  // recordRecall 默认值（recall_runs 记录默认开；显式传 false 的调用方不受影响）。
+  recallRecordDefault: z.boolean().default(true),
+  // recall_runs 滚动清理保留天数。
+  recallRetentionDays: z.natural().min(1).max(3650).default(90),
 });

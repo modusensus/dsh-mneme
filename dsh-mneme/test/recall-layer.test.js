@@ -77,14 +77,23 @@ test("recorded candidates carry id/title/content/score/source and match the retu
   assert.ok(cands.some((c) => c.id === b.id), "second memory recorded");
 });
 
-test("recordRecall defaults to off — recorder is not called", async () => {
+test("recordRecall defaults on (v0.7.0) — recorder is called by default", async () => {
   const { service } = setup();
   let calls = 0;
   service.setRecallRecorder(() => calls++);
   saveMemory(service, null, { title: "量子计算", content: "入门" });
   await service.searchMemories("量子", { mode: "keyword" });
+  assert.equal(calls, 1, "recorder called once by default (recall_runs 记录默认开)");
+});
+
+test("recordRecall can be opted out via explicit false or config.recallRecordDefault=false", async () => {
+  const { service } = setup({ recallRecordDefault: false });
+  let calls = 0;
+  service.setRecallRecorder(() => calls++);
+  saveMemory(service, null, { title: "量子计算", content: "入门" });
+  await service.searchMemories("量子", { mode: "keyword" });
   await service.searchMemories("量子", { mode: "keyword", recordRecall: false });
-  assert.equal(calls, 0, "no recorder call when recordRecall is unset or false");
+  assert.equal(calls, 0, "no recorder call when default disabled or explicit false");
 });
 
 test("recordRecall=true with no recorder installed is safe and returns normally", async () => {
@@ -301,7 +310,7 @@ test("e2e: index.js wiring — recordRecall search lands a row listRecallRuns ca
   assert.equal(store.getRecallRun(run.id).query, "量子", "row readable right away");
 });
 
-test("e2e: without recordRecall the recall_runs table gains no rows", async () => {
+test("e2e: recordRecall defaults on (v0.7.0) but is disabled by config.recallRecordDefault=false", async () => {
   const store = createStore(":memory:");
   const service = createService({ store, mirror: null, config: {} });
   service.setRecallRecorder((recall) => store.saveRecallRun({
@@ -310,6 +319,18 @@ test("e2e: without recordRecall the recall_runs table gains no rows", async () =
   }));
   service.saveWithDedupe({ type: "preference", title: "量子计算入门", content: "叠加态" });
   await service.searchMemories("量子", { mode: "keyword" });
-  await service.searchMemories("量子", { mode: "keyword", recordRecall: false });
-  assert.deepEqual(store.listRecallRuns(), [], "no rows without recordRecall=true");
+  assert.equal(store.listRecallRuns().length, 1, "default config records a row (记录默认开)");
+
+  const store2 = createStore(":memory:");
+  const service2 = createService({ store: store2, mirror: null, config: { recallRecordDefault: false } });
+  service2.setRecallRecorder((recall) => store2.saveRecallRun({
+    query: recall.query, mode: recall.mode, topK: recall.topK, threshold: recall.threshold ?? null,
+    candidates: recall.candidates ?? [], created_at: recall.createdAt
+  }));
+  service2.saveWithDedupe({ type: "preference", title: "量子计算入门", content: "叠加态" });
+  await service2.searchMemories("量子", { mode: "keyword" });
+  await service2.searchMemories("量子", { mode: "keyword", recordRecall: false });
+  assert.deepEqual(store2.listRecallRuns(), [], "no rows when recallRecordDefault=false or explicit false");
+  store.close();
+  store2.close();
 });

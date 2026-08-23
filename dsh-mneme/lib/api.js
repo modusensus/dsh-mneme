@@ -458,7 +458,10 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
             name: n.name,
             type: n.type ?? null,
             mention_count: n.mention_count ?? 1,
-            distance: n.distance
+            distance: n.distance,
+            // v0.7.0 实体热投影：实体热 = 关联记忆 heat 聚合（max），前端据此
+            // 缩放节点大小/明暗。heatEnabled=false 时 entityHeat 返回 null。
+            heat: service.entityHeat?.(n.id) ?? null
           })),
           edges: [...edgeMap.values()].map((e) => ({
             id: e.id,

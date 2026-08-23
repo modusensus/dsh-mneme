@@ -52,6 +52,13 @@ export const apply = (ctx, config) => {
       store.deleteOldLlmAudits(new Date(Date.now() - retentionMs * 86400000).toISOString());
     }
   } catch { /* non-fatal */ }
+  // v0.7.0: recall_runs 滚动清理 —— recordRecall 默认开且注入路径也记账，表随
+  // 活跃度增长；启动时按 recallRetentionDays（默认 90 天）清一次，防膨胀。
+  // 与 llm_audit 同策略：纯 bookkeeping，清理失败绝不阻塞插件启动。
+  try {
+    const recallRetentionDays = Number.isInteger(cfg.recallRetentionDays) ? cfg.recallRetentionDays : 90;
+    store.purgeRecallRunsOlderThan(recallRetentionDays);
+  } catch { /* non-fatal */ }
   const mirror = createMirror(memoryDir);
   const service = createService({ store, mirror, config: cfg, logger: ctx.logger });
 
