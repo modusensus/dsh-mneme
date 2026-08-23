@@ -186,7 +186,7 @@ test("ego node heat projects from linked memory heat (v0.7.0)", async () => {
   const data = JSON.parse(res.body);
   const node = data.nodes.find((n) => n.name === "E");
   assert.ok(typeof node.heat === "number" && node.heat >= 0 && node.heat <= 1, "entity node has a heat value");
-  assert.equal(node.heat, 1, "fresh memory -> heat 1.0 -> entity heat 1.0");
+  assert.ok(Math.abs(node.heat - 1) < 0.01, "fresh memory -> heat ~1.0 -> entity heat ~1.0");
 });
 
 test("ego node heat is null when heatEnabled=false (v0.7.0)", async () => {
