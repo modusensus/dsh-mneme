@@ -351,11 +351,7 @@ window.__ModuleLoader__.load({
       ".mneme-vtab.mneme-active::after{content:\"\";position:absolute;left:8px;right:8px;bottom:-1px;height:2px;border-radius:2px;background:var(--dsw-alias-state-business-primary)}",
       ".mneme-xtools{margin-left:auto;display:flex;align-items:center;gap:8px;padding:0 0 0 12px}",
       ".mneme-xcount{flex:none;font-size:12px;line-height:16px;color:var(--dsw-alias-label-tertiary);white-space:nowrap}",
-      // --- three-column browse layout: hairline separators, no outer box ---
-      ".mneme-xmain{flex:1;min-height:0;display:flex;flex-direction:row;overflow:hidden}",
-      ".mneme-xside{flex:none;width:236px;min-width:0;min-height:0;overflow-y:auto;padding:12px;border-right:1px solid var(--dsw-alias-border-l2);box-sizing:border-box;display:flex;flex-direction:column;gap:8px}",
-      ".mneme-xside--filter{width:214px}",
-      ".mneme-xbrowse{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}",
+      // --- memory explorer cards (column layout) ---
       ".mneme-xrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}",
       ".mneme-xsearch{width:100%}",
       ".mneme-xselect{flex:1;min-width:0}",
@@ -376,9 +372,7 @@ window.__ModuleLoader__.load({
       ".mneme-xtime{flex:none;font-size:12px;line-height:16px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}",
       ".mneme-xname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
       ".mneme-xempty{padding:32px 16px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:13px}",
-      // --- detail column ---
-      ".mneme-xdetail{flex:none;max-height:44%;min-height:0;overflow-y:auto;padding:14px 20px 16px;border-bottom:1px solid var(--dsw-alias-border-l2)}",
-      ".mneme-xtree{flex:1;min-height:0;overflow-y:auto;padding:8px 10px 28px}",
+      // --- memory explorer root ---
       ".mneme-xmain{display:flex;flex-direction:column}",
       ".mneme-xfilter-bar{flex:none;height:48px;display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--dsw-alias-border-l2,#ddd)}",
       ".mneme-xcards{flex:1;display:flex;flex-direction:row;gap:12px;padding:12px;overflow:hidden}",
@@ -1526,12 +1520,14 @@ window.__ModuleLoader__.load({
             h("div", { className: "mneme-xcolhead" }, t("memory.explorer.types")),
             h("button", {
               className: type === "all" ? "mneme-xtype mneme-active" : "mneme-xtype",
+              "aria-pressed": type === "all",
               onClick: () => setType("all")
             }, h("span", null, t("memory.tab.all")), h("span", { className: "mneme-xcount2" }, String(items.length))),
             knownTypes.concat(extraTypes).map((key) =>
               h("button", {
                 key,
                 className: type === key ? "mneme-xtype mneme-active" : "mneme-xtype",
+                "aria-pressed": type === key,
                 onClick: () => setType(key)
               },
                 h("span", null, typeLabel(t, key)),
@@ -1541,10 +1537,11 @@ window.__ModuleLoader__.load({
           // 2. 底部三卡片
           h("div", { className: "mneme-xcards" },
             // 左卡：搜索
-            h("div", { className: "mneme-card mneme-card--search" },
+            h("div", { className: "mneme-card mneme-card--search", role: "region", "aria-label": t("memory.explorer.searchTitle") },
               h("div", { className: "mneme-xcolhead" }, t("memory.explorer.searchTitle")),
               h("input", {
                 className: "mneme-search mneme-xsearch",
+                "aria-label": t("memory.explorer.search"),
                 placeholder: t("memory.explorer.search"),
                 value: query,
                 onChange: (e) => setQuery(e.target.value)
@@ -1573,7 +1570,7 @@ window.__ModuleLoader__.load({
               )
             ),
             // 中卡：时间树
-            h("div", { className: "mneme-card mneme-card--tree" },
+            h("div", { className: "mneme-card mneme-card--tree", role: "region", "aria-label": t("memory.explorer.timeline") },
               h("div", { className: "mneme-xcolhead" }, t("memory.explorer.timeline")),
               loading
                 ? h("div", { className: "mneme-xempty" }, "…")
@@ -1619,7 +1616,7 @@ window.__ModuleLoader__.load({
                   )
             )),
             // 右卡：详情
-            h("div", { className: "mneme-card mneme-card--detail" },
+            h("div", { className: "mneme-card mneme-card--detail", role: "region", "aria-label": t("memory.explorer.detail") },
               selected
                 ? h(react.Fragment, { key: selected.id },
                     h("div", { className: "mneme-xdinner" },
