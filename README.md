@@ -93,7 +93,7 @@ dsh web
 ## 🗺️ 路线图
 
 ```
-🧬 基因（v0.3.0）→ 🛡️ 审计加固（v0.3.6–0.3.9）→ 💤 睡眠维护（v0.4.0）→ 🕸️ 召回融合与图谱（v0.5.0）→ ✨ 面板增强（v0.6.x）→ 🌡️ 自进化记忆（v0.7.0）
+🧬 基因（v0.3.0）→ 🛡️ 审计加固（v0.3.6–0.3.9）→ 💤 睡眠维护（v0.4.0）→ 🕸️ 召回融合与图谱（v0.5.0）→ ✨ 面板增强（v0.6.x）→ 🌡️ 自进化记忆（v0.7.0）→ 🕸️ 图谱增强（v0.8.0）
 ```
 
 | 版本 | 主题 | 状态 |
@@ -102,8 +102,8 @@ dsh web
 | **v0.4.0** | Sleep Mode：空闲四阶段深度维护 | ✅ |
 | **v0.5.0** | 召回融合与记忆可视化：BM25 + 图谱 + 热记忆 | ✅ |
 | **v0.6.0** | 会话生命周期：删会话 ≠ 删记忆 | ✅ |
-| **v0.7.0** | 自进化记忆（heat 热度）✅ 完成 | ✅ 完成 | heat 幂律衰减 + per-type 半衰期 + sleep 热联合双保护 + updated_at 语义修正 + recall_runs injected 标记 + 90 天清理 + 实体热投影；757 测试全绿 |
-| **v0.7.0+** | 兴趣漂移 + 跨 workspace | 🚧 远期 | 更多 heat 信号 + 跨 workspace 共享 |
+| **v0.7.0** | 自进化记忆：heat 幂律衰减 + sleep 双保护 + 实体热投影 | ✅ |
+| **v0.8.0** | 图谱增强：兴趣漂移 + 跨 workspace 共享 | 🚧 计划中（9 月末） |
 
 ## 🧪 本地开发
 
@@ -194,7 +194,7 @@ Works out of the box. Enable these as needed:
 ## 🗺️ Roadmap
 
 ```
-🧬 Gene (v0.3.0) → 🛡️ Audit hardening (v0.3.6–0.3.9) → 💤 Sleep maintenance (v0.4.0) → 🕸️ Recall fusion & graph (v0.5.0) → ✨ Panel enhancements (v0.6.x) → 🌡️ Self-evolving memory (v0.7.0)
+🧬 Gene (v0.3.0) → 🛡️ Audit hardening (v0.3.6–0.3.9) → 💤 Sleep maintenance (v0.4.0) → 🕸️ Recall fusion & graph (v0.5.0) → ✨ Panel enhancements (v0.6.x) → 🌡️ Self-evolving memory (v0.7.0) → 🕸️ Graph enhancement (v0.8.0)
 ```
 
 | Version | Theme | Status |
@@ -203,7 +203,8 @@ Works out of the box. Enable these as needed:
 | **v0.4.0** | Sleep Mode: idle 4-phase deep maintenance | ✅ |
 | **v0.5.0** | Recall fusion & visualization: BM25 + graph + hot memory | ✅ |
 | **v0.6.0** | Session lifecycle: delete session ≠ delete memories | ✅ |
-| **v0.7.0+** | Interest drift + cross-workspace | 🚧 Long-term |
+| **v0.7.0** | Self-evolving memory: heat decay + sleep dual-protection + entity heat projection | ✅ |
+| **v0.8.0** | Graph enhancement: interest drift + cross-workspace sharing | 🚧 Planned (late Sep) |
 
 ## 🧪 Local Development
 

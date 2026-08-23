@@ -285,7 +285,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 | **v0.6.3** | ✅ 完成 | 目录视图 | Tag 文件夹手风琴 + 无标签兜底 + 点击跳详情 + `GET /api/dsh-mneme/directory` 端点 |
 | **v0.6.4** | ✅ 完成 | Tag 加权召回 | query/session tag 交集 boost（×1.15 / ×1.08），`tagBoostEnabled` 默认关 |
 | **v0.7.0** | ✅ 完成 | 自进化记忆 | heat 幂律衰减 + per-type 差异化半衰期（TYPE_DECAY）+ sleep 热联合双保护 + updated_at 语义修正 + recall_runs injected 两档标记 + 90 天清理 + 实体热投影（前端节点大小/明暗）；757 测试全绿 |
-| **v0.7.0+** | 🚀 远期 | 自进化记忆（远期） | 跨 workspace 记忆共享（等 DSH 支持）+ 更多 heat 信号 |
+| **v0.8.0** | 🚧 计划中（9 月末） | 图谱增强 | 兴趣漂移可视化 + 跨 workspace 记忆共享 + 更多 heat 信号 |
 
 > 新能力一律做成**可开关的功能**（配置启用/关闭），默认保守开启、不破坏现有行为。`failure_memories` 表与 autoDream 决策引擎已为后续反思性成长铺好路。
 
