@@ -10,7 +10,7 @@
   <a href="https://github.com/awesome-dsh-plugin/awesome-dsh-plugin"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="Awesome"></a>
   <a href="https://github.com/modusensus/dsh-mneme/actions"><img src="https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/test.yml" alt="CI"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-24%2B-blue" alt="node"></a>
-  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-735%20passed-success" alt="tests"></a>
+  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-757%20passed-success" alt="tests"></a>
   <a href="https://www.npmjs.com/package/@modusensus/dsh-mneme"><img src="https://img.shields.io/npm/dm/@modusensus/dsh-mneme?color=blue&label=downloads" alt="npm downloads"></a>
   <a href="https://codecov.io/gh/modusensus/dsh-mneme"><img src="https://img.shields.io/codecov/c/github/modusensus/dsh-mneme/main" alt="coverage"></a>
 </p>
@@ -93,7 +93,7 @@ dsh web
 ## 🗺️ 路线图
 
 ```
-🧬 基因（v0.3.0）→ 🛡️ 审计加固（v0.3.6–0.3.9）→ 💤 睡眠维护（v0.4.0）→ 🕸️ 召回融合与图谱（v0.5.0）→ ✨ 自进化（v0.6.0）→ 🔮 兴趣漂移 + 跨 workspace（v0.7.0+）
+🧬 基因（v0.3.0）→ 🛡️ 审计加固（v0.3.6–0.3.9）→ 💤 睡眠维护（v0.4.0）→ 🕸️ 召回融合与图谱（v0.5.0）→ ✨ 面板增强（v0.6.x）→ 🌡️ 自进化记忆（v0.7.0）
 ```
 
 | 版本 | 主题 | 状态 |
@@ -102,14 +102,15 @@ dsh web
 | **v0.4.0** | Sleep Mode：空闲四阶段深度维护 | ✅ |
 | **v0.5.0** | 召回融合与记忆可视化：BM25 + 图谱 + 热记忆 | ✅ |
 | **v0.6.0** | 会话生命周期：删会话 ≠ 删记忆 | ✅ |
-| **v0.7.0+** | 兴趣漂移 + 跨 workspace | 🚧 远期 |
+| **v0.7.0** | 自进化记忆（heat 热度）✅ 完成 | ✅ 完成 | heat 幂律衰减 + per-type 半衰期 + sleep 热联合双保护 + updated_at 语义修正 + recall_runs injected 标记 + 90 天清理 + 实体热投影；757 测试全绿 |
+| **v0.7.0+** | 兴趣漂移 + 跨 workspace | 🚧 远期 | 更多 heat 信号 + 跨 workspace 共享 |
 
 ## 🧪 本地开发
 
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 735 个测试
+npm test          # 757 个测试
 npm run stress    # 三轴线压测
 npm run sync      # src → lib 同步
 ```
@@ -193,7 +194,7 @@ Works out of the box. Enable these as needed:
 ## 🗺️ Roadmap
 
 ```
-🧬 Gene (v0.3.0) → 🛡️ Audit hardening (v0.3.6–0.3.9) → 💤 Sleep maintenance (v0.4.0) → 🕸️ Recall fusion & graph (v0.5.0) → ✨ Self-evolve (v0.6.0) → 🔮 Interest drift + cross-workspace (v0.7.0+)
+🧬 Gene (v0.3.0) → 🛡️ Audit hardening (v0.3.6–0.3.9) → 💤 Sleep maintenance (v0.4.0) → 🕸️ Recall fusion & graph (v0.5.0) → ✨ Panel enhancements (v0.6.x) → 🌡️ Self-evolving memory (v0.7.0)
 ```
 
 | Version | Theme | Status |
@@ -209,7 +210,7 @@ Works out of the box. Enable these as needed:
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 735 tests
+npm test          # 757 tests
 npm run stress    # three-axis stress test
 npm run sync      # src → lib sync
 ```

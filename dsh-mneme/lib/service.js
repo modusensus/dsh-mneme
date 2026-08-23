@@ -5,6 +5,7 @@ import { createBM25Index } from "./search/bm25.js";
 import { adaptiveThreshold } from "./search/adaptive.js";
 import { parseWikiLinks } from "./parser/wiki-link.js";
 import { extractQueryTags, applyTagBoost } from "./search/tag-boost.js";
+import { computeHeat } from "./heat.js";
 
 const INJECT_TYPES = new Set(["preference", "project", "decision", "summary"]);
 
@@ -467,14 +468,15 @@ export function createService({ store, mirror, config, onWrite, logger }) {
   }
 
   /**
-   * Sleep touch (v0.4.0): when sleep is enabled, any memory surfaced by recall
-   * or auto-injection gets its last_accessed_at bumped, so the "unrecalled N
-   * days → demote/archive" tiering counts real access. Best-effort and gated on
-   * config.sleepModeEnabled — when sleep is off this is a complete no-op (no
-   * writes on the hot recall path). A touch failure must never break search/inject.
+   * Recall touch (v0.7.0 数据前提): any memory surfaced by recall or
+   * auto-injection gets its last_accessed_at bumped so the heat model has a
+   * truthful access clock. Previously gated on config.sleepModeEnabled — now
+   * gated on config.heatEnabled (default on) so heat data is collected
+   * independently of sleep mode; sleep consumes it when it runs. Best-effort:
+   * a touch failure must never break search/inject.
    */
   function touchRecalled(memories) {
-    if (config?.sleepModeEnabled !== true || !Array.isArray(memories) || memories.length === 0) return;
+    if (config?.heatEnabled === false || !Array.isArray(memories) || memories.length === 0) return;
     for (const m of memories) {
       if (!m?.id) continue;
       try {
@@ -484,7 +486,15 @@ export function createService({ store, mirror, config, onWrite, logger }) {
   }
 
   async function searchMemories(query, options = {}) {
-    const { mode = "auto", topK = 20, threshold, useRerank = true, recordRecall = false } = options;
+    // v0.7.0: recall_runs 记录默认开（config.recallRecordDefault，默认 true）；
+    // 显式传 recordRecall:false 或配置 recallRecordDefault:false 可关。
+    const {
+      mode = "auto",
+      topK = 20,
+      threshold,
+      useRerank = true,
+      recordRecall = options.recordRecall ?? (config?.recallRecordDefault ?? true)
+    } = options;
     const raw = String(query ?? "").trim();
     if (!raw) return [];
 
@@ -683,12 +693,16 @@ export function createService({ store, mirror, config, onWrite, logger }) {
           mode,
           topK: lim,
           threshold: threshold ?? null,
+          // v0.7.0 recall-layer 强度标记：搜索帧一律 injected:false（被召回 =
+          // 检索直接命中）；注入上下文帧由 injectCandidates 以 injected:true
+          // 单独记账（被注入 = 替对话搭建上下文），两档强度可区分。
           candidates: result.map((m) => ({
             id: m.id,
             title: m.title,
             content: m.content,
             score: m.score ?? null,
-            source: m.source ?? "keyword"
+            source: m.source ?? "keyword",
+            injected: false
           })),
           createdAt: new Date().toISOString()
         });
@@ -1060,6 +1074,32 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       } catch { /* topic re-rank unavailable: keep rule-based order */ }
     }
     const selected = candidates.slice(0, maxItems);
+    // v0.7.0 recall-layer 强度标记：注入场景也走 recall_runs 记账（mode="inject"、
+    // injected:true），与 searchMemories 的搜索帧（injected:false）互补，区分
+    // "被召回"与"被注入上下文"两个消耗强度。与搜索侧同受 recallRecordDefault
+    // 门控；记账失败绝不阻断注入本身。
+    if (recallRecorder && config.recallRecordDefault !== false) {
+      try {
+        recallRecorder({
+          query: q,
+          mode: "inject",
+          topK: selected.length,
+          threshold: null,
+          candidates: selected.map((m) => ({
+            id: m.id,
+            title: m.title,
+            content: m.content,
+            score: m.score ?? null,
+            // 注入帧的 source 固定为帧级标记 "inject"，与搜索帧的
+            // keyword/vector/rerank 对齐（记忆行自带的 source 是来源列，
+            // 与检索层级无关，不混入）。
+            source: "inject",
+            injected: true
+          })),
+          createdAt: new Date().toISOString()
+        });
+      } catch { /* recall receipt is best effort */ }
+    }
     touchRecalled(selected);
     return selected;
   }
@@ -1696,6 +1736,21 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     saveWikiLinks: (r) => store.saveWikiLinks(r),
     listEntities: (o) => store.listEntities(o),
     getRelations: (id) => store.getRelations(id),
+    // v0.7.0 实体热投影：实体热 = 关联记忆 heat 聚合（取 max）。无关联记忆
+    // 或 heatEnabled=false 时返回 null；前端据此决定图谱节点大小/明暗。
+    entityHeat: (entityId) => {
+      if (config.heatEnabled === false) return null;
+      const rels = store.getRelations(entityId) ?? [];
+      let max = -Infinity;
+      for (const rel of rels) {
+        if (!rel.memory_id) continue;
+        const mem = store.getById(rel.memory_id);
+        if (!mem) continue;
+        const h = computeHeat(mem, Date.now(), config);
+        if (h > max) max = h;
+      }
+      return max === -Infinity ? null : max;
+    },
     // Tag system (v0.6.2). setMemoryTags is the manual/user path: gated by
     // config.manualTagEnabled (default true), re-renders the mirror and fires
     // the write hook. applyMemoryTags is the raw write used by the autoDream

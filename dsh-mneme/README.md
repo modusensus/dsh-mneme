@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Awesome](https://awesome-dsh-plugin.com/badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
-[![tests](https://img.shields.io/badge/tests-735%20passed-success)](https://github.com/modusensus/dsh-mneme)
+[![tests](https://img.shields.io/badge/tests-757%20passed-success)](https://github.com/modusensus/dsh-mneme)
 [![CI](https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/test.yml)](https://github.com/modusensus/dsh-mneme/actions)
 [![node](https://img.shields.io/badge/node-24%2B-blue)](https://nodejs.org)
 [![npm downloads](https://img.shields.io/npm/dm/@modusensus/dsh-mneme?color=blue&label=downloads)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
@@ -226,10 +226,22 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 - **选择性注入**：query 向量可用时注入候选按主题相似度重排（`selectiveInjectEnabled` 可关）；**搜索时语义去重**为激进选项（`searchSemanticDedup=true` 显式开启，近重复行 Rerank 前丢弃）
 - **召回基准**（`scripts/benchmark-recall.js`）：标准查询集驱动，计算 Recall@5 与 MRR，`legacy`（三特性全关）vs `fused`（默认配置）双跑对比
 
+### 自进化记忆 🌡️（v0.7.0，默认保守开启）
+
+让记忆库从"存得准、召得回"进化为会自我衰减、识别兴趣漂移的智能体：
+
+- **heat 热度模型**（`src/heat.js`）：类遗忘曲线幂律衰减 `H = 1/(1+λ·Δt)^α`，per-type 差异化半衰期（TYPE_DECAY）：preference/pattern/summary 免疫（λ=0，热度恒 1.0），project 慢衰减（λ=0.0008），decision 中速（λ=0.002），history 较快（λ=0.006）；全局参数 `heatGlobalAlpha`(默认 1.2) 控制衰减速度
+- **sleep 热联合双保护**：降级需同时满足"冷"（heat < `sleepHeatThreshold` 0.05）+"非紧要"（importance < 5）+"非免疫类型"三重条件——冷但重要（如遗忘的高价值决策）与热但低值（如刚访问的闲聊）都受到保护，免疫类型（preference 等）永不降级
+- **updated_at 语义修正**：合并/更新刷新的 `updated_at` 不再计为访问（`last_accessed_at` 独立追踪），杜绝 autoDream 合并动作伪装成"刚被召回"；触达数据采集（touchRecalled）由 `heatEnabled` 门控
+- **recall_runs 数据前提**：检索记录默认开启（`recallRecordDefault: true`），candidates 打 `injected` 标记区分"被召回"（false）与"被注入上下文"（true）两个消耗强度；注入场景也记账（mode="inject"）；90 天滚动清理（`recallRetentionDays`）防膨胀
+- **实体热投影**（ego-graph API + 前端）：`entityHeat` 取关联记忆 heat 的 max 值，API 返回 `heat` 字段；前端节点大小/明暗随热度变化（`nodeRadius`/`fillOpacity`），兴趣漂移在图谱上可见
+- **配置**：`heatEnabled`(默认 true)、`heatTypeDecay`(per-type λ)、`heatGlobalAlpha`(1.2)、`sleepHeatThreshold`(0.05)、`recallRecordDefault`(true)、`recallRetentionDays`(90)
+
 ## 🆕 最近版本亮点
 
 | 版本 | 亮点 |
 |------|------|
+| **v0.7.0** | 自进化记忆（heat 热度模型 + per-type 差异化半衰期 + sleep 热联合双保护）+ updated_at 语义修正（不算访问）+ recall_runs injected 两档标记 + 90 天滚动清理 + 实体热投影（ego-graph node heat → 前端节点大小/明暗）；757 测试全绿 |
 | **v0.6.11** | 社区修复（PR #27，Jstn-1g）：memory 渲染器暴露记忆 ID + 防御性加固（条数/块预算/Unicode 截断/JSONL 注入防护）；issue #14 已关闭；735 测试全绿 |
 | **v0.6.10** | 记忆面板卡片布局品质优化：清理死 CSS + 合并 `.mneme-xmain` 双定义 + 补无障碍（分类按钮 `aria-pressed`、三卡 `role=region`+`aria-label`、搜索框 `aria-label`）；723 测试全绿 |
 | **v0.6.9** | autoDream 恒失败修复（Issue #26 P0）：`dreamSkipInvalid` 跳过非法决策 + `allowCrossTypeMerge` 开关；723 测试全绿 |
@@ -272,7 +284,8 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 | **v0.6.2** | ✅ 完成 | Tag 系统 | `#标签` 解析 + autoDream 自动打标 + `tag:` 搜索 + 面板 chips + mirror `#tag` 行（全部 opt-in） |
 | **v0.6.3** | ✅ 完成 | 目录视图 | Tag 文件夹手风琴 + 无标签兜底 + 点击跳详情 + `GET /api/dsh-mneme/directory` 端点 |
 | **v0.6.4** | ✅ 完成 | Tag 加权召回 | query/session tag 交集 boost（×1.15 / ×1.08），`tagBoostEnabled` 默认关 |
-| **v0.7.0+** | 🚀 远期 | 自进化记忆 | 兴趣漂移跟踪 + 跨 workspace 记忆共享（等 DSH 支持） |
+| **v0.7.0** | ✅ 完成 | 自进化记忆 | heat 幂律衰减 + per-type 差异化半衰期（TYPE_DECAY）+ sleep 热联合双保护 + updated_at 语义修正 + recall_runs injected 两档标记 + 90 天清理 + 实体热投影（前端节点大小/明暗）；757 测试全绿 |
+| **v0.7.0+** | 🚀 远期 | 自进化记忆（远期） | 跨 workspace 记忆共享（等 DSH 支持）+ 更多 heat 信号 |
 
 > 新能力一律做成**可开关的功能**（配置启用/关闭），默认保守开启、不破坏现有行为。`failure_memories` 表与 autoDream 决策引擎已为后续反思性成长铺好路。
 
@@ -437,7 +450,7 @@ src/
 lib/
 ├── client.js         # Web 面板（手写 ModuleLoader bundle）
 └── *.js              # src 的同步分发产物
-test/                 # 735 个 node:test 测试（含审计与三轴线压测不变量）
+test/                 # 757 个 node:test 测试（含审计与三轴线压测不变量）
 scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压测 · sync-lib.js 同步 · benchmark-recall.js 召回基准
 ```
 

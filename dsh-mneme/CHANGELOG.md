@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.7.0] - 2026-08-24
+
+### 🆕 自进化记忆（heat 热度模型）
+
+让记忆库从"存得准、召得回"进化为会自我衰减、识别兴趣漂移的智能体：
+
+- **幂律衰减 + per-type 差异化半衰期**：`H = 1/(1+λ·Δt)^α`，预置 TYPE_DECAY（preference/pattern/summary 免疫 λ=0；project 慢衰减 0.0008；decision 中速 0.002；history 较快 0.006）；全局 `heatGlobalAlpha`(默认 1.2) 控制形状
+- **sleep 热联合双保护**：降级需同时满足"冷"(heat < sleepHeatThreshold 0.05) +"非紧要"(importance < 5) +"非免疫类型"——冷但重要与热但低值均受保护，immune 类型永不因 sleep 降级
+- **updated_at ≠ 访问语义修正**：合并/更新刷 updated_at 不再计为访问；sleep demotion ref 只用 `last_accessed_at ?? created_at`；touchRecalled 由 `heatEnabled` 门控而非 `sleepModeEnabled`
+- **recall_runs injected 两档标记**：搜索帧 `injected:false`(被召回)，注入帧 `injected:true`(被注入上下文)；两路都受 `recallRecordDefault` 门控；mode="inject" 也记账
+- **90 天滚动清理**：`purgeRecallRunsOlderThan(days)` 启动时按 `recallRetentionDays`(默认 90) 清理，防膨胀
+- **实体热投影**：ego-BFS API 节点带 `heat` 字段（关联记忆 heat max）；前端 `nodeRadius`/`fillOpacity` 随热度变化，兴趣漂移在图谱上可见
+- **配置新增**：`heatEnabled`(true)、`heatGlobalAlpha`(1.2)、`heatTypeDecay`(TYPE_DECAY)、`sleepHeatThreshold`(0.05)、`recallRecordDefault`(true)、`recallRetentionDays`(90)
+
+### 修复
+
+- **sleep 降级误保护问题修复**：既有 `sleep.test.js` 降级测试因新热闸变为 noop → 加 `demotionConfig()` 帮助函数把 project λ 调快到 0.02，复现旧路径（默认保守语义由 `sleep-heat.test.js` 单独覆盖）；`updated-at-semantics.test.js` 同理调整
+- **注入帧 source 冲突**：注入帧 source 固定 `"inject"`，不与记忆行自带的来源列混淆
+
+### 测试
+
+735 → **757** 全绿（新增 `heat.js` 纯模块 6 测 + `sleep-heat.test.js` 5 测 + `recall-runs.test.js` 5 测 + `updated-at-semantics.test.js` 3 测 + `graph-api.test.js` ego-node heat 2 测 + `recall-layer.test.js` 2 测更新 + `sleep.test.js` + `sleep-heat.test.js` 适配 5 处 + `recal l-layer.test.js` 适配 2 处）。
+
 ## [0.6.11] - 2026-08-23
 
 ### 修复

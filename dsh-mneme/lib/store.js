@@ -725,6 +725,9 @@ export function createStore(path) {
     return getById(id);
   }
 
+  // v0.7.0 语义：updated_at 只记录内容变更，绝不当访问（与 last_accessed_at
+  // 正交，sleep/heat 永不 fallback 到它）。合并/更新刷 updated_at 不应
+  // 重置热度时钟 —— 防 autoDream 合并动作伪装成"刚被召回"。
   function update(id, patch) {
     const existing = getById(id);
     if (!existing) throw new Error(`memory not found: ${id}`);
@@ -1286,6 +1289,19 @@ export function createStore(path) {
       `SELECT * FROM recall_runs ${where} ORDER BY created_at DESC, id LIMIT ? OFFSET ?`
     ).all(...params, lim, off);
     return rows.map(toRecallRun);
+  }
+
+  /**
+   * Rolling purge of the recall_runs production audit (v0.7.0): with recordRecall
+   * defaulting ON, the table would otherwise grow unboundedly on a busy store.
+   * Drop rows older than `days` (config.recallRetentionDays, default 90).
+   * created_at is an ISO TEXT string, so the ISO bound compares lexicographically.
+   * Returns the number of rows deleted (bookkeeping — never throws on empty).
+   */
+  function purgeRecallRunsOlderThan(days) {
+    const cutoff = new Date(Date.now() - days * 86400000).toISOString();
+    const result = db.prepare("DELETE FROM recall_runs WHERE created_at < ?").run(cutoff);
+    return result.changes;
   }
 
   // --- recall evaluation trail (方案 B: separate from the production audit) -
@@ -2185,6 +2201,7 @@ export function createStore(path) {
     saveRecallRun,
     getRecallRun,
     listRecallRuns,
+    purgeRecallRunsOlderThan,
     saveRecallEval,
     getRecallEval,
     listRecallEvals,

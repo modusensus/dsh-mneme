@@ -173,3 +173,37 @@ test("ego 2-hop over 100+ nodes stays under 50ms (spec §7)", async () => {
   assert.ok(data.edges.length > 0);
   assert.ok(ms < 50, `2-hop query took ${ms.toFixed(1)}ms, spec budget is 50ms`);
 });
+
+test("ego node heat projects from linked memory heat (v0.7.0)", async () => {
+  const { routes, service } = setup();
+  const mem = service.saveWithDedupe({ type: "history", title: "test", content: "test entity heat", importance: 3 });
+  const entity = service.createEntity({ name: "E", type: "project" });
+  service.saveRelation({ from_entity: entity.id, to_entity: entity.id, relation_type: "evidence", memory_id: mem.memory.id });
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/semantic/graph/ego");
+  assert.ok(route, "ego route exists");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/semantic/graph/ego?entity=E"), res);
+  const data = JSON.parse(res.body);
+  const node = data.nodes.find((n) => n.name === "E");
+  assert.ok(typeof node.heat === "number" && node.heat >= 0 && node.heat <= 1, "entity node has a heat value");
+  assert.ok(Math.abs(node.heat - 1) < 0.01, "fresh memory -> heat ~1.0 -> entity heat ~1.0");
+});
+
+test("ego node heat is null when heatEnabled=false (v0.7.0)", async () => {
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config: { heatEnabled: false } });
+  const settings = createSettings(store.db);
+  const commands = { add: () => {}, remove: () => {}, list: () => [] };
+  const routes = [];
+  const ctx = { webServer: { register(route) { routes.push(route); return () => {}; } } };
+  createApi(ctx, service, settings, commands, null, undefined, "");
+  const mem = service.saveWithDedupe({ type: "history", title: "关联记忆", content: "实体关联", importance: 3 });
+  const entity = service.createEntity({ name: "F", type: "project" });
+  service.saveRelation({ from_entity: entity.id, to_entity: entity.id, relation_type: "evidence", memory_id: mem.memory.id });
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/semantic/graph/ego");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/semantic/graph/ego?entity=F"), res);
+  const data = JSON.parse(res.body);
+  assert.equal(data.nodes.find((n) => n.name === "F").heat, null, "heat disabled → entity heat is null");
+  store.close();
+});
