@@ -1,8 +1,8 @@
 # Changelog
 
-## [Unreleased]
+## [0.6.10] - 2026-08-23
 
-### 质量优化（记忆面板卡片布局 polish，v0.7 前累积）
+### 质量优化（记忆面板卡片布局 polish）
 - **清理死 CSS**：移除卡片式布局重构后遗留的 `.mneme-xside` / `.mneme-xside--filter` / `.mneme-xbrowse` / `.mneme-xtree` / `.mneme-xdetail` 5 行无引用的定义（三卡实际用 `mneme-card--search/tree/detail`）。
 - **合并 `.mneme-xmain` 双定义**：旧 `row` 版并入唯一 `column` 版，消除同 selector 重复声明。
 - **补无障碍（a11y）**：分类栏 `mneme-xtype` 按钮加 `aria-pressed`；三张卡片加 `role="region"` + `aria-label`；搜索框加 `aria-label`。

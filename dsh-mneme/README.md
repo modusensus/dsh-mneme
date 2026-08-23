@@ -230,6 +230,9 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 
 | 版本 | 亮点 |
 |------|------|
+| **v0.6.10** | 记忆面板卡片布局品质优化：清理死 CSS + 合并 `.mneme-xmain` 双定义 + 补无障碍（分类按钮 `aria-pressed`、三卡 `role=region`+`aria-label`、搜索框 `aria-label`）；723 测试全绿 |
+| **v0.6.9** | autoDream 恒失败修复（Issue #26 P0）：`dreamSkipInvalid` 跳过非法决策 + `allowCrossTypeMerge` 开关；723 测试全绿 |
+| **v0.6.8** | dream/sleep LLM 路由修复（Issue #25）：config 指定模型优先于 agent 默认路由；716 测试全绿 |
 | **v0.6.7** | 记忆面板前端增强：记忆删除端点 + autoTag 手动开关 + 目录 VS Code 式文件树 + 面板卡片式布局（分类栏 + search/tree/detail 三卡）；723 测试全绿 |
 | **v0.6.6** | kimi-k3 复验 4 项修复：autoTag 跳过已打标记忆并合并、tag: 搜索召回统计门控（避免零召回拖垮 TopK）；710 测试全绿 |
 | **v0.6.5** | 整合 v0.6.2-0.6.4：Tag 系统 + 目录视图 + Tag 加权召回（全部 opt-in）；709 测试全绿 |
