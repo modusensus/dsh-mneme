@@ -10,7 +10,7 @@
   <a href="https://github.com/awesome-dsh-plugin/awesome-dsh-plugin"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="Awesome"></a>
   <a href="https://github.com/modusensus/dsh-mneme/actions"><img src="https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/test.yml" alt="CI"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-24%2B-blue" alt="node"></a>
-  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-723%20passed-success" alt="tests"></a>
+  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-735%20passed-success" alt="tests"></a>
   <a href="https://www.npmjs.com/package/@modusensus/dsh-mneme"><img src="https://img.shields.io/npm/dm/@modusensus/dsh-mneme?color=blue&label=downloads" alt="npm downloads"></a>
   <a href="https://codecov.io/gh/modusensus/dsh-mneme"><img src="https://img.shields.io/codecov/c/github/modusensus/dsh-mneme/main" alt="coverage"></a>
 </p>
@@ -109,7 +109,7 @@ dsh web
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 723 个测试
+npm test          # 735 个测试
 npm run stress    # 三轴线压测
 npm run sync      # src → lib 同步
 ```
@@ -209,7 +209,7 @@ Works out of the box. Enable these as needed:
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 723 tests
+npm test          # 735 tests
 npm run stress    # three-axis stress test
 npm run sync      # src → lib sync
 ```
