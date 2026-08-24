@@ -60,7 +60,12 @@ export const apply = (ctx, config) => {
     store.purgeRecallRunsOlderThan(recallRetentionDays);
   } catch { /* non-fatal */ }
   const mirror = createMirror(memoryDir);
-  const service = createService({ store, mirror, config: cfg, logger: ctx.logger });
+  // User-configurable settings (profile, rules) and custom commands share the
+  // same SQLite file but live in dedicated tables, isolated from memories.
+  // Created before the service so the tag-config resolver (issue #31) can merge
+  // the Web panel's persisted toggles over the plugin config at runtime.
+  const settings = createSettings(store.db);
+  const service = createService({ store, mirror, config: cfg, logger: ctx.logger, settings });
 
   // F-NEW-03: if the mirror sync failed last run (persisted dirty state), retry
   // a safe re-render at boot so a stale mirror converges without needing a
@@ -84,10 +89,6 @@ export const apply = (ctx, config) => {
       });
     } catch { /* non-fatal: recall recording is bookkeeping */ }
   });
-
-  // User-configurable settings (profile, rules) and custom commands share the
-  // same SQLite file but live in dedicated tables, isolated from memories.
-  const settings = createSettings(store.db);
 
   // Semantic pipeline: a local/ollama embedder when configured, otherwise the
   // legacy OpenAI-compatible embedder (settings-driven). The vector index wraps
@@ -251,7 +252,7 @@ export const apply = (ctx, config) => {
       delayMs: cfg.dreamDelayMs,
       logger: ctx.logger,
       semantic: { embedder, vectorIndex },
-      onRun: () => (dream ? dream.runDream(ctx, service, cfg) : Promise.resolve({ ok: true, skipped: true }))
+      onRun: () => (dream ? dream.runDream(ctx, service, cfg, settings) : Promise.resolve({ ok: true, skipped: true }))
     });
     service.setDreamHook(() => dream.maybeSchedule(service));
   }

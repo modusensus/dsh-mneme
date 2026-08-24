@@ -559,7 +559,7 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     if (inFlight) await inFlight.catch(() => {});
   }
 
-  async function runDream(ctx, service, config) {
+  async function runDream(ctx, service, config, settings) {
     const logger = ctx.logger;
     let memories = service.all().filter((m) => !m.archived && m.type !== "summary");
     if (memories.length === 0) return { ok: true, applied: 0, skipped: true, summary: false };
@@ -838,7 +838,12 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     // and always fail-safe — a tag failure must never change the consolidation
     // outcome reported below (it is logged and counted, nothing more).
     let autoTagged = 0;
-    if (config.autoTagEnabled === true) {
+    // Effective opt-in (issue #31): the Web panel's settings toggle
+    // (user_settings) overrides the zod plugin config when explicitly stored;
+    // unset → fall back to config.autoTagEnabled. settings is null-safe (absent
+    // in tests / direct calls) so behaviour is unchanged without it.
+    const autoTagEnabled = settings?.getAutoTagConfig?.().autoTagEnabled ?? config.autoTagEnabled;
+    if (autoTagEnabled === true) {
       try {
         const tagResult = await runAutoTag({ ctx, service, config, route });
         autoTagged = tagResult?.tagged ?? 0;

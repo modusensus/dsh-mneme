@@ -1743,6 +1743,11 @@ export function createStore(path) {
            VALUES (?, ?, 'tags', ?, ?, ?, NULL, 1.0, 'manual')`
         ).run(id, memoryId, JSON.stringify(arr), memoryId, now);
       }
+      // Keep memories.tags (the display/search column) as a mirror of the
+      // entity_attrs source of truth, so API rows and keyword search never
+      // drift from the directory/tag store (issue #31).
+      db.prepare("UPDATE memories SET tags = ?, updated_at = ? WHERE id = ?")
+        .run(JSON.stringify(arr), now, memoryId);
       db.exec("RELEASE set_memory_tags");
     } catch (e) {
       db.exec("ROLLBACK TO set_memory_tags");

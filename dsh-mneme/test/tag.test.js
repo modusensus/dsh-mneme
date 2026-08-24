@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { createStore } from "../src/store.js";
 import { createService } from "../src/service.js";
 import { createMirror } from "../src/mirror.js";
+import { createSettings } from "../src/settings.js";
 import { parseTags, sanitizeTags, MAX_TAG_LENGTH } from "../src/parser/tag.js";
 import { runAutoTag } from "../src/dream/tag-extractor.js";
 import { createDreamScheduler } from "../src/dream.js";
@@ -309,4 +310,117 @@ test("service.setMemoryTags respects manualTagEnabled=false gate", () => {
   const r = service.setMemoryTags(a.id, ["linux"]);
   assert.equal(r.ok, false);
   assert.match(r.error, /manualTagEnabled/);
+});
+
+// ============================================================ issue #31 fixes
+
+test("memory_save with tags bridges into the entity_attrs tag store (issue #31)", () => {
+  const { store, service } = makeService();
+  const { memory } = service.saveWithDedupe({
+    type: "project", title: "桥接", content: "c", tags: ["linux", "考研"]
+  });
+  assert.deepEqual(store.getMemoryTags(memory.id), ["linux", "考研"], "tool-passed tags land in entity_attrs");
+  assert.deepEqual(store.getMemoryTagsMap([memory.id]).get(memory.id), ["linux", "考研"], "tag map sees them");
+  const dir = store.getDirectory();
+  assert.deepEqual(dir.groups.map((g) => g.tag).sort(), ["linux", "考研"], "directory groups by tool-passed tags");
+  assert.equal(dir.untagged.length, 0, "not dumped in the untagged bucket");
+  assert.ok(store.findMemoriesByTags(["linux"]).some((m) => m.id === memory.id), "tag: recall finds it");
+  store.close();
+});
+
+test("saveWithDedupe merge with tags bridges into the tag store too (issue #31)", () => {
+  const { store, service } = makeService();
+  const { memory } = service.saveWithDedupe({
+    type: "project", title: "同题", content: "第一段", tags: ["linux"]
+  });
+  assert.deepEqual(store.getMemoryTags(memory.id), ["linux"]);
+  const { action, memory: merged } = service.saveWithDedupe({
+    type: "project", title: "同题", content: "第二段", tags: ["bash"]
+  });
+  assert.equal(action, "merged");
+  assert.deepEqual(store.getMemoryTags(merged.id), ["bash"], "merge overwrites tags and bridges them");
+  store.close();
+});
+
+test("saveWithDedupe merge with empty tags clears stale entity_attrs tags (issue #31)", () => {
+  const { store, service } = makeService();
+  const { memory } = service.saveWithDedupe({ type: "project", title: "清空", content: "第一段", tags: ["old"] });
+  assert.deepEqual(store.getMemoryTags(memory.id), ["old"]);
+  const { action, memory: merged } = service.saveWithDedupe({
+    type: "project", title: "清空", content: "第二段", tags: []
+  });
+  assert.equal(action, "merged");
+  assert.deepEqual(store.getMemoryTags(merged.id), [], "empty tags on merge invalidate the stale live row");
+  const dir = store.getDirectory();
+  assert.equal(dir.groups.length, 0, "directory no longer shows the stale tag");
+  assert.equal(dir.untagged.length, 1, "memory back to untagged");
+  store.close();
+});
+
+test("memory_update (service.update) with tags bridges and clearing moves to untagged (issue #31)", () => {
+  const { store, service } = makeService();
+  const { memory } = service.saveWithDedupe({ type: "project", title: "更新", content: "c", tags: ["old"] });
+  const updated = service.update(memory.id, { tags: ["new", "考研"] });
+  assert.deepEqual(store.getMemoryTags(updated.id), ["new", "考研"], "update bridges new tags");
+  assert.ok(store.getDirectory().groups.some((g) => g.tag === "new"), "directory reflects update tags");
+  service.update(updated.id, { tags: [] });
+  assert.deepEqual(store.getMemoryTags(updated.id), [], "clearing removes the live row");
+  const dir = store.getDirectory();
+  assert.equal(dir.groups.length, 0, "no tag groups after clearing");
+  assert.equal(dir.untagged.length, 1, "memory back to untagged");
+  store.close();
+});
+
+test("setMemoryTags keeps the memories.tags column in sync with entity_attrs (issue #31)", () => {
+  const { store, service } = makeService();
+  const { memory } = service.saveWithDedupe({ type: "project", title: "列同步", content: "c" });
+  service.setMemoryTags(memory.id, ["linux"]);
+  assert.deepEqual(store.getById(memory.id).tags, ["linux"], "column mirrors the live tag row");
+  service.setMemoryTags(memory.id, []);
+  assert.deepEqual(store.getById(memory.id).tags, [], "clearing also clears the column");
+  store.close();
+});
+
+test("runDream auto-tag respects the settings toggle over plugin config (issue #31)", async () => {
+  const store = createStore(":memory:");
+  const settings = createSettings(store.db);
+  settings.setAutoTagConfig({ autoTagEnabled: true });
+  // plugin config says auto-tagging is OFF; the settings toggle flips it on.
+  const service = createService({ store, mirror: null, config: { autoTagEnabled: false }, settings });
+  const a = service.saveWithDedupe({ type: "preference", title: "旧1", content: "第一段" }).memory;
+  const b = service.saveWithDedupe({ type: "preference", title: "旧2", content: "第二段" }).memory;
+  const keep = (id) => JSON.stringify([{ action: "keep", ids: [id] }]);
+  let calls = 0;
+  const ctx = {
+    llm: {
+      stream: async function* () {
+        calls++;
+        if (calls === 1) yield { type: "text-delta", text: keep(a.id) }; // consolidation
+        else if (calls === 2) yield { type: "text-delta", text: JSON.stringify([{ id: a.id, tags: ["内核"] }]) }; // auto-tag
+        else yield { type: "text-delta", text: "总览" }; // summary
+        yield { type: "finish", reason: { kind: "ok" } };
+      }
+    },
+    logger: { warn: () => {}, info: () => {} }
+  };
+  const dream = createDreamScheduler({ thresholdCount: 1, thresholdChars: 0, delayMs: 0 });
+  const result = await dream.runDream(ctx, service, {
+    dreamProvider: "deepseek", dreamModel: "deepseek-chat", autoTagEnabled: false
+  }, settings);
+  assert.equal(result.ok, true);
+  assert.deepEqual(store.getMemoryTags(a.id), ["内核"], "settings toggle enabled auto-tag despite config.autoTagEnabled=false");
+  store.close();
+});
+
+test("service.setMemoryTags manual gate follows the settings toggle (issue #31)", () => {
+  const store = createStore(":memory:");
+  const settings = createSettings(store.db);
+  settings.setAutoTagConfig({ manualTagEnabled: false });
+  const service = createService({ store, mirror: null, config: {}, settings });
+  const a = service.saveWithDedupe({ type: "preference", title: "Alpha", content: "正文" }).memory;
+  const r = service.setMemoryTags(a.id, ["linux"]);
+  assert.equal(r.ok, false, "settings gate blocks manual tagging");
+  assert.match(r.error, /manualTagEnabled/);
+  assert.equal(service.manualTagEnabled(), false, "gate flag reflects the settings override");
+  store.close();
 });

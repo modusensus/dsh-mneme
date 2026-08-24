@@ -100,11 +100,15 @@ test("vector config disabled value is stored as false", () => {
   store.close();
 });
 
-test("autoTag config defaults to disabled and round-trips", () => {
+test("autoTag config defaults to null (unset) and round-trips only explicit keys", () => {
   const { store, settings } = setup();
-  assert.deepEqual(settings.getAutoTagConfig(), { autoTagEnabled: false, manualTagEnabled: false });
+  // Issue #31: an unset key is null so runtime consumers fall back to the
+  // plugin config default — the settings layer must not invent `false`.
+  assert.deepEqual(settings.getAutoTagConfig(), { autoTagEnabled: null, manualTagEnabled: null });
   settings.setAutoTagConfig({ autoTagEnabled: true, manualTagEnabled: true });
   assert.deepEqual(settings.getAutoTagConfig(), { autoTagEnabled: true, manualTagEnabled: true });
+  // A partial update only touches the key it was given: manualTagEnabled was
+  // stored earlier so it keeps its value (true), it does not revert to null.
   settings.setAutoTagConfig({ autoTagEnabled: false });
   assert.deepEqual(settings.getAutoTagConfig(), { autoTagEnabled: false, manualTagEnabled: true });
   store.close();

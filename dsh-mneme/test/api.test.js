@@ -29,8 +29,10 @@ function req(path, method = "GET", body = null) {
 
 function setup(embedder, apiToken = "") {
   const store = createStore(":memory:");
-  const service = createService({ store, mirror: null, config: {} });
   const settings = createSettings(store.db);
+  // settings is threaded into the service so the /config endpoint reports the
+  // effective settings-over-config tag toggles (issue #31).
+  const service = createService({ store, mirror: null, config: {}, settings });
   const commands = {
     add: (def) => settings.addCommand(def),
     remove: (id) => settings.removeCommand(id),
@@ -554,7 +556,9 @@ test("GET/PUT /api/dsh-mneme/config round-trips autoTag switches", async () => {
   const res1 = new FakeRes();
   await route.handler(req("/api/dsh-mneme/config"), res1);
   assert.equal(res1.statusCode, 200);
-  assert.deepEqual(JSON.parse(res1.body).config, { autoTagEnabled: false, manualTagEnabled: false });
+  // unset → effective config falls back to plugin-config defaults:
+  // autoTagEnabled=false, manualTagEnabled=true (issue #31 default unification)
+  assert.deepEqual(JSON.parse(res1.body).config, { autoTagEnabled: false, manualTagEnabled: true });
   const res2 = new FakeRes();
   await route.handler(req("/api/dsh-mneme/config", "PUT", { autoTagEnabled: true, manualTagEnabled: false }), res2);
   assert.equal(res2.statusCode, 200);
@@ -590,5 +594,8 @@ test("PUT /api/dsh-mneme/config supports partial update", async () => {
   const res = new FakeRes();
   await route.handler(req("/api/dsh-mneme/config", "PUT", { autoTagEnabled: true }), res);
   assert.equal(res.statusCode, 200);
-  assert.deepEqual(JSON.parse(res.body).config, { autoTagEnabled: true, manualTagEnabled: false });
+  // Partial PUT only stores autoTagEnabled; manualTagEnabled stays unset and
+  // falls back to the plugin-config default (true) — a lone autoTag toggle must
+  // never silently disable manual tagging (issue #31).
+  assert.deepEqual(JSON.parse(res.body).config, { autoTagEnabled: true, manualTagEnabled: true });
 });

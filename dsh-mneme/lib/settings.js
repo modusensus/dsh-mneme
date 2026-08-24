@@ -148,9 +148,13 @@ export function createSettings(db) {
           if (j && typeof j === "object") stored = j;
         } catch { /* fall through to defaults */ }
       }
+      // null = never explicitly stored → callers fall back to the plugin
+      // config default, so the settings layer can't override a toggle the
+      // user never touched (issue #31). This also unifies the manualTagEnabled
+      // default (settings no longer invents false where plugin config says true).
       return {
-        autoTagEnabled: stored.autoTagEnabled === true,
-        manualTagEnabled: stored.manualTagEnabled === true
+        autoTagEnabled: typeof stored.autoTagEnabled === "boolean" ? stored.autoTagEnabled : null,
+        manualTagEnabled: typeof stored.manualTagEnabled === "boolean" ? stored.manualTagEnabled : null
       };
     },
     setAutoTagConfig(partial) {
@@ -161,10 +165,15 @@ export function createSettings(db) {
           return j && typeof j === "object" ? j : {};
         } catch { return {}; }
       })();
-      const cfg = {
-        autoTagEnabled: partial.autoTagEnabled === undefined ? cur.autoTagEnabled === true : partial.autoTagEnabled === true,
-        manualTagEnabled: partial.manualTagEnabled === undefined ? cur.manualTagEnabled === true : partial.manualTagEnabled === true
-      };
+      const cfg = {};
+      // Only persist keys the caller explicitly set (or already stored). A
+      // partial update must never invent `false` for a key the user left
+      // alone — that would silently disable manual tagging on a toggle of
+      // autoTag alone (issue #31).
+      if (partial.autoTagEnabled !== undefined) cfg.autoTagEnabled = partial.autoTagEnabled === true;
+      else if (cur.autoTagEnabled !== undefined) cfg.autoTagEnabled = cur.autoTagEnabled === true;
+      if (partial.manualTagEnabled !== undefined) cfg.manualTagEnabled = partial.manualTagEnabled === true;
+      else if (cur.manualTagEnabled !== undefined) cfg.manualTagEnabled = cur.manualTagEnabled === true;
       setSetting("autoTag", JSON.stringify(cfg));
       return cfg;
     }
