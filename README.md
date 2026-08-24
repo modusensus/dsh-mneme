@@ -103,6 +103,7 @@ dsh web
 | **v0.5.0** | 召回融合与记忆可视化：BM25 + 图谱 + 热记忆 | ✅ |
 | **v0.6.0** | 会话生命周期：删会话 ≠ 删记忆 | ✅ |
 | **v0.7.0** | 自进化记忆：heat 幂律衰减 + sleep 双保护 + 实体热投影 | ✅ |
+| **v0.7.1** | issue #31 修复：tags 桥接 entity_attrs + autoTag 面板开关生效 | ✅ |
 | **v0.8.0** | 图谱增强：兴趣漂移 + 跨 workspace 共享 | 🚧 计划中（9 月末） |
 
 ## 🧪 本地开发
@@ -204,6 +205,7 @@ Works out of the box. Enable these as needed:
 | **v0.5.0** | Recall fusion & visualization: BM25 + graph + hot memory | ✅ |
 | **v0.6.0** | Session lifecycle: delete session ≠ delete memories | ✅ |
 | **v0.7.0** | Self-evolving memory: heat decay + sleep dual-protection + entity heat projection | ✅ |
+| **v0.7.1** | Issue #31 fix: tags bridged to entity_attrs + autoTag panel toggle takes effect | ✅ |
 | **v0.8.0** | Graph enhancement: interest drift + cross-workspace sharing | 🚧 Planned (late Sep) |
 
 ## 🧪 Local Development
