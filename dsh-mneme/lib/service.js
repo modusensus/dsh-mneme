@@ -65,7 +65,7 @@ export function computeRetrievalMetrics(actualIds, expectedIds) {
   };
 }
 
-export function createService({ store, mirror, config, onWrite, logger }) {
+export function createService({ store, mirror, config, onWrite, logger, settings }) {
   // Optional dream scheduler hook, installed via setDreamHook after creation
   // (the scheduler holds a reference back to the service, so it cannot be
   // passed in the constructor). Fired on the same write events as onWrite.
@@ -90,6 +90,20 @@ export function createService({ store, mirror, config, onWrite, logger }) {
   let entityExtractor = null;
   let vectorIndex = null;
   let reranker = null;
+
+  // Effective tag toggles (issue #31): the settings layer (Web panel switches,
+  // persisted in user_settings) overrides the plugin config when explicitly
+  // stored; unset keys fall back to the zod config default. This is the single
+  // runtime source of truth for setMemoryTags' manual gate and the Web panel's
+  // getTagConfig display — the panel toggle and the dream autoTag gate were
+  // previously writing/reading two disconnected stores.
+  const tagConfig = () => {
+    const stored = settings?.getAutoTagConfig?.() ?? {};
+    return {
+      autoTagEnabled: typeof stored.autoTagEnabled === "boolean" ? stored.autoTagEnabled : (config.autoTagEnabled ?? false),
+      manualTagEnabled: typeof stored.manualTagEnabled === "boolean" ? stored.manualTagEnabled : (config.manualTagEnabled ?? true)
+    };
+  };
 
   // Optional recall recorder, installed via setRecallRecorder after creation.
   // When searchMemories is called with recordRecall=true it receives the
@@ -933,6 +947,13 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       });
       // Bug7: a degraded/archived result is applied on top of the merged row.
       const result = applyQualityDisposition(merged, quality, qf);
+      // Bridge tool-passed tags (plus any quality signal tags) into the
+      // entity_attrs tag store so directory / tag: recall / tagBoost see them
+      // (issue #31). Must run before afterSync so the mirror re-render reads
+      // the bridged row. Unconditional on the array (empty included): a merge
+      // that clears tags must also invalidate any stale entity_attrs row from
+      // an earlier save, or the directory keeps showing the old tag.
+      if (Array.isArray(result.tags)) store.setMemoryTags(result.id, result.tags);
       afterSync("write");
       notifyWrite();
       scheduleEmbed(result);
@@ -952,6 +973,11 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       ...(quality ? { quality_score: quality.score } : {})
     });
     const result = applyQualityDisposition(created, quality, qf);
+    // Bridge tool-passed tags (plus any quality signal tags) into the
+    // entity_attrs tag store so directory / tag: recall / tagBoost see them
+    // (issue #31). Must run before afterSync so the mirror re-render reads
+    // the bridged row.
+    if (Array.isArray(result.tags) && result.tags.length) store.setMemoryTags(result.id, result.tags);
     afterSync("write");
     notifyWrite();
     scheduleEmbed(result);
@@ -1598,6 +1624,11 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     update: (id, p, ctx = {}) => {
       const old = store.getById(id);
       const updated = store.update(id, p);
+      // Bridge tag edits made through update (memory_update tool / panel) into
+      // the entity_attrs tag store too (issue #31) — same convergence as
+      // saveWithDedupe. An explicit empty array clears the live tag row, moving
+      // the memory back to `untagged`.
+      if (p?.tags !== undefined) store.setMemoryTags(updated.id, updated.tags);
       // Record a user correction when any meaningful field changed and the
       // reflection failure tracker is enabled. expected = what it became,
       // actual = what it was before; query (when provided) captures the
@@ -1757,7 +1788,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     // tag pass (gated by autoTagEnabled, wrapped in a transaction by the
     // extractor so the mirror re-renders exactly once).
     setMemoryTags: (memoryId, tags) => {
-      if (config.manualTagEnabled === false) {
+      if (tagConfig().manualTagEnabled === false) {
         return { ok: false, error: "manualTagEnabled is off" };
       }
       const stored = store.setMemoryTags(memoryId, tags);
@@ -1768,7 +1799,10 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     getMemoryTags: (memoryId) => store.getMemoryTags(memoryId),
     // Read-only gate flag so the Web panel can hide tag editing when the
     // manual path is disabled (default: manual tagging is on).
-    manualTagEnabled: () => config.manualTagEnabled !== false,
+    manualTagEnabled: () => tagConfig().manualTagEnabled !== false,
+    // Effective tag toggle pair (settings-over-config merge) for the panel
+    // (/api/dsh-mneme/config GET/PUT).
+    getTagConfig: tagConfig,
     applyMemoryTags: (memoryId, tags) => store.setMemoryTags(memoryId, tags),
     saveAttr: (r) => store.saveAttr(r),
     createEntity: (r) => store.createEntity(r),

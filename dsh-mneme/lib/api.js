@@ -243,11 +243,14 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
             sendJson(res, 400, { error: "no valid config field provided" });
             return;
           }
-          const config = settings.setAutoTagConfig(patch);
-          sendJson(res, 200, { config });
+          settings.setAutoTagConfig(patch);
+          // Respond with the effective (settings-over-config merged) toggles
+          // so the panel always sees booleans that actually gate runtime
+          // behaviour (issue #31).
+          sendJson(res, 200, { config: service.getTagConfig() });
           return;
         }
-        sendJson(res, 200, { config: settings.getAutoTagConfig() });
+        sendJson(res, 200, { config: service.getTagConfig() });
       } catch {
         sendJson(res, 500, { error: "internal" });
       }
