@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.7.1] - 2026-08-24
+
+### 🐛 修复（issue #31）
+
+- **memory_save / memory_update 的 tags 桥接进 entity_attrs 标签存储**：工具传入的 tags 之前只写 `memories.tags` 列，目录视图（`getDirectory`）/ `tag:` 检索 / tagBoost 从 `entity_attrs`（attr_key='tags' AND valid_until IS NULL）读取，导致看不到；现在 `saveWithDedupe` 创建/合并分支与 `service.update` 在写入后同步调 `store.setMemoryTags(id, tags)`，显式 `tags: []` 会把记忆移回 untagged
+- **`store.setMemoryTags` 反向同步 `memories.tags` 列**：手动/autoTag 打标后，搜索结果与 API 返回的 `memory.tags` 不再和目录漂移
+- **autoTag 面板开关成为运行时真正的消费方**：dream 的 autoTag 判定与 `service.setMemoryTags` 的 manual 门禁改为读取「settings 覆盖合并 plugin config」的有效值；`getAutoTagConfig()` 未存储键返回 `null` 而非 `false`，`setAutoTagConfig` 只持久化用户实际触碰的键（部分更新不再误关另一开关）；`manualTagEnabled` 默认统一为插件配置的 `true`
+- 新增 7 个回归测试，全套 764 通过
+
 ## [0.7.0] - 2026-08-24
 
 ### 🆕 自进化记忆（heat 热度模型）
