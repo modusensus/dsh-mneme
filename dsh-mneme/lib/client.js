@@ -122,6 +122,8 @@ window.__ModuleLoader__.load({
         "memory.directory.empty": "暂无记忆条目",
         "directory.editToggle": "编辑模式（显示删除）",
         "directory.deleteConfirm": "确定删除这条记忆吗？",
+        "directory.deleteConfirmShort": "确认？",
+        "directory.deleteError": "删除失败",
         "memory.card.open": "在主区记忆库中查看全文",
         "memory.time.now": "刚刚",
         "memory.time.seconds": "{n}秒前",
@@ -229,6 +231,8 @@ window.__ModuleLoader__.load({
         "memory.directory.empty": "No memories yet",
         "directory.editToggle": "Edit mode",
         "directory.deleteConfirm": "Delete this memory?",
+        "directory.deleteConfirmShort": "Confirm?",
+        "directory.deleteError": "Delete failed",
         "memory.card.open": "Open full text in the Memory tab",
         "memory.time.now": "just now",
         "memory.time.seconds": "{n}s ago",
@@ -432,6 +436,9 @@ window.__ModuleLoader__.load({
       ".mneme-dir-del{margin-left:auto;background:none;border:none;color:#e5484d;cursor:pointer;font-size:13px;line-height:1;padding:2px 4px}",
       ".mneme-dir-del:hover{filter:brightness(1.25)}",
       ".mneme-edit-on .mneme-dir-del{opacity:1}",
+      ".mneme-dir-del-confirm{font-weight:700;background:rgba(229,72,77,.12);border-radius:4px}",
+      ".mneme-dir-item.mneme-dir-error{background:rgba(229,72,77,.14)}",
+      ".mneme-dir-del-err{flex:none;font-size:12px;line-height:16px;color:#e5484d}",
       ".mneme-dir-ititle{background:none;border:none;padding:0;font:inherit;color:inherit;cursor:pointer;flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
       ".mneme-dir-folder{margin-bottom:4px}",
       ".mneme-dir-folderhead{display:flex;align-items:center;gap:6px;width:100%;padding:6px 8px;border:none;border-radius:8px;background:none;color:var(--dsw-alias-label-primary);cursor:pointer;font-family:inherit;font-size:13px;font-weight:500;line-height:18px;text-align:left}",
@@ -1184,6 +1191,9 @@ window.__ModuleLoader__.load({
       const [dir, setDir] = useState(null); // { groups: [...], untagged: [...] }
       const [status, setStatus] = useState("loading"); // loading | ready | error
       const [editMode, setEditMode] = useState(false); // manual tag/delete UI gate
+      const [confirmingId, setConfirmingId] = useState(null); // row waiting for the 2nd confirm click
+      const [delErrorId, setDelErrorId] = useState(null); // row whose delete just failed
+      const confirmTimer = useRef(null);
 
       useEffect(() => {
         let cancelled = false;
@@ -1215,9 +1225,24 @@ window.__ModuleLoader__.load({
         }).then((res) => { if (res.ok) setEditMode(next); }).catch(() => {});
       };
 
+      const resetConfirm = () => {
+        clearTimeout(confirmTimer.current);
+        setConfirmingId(null);
+      };
+
       const handleDelete = (memId, e) => {
         e?.stopPropagation?.();
-        if (typeof window === "undefined" || !window.confirm(t("directory.deleteConfirm"))) return;
+        // 第一击进入「确认？」态，第二击才真正发 DELETE；宿主 web 环境里
+        // window.confirm 不可靠（可能被拦截或直接返回 false），点击会无反应，
+        // 所以改为面板内联两步确认，不依赖任何原生对话框。
+        if (confirmingId !== memId) {
+          setConfirmingId(memId);
+          clearTimeout(confirmTimer.current);
+          confirmTimer.current = setTimeout(() => setConfirmingId((cur) => (cur === memId ? null : cur)), 3000);
+          return;
+        }
+        clearTimeout(confirmTimer.current);
+        setConfirmingId(null);
         apiFetch("/api/dsh-mneme/memories", {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
@@ -1225,26 +1250,48 @@ window.__ModuleLoader__.load({
         })
           .then((res) => (res.ok ? res.json() : null))
           .then((d) => {
-            if (!d || d.deleted !== true) return;
+            if (!d || d.deleted !== true) {
+              // 服务端未确认删除也给出可见提示，不静默吞掉
+              setDelErrorId(memId);
+              setTimeout(() => setDelErrorId((cur) => (cur === memId ? null : cur)), 3500);
+              return;
+            }
             setDir((prev) => ({
               groups: prev.groups.map((g) => ({ ...g, memories: g.memories.filter((m) => m.id !== memId) })),
               untagged: prev.untagged.filter((m) => m.id !== memId)
             }));
           })
-          .catch(() => {});
+          .catch(() => {
+            // 网络失败同样给出可见提示
+            setDelErrorId(memId);
+            setTimeout(() => setDelErrorId((cur) => (cur === memId ? null : cur)), 3500);
+          });
       };
 
       const renderFolder = (name, memories, extraKey, emptyLabel) => {
         const folderKey = extraKey || name;
         const open = !collapsed[folderKey];
-        const rows = memories.map((m) =>
-          h("div", { key: m.id, className: "mneme-dir-item" },
+        const rows = memories.map((m) => {
+          const confirming = confirmingId === m.id;
+          const err = delErrorId === m.id;
+          return h("div", {
+            key: m.id,
+            className: err ? "mneme-dir-item mneme-dir-error" : "mneme-dir-item",
+            // 点击行内其它地方取消「确认？」态
+            onClick: resetConfirm
+          },
             h("span", { className: "mneme-tree-line" }),
             h("button", { type: "button", className: "mneme-dir-ititle", onClick: () => onJump(m) }, m.title || m.content?.slice(0, 40)),
             h("span", { className: "mneme-dir-itime" }, formatDate(m.updated_at || m.created_at)),
-            editMode && h("button", { type: "button", className: "mneme-dir-del", "aria-label": "delete", onClick: (e) => handleDelete(m.id, e) }, "✕")
-          )
-        );
+            editMode && h("button", {
+              type: "button",
+              className: confirming ? "mneme-dir-del mneme-dir-del-confirm" : "mneme-dir-del",
+              "aria-label": "delete",
+              onClick: (e) => handleDelete(m.id, e)
+            }, confirming ? t("directory.deleteConfirmShort") : "✕"),
+            err && h("span", { className: "mneme-dir-del-err" }, t("directory.deleteError"))
+          );
+        });
         return h("div", {
           key: folderKey,
           className: "mneme-dir-folder",

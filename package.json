@@ -1,6 +1,6 @@
 {
   "name": "@modusensus/dsh-mneme",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "Structured memory engine for DeepSeek Harness. Offline semantic search, entity-attribute-timeline, autoDream self-consolidation, and human-editable Markdown storage.",
   "license": "MIT",
   "repository": {
@@ -14,20 +14,31 @@
   "type": "module",
   "main": "./dsh-mneme/lib/index.js",
   "exports": {
-    ".": { "default": "./dsh-mneme/lib/index.js" },
-    "./client": { "default": "./dsh-mneme/lib/client.js" },
+    ".": {
+      "default": "./dsh-mneme/lib/index.js"
+    },
+    "./client": {
+      "default": "./dsh-mneme/lib/client.js"
+    },
     "./package.json": "./dsh-mneme/package.json"
   },
   "dsh": {
     "client": {
-      "inject": ["slots", "locale", "layout", "connection"],
+      "inject": [
+        "slots",
+        "locale",
+        "layout",
+        "connection"
+      ],
       "platform": "web"
     },
     "bundle": {
       "patch": "./dsh-mneme/cordis.patch.yml"
     },
     "marketplace": {
-      "profiles": ["web"],
+      "profiles": [
+        "web"
+      ],
       "requiresBuildApproval": false,
       "requiresRestart": true,
       "manualSteps": false

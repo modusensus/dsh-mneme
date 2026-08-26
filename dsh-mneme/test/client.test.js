@@ -366,3 +366,40 @@ test("directory ships localized labels in both dictionaries", () => {
     );
   }
 });
+
+// issue #35: the delete confirm step must not depend on the host window.confirm —
+// in the DSH web host the native dialog is unreliable/blocked, so clicks
+// appeared to do nothing. Deletion is now an inline two-step confirm
+// (✕ → 确认？ → DELETE), gated per row by confirmingId.
+test("delete flow drops window.confirm for an inline two-step confirm", () => {
+  assert.equal(
+    /window\.confirm\(/.test(clientSource),
+    false,
+    "the delete path must not call the host window.confirm"
+  );
+  assert.ok(
+    clientSource.includes("confirmingId"),
+    "a per-row confirm state must gate the second click"
+  );
+  assert.ok(
+    clientSource.includes('"directory.deleteConfirmShort"'),
+    "the short inline confirm label must be localized"
+  );
+});
+
+// issue #35: a failed DELETE (network / 401 / 500 / deleted!==true) must be
+// visible — the old code swallowed it with a bare return and .catch(() => {}).
+test("delete failure surfaces visible error feedback", () => {
+  assert.ok(
+    clientSource.includes("delErrorId"),
+    "a per-row error state must track failed deletes"
+  );
+  assert.ok(
+    clientSource.includes('"directory.deleteError"'),
+    "the delete error message must be localized"
+  );
+  assert.ok(
+    clientSource.includes(".mneme-dir-error"),
+    "a failed row must get a visible error style"
+  );
+});

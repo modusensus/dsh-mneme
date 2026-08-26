@@ -17,6 +17,11 @@ export const Config = z.object({
   summarizeModel: z.string().default(""),
   maxInjectedItems: z.natural().min(1).max(20).default(5),
   importanceThreshold: z.natural().min(1).max(5).default(3),
+  // 时间前缀注入（issue #34，opt-in，默认关）：开启时，新对话开始时把当前
+  // 日期时间以 [当前时间: 2026-08-26 周二 19:30] 前缀注入一次，让模型感知
+  // "现在几点/周几"。只注入一次（对话开始时），同会话后续渲染不再重复；
+  // 关闭时行为与之前完全一致。
+  injectTimePrefix: z.boolean().default(false),
   autoDream: z.boolean().default(true),
   dreamThresholdCount: z.natural().min(1).max(1000).default(10),
   dreamThresholdChars: z.natural().min(100).max(100000).default(5000),
