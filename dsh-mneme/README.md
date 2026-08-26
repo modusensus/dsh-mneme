@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Awesome](https://awesome-dsh-plugin.com/badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
-[![tests](https://img.shields.io/badge/tests-757%20passed-success)](https://github.com/modusensus/dsh-mneme)
+[![tests](https://img.shields.io/badge/tests-770%20passed-success)](https://github.com/modusensus/dsh-mneme)
 [![CI](https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/test.yml)](https://github.com/modusensus/dsh-mneme/actions)
 [![node](https://img.shields.io/badge/node-24%2B-blue)](https://nodejs.org)
 [![npm downloads](https://img.shields.io/npm/dm/@modusensus/dsh-mneme?color=blue&label=downloads)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
@@ -241,6 +241,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 
 | 版本 | 亮点 |
 |------|------|
+| **v0.7.2** | issue #35 修复：目录页删除按钮改面板内联两步确认（不再依赖宿主 `window.confirm`）+ 删除失败可见报错；issue #34 新功能：opt-in `injectTimePrefix` 对话开始自动注入当前时间一次（默认关）；770 测试全绿 |
 | **v0.7.1** | issue #31 修复：memory_save/memory_update 的 tags 桥接进 entity_attrs 标签存储（目录/`tag:` 检索/tagBoost 立即可见，`tags: []` 清空移回 untagged）+ `store.setMemoryTags` 反向同步 `memories.tags` 列 + autoTag 面板开关成为运行时消费方（settings 覆盖 config）；764 测试全绿 |
 | **v0.7.0** | 自进化记忆（heat 热度模型 + per-type 差异化半衰期 + sleep 热联合双保护）+ updated_at 语义修正（不算访问）+ recall_runs injected 两档标记 + 90 天滚动清理 + 实体热投影（ego-graph node heat → 前端节点大小/明暗）；757 测试全绿 |
 | **v0.6.11** | 社区修复（PR #27，Jstn-1g）：memory 渲染器暴露记忆 ID + 防御性加固（条数/块预算/Unicode 截断/JSONL 注入防护）；issue #14 已关闭；735 测试全绿 |
@@ -287,6 +288,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 | **v0.6.4** | ✅ 完成 | Tag 加权召回 | query/session tag 交集 boost（×1.15 / ×1.08），`tagBoostEnabled` 默认关 |
 | **v0.7.0** | ✅ 完成 | 自进化记忆 | heat 幂律衰减 + per-type 差异化半衰期（TYPE_DECAY）+ sleep 热联合双保护 + updated_at 语义修正 + recall_runs injected 两档标记 + 90 天清理 + 实体热投影（前端节点大小/明暗）；757 测试全绿 |
 | **v0.7.1** | ✅ 完成 | issue #31 修复 | memory_save/update tags 桥接 entity_attrs 标签存储 + 列反向同步 + autoTag 面板开关生效（settings 覆盖 config）；764 测试全绿 |
+| **v0.7.2** | ✅ 完成 | issue #34 + #35 修复 | 目录页删除按钮改内联两步确认 + 删除失败可见报错；opt-in `injectTimePrefix` 对话开始注入当前时间一次（默认关）；770 测试全绿 |
 | **v0.8.0** | 🚧 计划中（9 月末） | 图谱增强 | 兴趣漂移可视化 + 跨 workspace 记忆共享 + 更多 heat 信号 |
 
 > 新能力一律做成**可开关的功能**（配置启用/关闭），默认保守开启、不破坏现有行为。`failure_memories` 表与 autoDream 决策引擎已为后续反思性成长铺好路。
@@ -461,7 +463,7 @@ scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压
 ```bash
 cd dsh-mneme
 npm install        # 安装 peer 依赖（以 devDependencies 形式，用于本地测试）
-npm test           # 运行 735 个测试
+npm test           # 运行 770 个测试
 npm run stress     # 三轴线压测：长会话检索 / 冲突仲裁 / 多 Agent 并发（离线 mock LLM）
 npm run sync       # 把 src/ 同步到 lib/（发布时由 prepack 钩子自动执行）
 ```

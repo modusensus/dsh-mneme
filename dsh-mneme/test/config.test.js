@@ -27,6 +27,13 @@ test("dream sliding window + implicit keep config defaults and bounds (v0.4.4)",
   assert.equal(off.dreamImplicitKeep, false, "implicit keep can be disabled");
 });
 
+test("injectTimePrefix is opt-in: default off, enabled explicitly (issue #34)", () => {
+  const cfg = Config({});
+  assert.equal(cfg.injectTimePrefix, false, "time prefix defaults to false (behavior unchanged)");
+  const on = Config({ injectTimePrefix: true });
+  assert.equal(on.injectTimePrefix, true, "explicit opt-in enables it");
+});
+
 test("dream explicit coverage threshold config defaults and bounds (v0.4.4 fix)", () => {
   const cfg = Config({});
   assert.equal(cfg.dreamMinExplicitCoverage, 0.5, "coverage threshold defaults to 0.5");

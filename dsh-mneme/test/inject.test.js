@@ -101,3 +101,31 @@ test("Bug6: injected block stays within the ~1500 char budget, later entries col
   // The first entries render full bodies; every entry is present by title.
   for (let i = 0; i < 8; i++) assert.ok(text.includes(`长标题记忆${i}`), `entry ${i} present`);
 });
+
+test("injectTimePrefix: off by default, no time prefix injected", () => {
+  const { contexts } = setup();
+  const text = contexts[0].text({ agent: { session: { id: "s1" } } });
+  assert.ok(!text.includes("[当前时间:"), "no time prefix when disabled");
+});
+
+test("injectTimePrefix: enabled injects once at conversation start with correct format", () => {
+  const { contexts, service } = setup({ injectTimePrefix: true });
+  service.saveWithDedupe({ type: "preference", title: "语言", content: "用户用中文交流", importance: 5 });
+  const text = contexts[0].text({ agent: { session: { id: "s1" } } });
+  assert.match(
+    text,
+    /^\[当前时间: \d{4}-\d{2}-\d{2} 周[一二三四五六日] \d{2}:\d{2}\]\n\n/,
+    "prefix leads the injection with the documented format"
+  );
+  assert.ok(text.includes("语言"), "memory body still rendered after the prefix");
+});
+
+test("injectTimePrefix: same session never re-injects, a new session injects again", () => {
+  const { contexts } = setup({ injectTimePrefix: true });
+  const first = contexts[0].text({ agent: { session: { id: "s1" } } });
+  assert.match(first, /^\[当前时间:/, "injects on the first render of s1");
+  const second = contexts[0].text({ agent: { session: { id: "s1" } } });
+  assert.ok(!second.includes("[当前时间:"), "no re-inject within the same session");
+  const third = contexts[0].text({ agent: { session: { id: "s2" } } });
+  assert.match(third, /^\[当前时间:/, "a new session injects the prefix again");
+});

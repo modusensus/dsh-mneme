@@ -75,6 +75,32 @@ export function createInjector(ctx, service, settings, config) {
   const maxItems = config.maxInjectedItems ?? 5;
   const threshold = config.importanceThreshold ?? 3;
 
+  // Time-prefix injection (issue #34): opt-in, off by default. When enabled the
+  // current date/time is injected once per conversation — at the first prompt
+  // assembly of a new session — so the model can sense what time/day it is.
+  // A per-session latch means later assemblies in the same session never
+  // re-inject; a bare render ctx (no session id) falls back to once per
+  // injector lifetime.
+  const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+  let timePrefixSession = null;
+
+  function renderTimePrefix(ctx) {
+    if (config.injectTimePrefix !== true) return "";
+    const sessionId = ctx?.agent?.session?.id;
+    if (sessionId === undefined) {
+      if (timePrefixSession !== null) return "";
+      timePrefixSession = true;
+    } else {
+      if (sessionId === timePrefixSession) return "";
+      timePrefixSession = sessionId;
+    }
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    const date = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const time = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    return `[当前时间: ${date} ${WEEKDAYS[now.getDay()]} ${time}]`;
+  }
+
   // Bug6: bound the injected memory block. Each entry's content is truncated to
   // MAX_CONTENT chars (trailing `…`); the whole block gets a MAX_BLOCK budget
   // and an entry that would exceed it collapses to its title only, so a long
@@ -188,8 +214,11 @@ export function createInjector(ctx, service, settings, config) {
         // separate context) keeps the prompt assembly stable at two blocks.
         const hotText = renderHotContext(ctx);
         const body = render(candidates);
-        if (!hotText) return body;
-        return body ? `${hotText}\n\n${body}` : hotText;
+        let out = !hotText ? body : (body ? `${hotText}\n\n${body}` : hotText);
+        // Time prefix (issue #34): leads the injection block once per session.
+        const timePrefix = renderTimePrefix(ctx);
+        if (!timePrefix) return out;
+        return out ? `${timePrefix}\n\n${out}` : timePrefix;
       }
     }),
     ctx.systemPrompt.context({
