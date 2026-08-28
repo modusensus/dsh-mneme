@@ -10,11 +10,11 @@ We actively maintain the latest minor version. Security fixes are backported to 
 
 | Version | Supported | Status |
 |---|---|---|
-| 0.3.x | ✅ Yes | Active development |
-| 0.2.x | ⚠️ Best-effort | Critical fixes only |
-| < 0.2.0 | ❌ No | Please upgrade to 0.3.x |
+| 0.7.x | ✅ Yes | Active development |
+| 0.6.x | ⚠️ Best-effort | Critical fixes only |
+| < 0.6.0 | ❌ No | Please upgrade to 0.7.x |
 
-**End-of-life notice**: 0.2.x is in best-effort maintenance (critical fixes only). Its end-of-life date will be announced in advance; after that date no security fixes will be provided for 0.2.x.
+**End-of-life notice**: 0.6.x is in best-effort maintenance (critical fixes only). Its end-of-life date will be announced in advance; after that date no security fixes will be provided for 0.6.x.
 
 ---
 
@@ -37,6 +37,12 @@ The following security features are implemented and maintained in the project:
 | `entityExtractionEnabled` Opt-In Entity Extraction | Entity extraction is opt-in via configuration (default: off), minimizing data processing by default | ✅ Implemented |
 | Graceful Degradation | System falls back to keyword search on component failure; no crash | ✅ Implemented |
 | Human-Editable Mirrors | All memories mirrored to Markdown files; users can verify and reconstruct data | ✅ Implemented |
+| Mirror Generation CAS/Fence | Mirror sync is bound to a monotonic `generation` counter with CAS/fence semantics; stale or concurrent mirror writes are rejected | ✅ Implemented |
+| Crash-Recovery Debt Model | Business writes atomically bump `desired generation` in the same transaction; after a crash, `recoverMirror` replays the debt instead of silently skipping repairs | ✅ Implemented |
+| `/health` Auth-Gated Endpoint | Health endpoint requires `apiToken`; error codes are sanitized (no-space / permission / sync-failed) and read failures fail closed as `unknown` | ✅ Implemented |
+| Fail-Closed Input Validation | Generation counters and hot-memory parameters are validated (`Number.isInteger`, finite, non-negative) with SQL `CHECK` constraints; invalid input falls back to safe defaults or is rejected | ✅ Implemented |
+| Hybrid Score Clamping | Hybrid fusion scores are clamped to [0, 1] to prevent vector + BM25 stacking from breaking normalization bounds | ✅ Implemented |
+| Tag Sanitization | Tag normalization reuses the sanitizer; `autoTag` skips forgotten memories; `setMemoryTags` runs inside a SAVEPOINT for atomic rollback | ✅ Implemented |
 
 ---
 
@@ -160,6 +166,45 @@ We follow a 5-step process for handling third-party dependency vulnerabilities:
 |---|---|---|---|
 | CVE-2026-39244 | `adm-zip` 0.5.18 | **High** | ✅ Fixed (upgraded to 0.6.0) |
 
+### v0.3.6 — Mirror Debt Modeling (audit peer re-verification)
+
+| Finding | Severity | Status |
+|---|---|---|
+| Mirror sync not bound to a generation counter (stale overwrite window) | **High** | ✅ Fixed (generation + CAS/fence semantics, per-type status) |
+| `/health` endpoint unauthenticated with verbose error codes | **High** | ✅ Fixed (auth-gated, sanitized codes, fail-closed `unknown`) |
+| COMMIT-crash window could permanently skip mirror repairs | **High** | ✅ Fixed (recoverMirror triggers on dirty OR generation > applied) |
+
+### v0.3.8 — Mirror Sync Reliability (peer 6 blockers)
+
+| Finding | Severity | Status |
+|---|---|---|
+| Silent mirror sync failures (no error surfaced to write path) | **High** | ✅ Fixed (`syncMirror` returns `{success, error}`; `afterSync` check on write entry) |
+| Non-atomic generation increments under multi-process concurrency | **High** | ✅ Fixed (`UPDATE ... RETURNING` atomic statement + `PRAGMA busy_timeout=5000`) |
+| Generation counter overflow / negative values | **Medium** | ✅ Fixed (JS validation + SQL `CHECK(0..MAX_SAFE_INTEGER)`) |
+
+### v0.3.9 — Audit A/B/D/F
+
+| Finding | Severity | Status |
+|---|---|---|
+| CAS update and generation increment not in the same transaction | **High** | ✅ Fixed (atomic `runAtomically`; miss does not increment) |
+| Failed updates could report success | **High** | ✅ Fixed (degraded/pending receipts with mirror attributes) |
+| Generation validation not fail-closed | **Medium** | ✅ Fixed (`Number.isInteger` fail-closed + migration detects stale dirty values) |
+
+### v0.5.1 — Hot Memory Parameter Defense
+
+| Finding | Severity | Status |
+|---|---|---|
+| Negative / non-finite `maxRounds`/`maxTokens` could trigger a synchronous infinite loop via public API | **High** | ✅ Fixed (fallback to safe defaults 5/2000) |
+| Hybrid fusion score could exceed 1.0 (vector + BM25 stacking) | **Medium** | ✅ Fixed (clamp to [0, 1]) |
+
+### v0.6.5 — Tag System Hardening
+
+| Finding | Severity | Status |
+|---|---|---|
+| `autoTag` could tag forgotten memories | **Medium** | ✅ Fixed (filter `forgotten` before tagging) |
+| Tag normalization bypassed the sanitizer | **Medium** | ✅ Fixed (reuse `sanitize` in `normalizeTags`) |
+| `setMemoryTags` not atomic on failure | **Medium** | ✅ Fixed (SAVEPOINT rollback) |
+
 ### Ongoing
 
 - Automated dependency scanning via **OrbisAI Security**
@@ -238,6 +283,26 @@ dsh-mneme:
 
   # Keep entity extraction off by default (data minimization)
   entityExtractionEnabled: false
+
+  # Reranking is opt-in (default: off) — no extra model downloads unless enabled
+  rerankEnabled: false
+
+  # Keep auto-tagging off by default (data minimization)
+  autoTagEnabled: false
+
+  # Disable session lifecycle if you do not need session-scoped disposal
+  sessionLifecycleEnabled: false
+
+  # Disable sleep mode maintenance if you want zero background activity
+  sleepModeEnabled: false
+
+  # Epistemic trust weighting is opt-in (default: off)
+  trustEpistemicWeighting: false
+
+  # LLM audit log retention (days)
+  llmAudit:
+    enabled: true
+    retentionDays: 90
 ```
 
 ---
@@ -281,11 +346,11 @@ This project is licensed under the **MIT License**. See [LICENSE](https://github
 
 | 版本 | 支持状态 | 说明 |
 |---|---|---|
-| 0.3.x | ✅ 支持 | 活跃开发中 |
-| 0.2.x | ⚠️ 尽力维护 | 仅关键修复 |
-| < 0.2.0 | ❌ 不支持 | 请升级至 0.3.x |
+| 0.7.x | ✅ 支持 | 活跃开发中 |
+| 0.6.x | ⚠️ 尽力维护 | 仅关键修复 |
+| < 0.6.0 | ❌ 不支持 | 请升级至 0.7.x |
 
-**停止维护通知**：0.2.x 处于尽力维护阶段（仅关键修复）。停止维护的具体日期将提前公布；该日期之后将不再提供 0.2.x 的安全修复。
+**停止维护通知**：0.6.x 处于尽力维护阶段（仅关键修复）。停止维护的具体日期将提前公布；该日期之后将不再提供 0.6.x 的安全修复。
 
 ---
 
@@ -308,6 +373,12 @@ This project is licensed under the **MIT License**. See [LICENSE](https://github
 | `entityExtractionEnabled` 实体抽取 Opt-In | 实体抽取为配置项、默认关闭（数据最小化原则） | ✅ 已实现 |
 | 优雅降级 | 组件故障时自动回退至关键词搜索，不崩溃 | ✅ 已实现 |
 | 人工可编辑镜像 | 所有记忆镜像至 Markdown 文件，用户可验证和重建数据 | ✅ 已实现 |
+| Mirror Generation CAS/Fence | 镜像同步绑定单调递增的 `generation` 计数器并采用 CAS/fence 语义，拒绝过期或并发镜像写入 | ✅ 已实现 |
+| 崩溃恢复债务模型 | 业务写入在自身事务内原子递增 `desired generation`；崩溃后 `recoverMirror` 依据债务重放修复，不再静默跳过 | ✅ 已实现 |
+| `/health` 鉴权门控 | 健康端点要求 `apiToken`；错误码净化（no-space / permission / sync-failed），读取失败 fail-closed 为 `unknown` | ✅ 已实现 |
+| Fail-Closed 输入校验 | generation 计数与热记忆参数均做 `Number.isInteger`、有限性、非负校验并配 SQL `CHECK` 约束；非法输入回退安全默认值或被拒绝 | ✅ 已实现 |
+| 混合分数钳制 | 混合检索融合分数钳制在 [0, 1]，防止向量 + BM25 叠加突破归一化边界 | ✅ 已实现 |
+| Tag 净化 | Tag 规范化复用 sanitizer；`autoTag` 跳过已遗忘记忆；`setMemoryTags` 在 SAVEPOINT 内执行，失败原子回滚 | ✅ 已实现 |
 
 ---
 
@@ -431,6 +502,45 @@ This project is licensed under the **MIT License**. See [LICENSE](https://github
 |---|---|---|---|
 | CVE-2026-39244 | `adm-zip` 0.5.18 | **高** | ✅ 已修复（升级至 0.6.0） |
 
+### v0.3.6 — Mirror 债务建模（审计 peer 复核修复）
+
+| 发现 | 严重程度 | 状态 |
+|---|---|---|
+| 镜像同步未绑定 generation 计数器（过期覆盖窗口） | **高** | ✅ 已修复（generation + CAS/fence 语义，per-type 状态） |
+| `/health` 端点未鉴权且错误码冗长 | **高** | ✅ 已修复（鉴权门控、错误码净化、读取失败 fail-closed `unknown`） |
+| COMMIT-崩溃窗口可能永久跳过镜像修复 | **高** | ✅ 已修复（dirty 或 generation > applied 时触发 recoverMirror） |
+
+### v0.3.8 — Mirror 同步可靠性（peer 6 blockers）
+
+| 发现 | 严重程度 | 状态 |
+|---|---|---|
+| 镜像同步静默失败（错误未上抛至写路径） | **高** | ✅ 已修复（`syncMirror` 返回 `{success, error}`；写入口 `afterSync` 检查） |
+| 多进程并发下 generation 非原子递增 | **高** | ✅ 已修复（`UPDATE ... RETURNING` 原子语句 + `PRAGMA busy_timeout=5000`） |
+| generation 溢出 / 负值 | **中** | ✅ 已修复（JS 校验 + SQL `CHECK(0..MAX_SAFE_INTEGER)`） |
+
+### v0.3.9 — 审计 A/B/D/F
+
+| 发现 | 严重程度 | 状态 |
+|---|---|---|
+| CAS 更新与 generation 递增不在同一事务 | **高** | ✅ 已修复（`runAtomically` 原子执行；miss 不递增） |
+| 失败更新可能虚报成功 | **高** | ✅ 已修复（degraded/pending 回执，带 mirror 属性） |
+| generation 校验未 fail-closed | **中** | ✅ 已修复（`Number.isInteger` fail-closed + 迁移检测旧脏值） |
+
+### v0.5.1 — 热记忆负参数防御
+
+| 发现 | 严重程度 | 状态 |
+|---|---|---|
+| 负 / 非有限 `maxRounds`/`maxTokens` 可经公开 API 触发同步死循环 | **高** | ✅ 已修复（回退安全默认值 5/2000） |
+| 混合融合分数可超过 1.0（向量 + BM25 叠加） | **中** | ✅ 已修复（钳制到 [0, 1]） |
+
+### v0.6.5 — Tag 系统加固
+
+| 发现 | 严重程度 | 状态 |
+|---|---|---|
+| `autoTag` 可能给已遗忘记忆打标签 | **中** | ✅ 已修复（打标前过滤 `forgotten`） |
+| Tag 规范化绕过 sanitizer | **中** | ✅ 已修复（`normalizeTags` 复用 `sanitize`） |
+| `setMemoryTags` 失败时非原子 | **中** | ✅ 已修复（SAVEPOINT 回滚） |
+
 ### 持续进行
 
 - 通过 **OrbisAI Security** 进行自动化依赖扫描
@@ -509,6 +619,26 @@ dsh-mneme:
 
   # 实体抽取默认关闭（数据最小化）
   entityExtractionEnabled: false
+
+  # Rerank 为 opt-in（默认关闭）——未启用时不下载额外模型
+  rerankEnabled: false
+
+  # 自动打标签默认关闭（数据最小化）
+  autoTagEnabled: false
+
+  # 不需要会话级清理时可关闭会话生命周期
+  sessionLifecycleEnabled: false
+
+  # 不需要后台维护时可关闭 Sleep Mode
+  sleepModeEnabled: false
+
+  # 记忆可信度加权为 opt-in（默认关闭）
+  trustEpistemicWeighting: false
+
+  # LLM 审计日志保留天数
+  llmAudit:
+    enabled: true
+    retentionDays: 90
 ```
 
 ---
@@ -540,5 +670,5 @@ dsh-mneme:
 
 ---
 
-*Last updated: 2026-08-16*  
-*Policy version: 2.1*
+*Last updated: 2026-08-28*  
+*Policy version: 2.2*
