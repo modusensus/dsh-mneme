@@ -403,3 +403,23 @@ test("delete failure surfaces visible error feedback", () => {
     "a failed row must get a visible error style"
   );
 });
+
+// issue #38: the sidebar foot trigger must be disableable so it stops colliding
+// with other plugins that also claim the bottom-left footer slot (dsh-cost-meter
+// et al). The client reads the settings-over-config toggle from the /config
+// endpoint and renders no button when it is off; the 记忆库 conversation tab is
+// unaffected, so nothing is lost by hiding the entry.
+test("sidebar trigger is hidden when showSidebarTrigger is false (issue #38)", () => {
+  assert.ok(
+    clientSource.includes('apiFetch("/api/dsh-mneme/config")'),
+    "trigger must read the effective config from /api/dsh-mneme/config"
+  );
+  assert.ok(
+    /d\.config\?\.showSidebarTrigger !== false/.test(clientSource),
+    "trigger must hide when showSidebarTrigger is explicitly false and stay visible by default"
+  );
+  assert.ok(
+    clientSource.includes('"memory.settings.sidebarTriggerTitle"'),
+    "settings panel must expose a sidebar-trigger toggle"
+  );
+});

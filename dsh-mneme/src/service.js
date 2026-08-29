@@ -105,6 +105,19 @@ export function createService({ store, mirror, config, onWrite, logger, settings
     };
   };
 
+  // App-wide effective config for the Web panel (/api/dsh-mneme/config): the
+  // tag toggles plus UI preferences (issue #38). Settings overrides plugin
+  // config when explicitly stored; unset keys fall back to the zod default.
+  const appConfig = () => {
+    const stored = settings?.getUiConfig?.() ?? {};
+    return {
+      ...tagConfig(),
+      showSidebarTrigger: typeof stored.showSidebarTrigger === "boolean"
+        ? stored.showSidebarTrigger
+        : (config.showSidebarTrigger ?? true)
+    };
+  };
+
   // Optional recall recorder, installed via setRecallRecorder after creation.
   // When searchMemories is called with recordRecall=true it receives the
   // actual merged recall scene (candidates + scores + source + threshold) so
@@ -1803,6 +1816,7 @@ export function createService({ store, mirror, config, onWrite, logger, settings
     // Effective tag toggle pair (settings-over-config merge) for the panel
     // (/api/dsh-mneme/config GET/PUT).
     getTagConfig: tagConfig,
+    getAppConfig: appConfig,
     applyMemoryTags: (memoryId, tags) => store.setMemoryTags(memoryId, tags),
     saveAttr: (r) => store.saveAttr(r),
     createEntity: (r) => store.createEntity(r),

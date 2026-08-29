@@ -238,19 +238,22 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
             }
             return true;
           };
-          if (!setIfBoolean("autoTagEnabled") || !setIfBoolean("manualTagEnabled")) return;
+          if (!setIfBoolean("autoTagEnabled") || !setIfBoolean("manualTagEnabled") || !setIfBoolean("showSidebarTrigger")) return;
           if (Object.keys(patch).length === 0) {
             sendJson(res, 400, { error: "no valid config field provided" });
             return;
           }
+          // Each setter ignores the keys it doesn't own, so one patch can feed
+          // both stores safely (tag toggles → "autoTag", UI prefs → "ui").
           settings.setAutoTagConfig(patch);
+          settings.setUiConfig(patch);
           // Respond with the effective (settings-over-config merged) toggles
           // so the panel always sees booleans that actually gate runtime
           // behaviour (issue #31).
-          sendJson(res, 200, { config: service.getTagConfig() });
+          sendJson(res, 200, { config: service.getAppConfig() });
           return;
         }
-        sendJson(res, 200, { config: service.getTagConfig() });
+        sendJson(res, 200, { config: service.getAppConfig() });
       } catch {
         sendJson(res, 500, { error: "internal" });
       }

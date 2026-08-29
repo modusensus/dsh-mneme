@@ -77,6 +77,11 @@ window.__ModuleLoader__.load({
         "memory.settings.autoTagEnabled": "自动打标签",
         "memory.settings.autoTagSave": "保存",
         "memory.settings.autoTagSaved": "已保存",
+        "memory.settings.sidebarTriggerTitle": "侧边栏入口按钮",
+        "memory.settings.sidebarTriggerHint": "关闭后隐藏侧边栏底部（左下角）的记忆入口按钮。与其他插件 UI 冲突时建议关闭；记忆库仍可通过顶部「记忆库」标签访问",
+        "memory.settings.sidebarTriggerEnabled": "显示左下角入口按钮",
+        "memory.settings.sidebarTriggerSave": "保存",
+        "memory.settings.sidebarTriggerSaved": "已保存",
         "memory.settings.ruleAdd": "添加规则",
         "memory.settings.rulePlaceholder": "例如：回答时总是先给结论",
         "memory.settings.commands": "自定义指令",
@@ -186,6 +191,11 @@ window.__ModuleLoader__.load({
         "memory.settings.autoTagEnabled": "Auto-tagging",
         "memory.settings.autoTagSave": "Save",
         "memory.settings.autoTagSaved": "Saved",
+        "memory.settings.sidebarTriggerTitle": "Sidebar trigger",
+        "memory.settings.sidebarTriggerHint": "Hide the memory entrance button at the sidebar footer (bottom-left) when it clashes with other plugins. The library stays reachable via the 记忆库 conversation tab",
+        "memory.settings.sidebarTriggerEnabled": "Show the bottom-left trigger",
+        "memory.settings.sidebarTriggerSave": "Save",
+        "memory.settings.sidebarTriggerSaved": "Saved",
         "memory.settings.ruleAdd": "Add Rule",
         "memory.settings.rulePlaceholder": "e.g. Always lead with a conclusion",
         "memory.settings.commands": "Custom Commands",
@@ -874,6 +884,8 @@ window.__ModuleLoader__.load({
       const [apiTokenSaved, setApiTokenSaved] = react.useState(false);
       const [autoTag, setAutoTag] = react.useState(false);
       const [autoTagSaved, setAutoTagSaved] = react.useState(false);
+      const [showSidebarTrigger, setShowSidebarTrigger] = react.useState(true);
+      const [sidebarTriggerSaved, setSidebarTriggerSaved] = react.useState(false);
 
       const load = react.useCallback(async () => {
         try {
@@ -891,7 +903,9 @@ window.__ModuleLoader__.load({
           try {
             const g = await apiFetch("/api/dsh-mneme/config").then((res) => res.json());
             setAutoTag(g.config?.autoTagEnabled === true);
-          } catch { /* keep default off */ }
+            // issue #38: sidebar trigger defaults to visible (true).
+            setShowSidebarTrigger(g.config?.showSidebarTrigger !== false);
+          } catch { /* keep defaults */ }
         } catch { /* ignore */ }
       }, []);
 
@@ -1000,6 +1014,18 @@ window.__ModuleLoader__.load({
         } catch { /* ignore */ }
       }
 
+      async function saveSidebarTrigger() {
+        try {
+          await apiFetch("/api/dsh-mneme/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ showSidebarTrigger })
+          });
+          setSidebarTriggerSaved(true);
+          setTimeout(() => setSidebarTriggerSaved(false), 1500);
+        } catch { /* ignore */ }
+      }
+
       const inputStyle = { boxSizing: "border-box", width: "100%", height: 34, padding: "0 12px", borderRadius: 10, border: "1px solid var(--dsw-alias-border-l2, #ddd)", background: "var(--dsw-alias-bg-base, transparent)", color: "var(--dsw-alias-label-primary)", fontFamily: "inherit", fontSize: 13, outline: "none", marginBottom: 8 };
       const labelStyle = { fontSize: 12, fontWeight: 600, margin: "12px 0 4px", color: "var(--dsw-alias-label-primary)" };
       const hintStyle = { fontSize: 11, color: "var(--dsw-alias-label-tertiary, #999)", marginBottom: 8 };
@@ -1076,6 +1102,17 @@ window.__ModuleLoader__.load({
         h("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
           h("button", { style: styles.footerButton, onClick: saveAutoTag }, t("memory.settings.autoTagSave")),
           autoTagSaved && h("span", { style: { fontSize: 12, color: "var(--dsw-alias-state-success, #2a7)" } }, t("memory.settings.autoTagSaved"))
+        ),
+        // sidebar trigger switch (issue #38)
+        h("div", { style: { ...labelStyle, marginTop: 20 } }, t("memory.settings.sidebarTriggerTitle")),
+        h("div", { style: hintStyle }, t("memory.settings.sidebarTriggerHint")),
+        h("label", { style: { display: "flex", alignItems: "center", gap: 6, marginBottom: 8, fontSize: 13 } },
+          h("input", { type: "checkbox", checked: showSidebarTrigger, onChange: (e) => setShowSidebarTrigger(e.target.checked) }),
+          h("span", null, t("memory.settings.sidebarTriggerEnabled"))
+        ),
+        h("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
+          h("button", { style: styles.footerButton, onClick: saveSidebarTrigger }, t("memory.settings.sidebarTriggerSave")),
+          sidebarTriggerSaved && h("span", { style: { fontSize: 12, color: "var(--dsw-alias-state-success, #2a7)" } }, t("memory.settings.sidebarTriggerSaved"))
         ),
         // vector search
         h("div", { style: { ...labelStyle, marginTop: 20 } }, t("memory.settings.vectorTitle")),
@@ -1749,7 +1786,22 @@ window.__ModuleLoader__.load({
     // opens the full-viewport overlay instead — the library stays reachable
     // from every conversation state.
     function SidebarTrigger({ wide, t }) {
+      // issue #38: the entrance button is now optional (settings-over-config
+      // toggle, persisted via /api/dsh-mneme/config). While the value loads we
+      // render the button (default = visible) so it never flashes out; if the
+      // user disabled it, it drops away after the config resolves. The library
+      // itself is unaffected — the 记忆库 conversation tab stays.
+      const [visible, setVisible] = useState(true);
+      useEffect(() => {
+        let cancelled = false;
+        apiFetch("/api/dsh-mneme/config")
+          .then((res) => res.json())
+          .then((d) => { if (!cancelled) setVisible(d.config?.showSidebarTrigger !== false); })
+          .catch(() => { if (!cancelled) setVisible(true); });
+        return () => { cancelled = true; };
+      }, []);
       const [, setOpen] = useOverlayOpen();
+      if (!visible) return null;
       return h("button", {
         type: "button",
         className: wide ? "mneme-trigger" : "mneme-trigger mneme-rail",

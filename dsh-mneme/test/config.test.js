@@ -55,3 +55,10 @@ test("startup probe: the reranker module never statically imports transformers/o
   );
   assert.match(src, /await import\("@huggingface\/transformers"\)/, "transformers.js loads lazily via dynamic import");
 });
+
+test("showSidebarTrigger is on by default, disabled explicitly (issue #38)", () => {
+  const cfg = Config({});
+  assert.equal(cfg.showSidebarTrigger, true, "sidebar trigger defaults to visible (behavior unchanged)");
+  const off = Config({ showSidebarTrigger: false });
+  assert.equal(off.showSidebarTrigger, false, "explicit false hides the trigger");
+});
