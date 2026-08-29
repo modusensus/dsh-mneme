@@ -203,6 +203,16 @@ export const Config = z.object({
   // set false to disable the manual write path too.
   manualTagEnabled: z.boolean().default(true),
 
+  // --- sidebar trigger (issue #38) ---------------------------------------
+  // The memory library is reachable from two UI surfaces: a "记忆库" tab in the
+  // conversation header AND an entrance button at the sidebar footer (bottom
+  // left). Some sidebars get crowded there — dsh-cost-meter and friends also
+  // claim the footer slot — so the entrance button is now optional. Off just
+  // hides the button; the conversation tab stays, so no functionality is lost.
+  // The Web panel exposes this as a toggle (settings-over-config, see
+  // settings.getUiConfig); the value here is the plugin-config default.
+  showSidebarTrigger: z.boolean().default(true),
+
   // --- tag-weighted re-rank (v0.6.4) -------------------------------------
   // Opt-in: boost candidates whose tags overlap the query/session tags.
   tagBoostEnabled: z.boolean().default(false),

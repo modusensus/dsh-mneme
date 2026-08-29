@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.7.3] - 2026-08-29
+
+### 🆕 新功能（issue #38）
+
+- **左下角入口按钮可关闭**：新增配置 `showSidebarTrigger`（默认 `true`，关闭时行为与之前完全一致）。dsh-mneme 的记忆入口按钮注入在侧边栏底部 footer slot（左下角），与同样抢占该位置的插件（如 dsh-cost-meter）冲突时 UI 会叠加/错乱。现在可在 **Web 面板「设置」→「侧边栏入口按钮」**一键关闭；关闭仅隐藏按钮，记忆库仍可通过顶部「记忆库」标签访问，功能不受影响
+- 设置走 settings-over-config（与 `autoTagEnabled` 同机制）：面板开关持久化到 `user_settings`，未触碰时回退插件配置默认值；`/api/dsh-mneme/config` 的 GET/PUT 同步支持该字段（PUT 只接受布尔，非法值 400）
+
+### 测试
+
+- 新增 7 个回归测试（api 3 + settings 2 + config 1 + client 1），全套 **776 通过**
+
 ## [0.7.2] - 2026-08-26
 
 ### 🐛 修复（issue #35）

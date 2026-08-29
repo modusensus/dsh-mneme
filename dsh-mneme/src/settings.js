@@ -176,6 +176,37 @@ export function createSettings(db) {
       else if (cur.manualTagEnabled !== undefined) cfg.manualTagEnabled = cur.manualTagEnabled === true;
       setSetting("autoTag", JSON.stringify(cfg));
       return cfg;
+    },
+    /** UI preferences (issue #38): same settings-over-config pattern as the
+     * tag toggles. null = never explicitly stored → callers fall back to the
+     * plugin-config default, so a partial update can't invent a value for a
+     * key the user never touched. */
+    getUiConfig() {
+      const raw = getSetting("ui");
+      let stored = {};
+      if (raw) {
+        try {
+          const j = JSON.parse(raw);
+          if (j && typeof j === "object") stored = j;
+        } catch { /* fall through to defaults */ }
+      }
+      return {
+        showSidebarTrigger: typeof stored.showSidebarTrigger === "boolean" ? stored.showSidebarTrigger : null
+      };
+    },
+    setUiConfig(partial) {
+      const cur = (() => {
+        const raw = getSetting("ui");
+        try {
+          const j = JSON.parse(raw);
+          return j && typeof j === "object" ? j : {};
+        } catch { return {}; }
+      })();
+      const cfg = {};
+      if (partial.showSidebarTrigger !== undefined) cfg.showSidebarTrigger = partial.showSidebarTrigger === true;
+      else if (cur.showSidebarTrigger !== undefined) cfg.showSidebarTrigger = cur.showSidebarTrigger === true;
+      setSetting("ui", JSON.stringify(cfg));
+      return cfg;
     }
   };
 }

@@ -120,3 +120,25 @@ test("autoTag config coerces non-boolean to false", () => {
   assert.deepEqual(settings.getAutoTagConfig(), { autoTagEnabled: false, manualTagEnabled: false });
   store.close();
 });
+
+test("ui config (sidebar trigger) defaults to null and round-trips only explicit keys", () => {
+  const { store, settings } = setup();
+  // Issue #38: same settings-over-config pattern as the tag toggles — an unset
+  // key is null so consumers fall back to the plugin-config default (visible).
+  assert.deepEqual(settings.getUiConfig(), { showSidebarTrigger: null });
+  settings.setUiConfig({ showSidebarTrigger: false });
+  assert.deepEqual(settings.getUiConfig(), { showSidebarTrigger: false });
+  settings.setUiConfig({ showSidebarTrigger: true });
+  assert.deepEqual(settings.getUiConfig(), { showSidebarTrigger: true });
+  // A partial update with no showSidebarTrigger keeps the stored value.
+  settings.setUiConfig({});
+  assert.deepEqual(settings.getUiConfig(), { showSidebarTrigger: true });
+  store.close();
+});
+
+test("ui config coerces non-boolean to false", () => {
+  const { store, settings } = setup();
+  settings.setUiConfig({ showSidebarTrigger: "yes" });
+  assert.deepEqual(settings.getUiConfig(), { showSidebarTrigger: false });
+  store.close();
+});
