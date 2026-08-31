@@ -62,3 +62,10 @@ test("showSidebarTrigger is on by default, disabled explicitly (issue #38)", () 
   const off = Config({ showSidebarTrigger: false });
   assert.equal(off.showSidebarTrigger, false, "explicit false hides the trigger");
 });
+
+test("escapePromptVariables is on by default, disabled explicitly (issue #40)", () => {
+  const cfg = Config({});
+  assert.equal(cfg.escapePromptVariables, true, "{{...}} escaping defaults to on (protects interpolate)");
+  const off = Config({ escapePromptVariables: false });
+  assert.equal(off.escapePromptVariables, false, "explicit false passes {{...}} through verbatim");
+});

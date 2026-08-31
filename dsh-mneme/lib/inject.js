@@ -75,6 +75,23 @@ export function createInjector(ctx, service, settings, config) {
   const maxItems = config.maxInjectedItems ?? 5;
   const threshold = config.importanceThreshold ?? 3;
 
+  // Prompt-variable escaping (issue #40): DSH's interpolate() treats `{{name}}`
+  // as a prompt variable and strictly validates the name against
+  // /^[a-z][a-z0-9_]*$/ — memory/profile content carrying legal template syntax
+  // (Obsidian-style `{{hl|}}`, `{{挖空}}`, `{{关键词}}`) would hit an illegal
+  // variable name and throw, crashing the whole turn. At the injection boundary
+  // we escape every run of 2+ consecutive braces, inserting a `\` between each
+  // pair, so no `{{`/`}}` substring survives into the prompt: `{{a}}` → `{\{a\}\}`,
+  // and odd runs like `{{{a}}}` (which pair-wise escaping would leave with a
+  // literal `{{`) are handled too. The text keeps its readable template form,
+  // the transform is idempotent (escaped braces are single + `\`, never two
+  // adjacent), and single braces pass through untouched — interpolate only
+  // scans `{{`. Off via config.escapePromptVariables=false (default true).
+  function escapePromptVars(text) {
+    if (config.escapePromptVariables === false) return String(text);
+    return String(text).replace(/[{}]{2,}/g, (run) => run.split("").join("\\"));
+  }
+
   // Time-prefix injection (issue #34): opt-in, off by default. When enabled the
   // current date/time is injected once per conversation — at the first prompt
   // assembly of a new session — so the model can sense what time/day it is.
@@ -134,7 +151,7 @@ export function createInjector(ctx, service, settings, config) {
     for (const r of rounds) hot.add(r);
     const body = hot.getContext();
     if (!body) return "";
-    return `[短期上下文] 最近对话（共 ${rounds.length} 轮）：\n${body}`;
+    return escapePromptVars(`[短期上下文] 最近对话（共 ${rounds.length} 轮）：\n${body}`);
   }
 
   function render(candidates) {
@@ -158,7 +175,7 @@ export function createInjector(ctx, service, settings, config) {
         lines.push(`- [${m.type}] ${verified}${title}`);
       }
     }
-    return lines.join("\n");
+    return escapePromptVars(lines.join("\n"));
   }
 
   // Bug4: the system-prompt render is synchronous, so the semantic query vector
@@ -192,7 +209,7 @@ export function createInjector(ctx, service, settings, config) {
     const lines = ["[用户设置] 来自 dsh-mneme 的用户画像与规则："];
     if (profile) lines.push(`- 用户画像：${profile}`);
     for (const rule of rules) lines.push(`- 规则：${rule}`);
-    return lines.join("\n");
+    return escapePromptVars(lines.join("\n"));
   }
 
   const disposers = [

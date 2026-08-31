@@ -472,7 +472,11 @@ window.__ModuleLoader__.load({
       // there. This surface reuses the exact MemoryExplorer UI at full size —
       // not a side drawer — so the library stays reachable from any state.
       ".mneme-overlay{position:fixed;inset:0;z-index:1000;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1);animation:mneme-fadein .12s ease-out}",
-      ".mneme-overlaybar{flex:none;display:flex;align-items:center;justify-content:space-between;height:44px;padding:0 12px 0 16px;border-bottom:1px solid var(--dsw-alias-border-l2)}",
+      // issue #41: overlay 顶栏右侧原本与宿主窗口标题栏的控制按钮（最小化/最大化/关闭）
+      // 落在同一区域——宿主控制按钮浮在 web 内容最上层，抢占了 overlay"关闭"按钮的
+      // 点击热区，导致记忆窗口无法关闭。改为左对齐（标题 + 关闭按钮并排），关闭按钮
+      // 离开右上角宿主控制按钮区，任何窗口尺寸/宿主下都可见可点。
+      ".mneme-overlaybar{flex:none;display:flex;align-items:center;justify-content:flex-start;gap:12px;height:44px;padding:0 12px 0 16px;border-bottom:1px solid var(--dsw-alias-border-l2)}",
       ".mneme-overlaytitle{font-size:14px;font-weight:600;color:var(--dsw-alias-label-primary)}",
       ".mneme-overlaybody{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}",
       "@keyframes mneme-fadein{from{opacity:0}to{opacity:1}}"

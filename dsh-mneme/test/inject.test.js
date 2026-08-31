@@ -129,3 +129,60 @@ test("injectTimePrefix: same session never re-injects, a new session injects aga
   const third = contexts[0].text({ agent: { session: { id: "s2" } } });
   assert.match(third, /^\[当前时间:/, "a new session injects the prefix again");
 });
+
+test("issue #40: {{...}} in memory content is escaped at the injection boundary", () => {
+  const { contexts, service } = setup();
+  service.saveWithDedupe({ type: "preference", title: "模板记忆", content: "{{hl|highlight}} 和 {{挖空}} {{关键词}}", importance: 5 });
+  const text = contexts[0].text({});
+  assert.ok(text.includes("模板记忆"), "memory still rendered by title");
+  assert.ok(text.includes("{\\{hl|highlight}\\}"), "ASCII template braces escaped");
+  assert.ok(text.includes("{\\{挖空}\\}"), "CJK template braces escaped");
+  assert.ok(!text.includes("{{"), "no raw {{ survives into the prompt");
+  assert.ok(!text.includes("}}"), "no raw }} survives into the prompt");
+});
+
+test("issue #40: odd brace runs like {{{a}}} are escaped too", () => {
+  const { contexts, service } = setup();
+  service.saveWithDedupe({ type: "preference", title: "三层模板", content: "{{{a}}} 和 }}} 结尾", importance: 5 });
+  const text = contexts[0].text({});
+  assert.ok(!text.includes("{{"), "no raw {{ for odd brace runs");
+  assert.ok(!text.includes("}}"), "no raw }} for odd brace runs");
+});
+
+test("issue #40: {{...}} in user profile/rules is escaped", () => {
+  const { contexts, settings } = setup();
+  settings.setProfile("我叫{{名字}}，前端开发者");
+  settings.setRules(["回答时用 {{hl|term}}", "以 }} 结尾的规则"]);
+  const settingsCtx = contexts.find((c) => c.name === "user-settings");
+  const text = settingsCtx.text({});
+  assert.ok(text.includes("{\\{名字}\\}"), "profile braces escaped");
+  assert.ok(text.includes("{\\{hl|term}\\}"), "rule braces escaped");
+  assert.ok(!text.includes("{{"), "no raw {{ in user-settings block");
+  assert.ok(!text.includes("}}"), "no raw }} in user-settings block");
+});
+
+test("issue #40: hot-context rounds with {{...}} are escaped", () => {
+  const { contexts } = setup();
+  const text = contexts[0].text({
+    agent: {
+      session: {
+        id: "s1",
+        events: [
+          { type: "user/message", data: { source: { kind: "user" }, content: ["用 {{hl|你好}} 测试"] } },
+          { type: "assistant/message", data: { source: { kind: "assistant" }, content: ["返回 {{答案}}"] } }
+        ]
+      }
+    }
+  });
+  assert.ok(text.includes("[短期上下文]"), "hot context rendered");
+  assert.ok(!text.includes("{{"), "no raw {{ in hot context");
+  assert.ok(!text.includes("}}"), "no raw }} in hot context");
+});
+
+test("issue #40: escapePromptVariables=false passes {{...}} through verbatim", () => {
+  const { contexts, service } = setup({ escapePromptVariables: false });
+  service.saveWithDedupe({ type: "preference", title: "模板", content: "{{挖空}} 与 {{hl|term}}", importance: 5 });
+  const text = contexts[0].text({});
+  assert.ok(text.includes("{{挖空}}"), "raw braces preserved when escaping disabled");
+  assert.ok(text.includes("{{hl|term}}"), "raw ASCII braces preserved when escaping disabled");
+});
