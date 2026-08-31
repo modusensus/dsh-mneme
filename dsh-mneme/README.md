@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Awesome](https://awesome-dsh-plugin.com/badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
-[![tests](https://img.shields.io/badge/tests-770%20passed-success)](https://github.com/modusensus/dsh-mneme)
+[![tests](https://img.shields.io/badge/tests-782%20passed-success)](https://github.com/modusensus/dsh-mneme)
 [![CI](https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/test.yml)](https://github.com/modusensus/dsh-mneme/actions)
 [![node](https://img.shields.io/badge/node-24%2B-blue)](https://nodejs.org)
 [![npm downloads](https://img.shields.io/npm/dm/@modusensus/dsh-mneme?color=blue&label=downloads)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
@@ -241,6 +241,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 
 | 版本 | 亮点 |
 |------|------|
+| **v0.7.4** | issue #40 修复：记忆内容含 `{{...}}` 模板语法时整轮崩溃（注入边界 run-based 花括号转义 `{{a}}`→`{\{a\}\}`，奇数连续如 `{{{a}}}` 也不残留字面 `{{`；新增 `escapePromptVariables` 配置默认开）；issue #41 修复：记忆窗口关闭按钮与宿主窗口控制按钮重叠无法点击（顶栏左对齐，关闭按钮离开右上角宿主控制区）；782 测试全绿 |
 | **v0.7.3** | issue #38 新功能：左下角入口按钮可选开关 `showSidebarTrigger`（默认开）——与 dsh-cost-meter 等抢占 footer slot 的插件冲突时可在 Web 面板「设置」一键关闭，仅隐藏按钮、记忆库标签不受影响；776 测试全绿 |
 | **v0.7.2** | issue #35 修复：目录页删除按钮改面板内联两步确认（不再依赖宿主 `window.confirm`）+ 删除失败可见报错；issue #34 新功能：opt-in `injectTimePrefix` 对话开始自动注入当前时间一次（默认关）；770 测试全绿 |
 | **v0.7.1** | issue #31 修复：memory_save/memory_update 的 tags 桥接进 entity_attrs 标签存储（目录/`tag:` 检索/tagBoost 立即可见，`tags: []` 清空移回 untagged）+ `store.setMemoryTags` 反向同步 `memories.tags` 列 + autoTag 面板开关成为运行时消费方（settings 覆盖 config）；764 测试全绿 |
@@ -291,6 +292,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 | **v0.7.1** | ✅ 完成 | issue #31 修复 | memory_save/update tags 桥接 entity_attrs 标签存储 + 列反向同步 + autoTag 面板开关生效（settings 覆盖 config）；764 测试全绿 |
 | **v0.7.2** | ✅ 完成 | issue #34 + #35 修复 | 目录页删除按钮改内联两步确认 + 删除失败可见报错；opt-in `injectTimePrefix` 对话开始注入当前时间一次（默认关）；770 测试全绿 |
 | **v0.7.3** | ✅ 完成 | issue #38 新功能 | 左下角入口按钮可选开关 `showSidebarTrigger`（默认开，settings-over-config）；Web 面板设置一键关闭，与 dsh-cost-meter 等 footer 插件冲突可隐藏按钮、记忆库标签不受影响；776 测试全绿 |
+| **v0.7.4** | ✅ 完成 | issue #40 + #41 修复 | 注入边界 run-based 花括号转义（`{{a}}`→`{\{a\}\}`、奇数连续如 `{{{a}}}` 不残留字面，`escapePromptVariables` 默认开）+ 记忆窗口顶栏左对齐、关闭按钮避开宿主窗口控制按钮区；782 测试全绿 |
 | **v0.8.0** | 🚧 计划中（9 月末） | 图谱增强 | 兴趣漂移可视化 + 跨 workspace 记忆共享 + 更多 heat 信号 |
 
 > 新能力一律做成**可开关的功能**（配置启用/关闭），默认保守开启、不破坏现有行为。`failure_memories` 表与 autoDream 决策引擎已为后续反思性成长铺好路。
@@ -466,7 +468,7 @@ scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压
 ```bash
 cd dsh-mneme
 npm install        # 安装 peer 依赖（以 devDependencies 形式，用于本地测试）
-npm test           # 运行 770 个测试
+npm test           # 运行 782 个测试
 npm run stress     # 三轴线压测：长会话检索 / 冲突仲裁 / 多 Agent 并发（离线 mock LLM）
 npm run sync       # 把 src/ 同步到 lib/（发布时由 prepack 钩子自动执行）
 ```
