@@ -22,6 +22,13 @@ export const Config = z.object({
   // "现在几点/周几"。只注入一次（对话开始时），同会话后续渲染不再重复；
   // 关闭时行为与之前完全一致。
   injectTimePrefix: z.boolean().default(false),
+  // 花括号转义（issue #40，默认开）：DSH 核心 interpolate() 会把 `{{name}}`
+  // 当 prompt 变量做严格校验（变量名须匹配 /^[a-z][a-z0-9_]*$/），记忆正文里
+  // 合法的模板语法（如 `{{hl|}}`、`{{挖空}}`、`{{关键词}}`）会因非法变量名
+  // 直接 throw、让整轮对话崩溃。开启后注入边界把 `{{`→`\{\{`、`}}`→`\}\}`，
+  // 文本不再含 `{{`/`}}` 子串，interpolate 不再扫描到，内容保持可读且幂等
+  // （不会二次转义）。关闭后按原样透传。
+  escapePromptVariables: z.boolean().default(true),
   autoDream: z.boolean().default(true),
   dreamThresholdCount: z.natural().min(1).max(1000).default(10),
   dreamThresholdChars: z.natural().min(100).max(100000).default(5000),
