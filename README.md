@@ -10,7 +10,7 @@
   <a href="https://github.com/awesome-dsh-plugin/awesome-dsh-plugin"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="Awesome"></a>
   <a href="https://github.com/modusensus/dsh-mneme/actions"><img src="https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/test.yml" alt="CI"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-24%2B-blue" alt="node"></a>
-  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-782%20passed-success" alt="tests"></a>
+  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-790%20passed-success" alt="tests"></a>
   <a href="https://www.npmjs.com/package/@modusensus/dsh-mneme"><img src="https://img.shields.io/npm/dm/@modusensus/dsh-mneme?color=blue&label=downloads" alt="npm downloads"></a>
   <a href="https://codecov.io/gh/modusensus/dsh-mneme"><img src="https://img.shields.io/codecov/c/github/modusensus/dsh-mneme/main" alt="coverage"></a>
 </p>
@@ -107,6 +107,7 @@ dsh web
 | **v0.7.2** | issue #35 删除按钮内联确认修复 + issue #34 对话开始注入当前时间（opt-in） | ✅ |
 | **v0.7.3** | issue #38 左下角入口按钮可选开关 `showSidebarTrigger` | ✅ |
 | **v0.7.4** | issue #40 记忆花括号转义 + issue #41 记忆窗口关闭按钮重叠修复 | ✅ |
+| **v0.7.5** | 分层记忆类型 user/fact + Web 总览视图 + stats 端点 | ✅ |
 | **v0.8.0** | 图谱增强：兴趣漂移 + 跨 workspace 共享 | 🚧 计划中（9 月末） |
 
 ## 🧪 本地开发
@@ -114,7 +115,7 @@ dsh web
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 782 个测试
+npm test          # 790 个测试
 npm run stress    # 三轴线压测
 npm run sync      # src → lib 同步
 ```
@@ -212,6 +213,7 @@ Works out of the box. Enable these as needed:
 | **v0.7.2** | Issue #35 delete button inline-confirm fix + Issue #34 inject current time at conversation start (opt-in) | ✅ |
 | **v0.7.3** | Issue #38 optional sidebar trigger `showSidebarTrigger` | ✅ |
 | **v0.7.4** | Issue #40 prompt-brace escaping + Issue #41 overlay close-button overlap fix | ✅ |
+| **v0.7.5** | Layered memory types (user/fact) + Overview view + stats endpoint | ✅ |
 | **v0.8.0** | Graph enhancement: interest drift + cross-workspace sharing | 🚧 Planned (late Sep) |
 
 ## 🧪 Local Development
@@ -219,7 +221,7 @@ Works out of the box. Enable these as needed:
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 782 tests
+npm test          # 790 tests
 npm run stress    # three-axis stress test
 npm run sync      # src → lib sync
 ```
