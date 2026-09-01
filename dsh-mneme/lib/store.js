@@ -242,7 +242,7 @@ CREATE TABLE IF NOT EXISTS mirror_state (
 );
 `;
 
-const TYPES = new Set(["preference", "project", "decision", "history", "summary", "pattern"]);
+const TYPES = new Set(["preference", "project", "decision", "history", "summary", "pattern", "user", "fact"]);
 
 // Epistemic status: what kind of evidence a memory rests on. Defaults to
 // 'subjective' so legacy rows (and rows without any signal) stay compatible.
@@ -657,6 +657,39 @@ export function createStore(path) {
     }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     return db.prepare(`SELECT count(*) AS c FROM memories ${where}`).get(...params).c;
+  }
+
+  /**
+   * Aggregated stats for the Web panel layered overview: per-type distribution
+   * plus a recent daily creation trend. Counts live (non-forgotten /
+   * non-archived / not session-disposed) memories only, matching `count`.
+   * created_at is ISO TEXT, so date strings compare lexicographically.
+   */
+  function stats({ days = 7 } = {}) {
+    const LIVE = "forgotten = 0 AND archived = 0 AND session_disposed_at IS NULL";
+    // Clamp + integer-coerce so fractional strings (e.g. ?days=7.5) can't
+    // produce ragged trend windows (kimi-k2.7-code 复验 S2).
+    days = Math.min(30, Math.max(1, Math.floor(Number(days) || 7)));
+    const now = Date.now(); // single clock read so the window doesn't span a day boundary
+    const byType = db.prepare(
+      `SELECT type, count(*) AS c FROM memories WHERE ${LIVE} GROUP BY type`
+    ).all();
+    const byTypeCounts = {};
+    for (const row of byType) byTypeCounts[row.type] = row.c;
+    const since = new Date(now - (days - 1) * 86400000).toISOString().slice(0, 10);
+    const trend = db.prepare(
+      `SELECT substr(created_at, 1, 10) AS d, count(*) AS c FROM memories
+       WHERE ${LIVE} AND created_at >= ? GROUP BY d ORDER BY d`
+    ).all(since);
+    const trendCounts = {};
+    for (const row of trend) trendCounts[row.d] = row.c;
+    const recent = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(now - i * 86400000).toISOString().slice(0, 10);
+      recent.push({ date: d, count: trendCounts[d] ?? 0 });
+    }
+    const total = Object.values(byTypeCounts).reduce((s, n) => s + n, 0);
+    return { byType: byTypeCounts, total, recent, days };
   }
 
   function getById(id) {
@@ -2175,6 +2208,7 @@ export function createStore(path) {
   return {
     db,
     count,
+    stats,
     getById,
     save,
     update,

@@ -98,6 +98,21 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
 
   register({
     kind: "exact",
+    path: "/api/dsh-mneme/stats",
+    handler(req, res) {
+      try {
+        const url = new URL(req.url, "http://localhost");
+        const raw = url.searchParams.get("days");
+        const days = Math.min(30, Math.max(1, parseInt(raw ?? "7", 10) || 7));
+        sendJson(res, 200, service.stats({ days }));
+      } catch {
+        sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
+  register({
+    kind: "exact",
     path: "/api/dsh-mneme/search",
     handler(req, res) {
       try {

@@ -1,7 +1,7 @@
 import { BlockAssembler, createUserMessage } from "@deepseek-ai/dsh-llm";
 
 const SUMMARY_PROMPT = `你是记忆库提炼助手。根据下面的会话内容，提炼 2-3 条值得跨会话记住的记忆。
-只输出 JSON 数组，每项形如 {"type":"preference|project|decision|history","title":"简短标题","content":"一句话内容","importance":1-5}。
+只输出 JSON 数组，每项形如 {"type":"preference|project|decision|history|user|fact","title":"简短标题","content":"一句话内容","importance":1-5}。
 不要输出任何其他文字。`;
 
 /** Extract a JSON array from LLM output that may contain prose around it. */
@@ -17,7 +17,7 @@ export function parseSummaryJson(raw) {
     return [];
   }
   if (!Array.isArray(arr)) return [];
-  const VALID = new Set(["preference", "project", "decision", "history"]);
+  const VALID = new Set(["preference", "project", "decision", "history", "user", "fact"]);
   return arr.filter(
     (item) =>
       item &&

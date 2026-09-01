@@ -65,6 +65,8 @@ window.__ModuleLoader__.load({
         "memory.tab.project": "项目",
         "memory.tab.decision": "决策",
         "memory.tab.history": "历史",
+        "memory.tab.user": "用户",
+        "memory.tab.fact": "事实",
         "memory.settings.title": "记忆库设置",
         "memory.settings.profile": "用户画像",
         "memory.settings.profileHint": "描述你自己（角色、背景、偏好），Agent 会在每轮遵循",
@@ -100,6 +102,7 @@ window.__ModuleLoader__.load({
         "memory.explorer.tabGraph": "图谱",
         "memory.explorer.tabDirectory": "目录",
         "memory.explorer.tabSettings": "设置",
+        "memory.explorer.tabOverview": "总览",
         "memory.explorer.search": "搜索标题或内容…",
         "memory.explorer.searchTitle": "语义检索",
         "memory.explorer.types": "分类",
@@ -122,6 +125,14 @@ window.__ModuleLoader__.load({
         "memory.explorer.importance": "重要性",
         "memory.explorer.topK": "返回数量",
         "memory.explorer.topKOption": "返回 {n} 条",
+        "memory.overview.empty": "还没有记忆。开始对话后 Agent 会自动沉淀记忆，这里会展示分层总览",
+        "memory.overview.profileEmpty": "暂无用户画像记忆，可在对话中让 AI 记录",
+        "memory.overview.distribution": "类型分布",
+        "memory.overview.layers": "记忆分层",
+        "memory.overview.trend": "近 7 天趋势",
+        "memory.overview.none": "暂无",
+        "memory.overview.badgeInject": "常注入",
+        "memory.overview.badgeImportance": "按重要性",
         "memory.directory.untagged": "无标签",
         "memory.directory.loading": "加载中…",
         "memory.directory.empty": "暂无记忆条目",
@@ -179,6 +190,8 @@ window.__ModuleLoader__.load({
         "memory.tab.project": "Projects",
         "memory.tab.decision": "Decisions",
         "memory.tab.history": "History",
+        "memory.tab.user": "User",
+        "memory.tab.fact": "Facts",
         "memory.settings.title": "Memory Settings",
         "memory.settings.profile": "User Profile",
         "memory.settings.profileHint": "Describe yourself — the agent follows this every turn",
@@ -214,6 +227,7 @@ window.__ModuleLoader__.load({
         "memory.explorer.tabGraph": "Graph",
         "memory.explorer.tabDirectory": "Directory",
         "memory.explorer.tabSettings": "Settings",
+        "memory.explorer.tabOverview": "Overview",
         "memory.explorer.search": "Search title or content…",
         "memory.explorer.searchTitle": "Semantic Search",
         "memory.explorer.types": "Types",
@@ -236,6 +250,14 @@ window.__ModuleLoader__.load({
         "memory.explorer.importance": "Importance",
         "memory.explorer.topK": "Results limit",
         "memory.explorer.topKOption": "Return {n}",
+        "memory.overview.empty": "No memories yet. Once you chat, the agent starts saving memories and the layered overview appears here",
+        "memory.overview.profileEmpty": "No user-profile memories yet — ask the agent to remember things about you in chat",
+        "memory.overview.distribution": "By Type",
+        "memory.overview.layers": "Memory Layers",
+        "memory.overview.trend": "Last 7 days",
+        "memory.overview.none": "None",
+        "memory.overview.badgeInject": "Auto-inject",
+        "memory.overview.badgeImportance": "By importance",
         "memory.directory.untagged": "Untagged",
         "memory.directory.loading": "Loading…",
         "memory.directory.empty": "No memories yet",
@@ -466,6 +488,32 @@ window.__ModuleLoader__.load({
       // --- settings sub-view ---
       ".mneme-xsettings{flex:1;min-height:0;overflow-y:auto;padding:24px 24px 48px}",
       ".mneme-xsettings-inner{max-width:640px}",
+      // --- overview sub-view (layered stats dashboard, .mneme-ov-* only) ---
+      ".mneme-ov-wrap{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding:12px 16px 28px}",
+      ".mneme-ov-profile{gap:8px}",
+      ".mneme-ov-prow{display:flex;flex-direction:column;gap:2px;padding:4px 0;border-top:1px solid var(--dsw-alias-border-l1)}",
+      ".mneme-ov-prow:first-of-type{border-top:none}",
+      ".mneme-ov-ptitle{font-size:13px;font-weight:600;line-height:18px;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+      ".mneme-ov-ppreview{font-size:12px;line-height:17px;color:var(--dsw-alias-label-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+      ".mneme-ov-dist{display:flex;flex-direction:column;gap:6px}",
+      ".mneme-ov-distrow{display:flex;align-items:center;gap:8px}",
+      ".mneme-ov-distlabel{flex:none;width:76px;font-size:12px;line-height:16px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+      ".mneme-ov-distcount{flex:none;width:34px;font-size:12px;line-height:16px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;text-align:right}",
+      ".mneme-ov-disttrack{flex:1;min-width:0;height:8px;border-radius:4px;background:var(--dsw-alias-border-l2)}",
+      ".mneme-ov-distbar{height:100%;min-width:2px;border-radius:4px;background:var(--dsw-alias-state-business-primary)}",
+      ".mneme-ov-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}",
+      ".mneme-ov-tile{box-sizing:border-box;text-align:left;border:none;cursor:pointer;font-family:inherit;gap:6px;overflow:hidden}",
+      ".mneme-ov-tile:hover{background:var(--dsw-alias-interactive-bg-hover)}",
+      ".mneme-ov-tilehead{display:flex;align-items:center;gap:6px}",
+      ".mneme-ov-tiletitle{min-width:0;font-size:13px;font-weight:600;line-height:18px;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+      ".mneme-ov-tilecount{flex:none;margin-left:auto;font-size:12px;line-height:16px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}",
+      ".mneme-ov-badge{flex:none;font-size:11px;line-height:16px;padding:0 6px;border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);color:var(--dsw-alias-state-business-primary)}",
+      ".mneme-ov-badge--dim{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-tertiary)}",
+      ".mneme-ov-tilelatest{font-size:12px;line-height:17px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+      ".mneme-ov-trend{display:flex;align-items:flex-end;gap:8px;padding:8px 4px 0}",
+      ".mneme-ov-trendcol{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:4px}",
+      ".mneme-ov-trendbar{width:min(100%,30px);border-radius:4px 4px 0 0;background:var(--dsw-alias-state-business-primary)}",
+      ".mneme-ov-trenddate{font-size:10px;line-height:12px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;white-space:nowrap}",
       // --- hero fallback: full-viewport memory library when no tab ring exists ---
       // The host hides the whole conversation tab ring while a session is
       // blank (hero screen), so the sidebar entry cannot activate the tab
@@ -1371,10 +1419,139 @@ window.__ModuleLoader__.load({
       );
     }
 
-    const EXPLORER_TYPES = ["preference", "project", "decision", "summary", "history"];
+    // --- Overview sub-view (layered stats dashboard) ---
+    // Card grid of every memory type (fixed display order, strays appended
+    // alphabetically), plus a user-profile card, a CSS-only type distribution
+    // bar chart and a 7-day creation trend. Data comes from /stats; each tile
+    // probes /list?type=X&limit=1 for a representative latest title (the list
+    // API sorts importance-first, so limit=1 is the type's most prominent row).
+    const OVERVIEW_TYPE_ORDER = ["preference", "project", "decision", "history", "user", "fact", "summary", "pattern"];
+    // Injection-priority tiers from service.js (summary > preference/user >
+    // importance): these layers ride into nearly every prompt.
+    const OVERVIEW_INJECT_TYPES = ["summary", "user", "preference"];
+
+    function OverviewPanel({ t, onPickType }) {
+      const [stats, setStats] = useState(null); // null = loading
+      const [profile, setProfile] = useState(null); // user-type memories (list card)
+      const [latest, setLatest] = useState({}); // type -> representative memory | null
+
+      useEffect(() => {
+        let cancelled = false;
+        apiFetch("/api/dsh-mneme/stats?days=7")
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => { if (!cancelled) setStats(d && d.byType ? d : { byType: {}, total: 0, recent: [] }); })
+          .catch(() => { if (!cancelled) setStats({ byType: {}, total: 0, recent: [] }); });
+        apiFetch("/api/dsh-mneme/list?type=user&limit=20")
+          .then((r) => (r.ok ? r.json() : { items: [] }))
+          .then((d) => { if (!cancelled) setProfile(Array.isArray(d.items) ? d.items : []); })
+          .catch(() => { if (!cancelled) setProfile([]); });
+        return () => { cancelled = true; };
+      }, []);
+
+      const byType = stats ? stats.byType : {};
+      const gridTypes = stats
+        ? OVERVIEW_TYPE_ORDER.filter((k) => byType[k]).concat(
+            Object.keys(byType).filter((k) => !OVERVIEW_TYPE_ORDER.includes(k)).sort())
+        : [];
+
+      // Representative-latest probe, one small request per visible layer.
+      // Derived purely from stats, so [stats] is the full dependency set.
+      useEffect(() => {
+        if (!stats || gridTypes.length === 0) return;
+        let cancelled = false;
+        Promise.all(gridTypes.map((k) =>
+          apiFetch(`/api/dsh-mneme/list?type=${encodeURIComponent(k)}&limit=1`)
+            .then((r) => (r.ok ? r.json() : { items: [] }))
+            .then((d) => [k, (Array.isArray(d.items) && d.items[0]) || null])
+            .catch(() => [k, null])
+        )).then((pairs) => { if (!cancelled) setLatest(Object.fromEntries(pairs)); });
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [stats]);
+
+      if (!stats) return h("div", { className: "mneme-ov-wrap" }, h("div", { className: "mneme-hint" }, t("memory.directory.loading")));
+      if (stats.total === 0) return h("div", { className: "mneme-ov-wrap" }, h("div", { className: "mneme-hint" }, t("memory.overview.empty")));
+
+      const distRow = (key) => {
+        const count = byType[key] || 0;
+        const pct = stats.total > 0 ? Math.round((count / stats.total) * 100) : 0;
+        return h("div", { key, className: "mneme-ov-distrow" },
+          h("span", { className: "mneme-ov-distlabel" }, typeLabel(t, key)),
+          h("span", { className: "mneme-ov-distcount" }, String(count)),
+          h("div", { className: "mneme-ov-disttrack" },
+            h("div", { className: "mneme-ov-distbar", style: { width: `${pct}%` } }))
+        );
+      };
+
+      const tile = (key) => {
+        const inject = OVERVIEW_INJECT_TYPES.includes(key);
+        const last = latest[key];
+        return h("button", {
+          key,
+          type: "button",
+          className: "mneme-card mneme-ov-tile",
+          title: t("memory.card.open"),
+          onClick: () => onPickType && onPickType(key)
+        },
+          h("div", { className: "mneme-ov-tilehead" },
+            h("span", { className: "mneme-ov-tiletitle" }, typeLabel(t, key)),
+            h("span", { className: inject ? "mneme-ov-badge" : "mneme-ov-badge mneme-ov-badge--dim" },
+              inject ? t("memory.overview.badgeInject") : t("memory.overview.badgeImportance")),
+            h("span", { className: "mneme-ov-tilecount" }, String(byType[key] || 0))
+          ),
+          h("div", { className: "mneme-ov-tilelatest" },
+            (last && (last.title || (last.content || "").slice(0, 40))) || t("memory.overview.none"))
+        );
+      };
+
+      // Trend bars scale to the busiest day; heights are fixed px so they do
+      // not depend on percentage resolution inside the flex columns.
+      const recent = Array.isArray(stats.recent) ? stats.recent : [];
+      const maxTrend = Math.max(1, ...recent.map((d) => d.count || 0));
+      const trendCol = (d) => {
+        const count = d.count || 0;
+        const px = count > 0 ? 6 + Math.round((count / maxTrend) * 90) : 0;
+        return h("div", {
+          key: d.date,
+          className: "mneme-ov-trendcol",
+          title: `${d.date} · ${t("memory.explorer.count").replace("{n}", String(count))}`
+        },
+          h("div", { className: "mneme-ov-trendbar", style: { height: `${px}px` } }),
+          h("div", { className: "mneme-ov-trenddate" }, (d.date || "").slice(5)) // MM-DD
+        );
+      };
+
+      return h("div", { className: "mneme-ov-wrap" },
+        h("div", { className: "mneme-card mneme-ov-profile", role: "region", "aria-label": t("memory.settings.profile") },
+          h("div", { className: "mneme-xcolhead" }, t("memory.settings.profile")),
+          profile === null
+            ? h("div", { className: "mneme-ov-ppreview" }, t("memory.directory.loading"))
+            : profile.length === 0
+              ? h("div", { className: "mneme-ov-ppreview" }, t("memory.overview.profileEmpty"))
+              : profile.map((m) => h("div", { key: m.id, className: "mneme-ov-prow" },
+                  h("span", { className: "mneme-ov-ptitle" }, m.title || "—"),
+                  h("span", { className: "mneme-ov-ppreview" }, (m.content_preview || m.content || "").slice(0, 100))
+                ))
+        ),
+        h("div", { className: "mneme-card", role: "region", "aria-label": t("memory.overview.distribution") },
+          h("div", { className: "mneme-xcolhead" }, t("memory.overview.distribution")),
+          h("div", { className: "mneme-ov-dist" }, gridTypes.map(distRow))
+        ),
+        h("div", { className: "mneme-xcolhead" }, t("memory.overview.layers")),
+        h("div", { className: "mneme-ov-grid" }, gridTypes.map(tile)),
+        h("div", { className: "mneme-card", role: "region", "aria-label": t("memory.overview.trend") },
+          h("div", { className: "mneme-xcolhead" }, t("memory.overview.trend")),
+          recent.length === 0
+            ? h("div", { className: "mneme-ov-tilelatest" }, t("memory.overview.none"))
+            : h("div", { className: "mneme-ov-trend" }, recent.map(trendCol))
+        )
+      );
+    }
+
+    const EXPLORER_TYPES = ["preference", "project", "decision", "summary", "history", "user", "fact"];
 
     function MemoryExplorer({ t }) {
-      const [view, setView] = useState("memory"); // memory | directory | graph | settings
+      const [view, setView] = useState("memory"); // memory | overview | directory | graph | settings
       const [items, setItems] = useState([]);
       const [loading, setLoading] = useState(true);
       const [type, setType] = useState("all");
@@ -1586,8 +1763,15 @@ window.__ModuleLoader__.load({
         setView("graph");
       };
 
+      // Overview tile click: dive into the memory view filtered to that layer.
+      const pickLayerType = (key) => {
+        setType(key);
+        setView("memory");
+      };
+
       const subviews = [
         { key: "memory", label: t("memory.explorer.tabMemory") },
+        { key: "overview", label: t("memory.explorer.tabOverview") },
         { key: "directory", label: t("memory.explorer.tabDirectory") },
         { key: "graph", label: t("memory.explorer.tabGraph") },
         { key: "settings", label: t("memory.explorer.tabSettings") }
@@ -1776,6 +1960,7 @@ window.__ModuleLoader__.load({
             )
           )
         ),
+        view === "overview" && h(OverviewPanel, { t, onPickType: pickLayerType }),
         view === "directory" && h(DirectoryPanel, { t, onJump: jumpToMemory, collapsed: dirCollapsed, setCollapsed: setDirCollapsed }),
         view === "graph" && h(GraphPanel, { t, focusEntity: graphFocus, onJumpMemory: jumpToMemory }),
         view === "settings" && h("div", { className: "mneme-xsettings" },
