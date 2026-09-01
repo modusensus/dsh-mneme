@@ -61,7 +61,7 @@
 
 ### 1.2 Markdown 镜像
 
-- 五个 `.md` 镜像文件（`preferences.md` / `projects.md` / `decisions.md` / `history.md` / `summary.md`）格式不变，双向同步、人工优先的规则不变
+- 七个 `.md` 镜像文件（`preferences.md` / `projects.md` / `decisions.md` / `history.md` / `summary.md` / `user.md` / `facts.md`）格式不变，双向同步、人工优先的规则不变（v0.7.5 起新增 user/fact 两个分层镜像）
 - 升级后首次启动仍执行"读取人工编辑 → 合并回库"，无竞态（先全量读取再统一合并）
 
 ### 1.3 dream_runs 审计表

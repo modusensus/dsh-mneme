@@ -41,8 +41,8 @@ dsh web
 ### 记忆存储（SQLite + Markdown 镜像）
 
 - **SQLite 主存储**：`~/.dsh/memory/memory.db`，`node:sqlite` 内置，零原生依赖
-- **Markdown 镜像**：`preferences.md` / `projects.md` / `decisions.md` / `history.md` / `summary.md`，人类可读、可手工编辑（**人工修改优先**合并回库）
-- **4+1 种记忆类型**：`preference`（偏好）/ `project`（项目）/ `decision`（决策）/ `history`（历史）/ `summary`（总览）
+- **Markdown 镜像**：`preferences.md` / `projects.md` / `decisions.md` / `history.md` / `summary.md` / `user.md` / `facts.md`，人类可读、可手工编辑（**人工修改优先**合并回库）
+- **8 种记忆类型**：用户可存 6 种（`preference` 偏好 / `project` 项目 / `decision` 决策 / `history` 历史 / `user` 用户画像 / `fact` 原子事实）+ AI 自动生成 2 种（`summary` 会话总览 / `pattern` 模式）（v0.7.5 起新增 user/fact 两个轻量分层，单表 `type` 字段扩展，不动表结构）
 - **镜像同步状态机（v0.3.6+）**：mirror 与主库强一致，用 `generation`（期望轮次）/ `applied_generation`（已应用轮次）建模同步债务
   - 业务写操作在**自身事务内原子递增** desired generation——崩溃在 COMMIT 后、渲染前，重启也能凭 durable 债务恢复，绝不静默跳过（v0.3.8）
   - `generation` 用 SQLite 原子语句递增，多进程并发零丢失；带 `CHECK` 上界，负数/溢出拒绝
@@ -241,6 +241,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 
 | 版本 | 亮点 |
 |------|------|
+| **v0.7.5** | 分层记忆类型：新增 `user`（用户画像）/`fact`（原子事实）轻量记忆类型（单表 `type` 扩展，不动 schema）+ Web 面板「总览」视图（记忆分层卡片 + 用户画像卡 + 类型分布 + 近 7 天趋势）+ `/api/dsh-mneme/stats` 统计端点；kimi-k2.7-code 复验（days 整数化等）；790 测试全绿 |
 | **v0.7.4** | issue #40 修复：记忆内容含 `{{...}}` 模板语法时整轮崩溃（注入边界 run-based 花括号转义 `{{a}}`→`{\{a\}\}`，奇数连续如 `{{{a}}}` 也不残留字面 `{{`；新增 `escapePromptVariables` 配置默认开）；issue #41 修复：记忆窗口关闭按钮与宿主窗口控制按钮重叠无法点击（顶栏左对齐，关闭按钮离开右上角宿主控制区）；782 测试全绿 |
 | **v0.7.3** | issue #38 新功能：左下角入口按钮可选开关 `showSidebarTrigger`（默认开）——与 dsh-cost-meter 等抢占 footer slot 的插件冲突时可在 Web 面板「设置」一键关闭，仅隐藏按钮、记忆库标签不受影响；776 测试全绿 |
 | **v0.7.2** | issue #35 修复：目录页删除按钮改面板内联两步确认（不再依赖宿主 `window.confirm`）+ 删除失败可见报错；issue #34 新功能：opt-in `injectTimePrefix` 对话开始自动注入当前时间一次（默认关）；770 测试全绿 |
@@ -293,6 +294,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 | **v0.7.2** | ✅ 完成 | issue #34 + #35 修复 | 目录页删除按钮改内联两步确认 + 删除失败可见报错；opt-in `injectTimePrefix` 对话开始注入当前时间一次（默认关）；770 测试全绿 |
 | **v0.7.3** | ✅ 完成 | issue #38 新功能 | 左下角入口按钮可选开关 `showSidebarTrigger`（默认开，settings-over-config）；Web 面板设置一键关闭，与 dsh-cost-meter 等 footer 插件冲突可隐藏按钮、记忆库标签不受影响；776 测试全绿 |
 | **v0.7.4** | ✅ 完成 | issue #40 + #41 修复 | 注入边界 run-based 花括号转义（`{{a}}`→`{\{a\}\}`、奇数连续如 `{{{a}}}` 不残留字面，`escapePromptVariables` 默认开）+ 记忆窗口顶栏左对齐、关闭按钮避开宿主窗口控制按钮区；782 测试全绿 |
+| **v0.7.5** | ✅ 完成 | 分层记忆类型 + 总览视图 | 借鉴 meow-memory 分层概念、贴合单表架构：新增 `user`（用户画像）/`fact`（原子事实）类型，注入/镜像/梦境/质量过滤全链路打通；Web 面板「总览」视图（分层卡片 + 用户画像卡 + 类型分布 + 近 7 天趋势）；`/api/dsh-mneme/stats` 端点；kimi-k2.7-code 复验；790 测试全绿 |
 | **v0.8.0** | 🚧 计划中（9 月末） | 图谱增强 | 兴趣漂移可视化 + 跨 workspace 记忆共享 + 更多 heat 信号 |
 
 > 新能力一律做成**可开关的功能**（配置启用/关闭），默认保守开启、不破坏现有行为。`failure_memories` 表与 autoDream 决策引擎已为后续反思性成长铺好路。

@@ -192,7 +192,7 @@ export function createTools(ctx, service, config, embedder) {
         "Call this when the user states a durable preference, a project decision is made, or a lesson is learned. " +
         "Merges into an existing entry of the same type when the title matches.",
       parameters: {
-        type: { type: "string", required: true, enum: ["preference", "project", "decision", "history"], description: "preference=user profile; project=project knowledge/state; decision=key decision; history=conversation summary" },
+        type: { type: "string", required: true, enum: ["preference", "project", "decision", "history", "user", "fact"], description: "preference=user preference; project=project knowledge/state; decision=key decision; history=conversation summary; user=user profile (background/identity); fact=atomic factual statement" },
         title: { type: "string", required: true, description: "Short unique title" },
         content: { type: "string", required: true, description: "Memory body" },
         tags: { type: "array", items: { type: "string" }, description: "Optional tags" },
@@ -266,7 +266,7 @@ export function createTools(ctx, service, config, embedder) {
       name: "memory_list",
       description: "List at most 50 memory entries by type, high-importance first, then newest, paginated. Set include_archived=true to also list archived (hidden) entries so they can be located and restored. The JSONL summary reports returned/shown/omitted, offset/total/next_offset, and each rendered entry's exact id, type, title, importance, updated_at, tags, and truncated content_preview.",
       parameters: {
-        type: { type: "string", enum: ["preference", "project", "decision", "history"], description: "Filter by type; omit for all" },
+        type: { type: "string", enum: ["preference", "project", "decision", "history", "user", "fact"], description: "Filter by type; omit for all" },
         limit: { type: "integer", description: "Page size (default and maximum 50; nonpositive values use 50)" },
         offset: { type: "integer", description: "Page offset (default 0)" },
         include_archived: { type: "boolean", description: "Include archived (hidden) entries so they can be found and restored (default false)" }
@@ -305,7 +305,7 @@ export function createTools(ctx, service, config, embedder) {
         id: { type: "string", required: true, description: "Memory id" },
         title: { type: "string" },
         content: { type: "string" },
-        type: { type: "string", enum: ["preference", "project", "decision", "history"] },
+        type: { type: "string", enum: ["preference", "project", "decision", "history", "user", "fact"] },
         tags: { type: "array", items: { type: "string" } },
         importance: { type: "integer", description: "1-5" },
         reason: { type: "string", description: "Optional context for the correction (what the user actually said/wanted), recorded for reflection" }

@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.7.5] - 2026-09-02
+
+### 🆕 新功能：分层记忆类型 user/fact
+
+- 借鉴 meow-memory 的七层分层概念，贴合 dsh-mneme 单表 `memories` + `type` 字段架构，只补最轻量的两个分层，不动表结构：
+  - **`user`** — 用户画像（身份/背景/偏好档案）
+  - **`fact`** — 原子事实（不随时间漂移的客观事实）
+- 全链路打通：`store.TYPES` / `tools` 工具枚举与描述 / `summarize` VALID 集合与提炼 prompt / `quality-filter` 标签 / `mirror` 镜像文件（`user.md` / `facts.md`）/ `service.INJECT_TYPES` 注入（user 与 preference 同级常注入，fact 按重要性阈值注入）
+- Web 面板「总览」视图：记忆分层卡片（六类型+summary/pattern）+ 用户画像卡 + 类型分布面板 + 近 7 天创建趋势
+
+### 🆕 新功能：stats 统计端点
+
+- `GET /api/dsh-mneme/stats?days=N`：按类型分布 + 近 N 天（默认 7，夹紧 1..30）逐日创建趋势，SQL 聚合不受 list 50 条限制，排除归档/遗忘/会话销毁
+
+### 🔧 复验修复（kimi-k2.7-code）
+
+- `days` 参数整数化：`?days=7.5` 不再产生 8 个趋势点（`parseInt` 夹紧 + store 层防御）
+- store 单次 `Date.now()` 读取，避免趋势窗口跨天边界不一致
+- 前端趋势图 0 值天渲染 0 高度柱（不再伪装成有数据）；INJECT_TYPES 注入注释说明"常注入 vs 按重要性阈值"
+
+### 测试
+
+- 新增 8 个测试（分层类型/镜像/提炼/list 过滤/stats 分布+趋势/归档遗忘排除/days 夹紧与整数化），全套 **790 通过**
+
 ## [0.7.4] - 2026-09-01
 
 ### 🐛 修复（issue #40）

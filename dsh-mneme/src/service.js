@@ -7,7 +7,7 @@ import { parseWikiLinks } from "./parser/wiki-link.js";
 import { extractQueryTags, applyTagBoost } from "./search/tag-boost.js";
 import { computeHeat } from "./heat.js";
 
-const INJECT_TYPES = new Set(["preference", "project", "decision", "summary"]);
+const INJECT_TYPES = new Set(["preference", "project", "decision", "summary", "user", "fact"]);
 
 // Epistemic trust weights (v0.4.5): when config.trustEpistemicWeighting is on,
 // each recall candidate's existing score is multiplied by the weight of its
@@ -1047,12 +1047,15 @@ export function createService({ store, mirror, config, onWrite, logger, settings
     // (quality_score null) count as 100 (weight 1), so legacy stores keep their
     // exact summary>preference>importance ordering.
     const qualityWeight = (m) => (m.quality_score != null ? m.quality_score / 100 : 1);
+    // summary/user/preference are injected regardless of importance (context
+    // layers); every other INJECT_TYPES type (e.g. fact) only when
+    // importance >= threshold — the frontend "常注入" badge maps to this split.
     const items = store.list({ limit: 200, includeForgotten: false })
       .filter((m) => !m.archived && INJECT_TYPES.has(m.type) && !m.forgotten &&
-        (m.type === "summary" || m.type === "preference" || m.importance >= threshold))
+        (m.type === "summary" || m.type === "preference" || m.type === "user" || m.importance >= threshold))
       .sort((a, b) => {
-        const pa = a.type === "summary" ? 0 : a.type === "preference" ? 1 : 2;
-        const pb = b.type === "summary" ? 0 : b.type === "preference" ? 1 : 2;
+        const pa = a.type === "summary" ? 0 : (a.type === "preference" || a.type === "user") ? 1 : 2;
+        const pb = b.type === "summary" ? 0 : (b.type === "preference" || b.type === "user") ? 1 : 2;
         return pa - pb || (b.importance * qualityWeight(b)) - (a.importance * qualityWeight(a));
       });
     let candidates = items;
@@ -1068,7 +1071,7 @@ export function createService({ store, mirror, config, onWrite, logger, settings
           const hits = vectorIndex.search(queryVector, { limit: maxItems * 2, threshold: 0 });
           for (const m of hits) {
             if (m && !m.archived && INJECT_TYPES.has(m.type) && !m.forgotten &&
-              (m.type === "summary" || m.type === "preference" || m.importance >= threshold)) {
+              (m.type === "summary" || m.type === "preference" || m.type === "user" || m.importance >= threshold)) {
               semanticItems.push(m);
             }
           }
@@ -1606,6 +1609,7 @@ export function createService({ store, mirror, config, onWrite, logger, settings
     list: (o) => store.list(o),
     all: () => store.all(),
     count: (type, opts) => store.count(type, opts),
+    stats: (opts) => store.stats(opts),
     getById: (id) => store.getById(id),
     remove: (id) => {
       store.remove(id);
