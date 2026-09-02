@@ -1,0 +1,35 @@
+name: Publish to npm
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org/
+
+      # npm publish 必须从仓库根跑（根 package.json main → ./dsh-mneme/lib/index.js）。
+      # prepublishOnly 会把 dsh-mneme/package.json 的版本写回根 package.json，
+      # 所以发出的版本永远跟随 dsh-mneme/ 子目录版本号。
+      - name: Publish @modusensus/dsh-mneme
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # 发布后自检：查 registry 上刚发的版本是否可读
+      - name: Verify published version
+        run: |
+          V="$(node -p "require('./dsh-mneme/package.json').version")"
+          echo "Published: $(npm view "@modusensus/dsh-mneme@${V}" version)"
