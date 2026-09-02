@@ -698,6 +698,27 @@ export function createStore(path) {
   }
 
   /**
+   * issue #48: resolve a truncated id — as can leak through an agent's context
+   * window when list/search output is shortened — by matching it as a prefix of
+   * the id PRIMARY KEY. Exact lookups keep using getById; this only serves
+   * resolving a *candidate* id. Returns up to 51 rows so the caller can tell
+   * "unique" from "ambiguous" without a second query. LIKE wildcards are
+   * stripped from the input (a valid id fragment is hex/UUID text, never % or
+   * _). Prefix over a PK stays an index scan, so this is cheap even at scale.
+   */
+  function listByIdPrefix(idPrefix) {
+    if (typeof idPrefix !== "string" || !idPrefix.trim()) return [];
+    // LIKE 通配符不参与 id 匹配，一律剥掉。若剥完为空（如 id="%"），
+    // 不能让 SQL 退化成 `LIKE '%'` 全表命中——那会让单条记忆被误删，
+    // 一律视为无匹配返回。
+    const safe = idPrefix.replace(/[\\%_]/g, "");
+    if (!safe) return [];
+    const rows = db.prepare("SELECT * FROM memories WHERE id LIKE ? LIMIT 51")
+      .all(`${safe}%`);
+    return rows.map(toRow);
+  }
+
+  /**
    * Case-insensitive exact title lookup (v0.6.1 wiki-link). COLLATE NOCASE
    * folds ASCII case (CJK titles are inherently case-free, so they match
    * verbatim). Returns the first matching memory or undefined. Best-effort —
@@ -2210,6 +2231,7 @@ export function createStore(path) {
     count,
     stats,
     getById,
+    listByIdPrefix,
     save,
     update,
     compareAndUpdate,

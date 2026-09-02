@@ -398,6 +398,139 @@ test("memory_delete on missing id returns deleted:false", async () => {
   assert.equal(result.deleted, false);
 });
 
+// --- issue #48: id resolution via unique prefix (delete/update/forget/archive) --
+
+test("memory_delete accepts a unique id prefix", async () => {
+  const id = "a1b2c3d4-0000-0000-0000-000000000001";
+  const { registered, store } = setup();
+  store.save({ id, type: "decision", title: "t", content: "c" });
+  const del = registered.find((t) => t.name === "memory_delete");
+  const result = await del.execute({ id: "a1b2c3d4" });
+  assert.equal(result.deleted, true);
+  assert.equal(store.getById(id), undefined, "entry is gone");
+  assert.equal(store.count(), 0);
+});
+
+test("memory_delete rejects an ambiguous id prefix without deleting", async () => {
+  const { registered, store } = setup();
+  store.save({ id: "deadbeef-0000-0000-0000-000000000001", type: "decision", title: "t1", content: "c" });
+  store.save({ id: "deadbeef-0000-0000-0000-000000000002", type: "decision", title: "t2", content: "c" });
+  const del = registered.find((t) => t.name === "memory_delete");
+  await assert.rejects(() => del.execute({ id: "deadbeef" }), /matches 2 entries.*refusing to guess/s);
+  assert.equal(store.count(), 2, "ambiguous prefix removes nothing");
+});
+
+test("memory_delete with a non-matching id prefix returns deleted:false and leaves data", async () => {
+  const { registered, store } = setup();
+  store.save({ id: "a1b2c3d4-0000-0000-0000-000000000001", type: "decision", title: "t", content: "c" });
+  const del = registered.find((t) => t.name === "memory_delete");
+  const result = await del.execute({ id: "ffffffff" });
+  assert.equal(result.deleted, false);
+  assert.equal(store.count(), 1, "nothing removed when the prefix matches nothing");
+});
+
+test("memory_update accepts a unique id prefix", async () => {
+  const { registered, service, store } = setup();
+  const { memory } = service.saveWithDedupe({ type: "decision", title: "t", content: "c" });
+  const update = registered.find((t) => t.name === "memory_update");
+  const result = await update.execute({ id: memory.id.slice(0, 8), content: "updated via prefix" });
+  assert.equal(result.memory.id, memory.id, "resolved to the full id");
+  assert.equal(store.getById(memory.id).content, "updated via prefix");
+});
+
+test("memory_update rejects an ambiguous id prefix", async () => {
+  const { registered, store } = setup();
+  store.save({ id: "cafe1234-0000-0000-0000-000000000001", type: "decision", title: "t1", content: "c" });
+  store.save({ id: "cafe1234-0000-0000-0000-000000000002", type: "decision", title: "t2", content: "c" });
+  const update = registered.find((t) => t.name === "memory_update");
+  await assert.rejects(() => update.execute({ id: "cafe1234", content: "x" }), /matches 2 entries.*refusing to guess/s);
+  assert.equal(store.getById("cafe1234-0000-0000-0000-000000000001").content, "c");
+});
+
+test("memory_forget accepts a unique id prefix and restores it", async () => {
+  const id = "facade01-0000-0000-0000-000000000001";
+  const { registered, store } = setup();
+  store.save({ id, type: "project", title: "t", content: "c", importance: 5 });
+  const forget = registered.find((t) => t.name === "memory_forget");
+  const result = await forget.execute({ id: "facade01" });
+  assert.equal(result.memory.id, id, "resolved to the full id");
+  assert.equal(result.memory.forgotten, true);
+  assert.equal(store.getById(id).forgotten, true);
+  const restored = await forget.execute({ id: "facade01", forgotten: false });
+  assert.equal(restored.memory.forgotten, false);
+});
+
+test("memory_archive accepts a unique id prefix and restores it", async () => {
+  const id = "arcade01-0000-0000-0000-000000000001";
+  const { registered, service, store } = setup();
+  store.save({ id, type: "project", title: "t", content: "c" });
+  const archive = registered.find((t) => t.name === "memory_archive");
+  const result = await archive.execute({ id: "arcade01" });
+  assert.equal(result.memory.id, id, "resolved to the full id");
+  assert.equal(result.memory.archived, true);
+  assert.ok(!service.list({ type: "project" }).some((x) => x.id === id), "archived hidden from default list");
+  const restored = await archive.execute({ id: "arcade01", archived: false });
+  assert.equal(restored.memory.archived, false);
+  assert.ok(service.list({ type: "project" }).some((x) => x.id === id), "restored entry visible again");
+});
+
+// Exact id match must win even when the same string is also a prefix of
+// another (custom/unequal-length ids): a full id is never "ambiguous" with
+// a longer one that merely starts with it.
+test("memory_delete prefers an exact id match over an identical-prefix collision", async () => {
+  const { registered, store } = setup();
+  store.save({ id: "abc", type: "decision", title: "short", content: "c" });
+  store.save({ id: "abc-def-000000000000000000000000001", type: "decision", title: "long", content: "c" });
+  const del = registered.find((t) => t.name === "memory_delete");
+  const result = await del.execute({ id: "abc" });
+  assert.equal(result.deleted, true);
+  assert.equal(store.getById("abc"), undefined, "exact-match entry removed");
+  assert.equal(store.count(), 1, "the longer id sharing the prefix stays");
+});
+
+// A wildcard-only id ("%", "_") strips to an empty prefix; it must never
+// degrade into a `LIKE '%'` table-wide match that deletes a lone memory.
+test("memory_delete with a wildcard-only id matches nothing and deletes nothing", async () => {
+  const { registered, store } = setup();
+  store.save({ id: "a1b2c3d4-0000-0000-0000-000000000001", type: "decision", title: "t", content: "c" });
+  const del = registered.find((t) => t.name === "memory_delete");
+  for (const wildcard of ["%", "_", "%_", "%%", "___"]) {
+    const result = await del.execute({ id: wildcard });
+    assert.equal(result.deleted, false, `id "${wildcard}" must not match the whole table`);
+  }
+  assert.equal(store.count(), 1, "nothing removed by wildcard-only ids");
+});
+
+// Hand-copied ids can carry surrounding whitespace; resolve against the
+// trimmed form so a padded id still reaches the right memory.
+test("memory_delete trims surrounding whitespace from the id", async () => {
+  const id = "a1b2c3d4-0000-0000-0000-000000000001";
+  const { registered, store } = setup();
+  store.save({ id, type: "decision", title: "t", content: "c" });
+  const del = registered.find((t) => t.name === "memory_delete");
+  const result = await del.execute({ id: `  ${id}  ` });
+  assert.equal(result.deleted, true);
+  assert.equal(store.count(), 0);
+});
+
+// issue #48 observability: an unmatched id on memory_delete is logged (warn)
+// instead of silently vanishing — the logger is optional, but when present the
+// service layer records the silent-miss case.
+test("memory_delete logs a warn when the id matches nothing", async () => {
+  const warns = [];
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config: {}, logger: { warn: (msg) => warns.push(msg) } });
+  store.save({ id: "a1b2c3d4-0000-0000-0000-000000000001", type: "decision", title: "t", content: "c" });
+  const registered = [];
+  const ctx = { tools: { register(def) { registered.push(def); return () => {}; } } };
+  createTools(ctx, service, {}, undefined);
+  const del = registered.find((t) => t.name === "memory_delete");
+  const result = await del.execute({ id: "ffffffff" });
+  assert.equal(result.deleted, false);
+  assert.equal(warns.length, 1, "one warn for the silent-miss case");
+  assert.match(warns[0], /matched nothing/);
+});
+
 test("memory_delete by query deletes the best match (no id round-trip)", async () => {
   const { registered, service, store } = setup();
   const { memory } = service.saveWithDedupe({ type: "preference", title: "喜欢 Rust", content: "用户偏好 Rust 优先于 Go", importance: 4 });

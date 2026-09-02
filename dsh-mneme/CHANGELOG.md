@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.7.6] - 2026-09-02
+
+### 🐛 issue #48：截断的短 id 也能精确操作
+
+- **现象**：`memory_update` / `memory_delete` / `memory_forget` / `memory_archive` 此前对 id 做**严格精确匹配**（`WHERE id = ?`，无任何前缀/模糊逻辑）。若宿主上下文压缩或手抄把 36 位 UUID 截断，`memory_delete` 会静默返回 `{deleted:false}`（无 warn、无日志），其余三个工具抛错——对用户都表现为"操作不进也不出"。
+- **新增 `service.resolveMemoryId`**：精确命中优先，否则把传入值当 id 前缀解析（主键前缀走索引，无性能问题）；命中多条 → 拒绝操作并列出候选完整 id，**绝不瞎猜**。
+- **四工具统一接入**：`memory_update` / `memory_forget` / `memory_archive` 未命中抛错并提示"请传完整 id（`memory_list` / `memory_search` 输出均为完整 id）"；`memory_delete` 保持幂等返回 `{deleted:false}`，未命中补 `logger.warn` 留痕，可被服务日志定位。
+- 完整 id 直连不受影响（精确命中优先，不会因"恰好是另一条的前缀"被误判歧义）。
+- 复验加固：纯通配符 id（`%`/`_`）剥空后按无匹配处理，杜绝退化成 `LIKE '%'` 全表误删单条记忆；id 首尾空白自动 trim。
+- 补 11 个用例（前缀删除/更新/归档/遗忘、歧义拒绝、未命中兜底、精确优先、通配符兜底、空白 trim、warnMiss 日志），全套 **801 通过**。
+
+### 🧹 工程：client.js 改为 src 正源
+
+- Web 面板 bundle `client.js` 历史上是 lib/ 下**手写、无 src 副本**的唯一例外（重蹈过 v0.6.7 源码漏提交）；现补 `src/client.js` 为唯一正源，`npm run sync` 统一同步出 `lib/client.js`，guard 测试改为断言两文件字节一致，杜绝 drift。
+
 ## [0.7.5] - 2026-09-02
 
 ### 🆕 新功能：分层记忆类型 user/fact

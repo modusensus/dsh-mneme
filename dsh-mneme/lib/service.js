@@ -1611,6 +1611,44 @@ export function createService({ store, mirror, config, onWrite, logger, settings
     count: (type, opts) => store.count(type, opts),
     stats: (opts) => store.stats(opts),
     getById: (id) => store.getById(id),
+    // issue #48: resolve a possibly-truncated id to its canonical full id.
+    // Exact hit wins; otherwise the input is treated as a prefix of the id
+    // PRIMARY KEY. Never guesses on ambiguity — returns the candidates and the
+    // caller must pass a full id. Outcome is {ok:true,id} or {ok:false,reason,
+    // message} with reason ∈ invalid | not-found | ambiguous. warnMiss logs the
+    // silent-miss case the delete tool previously swallowed (no return channel
+    // for it, so observability has to live here in the service layer).
+    resolveMemoryId: (input, { warnMiss = false } = {}) => {
+      const bad = (reason, message) => ({ ok: false, reason, message });
+      if (typeof input !== "string") return bad("invalid", "memory id is required");
+      // 手抄/上下文压缩来的 id 可能带首尾空白，统一 trim 后再做精确与前缀解析。
+      const id = input.trim();
+      if (!id) return bad("invalid", "memory id is required");
+      const exact = store.getById(id);
+      if (exact) return { ok: true, id: exact.id };
+      const matches = store.listByIdPrefix(id);
+      if (matches.length === 0) {
+        if (warnMiss) {
+          logger?.warn?.(
+            `[dsh-mneme] memory id "${id}" matched nothing (exact or prefix) — ` +
+            "no entry was deleted; ids are full-length, pass one from memory_list/memory_search output or delete by query=…"
+          );
+        }
+        return bad(
+          "not-found",
+          `memory not found: ${id} (checked exact id and prefix; use a full id from memory_list/memory_search output)`
+        );
+      }
+      if (matches.length > 1) {
+        const sample = matches.slice(0, 5).map((m) => m.id);
+        const tail = matches.length > sample.length ? ` …(+${matches.length - sample.length})` : "";
+        return bad(
+          "ambiguous",
+          `memory id prefix "${id}" matches ${matches.length} entries (${sample.join(", ")}${tail}); refusing to guess — pass a full id`
+        );
+      }
+      return { ok: true, id: matches[0].id };
+    },
     remove: (id) => {
       store.remove(id);
       afterSync("write");
