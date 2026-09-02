@@ -2,6 +2,11 @@ name: Publish to npm
 
 # 发布路径：registry.npmjs.org 在本机云服务器被出口 SNI 过滤 + 17897 隧道不稳定，
 # 改由 GitHub runner 发布（不依赖本机出网）。打 v* tag 自动触发，或 workflow_dispatch 手动。
+#
+# ⚠️ 版本号机制（血的教训）：
+#   root package.json 在 git 里永远停在 0.7.2，真实版本号在 dsh-mneme/package.json。
+#   npm 在跑 prepublishOnly 之前就已加载 manifest，脚本里改 root 版本不生效，
+#   会把 root 的旧版本（0.7.2）发出去。必须在 npm publish 之前显式同步 root 版本。
 
 on:
   push:
@@ -23,15 +28,22 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org/
 
-      # npm publish 必须从仓库根跑（根 package.json main → ./dsh-mneme/lib/index.js）。
-      # prepublishOnly 会把 dsh-mneme/package.json 的版本写回根 package.json，
-      # 所以发出的版本永远跟随 dsh-mneme/ 子目录版本号。
+      - name: Registry current state (diagnostic)
+        run: npm view @modusensus/dsh-mneme versions --json || true
+
+      # 关键：先同步 root 版本 → 再 publish（prepublishOnly 改版本不可靠）
+      - name: Sync root version from dsh-mneme
+        run: |
+          V="$(node -p "require('./dsh-mneme/package.json').version")"
+          echo "Syncing root package.json to v${V}"
+          node -e "const fs=require('fs');const v=process.argv[1];const p=JSON.parse(fs.readFileSync('./package.json','utf8'));p.version=v;fs.writeFileSync('./package.json',JSON.stringify(p,null,2)+'\n')" "$V"
+          node -p "console.log('root now:', require('./package.json').version)"
+
       - name: Publish @modusensus/dsh-mneme
         run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      # 发布后自检：查 registry 上刚发的版本是否可读
       - name: Verify published version
         run: |
           V="$(node -p "require('./dsh-mneme/package.json').version")"
