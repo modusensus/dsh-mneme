@@ -87,7 +87,7 @@ dsh web
 | 语义架构 | [dsh-mneme/docs/SEMANTIC.md](dsh-mneme/docs/SEMANTIC.md) |
 | 本地模型部署指南 | [dsh-mneme/docs/LOCAL_MODEL.md](dsh-mneme/docs/LOCAL_MODEL.md) |
 | v0.1 迁移说明 | [dsh-mneme/docs/MIGRATION.md](dsh-mneme/docs/MIGRATION.md) |
-| 版本历史 | [CHANGELOG.md](CHANGELOG.md) |
+| 版本历史 | [dsh-mneme/CHANGELOG.md](dsh-mneme/CHANGELOG.md) |
 | 安全策略 | [SECURITY.md](SECURITY.md) |
 
 ## 🗺️ 路线图
@@ -108,7 +108,7 @@ dsh web
 | **v0.7.3** | issue #38 左下角入口按钮可选开关 `showSidebarTrigger` | ✅ |
 | **v0.7.4** | issue #40 记忆花括号转义 + issue #41 记忆窗口关闭按钮重叠修复 | ✅ |
 | **v0.7.5** | 分层记忆类型 user/fact + Web 总览视图 + stats 端点 | ✅ |
-| **v0.8.0** | 图谱增强：兴趣漂移 + 跨 workspace 共享 | 🚧 计划中（9 月末） |
+| **v0.8.0** | 图谱增强：兴趣漂移可视化 + scope 隔离（issue #17）+ 跨 workspace 共享 | 🚧 计划中（9 月末） |
 
 ## 🧪 本地开发
 
@@ -193,7 +193,7 @@ Works out of the box. Enable these as needed:
 | Semantic architecture | [dsh-mneme/docs/SEMANTIC.md](dsh-mneme/docs/SEMANTIC.md) |
 | Local model guide | [dsh-mneme/docs/LOCAL_MODEL.md](dsh-mneme/docs/LOCAL_MODEL.md) |
 | v0.1 migration | [dsh-mneme/docs/MIGRATION.md](dsh-mneme/docs/MIGRATION.md) |
-| Changelog | [CHANGELOG.md](CHANGELOG.md) |
+| Changelog | [dsh-mneme/CHANGELOG.md](dsh-mneme/CHANGELOG.md) |
 | Security | [SECURITY.md](SECURITY.md) |
 
 ## 🗺️ Roadmap
@@ -214,7 +214,7 @@ Works out of the box. Enable these as needed:
 | **v0.7.3** | Issue #38 optional sidebar trigger `showSidebarTrigger` | ✅ |
 | **v0.7.4** | Issue #40 prompt-brace escaping + Issue #41 overlay close-button overlap fix | ✅ |
 | **v0.7.5** | Layered memory types (user/fact) + Overview view + stats endpoint | ✅ |
-| **v0.8.0** | Graph enhancement: interest drift + cross-workspace sharing | 🚧 Planned (late Sep) |
+| **v0.8.0** | Graph enhancement: interest-drift visualization + scope isolation (issue #17) + cross-workspace sharing | 🚧 Planned (late Sep) |
 
 ## 🧪 Local Development
 

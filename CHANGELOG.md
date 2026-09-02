@@ -1,5 +1,7 @@
 # Changelog
 
+> **完整版本历史见 [dsh-mneme/CHANGELOG.md](dsh-mneme/CHANGELOG.md)**（正式版本正源，0.3.8 → 0.7.5）。以下为仓库早期开发记录（0.1.0–0.2.x，2026-08-13~14，已归档）。
+
 All notable changes to dsh-mneme are documented here.
 
 ## [Unreleased]
