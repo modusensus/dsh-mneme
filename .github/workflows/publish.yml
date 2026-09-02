@@ -1,5 +1,8 @@
 name: Publish to npm
 
+# 发布路径：registry.npmjs.org 在本机云服务器被出口 SNI 过滤 + 17897 隧道不稳定，
+# 改由 GitHub runner 发布（不依赖本机出网）。打 v* tag 自动触发，或 workflow_dispatch 手动。
+
 on:
   push:
     tags:
