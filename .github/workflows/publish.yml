@@ -29,7 +29,9 @@ jobs:
           registry-url: https://registry.npmjs.org/
 
       - name: Registry current state (diagnostic)
-        run: npm view @modusensus/dsh-mneme versions --json || true
+        run: |
+          npm view @modusensus/dsh-mneme versions --json || true
+          npm view @modusensus/dsh-mneme time --json || true
 
       # 关键：先同步 root 版本 → 再 publish（prepublishOnly 改版本不可靠）
       - name: Sync root version from dsh-mneme
@@ -39,8 +41,14 @@ jobs:
           node -e "const fs=require('fs');const v=process.argv[1];const p=JSON.parse(fs.readFileSync('./package.json','utf8'));p.version=v;fs.writeFileSync('./package.json',JSON.stringify(p,null,2)+'\n')" "$V"
           node -p "console.log('root now:', require('./package.json').version)"
 
-      - name: Publish @modusensus/dsh-mneme
-        run: npm publish
+      - name: Publish @modusensus/dsh-mneme (skip if exists)
+        run: |
+          V="$(node -p "require('./dsh-mneme/package.json').version")"
+          if npm view "@modusensus/dsh-mneme@${V}" version >/dev/null 2>&1; then
+            echo "v${V} already published on registry — skipping"
+          else
+            npm publish
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
