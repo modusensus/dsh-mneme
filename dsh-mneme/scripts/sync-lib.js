@@ -1,7 +1,7 @@
 // Sync the src/ tree into lib/ — the distributable consumed by DSH (package
-// main is lib/index.js). lib/client.js (the Web panel bundle) is authored
-// independently under lib/ and is left untouched: the sync only copies
-// src -> lib, it never prunes lib-only files.
+// main is lib/index.js). src/ is the single source of truth for every module,
+// including client.js (the Web panel bundle); the sync only copies
+// src -> lib and never prunes output files.
 //
 // Usage: npm run sync   (also run automatically by `npm pack`/`npm publish`
 // via the prepack hook, so a published tarball always ships a fresh lib/).

@@ -302,7 +302,7 @@ export function createTools(ctx, service, config, embedder) {
       name: "memory_update",
       description: "Modify an existing memory entry (title, content, type, tags, importance).",
       parameters: {
-        id: { type: "string", required: true, description: "Memory id" },
+        id: { type: "string", required: true, description: "Memory id (full id from memory_list/memory_search output, or a unique prefix of it)" },
         title: { type: "string" },
         content: { type: "string" },
         type: { type: "string", enum: ["preference", "project", "decision", "history", "user", "fact"] },
@@ -329,7 +329,9 @@ export function createTools(ctx, service, config, embedder) {
         render: (_args, value) => TEXT_OUTPUT(`Updated memory ${value.memory.id}: ${value.memory.title}`)
       },
       async execute(args) {
-        const memory = service.update(args.id, {
+        const resolved = service.resolveMemoryId(args.id);
+        if (!resolved.ok) throw new Error(resolved.message);
+        const memory = service.update(resolved.id, {
           title: args.title,
           content: args.content,
           type: args.type,
@@ -342,9 +344,9 @@ export function createTools(ctx, service, config, embedder) {
 
     defineTool({
       name: "memory_delete",
-      description: "Permanently delete a memory entry. Pass id for exact delete, or query to delete the single best-matching entry by text — lets the agent honor 'delete the memory about X' without a prior list/search round trip.",
+      description: "Permanently delete a memory entry. Pass id for exact delete (full id, or a unique prefix of it — ambiguous prefixes are rejected), or query to delete the single best-matching entry by text — lets the agent honor 'delete the memory about X' without a prior list/search round trip. An id that matches nothing is logged as a warning instead of failing silently.",
       parameters: {
-        id: { type: "string", description: "Exact memory id to delete (from memory_list/memory_search output)" },
+        id: { type: "string", description: "Memory id to delete: full id (from memory_list/memory_search output) or a unique prefix of it; a miss is logged (warn) and returns deleted:false" },
         query: { type: "string", description: "Delete the best-matching entry for this text (searches title/content/tags; uses hybrid recall when an embedder is configured)" }
       },
       output: {
@@ -353,13 +355,19 @@ export function createTools(ctx, service, config, embedder) {
           additionalProperties: false,
           properties: { deleted: { type: "boolean", required: true } }
         },
-        render: (_args, value) => TEXT_OUTPUT(value.deleted ? "Memory deleted." : "Memory not found.")
+        render: (_args, value) => TEXT_OUTPUT(value.deleted
+          ? "Memory deleted."
+          : "Memory not found — nothing was deleted. Pass a full id (or a unique prefix) from memory_list/memory_search output, or delete by query=… instead.")
       },
       async execute(args) {
         if (args.id) {
-          const existed = service.getById(args.id) !== undefined;
-          if (existed) service.remove(args.id);
-          return { deleted: existed };
+          const resolved = service.resolveMemoryId(args.id, { warnMiss: true });
+          if (!resolved.ok) {
+            if (resolved.reason === "ambiguous") throw new Error(resolved.message);
+            return { deleted: false };
+          }
+          service.remove(resolved.id);
+          return { deleted: true };
         }
         if (args.query) {
           const [best] = await service.searchMemories(args.query, { mode: "auto", topK: 1, useRerank: true });
@@ -378,7 +386,7 @@ export function createTools(ctx, service, config, embedder) {
         "Stop a memory from being auto-injected and from appearing in searches and lists without deleting it. " +
         "The entry stays in storage; pass forgotten: false to restore it.",
       parameters: {
-        id: { type: "string", required: true },
+        id: { type: "string", required: true, description: "Memory id: full id (from memory_list/memory_search output) or a unique prefix of it; ambiguous prefixes are rejected" },
         forgotten: { type: "boolean", description: "Suppress (true, default) or restore (false) the entry's visibility" }
       },
       output: {
@@ -399,10 +407,9 @@ export function createTools(ctx, service, config, embedder) {
         render: (_args, value) => TEXT_OUTPUT(`Memory ${value.memory.id} injection ${value.memory.forgotten ? "suppressed" : "restored"}.`)
       },
       async execute(args) {
-        if (service.getById(args.id) === undefined) {
-          throw new Error("memory not found");
-        }
-        const memory = service.setForget(args.id, args.forgotten ?? true);
+        const resolved = service.resolveMemoryId(args.id);
+        if (!resolved.ok) throw new Error(resolved.message);
+        const memory = service.setForget(resolved.id, args.forgotten ?? true);
         return { memory: { id: memory.id, forgotten: memory.forgotten } };
       }
     }),
@@ -414,7 +421,7 @@ export function createTools(ctx, service, config, embedder) {
         "Archived entries stay in storage and are recoverable: pass archived=false to restore, and use memory_list with " +
         "include_archived=true to find archived entries.",
       parameters: {
-        id: { type: "string", required: true, description: "Memory id" },
+        id: { type: "string", required: true, description: "Memory id: full id (from memory_list/memory_search output) or a unique prefix of it; ambiguous prefixes are rejected" },
         archived: { type: "boolean", description: "Archive (true, default) or restore (false) the entry" }
       },
       output: {
@@ -435,10 +442,9 @@ export function createTools(ctx, service, config, embedder) {
         render: (_args, value) => TEXT_OUTPUT(`Memory ${value.memory.id} ${value.memory.archived ? "archived" : "restored"}.`)
       },
       async execute(args) {
-        if (service.getById(args.id) === undefined) {
-          throw new Error("memory not found");
-        }
-        const memory = service.setArchived(args.id, args.archived ?? true);
+        const resolved = service.resolveMemoryId(args.id);
+        if (!resolved.ok) throw new Error(resolved.message);
+        const memory = service.setArchived(resolved.id, args.archived ?? true);
         return { memory: { id: memory.id, archived: memory.archived } };
       }
     })
