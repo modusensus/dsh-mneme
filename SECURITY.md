@@ -56,7 +56,7 @@ The following security features are implemented and maintained in the project:
 
 ### Please DO
 
-1. **Email** `guanqishi26@gmail.com` (or open a **private security advisory** via [GitHub Security Advisories](https://github.com/modusensus/dsh-mneme/security/advisories))
+1. **Email** `work@modusensus.space` (or open a **private security advisory** via [GitHub Security Advisories](https://github.com/modusensus/dsh-mneme/security/advisories))
 2. Include:
    - A clear description of the vulnerability
    - Steps to reproduce (minimal test case preferred)
@@ -392,7 +392,7 @@ This project is licensed under the **MIT License**. See [LICENSE](https://github
 
 ### 请这样做
 
-1. **发送邮件**至 `guanqishi26@gmail.com`（或通过 [GitHub 私有安全公告](https://github.com/modusensus/dsh-mneme/security/advisories) 提交）
+1. **发送邮件**至 `work@modusensus.space`（或通过 [GitHub 私有安全公告](https://github.com/modusensus/dsh-mneme/security/advisories) 提交）
 2. 邮件内容请包含：
    - 漏洞的清晰描述
    - 复现步骤（优先提供最小测试用例）
