@@ -85,6 +85,21 @@ test("turn/end event triggers summarization and stores entries", async () => {
   assert.ok(all.some((m) => m.type === "preference"));
 });
 
+test("session with only snapshotEvents() (DSH 0.1.2-rc.1) still summarizes", async () => {
+  const { events, store } = setup();
+  const handler = events.find((e) => e.name === "session/event").fn;
+  const session = {
+    id: "s6",
+    requestHeader: () => ({ config: { provider: "deepseek", model: "deepseek-chat" } }),
+    snapshotEvents: () => [userMessage("用快照接口提问"), { seq: 2, type: "turn/end" }]
+  };
+  await handler(session, { seq: 2, type: "turn/end" });
+  assert.equal(store.count(), 2);
+  const all = store.all();
+  assert.ok(all.some((m) => m.type === "decision"));
+  assert.ok(all.some((m) => m.type === "preference"));
+});
+
 test("skips summarization for events other than turn/end", async () => {
   const { events, store, calls } = setup();
   const handler = events.find((e) => e.name === "session/event").fn;
