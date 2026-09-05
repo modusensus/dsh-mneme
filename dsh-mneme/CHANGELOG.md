@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.7.8] - 2026-09-06
+
+### 🐛 修复：DSH 0.1.2-rc.1 兼容（issues #58 #59）
+
+- **现象**：DSH 0.1.2-rc.1 起官方移除 `Session.events` 属性、改为 `snapshotEvents()` 方法。autoSummarize（会话摘要）与 hot-context（短期上下文）注入都依赖 `session.events` 读取会话事件，升级后取到 undefined 而**静默失效**——会话摘要不再落库、短期上下文块不再渲染。
+- **修复**：`src/summarize.js` 与 `src/inject.js` 两处取事件统一改为兼容垫片 `session.snapshotEvents?.() ?? session.events`——0.1.2-rc.1 及以后走新方法，更早 0.1.x 仍走 `.events`，**新旧 DSH 通吃**。
+- **说明**：兼容垫片，老版本 DSH（0.1.x 早期）行为完全不受影响，无需任何配置改动。
+- 新增 2 个回归用例（会话只提供 `snapshotEvents()` 时 hot-context 渲染与会话摘要均恢复），全套 **812 通过**。
+
 ## [0.7.7] - 2026-09-05
 
 ### 🆕 issue #23：sleep 批量实体抽取回填实体图谱
