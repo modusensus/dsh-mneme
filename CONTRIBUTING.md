@@ -102,6 +102,22 @@ Common scripts (all run under `dsh-mneme/`):
 
 ---
 
+## Scope: Platform Adaptation & Wrapper PRs
+
+DSH upstream is still in developer preview — APIs and service interfaces change frequently. Until DSH reaches a stable release (RC or GA), **PRs that adapt dsh-mneme to secondary platforms or wrap it into other hosts are not a priority** and are reviewed with extra caution:
+
+- Desktop shells (e.g. a Tauri/Electron wrapper around `dsh web`)
+- Standalone CLI packaging
+- Ports/wrappers of dsh-mneme into other plugin ecosystems
+
+These tend to bind against unstable upstream APIs: a single upstream change can break them, and the maintenance burden falls back on this project. The currently supported platform is the **Web Profile** (`dsh web`).
+
+Exceptions: if a contributor is willing to **own long-term maintenance** (track upstream changes and fix breakage), open a Discussion first to scope the work — maintainers will evaluate and review the PR.
+
+Bug-fix PRs for existing desktop compatibility issues are still welcome.
+
+---
+
 ## Release Process (Maintainers)
 
 Versioning follows semantic versioning (`MAJOR.MINOR.PATCH`). Full flow:
@@ -223,6 +239,22 @@ npm run test:coverage # c8 覆盖率
 - **小改动 / 修复**：可直推 `main`（本项目采用此工作流）。
 - **较大功能 / 破坏性改动**：建议先开 Issue 说明动机与方案，再通过 PR 提交，PR 会触发 CI 校验（node 24 + 全量测试 + Codecov）。
 - 发布相关操作（改版本号、打 tag、发 Release、npm publish）由维护者执行，详见下节。
+
+---
+
+## 范围：平台适配与封装 PR
+
+DSH 上游仍处于 developer preview 阶段，API 与服务接口变动频繁。在 DSH 稳定（RC 或正式版）之前，以下方向的 PR **不作为优先项**，且会以额外谨慎的态度审查：
+
+- 桌面端适配（例如基于 `dsh web` 的 Tauri/Electron 桌面壳）
+- 独立 CLI 封装
+- 把 dsh-mneme 移植/封装到其他插件体系
+
+这类 PR 往往绑定不稳定的上游接口——上游一次变动就可能使其失效，而维护责任会落到本项目头上。当前唯一受支持的平台是 **Web Profile**（`dsh web`）。
+
+例外：如果贡献者愿意**承担长期维护**（跟进上游变更并修复 break），请先开 Discussion 沟通范围，维护者会评估并 review 该 PR。
+
+针对现有 desktop 兼容问题的 **bug 修复 PR 依然欢迎**。
 
 ---
 
