@@ -241,7 +241,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 
 | 版本 | 亮点 |
 |------|------|
-| **v0.7.7** | issue #23 实体图谱回填：sleep 批量实体抽取 phase（`sleepEntityExtractionEnabled` 默认关；最老优先、SQL LIMIT/OFFSET 分页下沉为有界查询不整表扫描；`pending_extracted_at` 幂等防重、成功/失败清除；metadata 合并不覆盖其他路径写入）；kimi-k2.7-code 复验 + node:sqlite 兼容修复（pluck→all+map、`forgotten=0` 查询条件）；810 测试全绿 |
+| **v0.7.7** | issue #23 实体图谱回填：sleep 批量实体抽取 phase（`sleepEntityExtractionEnabled` 默认关；最老优先、SQL LIMIT/OFFSET 分页下沉为有界查询不整表扫描；`pending_extracted_at` 幂等防重、成功/失败清除；metadata 合并不覆盖其他路径写入）；node:sqlite 兼容修复（pluck→all+map、`forgotten=0` 查询条件）；810 测试全绿 |
 | **v0.7.6** | issue #48 修复：`memory_update`/`memory_delete`/`memory_forget`/`memory_archive` 支持截断/前缀短 id（新增 `service.resolveMemoryId`：精确命中优先 + 唯一前缀解析 + 多命中拒绝列出候选 + `memory_delete` 未命中幂等补 `logger.warn`；纯通配符/空白兜底）；Web bundle `client.js` 改 src 正源；801 测试全绿 |
 | **v0.7.5** | 分层记忆类型：新增 `user`（用户画像）/`fact`（原子事实）轻量记忆类型（单表 `type` 扩展，不动 schema）+ Web 面板「总览」视图（记忆分层卡片 + 用户画像卡 + 类型分布 + 近 7 天趋势）+ `/api/dsh-mneme/stats` 统计端点；kimi-k2.7-code 复验（days 整数化等）；790 测试全绿 |
 | **v0.7.4** | issue #40 修复：记忆内容含 `{{...}}` 模板语法时整轮崩溃（注入边界 run-based 花括号转义 `{{a}}`→`{\{a\}\}`，奇数连续如 `{{{a}}}` 也不残留字面 `{{`；新增 `escapePromptVariables` 配置默认开）；issue #41 修复：记忆窗口关闭按钮与宿主窗口控制按钮重叠无法点击（顶栏左对齐，关闭按钮离开右上角宿主控制区）；782 测试全绿 |
@@ -297,7 +297,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 | **v0.7.3** | ✅ 完成 | issue #38 新功能 | 左下角入口按钮可选开关 `showSidebarTrigger`（默认开，settings-over-config）；Web 面板设置一键关闭，与 dsh-cost-meter 等 footer 插件冲突可隐藏按钮、记忆库标签不受影响；776 测试全绿 |
 | **v0.7.4** | ✅ 完成 | issue #40 + #41 修复 | 注入边界 run-based 花括号转义（`{{a}}`→`{\{a\}\}`、奇数连续如 `{{{a}}}` 不残留字面，`escapePromptVariables` 默认开）+ 记忆窗口顶栏左对齐、关闭按钮避开宿主窗口控制按钮区；782 测试全绿 |
 | **v0.7.5** | ✅ 完成 | 分层记忆类型 + 总览视图 | 借鉴 meow-memory 分层概念、贴合单表架构：新增 `user`（用户画像）/`fact`（原子事实）类型，注入/镜像/梦境/质量过滤全链路打通；Web 面板「总览」视图（分层卡片 + 用户画像卡 + 类型分布 + 近 7 天趋势）；`/api/dsh-mneme/stats` 端点；kimi-k2.7-code 复验；790 测试全绿 |
-| **v0.7.7** | ✅ 完成 | issue #23 图谱回填 | sleep 批量实体抽取 phase：默认关 `sleepEntityExtractionEnabled`，按最老优先、SQL LIMIT/OFFSET 分页（下沉为有界查询，不再整表扫描）批量抽取未打标记忆的实体（修复 issue #23 实体图谱空白）；`pending_extracted_at` 幂等防重、成功/失败清除，metadata 合并不覆盖；kimi-k2.7-code 复验 + node:sqlite 兼容修复（pluck→all+map、`forgotten=0` 查询条件）；810 测试全绿 |
+| **v0.7.7** | ✅ 完成 | issue #23 图谱回填 | sleep 批量实体抽取 phase：默认关 `sleepEntityExtractionEnabled`，按最老优先、SQL LIMIT/OFFSET 分页（下沉为有界查询，不再整表扫描）批量抽取未打标记忆的实体（修复 issue #23 实体图谱空白）；`pending_extracted_at` 幂等防重、成功/失败清除，metadata 合并不覆盖；node:sqlite 兼容修复（pluck→all+map、`forgotten=0` 查询条件）；810 测试全绿 |
 | **v0.7.6** | ✅ 完成 | issue #48 修复 | 四工具统一 `service.resolveMemoryId`：截断/前缀短 id 也能精确操作（精确命中优先、唯一前缀解析、多命中拒绝并列出候选、`memory_delete` 未命中幂等返回 + `logger.warn` 留痕）；Web bundle `client.js` 改 src 正源；801 测试全绿 |
 | **v0.8.0** | 🚧 计划中（9 月末） | 图谱增强 | 兴趣漂移可视化 + scope 隔离（issue #17）+ 跨 workspace 记忆共享 + 更多 heat 信号 |
 

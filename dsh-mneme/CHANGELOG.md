@@ -6,12 +6,12 @@
 
 - **背景**：写路径抽取（index.js）只有 `entityExtractionEnabled` 开启才触发——每次写入一次 LLM 调用，是刻意的成本取舍——所以默认安装下记忆从不累积实体，这正是 issue #23 报的"实体图谱面板一片空白"（用户明明有很多记忆）。
 - **新增 sleep 批量抽取 phase**：默认关 `sleepEntityExtractionEnabled`，开睡循环时按**最老优先**把没有实体属性的记忆逐条过 `extractEntities`（每轮上限 `sleepEntityExtractionMaxPerRun` 默认 20）。
-- **下沉为有界 SQL 查询**（kimi 复验意见 #2）：新增 `store.listForEntityExtraction({limit, offset})`，`WHERE` 只留行级条件（未归档/未遗忘/非 summary/内容非空/`metadata.entity_extracted_at` 为空），`ORDER BY created_at LIMIT ? OFFSET ?` 分页取最老候选；实体是否已存在是跨表检查（`getAttrsByMemory`），由 JS 在每页上过滤。不再 `service.all()` 全表加载。
-- **幂等防重**（kimi 意见 #3）：抽取前先 stamp `metadata.pending_extracted_at`，成功后替换为 `entity_extracted_at`，失败清除 pending——一条记忆不会被并发/崩溃重复抽取，失败的下轮重试。
-- **metadata 合并不覆盖**（kimi 意见 #4）：`store.setMemoryMetadata` 改为 merge 语义，打实体时间戳不会抹掉其他路径刚写入的 metadata 字段。
-- **失败不阻断**（kimi 意见 #5）：单条抽取失败只跳过该条、记入 `failed` 计数，整轮状态由 `deriveStatus` 正确折叠 `failed`——一次 LLM 抖动不会 abort 整个 sleep 周期。
-- **node:sqlite 兼容修复**（复验时抓到的实现 bug）：wxbot 初版用 better-sqlite3 的 `.pluck()`（node:sqlite 不存在），改为 `.all().map(row => getById(row.id))`；`listForEntityExtraction` 的 `forgotten IS NULL` 条件与 `save` 硬编码写入的 `forgotten=0` 永不匹配导致查询恒空，修正为 `(forgotten = 0 OR forgotten IS NULL)`（与 archived 同构）。
-- 新增 9 个用例（禁用/跳过、stamp 不重复、无实体也 stamp、backfill、失败重试、metadata merge #4、pending 清除 #3、failed 状态折叠 #5、分页最老优先 #2），全套 **810 通过**。
+- **下沉为有界 SQL 查询**：新增 `store.listForEntityExtraction({limit, offset})`，`WHERE` 只留行级条件（未归档/未遗忘/非 summary/内容非空/`metadata.entity_extracted_at` 为空），`ORDER BY created_at LIMIT ? OFFSET ?` 分页取最老候选；实体是否已存在是跨表检查（`getAttrsByMemory`），由 JS 在每页上过滤。不再 `service.all()` 全表加载。
+- **幂等防重**：抽取前先 stamp `metadata.pending_extracted_at`，成功后替换为 `entity_extracted_at`，失败清除 pending——一条记忆不会被并发/崩溃重复抽取，失败的下轮重试。
+- **metadata 合并不覆盖**：`store.setMemoryMetadata` 改为 merge 语义，打实体时间戳不会抹掉其他路径刚写入的 metadata 字段。
+- **失败不阻断**：单条抽取失败只跳过该条、记入 `failed` 计数，整轮状态由 `deriveStatus` 正确折叠 `failed`——一次 LLM 抖动不会 abort 整个 sleep 周期。
+- **node:sqlite 兼容修复**：初版实现用 better-sqlite3 的 `.pluck()`（node:sqlite 不存在），改为 `.all().map(row => getById(row.id))`；`listForEntityExtraction` 的 `forgotten IS NULL` 条件与 `save` 硬编码写入的 `forgotten=0` 永不匹配导致查询恒空，修正为 `(forgotten = 0 OR forgotten IS NULL)`（与 archived 同构）。
+- 新增 9 个用例（禁用/跳过、stamp 不重复、无实体也 stamp、backfill、失败重试、metadata merge、pending 清除、failed 状态折叠、分页最老优先），全套 **810 通过**。
 
 ## [0.7.6] - 2026-09-02
 
