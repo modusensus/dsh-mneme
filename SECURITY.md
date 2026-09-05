@@ -77,6 +77,12 @@ The following security features are implemented and maintained in the project:
 
 **Note**: For Critical vulnerabilities, if a full fix cannot be developed within 14 days, we will provide a temporary mitigation or workaround within that timeframe.
 
+### Escalation (If You Do Not Hear Back)
+
+- If you do not receive an acknowledgment within **48 hours**, please re-send to `work@modusensus.space` with subject prefix: `[SECURITY][FOLLOW-UP]`.
+- If there is still no response after another **48 hours**, open a **private security advisory** via [GitHub Security Advisories](https://github.com/modusensus/dsh-mneme/security/advisories) and reference your original report timestamp.
+- Do not disclose details publicly while escalation is in progress.
+
 ### Severity Classification
 
 We follow the [CVSS v3.1](https://www.first.org/cvss/v3.1/specification-document) standard:
@@ -85,6 +91,20 @@ We follow the [CVSS v3.1](https://www.first.org/cvss/v3.1/specification-document
 - **High** (7.0–8.9): Local privilege escalation, significant data integrity compromise, DoS with high impact
 - **Medium** (4.0–6.9): Information disclosure under specific conditions, partial bypass of controls
 - **Low** (0.1–3.9): Minor information leakage, defense-in-depth improvements
+
+### Scope and Out of Scope
+
+In scope:
+- Remote API authentication/authorization bypass (`apiToken`-protected surfaces)
+- Memory integrity violations (CAS/fence bypass, unauthorized overwrite, replay paths)
+- Mirror consistency and recovery logic that can cause silent data corruption
+- Vulnerabilities in shipped runtime dependencies that are exploitable in supported versions
+
+Out of scope:
+- Social engineering/phishing against maintainers or users
+- Denial-of-service claims requiring unrealistic local resource exhaustion without a product defect
+- Vulnerabilities only present in unsupported versions (`< 0.6.0`)
+- Missing best-practice hardening with no demonstrable security impact
 
 ---
 
@@ -141,6 +161,12 @@ We follow a 5-step process for handling third-party dependency vulnerabilities:
 - All new runtime dependencies must pass a security review before inclusion
 - Dependencies with known critical vulnerabilities that cannot be fixed within the timeline will be replaced with alternatives
 - Dependency lockfiles (`package-lock.json`) are committed and reviewed in PRs
+
+### Verification Sources
+
+- **CI evidence**: [GitHub Actions workflow runs](https://github.com/modusensus/dsh-mneme/actions) (test and release pipelines)
+- **Disclosure evidence**: [GitHub Security Advisories](https://github.com/modusensus/dsh-mneme/security/advisories)
+- **Release evidence**: [npm package releases](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 
 ### Recent Dependency Fixes
 
@@ -322,9 +348,9 @@ All contributors must comply with the following security requirements:
 
 ## Contact
 
-- **Security Team**: `guanqishi26@gmail.com`
+- **Security Team**: `work@modusensus.space`
 - **Private Advisory**: [GitHub Security Advisories](https://github.com/modusensus/dsh-mneme/security/advisories)
-- **GPG Key**: Available upon request for encrypted communication
+- **Encrypted Reporting**: Prefer GitHub Private Security Advisories for encrypted-at-rest private handling; for email encryption, request current GPG fingerprint via private advisory first
 
 ---
 
@@ -413,6 +439,12 @@ This project is licensed under the **MIT License**. See [LICENSE](https://github
 
 **备注**：对于严重漏洞，如果 14 天内无法提供完整修复，我们将在该时间内提供临时缓解措施或替代方案。
 
+### 无响应升级路径
+
+- 若 **48 小时内**未收到确认，请重新发送到 `work@modusensus.space`，邮件标题加前缀：`[SECURITY][FOLLOW-UP]`。
+- 若再次等待 **48 小时**仍无回复，请通过 [GitHub 私有安全公告](https://github.com/modusensus/dsh-mneme/security/advisories) 提交并注明首次报告时间。
+- 升级处理中请勿公开披露漏洞细节。
+
 ### 严重程度分级
 
 我们遵循 [CVSS v3.1](https://www.first.org/cvss/v3.1/specification-document) 标准：
@@ -421,6 +453,20 @@ This project is licensed under the **MIT License**. See [LICENSE](https://github
 - **高** (7.0–8.9)：本地权限提升、重大数据完整性破坏、高影响 DoS
 - **中** (4.0–6.9)：特定条件下的信息泄露、部分控制绕过
 - **低** (0.1–3.9)：轻微信息泄露、纵深防御改进
+
+### 受理范围与不受理范围
+
+受理范围：
+- 远程 API 鉴权/授权绕过（`apiToken` 保护面）
+- 记忆完整性破坏（CAS/fence 绕过、未授权覆盖、重放路径）
+- 可导致静默数据损坏的镜像一致性与恢复逻辑缺陷
+- 在受支持版本中可利用的已发布运行时依赖漏洞
+
+不受理范围：
+- 针对维护者或用户的社工/钓鱼类问题
+- 仅通过不现实本地资源耗尽触发、且无产品缺陷支撑的 DoS 声明
+- 仅存在于不支持版本（`< 0.6.0`）的问题
+- 无可证明安全影响的“最佳实践建议”类问题
 
 ---
 
@@ -477,6 +523,12 @@ This project is licensed under the **MIT License**. See [LICENSE](https://github
 - 所有新增运行时依赖需通过安全审查后方可引入
 - 存在已知严重漏洞且在期限内无法修复的依赖将被替换为替代方案
 - 依赖锁文件（`package-lock.json`）已提交并在 PR 中审查
+
+### 可验证信息来源
+
+- **CI 证据**：[GitHub Actions 运行记录](https://github.com/modusensus/dsh-mneme/actions)（测试与发布流水线）
+- **披露证据**：[GitHub Security Advisories](https://github.com/modusensus/dsh-mneme/security/advisories)
+- **发布证据**：[npm 包发布记录](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 
 ### 近期依赖修复
 
@@ -658,9 +710,9 @@ dsh-mneme:
 
 ## 联系方式
 
-- **安全团队**：`guanqishi26@gmail.com`
+- **安全团队**：`work@modusensus.space`
 - **私有公告**：[GitHub Security Advisories](https://github.com/modusensus/dsh-mneme/security/advisories)
-- **GPG 密钥**：如需加密通信，可应请求提供
+- **加密提交通道**：优先使用 GitHub 私有安全公告（私有处理、静态加密）；如需邮件加密，请先通过私有公告索取当前 GPG 指纹
 
 ---
 
@@ -670,5 +722,5 @@ dsh-mneme:
 
 ---
 
-*Last updated: 2026-08-28*  
-*Policy version: 2.2*
+*Last updated: 2026-09-05*  
+*Policy version: 2.3*
