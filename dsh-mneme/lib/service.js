@@ -1608,6 +1608,7 @@ export function createService({ store, mirror, config, onWrite, logger, settings
     embeddedCount: () => store.embeddedCount(),
     list: (o) => store.list(o),
     all: () => store.all(),
+    listForEntityExtraction: (opts) => store.listForEntityExtraction(opts),
     count: (type, opts) => store.count(type, opts),
     stats: (opts) => store.stats(opts),
     getById: (id) => store.getById(id),
@@ -1862,9 +1863,11 @@ export function createService({ store, mirror, config, onWrite, logger, settings
     applyMemoryTags: (memoryId, tags) => store.setMemoryTags(memoryId, tags),
     saveAttr: (r) => store.saveAttr(r),
     createEntity: (r) => store.createEntity(r),
+    updateEntity: (id, patch) => store.updateEntity(id, patch),
     findEntityByName: (n) => store.findEntityByName(n),
     findEntityById: (id) => store.findEntityById(id),
     getAttrsByMemory: (id) => store.getAttrsByMemory(id),
+    setMemoryMetadata: (id, metadata) => store.setMemoryMetadata(id, metadata),
     getCurrentAttrs: (id) => store.getCurrentAttrs(id),
     migrateAttrsToMemory: (fromId, toId, now) => store.migrateAttrsToMemory(fromId, toId, now)
   };
