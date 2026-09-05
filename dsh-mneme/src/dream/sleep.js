@@ -19,6 +19,7 @@ import { validateDecisions, applyDecisions } from "./decisions.js";
 import { findPotentialConflicts } from "./clustering.js";
 import { buildReceipt } from "../dream.js";
 import { computeHeat } from "../heat.js";
+import { extractEntities } from "../entities/extractor.js";
 
 const SUMMARY_MAX = 120;
 // Conflict similarity threshold per strictness level (v0.4.0):
@@ -396,6 +397,123 @@ function phaseRelations(service, config, logger, runId, signal = null) {
   };
 }
 
+/**
+ * Phase 4.5 — batch entity extraction. The write-path extractor (index.js)
+ * only fires when entityExtractionEnabled is on — one LLM call per write, a
+ * deliberate cost decision — so default installs never accumulate entities,
+ * which is exactly why the ego-graph panel (issue #23) renders blank for users
+ * with plenty of memories. This phase backfills the entity graph in bulk:
+ * memories that carry no entity attrs yet are passed through extractEntities
+ * one at a time (oldest first, capped per run). Write-path stays untouched —
+ * this is an additive channel for sleep users. Fail-safe per memory: one bad
+ * extract never aborts the phase or the cycle.
+ */
+async function phaseEntityExtraction(ctx, service, config, logger, runId, signal = null) {
+  if (config.sleepEntityExtractionEnabled !== true) {
+    return { status: "skipped", reason: "disabled" };
+  }
+  const route = resolveSleepRoute(ctx, config, logger);
+  if (!route) return { status: "skipped", reason: "no llm route" };
+  const maxPerRun = config.sleepEntityExtractionMaxPerRun ?? 20;
+
+  // Oldest un-extracted first. The store returns bounded pages via SQL (no
+  // O(N) full-table scan); JS pages through offsets and only pays the
+  // getAttrsByMemory cross-table check on each page, stopping once it has
+  // maxPerRun un-extracted memories or the store is exhausted. Every memory
+  // this phase touches gets stamped entity_extracted_at (successful or
+  // entity-less extracts alike) so a text with no extractable entities is not
+  // re-queued forever; failures are NOT stamped, so a transient LLM hiccup
+  // retries next cycle.
+  const candidates = [];
+  for (let offset = 0; candidates.length < maxPerRun; offset += 100) {
+    const page = service.listForEntityExtraction({ limit: 100, offset });
+    if (page.length === 0) break;
+    candidates.push(...page.filter((m) => (service.getAttrsByMemory?.(m.id) ?? []).length === 0));
+  }
+  candidates.length = Math.min(candidates.length, maxPerRun);
+  if (candidates.length === 0) return { status: "skipped", reason: "no memories to extract" };
+  if (signal?.aborted) return { status: "aborted", reason: "user activity" };
+
+  // extractEntities expects callLLM(messages, options) → text; adapt sleep's
+  // streamText + route resolution (same precedence as the other phases).
+  const callLLM = async (messages) => {
+    const r = resolveSleepRoute(ctx, config, logger);
+    if (!r) return undefined;
+    return streamText(ctx, {
+      ...r,
+      purpose: "sleep-entity-extract",
+      maxTokens: 4096,
+      ...(config.sleepReasoningEffort && config.sleepReasoningEffort !== "none"
+        ? { reasoningEffort: config.sleepReasoningEffort }
+        : {}),
+      messages
+    });
+  };
+
+  let extracted = 0;
+  let failed = 0;
+  let aborted = false;
+  const extractedIds = [];
+  for (const m of candidates) {
+    if (signal?.aborted) {
+      aborted = true;
+      break;
+    }
+    const now = new Date().toISOString();
+    try {
+      // Stamp a pending marker BEFORE the LLM call so a crash mid-extract (the
+      // stamp and the entity writes are not one transaction) cannot re-queue
+      // this memory while we are already working it. Cleared on outcome.
+      service.setMemoryMetadata?.(m.id, { pending_extracted_at: now });
+    } catch (error) {
+      logger?.warn?.(`dsh-mneme sleep: failed to stamp pending_extracted_at for ${m.id}: ${String(error)}`);
+      failed++;
+      continue;
+    }
+    try {
+      const result = await extractEntities(m, { store: service, config, callLLM, logger });
+      if (result?.ok) {
+        extracted++;
+        extractedIds.push(m.id);
+        // Stamp done regardless of whether the LLM found entities — an empty
+        // extract is still a definitive answer for this memory.
+        try {
+          service.setMemoryMetadata?.(m.id, { entity_extracted_at: now, pending_extracted_at: null });
+        } catch (error) {
+          logger?.warn?.(`dsh-mneme sleep: failed to stamp entity_extracted_at for ${m.id}: ${String(error)}`);
+        }
+      } else {
+        failed++;
+        logger?.warn?.(`dsh-mneme sleep: entity extraction failed for ${m.id}: ${result?.error ?? "unknown"}`);
+        try {
+          service.setMemoryMetadata?.(m.id, { pending_extracted_at: null });
+        } catch (error) {
+          logger?.warn?.(`dsh-mneme sleep: failed to clear pending_extracted_at for ${m.id}: ${String(error)}`);
+        }
+      }
+    } catch (error) {
+      failed++;
+      logger?.warn?.(`dsh-mneme sleep: entity extraction threw for ${m.id}: ${String(error)}`);
+      try {
+        service.setMemoryMetadata?.(m.id, { pending_extracted_at: null });
+      } catch (err) {
+        logger?.warn?.(`dsh-mneme sleep: failed to clear pending_extracted_at for ${m.id}: ${String(err)}`);
+      }
+    }
+  }
+  return {
+    // Any success counts as ok (failures are surfaced via detail.failed + warn,
+    // matching phaseConflicts); all-failed reports failed so deriveStatus can
+    // reflect a broken route without aborting the other phases.
+    status: aborted ? "aborted" : extracted > 0 ? "ok" : failed > 0 ? "failed" : "noop",
+    scanned: candidates.length,
+    extracted,
+    failed,
+    aborted,
+    extractedIds
+  };
+}
+
 // ---------------------------------------------------------------- run
 
 function deriveStatus(phases) {
@@ -429,6 +547,9 @@ export async function runSleep(ctx, service, config, logger, semantic = null, si
   await attempt("conflicts", () => phaseConflicts(ctx, service, config, logger, runId, semantic, signal));
   await attempt("demotion", () => phaseDemotion(service, config, logger, runId, signal));
   await attempt("patterns", () => phasePatterns(ctx, service, config, logger, runId, signal));
+  // entity-extraction runs before relation completion so freshly minted
+  // entities get their orphan relations completed in the same cycle.
+  await attempt("entity-extraction", () => phaseEntityExtraction(ctx, service, config, logger, runId, signal));
   await attempt("relations", () => phaseRelations(service, config, logger, runId, signal));
 
   const status = deriveStatus(phases);

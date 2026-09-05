@@ -10,7 +10,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-3E63DD?style=flat-square" alt="license"></a>
   <a href="https://github.com/modusensus/dsh-mneme/actions"><img src="https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/test.yml?style=flat-square&label=CI" alt="CI"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-24%2B-3E63DD?style=flat-square&logo=nodedotjs&logoColor=white" alt="node"></a>
-  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-801%20passed-3E63DD?style=flat-square" alt="tests"></a>
+  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-810%20passed-3E63DD?style=flat-square" alt="tests"></a>
   <a href="https://codecov.io/gh/modusensus/dsh-mneme"><img src="https://img.shields.io/codecov/c/github/modusensus/dsh-mneme/main?style=flat-square" alt="coverage"></a>
   <a href="https://github.com/awesome-dsh-plugin/awesome-dsh-plugin"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="Awesome"></a>
 </p>
@@ -109,6 +109,7 @@ dsh web
 | **v0.7.4** | issue #40 记忆花括号转义 + issue #41 记忆窗口关闭按钮重叠修复 | ✅ |
 | **v0.7.5** | 分层记忆类型 user/fact + Web 总览视图 + stats 端点 | ✅ |
 | **v0.7.6** | issue #48 修复：截断/前缀 id 也能精确操作（统一 resolveMemoryId）+ client.js 改 src 正源 | ✅ |
+| **v0.7.7** | issue #23 图谱回填：sleep 批量实体抽取 phase + node:sqlite 兼容修复 | ✅ |
 | **v0.8.0** | 图谱增强：兴趣漂移可视化 + scope 隔离（issue #17）+ 跨 workspace 共享 | 🚧 计划中（9 月末） |
 
 ## 🧪 本地开发
@@ -116,7 +117,7 @@ dsh web
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 801 个测试
+npm test          # 810 个测试
 npm run stress    # 三轴线压测
 npm run sync      # src → lib 同步
 ```
@@ -223,7 +224,7 @@ Works out of the box. Enable these as needed:
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 801 tests
+npm test          # 810 tests
 npm run stress    # three-axis stress test
 npm run sync      # src → lib sync
 ```

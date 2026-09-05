@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS memories (
   epistemic_status TEXT NOT NULL DEFAULT 'subjective',
   last_accessed_at  TEXT,
   _full_content     TEXT,
+  metadata    TEXT,               -- JSON: free-form extras (e.g. sleep entity_extracted_at)
   created_at  TEXT NOT NULL,
   updated_at  TEXT NOT NULL
 );
@@ -314,6 +315,14 @@ function parseTags(raw) {
 
 function toRow(row) {
   if (!row) return undefined;
+  let metadata;
+  if (row.metadata != null) {
+    try {
+      metadata = JSON.parse(row.metadata);
+    } catch {
+      metadata = row.metadata;
+    }
+  }
   return {
     id: row.id,
     type: row.type,
@@ -329,6 +338,7 @@ function toRow(row) {
     content_history: parseJsonArray(row.content_history),
     quality_score: row.quality_score !== null && row.quality_score !== undefined ? Number(row.quality_score) : undefined,
     epistemic_status: row.epistemic_status ?? "subjective",
+    metadata,
     created_at: row.created_at,
     updated_at: row.updated_at,
     last_accessed_at: row.last_accessed_at ?? undefined,
@@ -589,6 +599,7 @@ export function createStore(path) {
   addColumn("memories", "content_history", "ALTER TABLE memories ADD COLUMN content_history TEXT");
   addColumn("memories", "quality_score", "ALTER TABLE memories ADD COLUMN quality_score REAL");
   addColumn("memories", "session_id", "ALTER TABLE memories ADD COLUMN session_id TEXT");
+  addColumn("memories", "metadata", "ALTER TABLE memories ADD COLUMN metadata TEXT");
 
   // Composite index for session-lifecycle queries (dispose/restore/listBySession).
   // Created post-migration, NOT in SCHEMA: on legacy DBs both columns arrive via
@@ -832,6 +843,50 @@ export function createStore(path) {
       // crash between the delete and syncMirror leaves a recoverable debt.
       incrementGeneration();
     });
+  }
+
+  /**
+   * Bounded scan for sleep's entity-extraction phase: oldest memories without
+   * an entity_extracted_at stamp (row-level filters only — attr presence is a
+   * cross-table check, so the caller filters the returned page via
+   * getAttrsByMemory). Caller pages with {limit, offset}; a full-table scan +
+   * JS filter would be O(N) per sleep cycle.
+   */
+  function listForEntityExtraction({ limit = 50, offset = 0 } = {}) {
+    // node:sqlite has no StatementSync#pluck; all() returns row objects.
+    return db
+      .prepare(`
+        SELECT id FROM memories
+        WHERE (archived = 0 OR archived IS NULL)
+          AND session_disposed_at IS NULL
+          AND (forgotten = 0 OR forgotten IS NULL)
+          AND type != 'summary'
+          AND content IS NOT NULL AND content != ''
+          AND (metadata IS NULL OR json_extract(metadata, '$.entity_extracted_at') IS NULL)
+        ORDER BY created_at ASC
+        LIMIT ? OFFSET ?
+      `)
+      .all(limit, offset)
+      .map((row) => getById(row.id));
+  }
+
+  /**
+   * Lightweight metadata-only update (used by sleep's batch entity extraction
+   * to stamp `entity_extracted_at` without disturbing title/content/embedding
+   * or the normal update semantics). Does not bump updated_at — metadata
+   * stamps are bookkeeping, not content, so they must not fake freshness.
+   * Incoming fields are MERGED into the existing metadata object so a stamp
+   * never clobbers metadata another path just wrote.
+   */
+  function setMemoryMetadata(id, metadata) {
+    const existing = getById(id);
+    if (!existing) throw new Error(`memory not found: ${id}`);
+    const patch = typeof metadata === "string"
+      ? JSON.parse(metadata)
+      : (metadata ?? {});
+    const merged = { ...(existing.metadata ?? {}), ...patch };
+    db.prepare("UPDATE memories SET metadata = ? WHERE id = ?").run(JSON.stringify(merged), id);
+    return getById(id);
   }
 
   /**
@@ -2234,6 +2289,8 @@ export function createStore(path) {
     listByIdPrefix,
     save,
     update,
+    listForEntityExtraction,
+    setMemoryMetadata,
     compareAndUpdate,
     remove,
     setForget,

@@ -274,6 +274,15 @@ export const Config = z.object({
     z.const("high"),
     z.const("none")
   ]).default("none"),
+  // Batch entity extraction during sleep (issue #23). The write-path extractor
+  // only fires when entityExtractionEnabled is on (an LLM call per write);
+  // this additive phase backfills entities/attrs/relations for memories that
+  // never went through it, so stores that leave the write-path extractor off
+  // still accumulate an ego graph as long as sleep runs. On by default (it is
+  // a no-op until a sleep cycle fires), capped per run to bound token spend.
+  sleepEntityExtractionEnabled: z.boolean().default(true),
+  // Max memories entity-extracted per sleep run (oldest un-extracted first).
+  sleepEntityExtractionMaxPerRun: z.natural().min(1).max(100).default(20),
 
   // --- epistemic trust: memory source credibility (v0.4.5) -----------------
   // Distinguish memories by source: observation (measured / witnessed),
