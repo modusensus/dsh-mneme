@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Awesome](https://awesome-dsh-plugin.com/badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
-[![tests](https://img.shields.io/badge/tests-810%20passed-success)](https://github.com/modusensus/dsh-mneme)
+[![tests](https://img.shields.io/badge/tests-812%20passed-success)](https://github.com/modusensus/dsh-mneme)
 [![CI](https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/test.yml)](https://github.com/modusensus/dsh-mneme/actions)
 [![node](https://img.shields.io/badge/node-24%2B-blue)](https://nodejs.org)
 [![npm downloads](https://img.shields.io/npm/dm/@modusensus/dsh-mneme?color=blue&label=downloads)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
@@ -241,6 +241,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 
 | 版本 | 亮点 |
 |------|------|
+| **v0.7.8** | DSH 0.1.2-rc.1 兼容（issues #58 #59）：官方移除 `Session.events` 属性改为 `snapshotEvents()` 方法，autoSummarize 与 hot-context（短期上下文）注入取不到事件而失效；改用兼容垫片 `session.snapshotEvents?.() ?? session.events`，新旧 DSH 通吃，老版本行为不受影响；新增 2 个回归用例；812 测试全绿 |
 | **v0.7.7** | issue #23 实体图谱回填：sleep 批量实体抽取 phase（`sleepEntityExtractionEnabled` 默认关；最老优先、SQL LIMIT/OFFSET 分页下沉为有界查询不整表扫描；`pending_extracted_at` 幂等防重、成功/失败清除；metadata 合并不覆盖其他路径写入）；node:sqlite 兼容修复（pluck→all+map、`forgotten=0` 查询条件）；810 测试全绿 |
 | **v0.7.6** | issue #48 修复：`memory_update`/`memory_delete`/`memory_forget`/`memory_archive` 支持截断/前缀短 id（新增 `service.resolveMemoryId`：精确命中优先 + 唯一前缀解析 + 多命中拒绝列出候选 + `memory_delete` 未命中幂等补 `logger.warn`；纯通配符/空白兜底）；Web bundle `client.js` 改 src 正源；801 测试全绿 |
 | **v0.7.5** | 分层记忆类型：新增 `user`（用户画像）/`fact`（原子事实）轻量记忆类型（单表 `type` 扩展，不动 schema）+ Web 面板「总览」视图（记忆分层卡片 + 用户画像卡 + 类型分布 + 近 7 天趋势）+ `/api/dsh-mneme/stats` 统计端点；kimi-k2.7-code 复验（days 整数化等）；790 测试全绿 |
@@ -298,6 +299,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 | **v0.7.4** | ✅ 完成 | issue #40 + #41 修复 | 注入边界 run-based 花括号转义（`{{a}}`→`{\{a\}\}`、奇数连续如 `{{{a}}}` 不残留字面，`escapePromptVariables` 默认开）+ 记忆窗口顶栏左对齐、关闭按钮避开宿主窗口控制按钮区；782 测试全绿 |
 | **v0.7.5** | ✅ 完成 | 分层记忆类型 + 总览视图 | 借鉴 meow-memory 分层概念、贴合单表架构：新增 `user`（用户画像）/`fact`（原子事实）类型，注入/镜像/梦境/质量过滤全链路打通；Web 面板「总览」视图（分层卡片 + 用户画像卡 + 类型分布 + 近 7 天趋势）；`/api/dsh-mneme/stats` 端点；kimi-k2.7-code 复验；790 测试全绿 |
 | **v0.7.7** | ✅ 完成 | issue #23 图谱回填 | sleep 批量实体抽取 phase：默认关 `sleepEntityExtractionEnabled`，按最老优先、SQL LIMIT/OFFSET 分页（下沉为有界查询，不再整表扫描）批量抽取未打标记忆的实体（修复 issue #23 实体图谱空白）；`pending_extracted_at` 幂等防重、成功/失败清除，metadata 合并不覆盖；node:sqlite 兼容修复（pluck→all+map、`forgotten=0` 查询条件）；810 测试全绿 |
+| **v0.7.8** | ✅ 完成 | DSH 0.1.2-rc.1 兼容（issues #58 #59） | 官方移除 `Session.events` 属性、改用 `snapshotEvents()` 方法后 autoSummarize 与 hot-context 注入失效；改为兼容垫片 `session.snapshotEvents?.() ?? session.events`，新旧 DSH 通吃，老版本不受影响；新增 2 个回归用例；812 测试全绿 |
 | **v0.7.6** | ✅ 完成 | issue #48 修复 | 四工具统一 `service.resolveMemoryId`：截断/前缀短 id 也能精确操作（精确命中优先、唯一前缀解析、多命中拒绝并列出候选、`memory_delete` 未命中幂等返回 + `logger.warn` 留痕）；Web bundle `client.js` 改 src 正源；801 测试全绿 |
 | **v0.8.0** | 🚧 计划中（9 月末） | 图谱增强 | 兴趣漂移可视化 + scope 隔离（issue #17）+ 跨 workspace 记忆共享 + 更多 heat 信号 |
 
@@ -307,7 +309,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 
 ### 前置条件
 
-- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）
+- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）— 兼容 DSH 0.1.x，已验证 0.1.2-rc.1（`Session.events` → `snapshotEvents()` 变更已由插件垫片兼容，新旧版本通吃）
 - Node 24+（`node:sqlite`）
 
 ### 安装步骤
@@ -464,7 +466,7 @@ src/
 ├── client.js         # Web 面板 bundle（ModuleLoader 自注册；v0.7.6 起 src 正源）
 └── index.js          # 插件接线
 lib/                  # src 的同步分发产物（npm run sync，prepack 自动执行；无手写例外）
-test/                 # 810 个 node:test 测试（含审计与三轴线压测不变量）
+test/                 # 812 个 node:test 测试（含审计与三轴线压测不变量）
 scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压测 · sync-lib.js 同步 · benchmark-recall.js 召回基准
 ```
 
@@ -473,7 +475,7 @@ scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压
 ```bash
 cd dsh-mneme
 npm install        # 安装 peer 依赖（以 devDependencies 形式，用于本地测试）
-npm test           # 运行 810 个测试
+npm test           # 运行 812 个测试
 npm run stress     # 三轴线压测：长会话检索 / 冲突仲裁 / 多 Agent 并发（离线 mock LLM）
 npm run sync       # 把 src/ 同步到 lib/（发布时由 prepack 钩子自动执行）
 ```

@@ -78,7 +78,9 @@ function toProtocolChunk(chunk) {
 // check below.
 function collectMessages(session) {
   const messages = [];
-  for (const event of session.events ?? []) {
+  // DSH 0.1.2-rc.1 起 Session 改用 snapshotEvents()，兼容旧版 .events
+  const events = session.snapshotEvents?.() ?? session.events ?? [];
+  for (const event of events) {
     const kind = event.data?.source?.kind;
     if (event.type !== "user/message") continue;
     if (kind !== undefined && kind !== "user") continue;

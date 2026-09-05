@@ -8,7 +8,7 @@ import { createHotMemory } from "./hot-memory.js";
 // falls back to the legacy rule-based pick, never breaking the render.
 function lastUserQuery(ctx) {
   try {
-    const events = ctx?.agent?.session?.events;
+    const events = ctx?.agent?.session?.snapshotEvents?.() ?? ctx?.agent?.session?.events;
     if (!Array.isArray(events) || events.length === 0) return "";
     for (let i = events.length - 1; i >= 0; i--) {
       const event = events[i];
@@ -34,7 +34,7 @@ function lastUserQuery(ctx) {
 // returns [] on any failure, and the hot block simply does not render.
 function extractRounds(ctx, maxRounds) {
   try {
-    const events = ctx?.agent?.session?.events;
+    const events = ctx?.agent?.session?.snapshotEvents?.() ?? ctx?.agent?.session?.events;
     if (!Array.isArray(events) || events.length === 0) return [];
     const rounds = [];
     let pendingQuery = null;

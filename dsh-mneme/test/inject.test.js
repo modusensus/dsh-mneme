@@ -179,6 +179,24 @@ test("issue #40: hot-context rounds with {{...}} are escaped", () => {
   assert.ok(!text.includes("}}"), "no raw }} in hot context");
 });
 
+test("session with only snapshotEvents() (DSH 0.1.2-rc.1) still renders hot context", () => {
+  const { contexts } = setup();
+  const text = contexts[0].text({
+    agent: {
+      session: {
+        id: "s1",
+        snapshotEvents: () => [
+          { type: "user/message", data: { source: { kind: "user" }, content: ["用快照接口提问"] } },
+          { type: "assistant/message", data: { source: { kind: "assistant" }, content: ["快照返回的答复"] } }
+        ]
+      }
+    }
+  });
+  assert.ok(text.includes("[短期上下文]"), "hot context rendered");
+  assert.ok(text.includes("用快照接口提问"), "user query picked up from snapshotEvents");
+  assert.ok(text.includes("快照返回的答复"), "assistant reply picked up from snapshotEvents");
+});
+
 test("issue #40: escapePromptVariables=false passes {{...}} through verbatim", () => {
   const { contexts, service } = setup({ escapePromptVariables: false });
   service.saveWithDedupe({ type: "preference", title: "模板", content: "{{挖空}} 与 {{hl|term}}", importance: 5 });
