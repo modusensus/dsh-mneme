@@ -45,6 +45,7 @@
     }
   },
   "scripts": {
+    "prepack": "node dsh-mneme/scripts/check-sync.js",
     "prepublishOnly": "node -e \"const fs=require('fs');const v=JSON.parse(fs.readFileSync('./dsh-mneme/package.json','utf8')).version;const p=JSON.parse(fs.readFileSync('./package.json','utf8'));p.version=v;fs.writeFileSync('./package.json',JSON.stringify(p,null,2)+'\\n')\""
   },
   "peerDependencies": {
