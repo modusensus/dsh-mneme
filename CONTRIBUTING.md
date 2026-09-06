@@ -131,6 +131,13 @@ Versioning follows semantic versioning (`MAJOR.MINOR.PATCH`). Full flow:
 
 ---
 
+## Contact
+
+- **General questions & contributions**: [GitHub Discussions](https://github.com/modusensus/dsh-mneme/discussions) or `work@modusensus.space`
+- **Security vulnerabilities**: report privately via [SECURITY.md](SECURITY.md) — never open a public issue for vulnerabilities
+
+---
+
 ## Miscellaneous
 
 - Security issues go through [SECURITY.md](SECURITY.md) or a GitHub Security Advisory — never paste sensitive info into a public Issue.
@@ -268,6 +275,13 @@ DSH 上游仍处于 developer preview 阶段，API 与服务接口变动频繁�
 4. **提交并推送**：commit → `git push origin main` → `git tag vX.Y.Z` → `git push origin vX.Y.Z`。
 5. **创建 GitHub Release**：标题为 `vX.Y.Z`，正文引用 CHANGELOG 对应条目（发布前需人工过目）。
 6. **发布 npm**：在**仓库根目录**执行 `npm publish`（`prepublishOnly` 会自动把 `dsh-mneme/package.json` 的版本号写入根 `package.json`，`prepack` 自动 sync `lib/`）。
+
+---
+
+## 联系方式
+
+- **一般问题与贡献咨询**：[GitHub Discussions](https://github.com/modusensus/dsh-mneme/discussions) 或 `work@modusensus.space`
+- **安全漏洞**：请通过 [SECURITY.md](SECURITY.md) 私有提交，不要在公开 Issue 中提交漏洞
 
 ---
 
