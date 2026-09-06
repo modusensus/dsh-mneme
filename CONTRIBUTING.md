@@ -23,7 +23,7 @@ dsh-mneme-1/
 └── dsh-mneme/            # the plugin itself
     ├── src/              # source (ESM) — all feature work happens here
     ├── lib/              # build output; DSH actually loads lib/index.js
-    ├── scripts/          # sync-lib.js, e2e-dsh.js, stress-dsh.js, benchmark-*
+    ├── scripts/          # sync-lib.js, check-sync.js, e2e-dsh.js, stress-dsh.js, benchmark-*
     ├── test/             # node:test test suite
     ├── docs/             # SEMANTIC / SLEEP / ENTITIES / MIGRATION deep-dives
     ├── package.json      # plugin metadata and scripts
@@ -33,8 +33,8 @@ dsh-mneme-1/
 **Key convention: `src/` is the single source of truth; `lib/` is build output.**
 
 - Write code only in `src/`, then run `npm run sync` to mirror changes into `lib/`.
-- **Never edit `lib/` by hand** — the next sync overwrites it. The only exception is `lib/client.js` (the Web-panel bundle, authored independently; sync never touches it).
-- `npm pack` / `npm publish` run sync automatically via the `prepack` hook, so a published tarball always ships a fresh `lib/`.
+- **Never edit `lib/` by hand** — the next sync overwrites it.
+- Publish from the **repo root**: root `prepack` runs `scripts/check-sync.js`, which asserts `src/` ↔ `lib/` match file-for-file and fails the publish on any drift (issue #65). So run `npm run sync` (in `dsh-mneme/`) and commit the `lib/` changes **before** publishing.
 
 ---
 
@@ -71,6 +71,7 @@ Common scripts (all run under `dsh-mneme/`):
 - New features require corresponding tests; **changing core logic (e.g. model routing, decision validation) must update the affected test assertions** so the suite stays green before committing.
 - Test files live in `test/`, named `*.test.js`; shared mocks go in `test/helpers/` (e.g. `dream-mock.js`).
 - Known environment dependency: a few cases in `reranker.test.js` need `@huggingface/transformers` (locally this one case fails without the package; it is unrelated to repo logic and CI installs it and passes).
+- The published artifact is covered too: `test/lib-smoke.test.js` imports from `lib/` and asserts `src/` ↔ `lib/` are file-for-file identical (issue #65 regression guard).
 
 ---
 
@@ -127,7 +128,7 @@ Versioning follows semantic versioning (`MAJOR.MINOR.PATCH`). Full flow:
 3. **Full test pass**: `npm test` must be green.
 4. **Commit and push**: commit → `git push origin main` → `git tag vX.Y.Z` → `git push origin vX.Y.Z`.
 5. **Create a GitHub Release**: title `vX.Y.Z`, body referencing the matching CHANGELOG entry (review before publishing).
-6. **Publish to npm**: run `npm publish` from the **repository root** (`prepublishOnly` copies the version from `dsh-mneme/package.json` into the root `package.json`; `prepack` syncs `lib/`).
+6. **Publish to npm**: run `npm publish` from the **repository root** (`prepublishOnly` copies the version from `dsh-mneme/package.json` into the root `package.json`; `prepack` runs `scripts/check-sync.js` and fails if `src/` ↔ `lib/` drifted — ensure `npm run sync` + commit ran first).
 
 ---
 
@@ -170,7 +171,7 @@ dsh-mneme-1/
 └── dsh-mneme/            # 插件本体
     ├── src/              # 源码（ESM），所有功能都在这里开发
     ├── lib/              # 构建产物，DSH 实际加载的是 lib/index.js
-    ├── scripts/          # sync-lib.js、e2e-dsh.js、stress-dsh.js、benchmark-*
+    ├── scripts/          # sync-lib.js、check-sync.js、e2e-dsh.js、stress-dsh.js、benchmark-*
     ├── test/             # node:test 测试
     ├── docs/             # SEMANTIC / SLEEP / ENTITIES / MIGRATION 等专题文档
     ├── package.json      # 插件包元数据与 scripts
@@ -180,8 +181,8 @@ dsh-mneme-1/
 **关键约定：`src/` 是唯一的事实来源，`lib/` 是构建产物。**
 
 - 所有代码改动只写 `src/`，改完必须运行 `npm run sync` 同步到 `lib/`。
-- **不要手工编辑 `lib/`**——下次 sync 会覆盖你的改动。唯一的例外是 `lib/client.js`（Web 面板打包产物，独立创作，sync 不会触碰它）。
-- `npm pack` / `npm publish` 会通过 `prepack` 钩子自动执行 sync，所以发布产物永远是新鲜的 `lib/`。
+- **不要手工编辑 `lib/`**——下次 sync 会覆盖你的改动。
+- 发布在**仓库根**执行：root `prepack` 会跑 `scripts/check-sync.js`，逐文件断言 `src/` ↔ `lib/` 一致，有漂移直接发布失败（issue #65 教训）。所以发布前务必先在 `dsh-mneme/` 里跑 `npm run sync` 并把 `lib/` 改动一起提交。
 
 ---
 
@@ -218,6 +219,7 @@ npm run test:coverage # c8 覆盖率
 - 新增功能必须有对应测试；**修改核心逻辑（如模型路由、决策校验）时必须同步更新受影响用例的断言**，保证全量测试通过后提交。
 - 测试文件放在 `test/`，命名 `*.test.js`；共享 mock 放 `test/helpers/`（如 `dream-mock.js`）。
 - 已知环境依赖：`reranker.test.js` 的个别用例需要 `@huggingface/transformers`（本地未安装该包时这 1 例会失败，与本仓库逻辑无关，CI 会正常安装并通过）。
+- 发布产物也被覆盖：`test/lib-smoke.test.js` 从 `lib/` 直接导入复跑关键用例，并断言 src↔lib 逐文件一致（issue #65 防再犯）。
 
 ---
 
@@ -274,7 +276,7 @@ DSH 上游仍处于 developer preview 阶段，API 与服务接口变动频繁�
 3. **全量测试**：`npm test` 确认通过。
 4. **提交并推送**：commit → `git push origin main` → `git tag vX.Y.Z` → `git push origin vX.Y.Z`。
 5. **创建 GitHub Release**：标题为 `vX.Y.Z`，正文引用 CHANGELOG 对应条目（发布前需人工过目）。
-6. **发布 npm**：在**仓库根目录**执行 `npm publish`（`prepublishOnly` 会自动把 `dsh-mneme/package.json` 的版本号写入根 `package.json`，`prepack` 自动 sync `lib/`）。
+6. **发布 npm**：在**仓库根目录**执行 `npm publish`（`prepublishOnly` 会自动把 `dsh-mneme/package.json` 的版本号写入根 `package.json`，`prepack` 会跑 `scripts/check-sync.js` 校验 src↔lib 一致性，漂移则发布失败——发布前须先 `npm run sync` 并提交 `lib/` 改动）。
 
 ---
 
