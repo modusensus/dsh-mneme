@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.7.9] - 2026-09-06
+
+### 🐛 修复：v0.7.8 的 rc.1 snapshotEvents 适配未同步到 lib/（issue #65）
+
+- **现象**：v0.7.8 为兼容 DSH 0.1.2-rc.1（`Session.events` → `snapshotEvents()`）只改了 `src/inject.js` 与 `src/summarize.js`，发布产物 `lib/` 从未同步——npm 包实际加载的是 `lib/`（`main` 指向 `lib/index.js`），用户在 rc.1 下安装 0.7.8 运行的仍是未适配代码。因代码带 `?.` / `?? []` 容错，**不报错但热记忆注入与会话摘要静默失效**。
+- **修复**：将 src 的兼容垫片同步到 `lib/`（两文件 3 处），`src/` 与 `lib/` 逐文件一致。
+- **防再犯（双保险）**：
+  - 新增 `scripts/check-sync.js`：断言 `src/` 与 `lib/` 一致性，root `prepack` 钩子调用——发布前不一致直接 fail；
+  - 新增 `test/lib-smoke.test.js`：从 `lib/` 直接导入复跑 snapshotEvents 关键用例 + 静态断言 src→lib 逐文件一致，CI 每次全量测试拦截。
+- 新增 3 个用例（lib 版 snapshotEvents 注入/摘要 + 一致性断言），全套 **815 通过**。
+
 ## [0.7.8] - 2026-09-06
 
 ### 🐛 修复：DSH 0.1.2-rc.1 兼容（issues #58 #59）
