@@ -241,6 +241,9 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 
 | 版本 | 亮点 |
 |------|------|
+| **v0.7.13** | 编码记忆蒸馏（`codingRetrospect` 默认关）：完整转录（用户+助手思考/回复+工具调用/结果+代码执行）提炼原子记忆，新增 `rejected_solution`/`pitfall`/`constraint` 三类型，编码任务 `codingBoostFactor` 加权（cap 5）+ 智能调速器（蒸馏全局串行队列 + 429 指数退避自动重试）+ 原子记忆语义保留（宁可拆多条不合并丢细节，`distillMaxChars` 默认 24000）+ 修复 v0.7.12 CI 回归（恢复 c8 覆盖率）；616 测试全绿 |
+| **v0.7.12** | 独立外部 API（插件自带 HTTP 服务 `127.0.0.1:8790` Bearer 鉴权，生态集成）+ 零依赖 CLI `dsh-mneme`（status/list/search/get/add/delete/config）+ 轻量模式 lightMode（简化预设、面板一键切换）+ 设置面板新卡片（运行模式/外部访问 API）；612 测试全绿 |
+| **v0.7.11** | 记忆库面板改版：按月分页+无限滚动（`limit=500` 静默丢失→100 条/页分页，total 常显）、搜索全局化（关键词/语义走服务端命中全库）、30s 静默刷新 + 状态子页（记忆/实体/向量索引/LLM 消耗四卡）+ 删除两步确认 + 重要性过滤芯片 + 内联 Lucide 图标；bundle 默认开启实体抽取；Issue #72 最大化窗口图谱节点裁剪修复（力导向全程 viewBox 用户单位）+ Issue #59 autoSummarize 从不执行修复（snapshotEvents 垫片）；双语 README；595 测试全绿 |
 | **v0.7.10** | Web 面板体验升级：记忆类型色点体系（筛选/时间树/详情三处贯穿）+ 图谱画布平移/滚轮缩放/重置视图（补齐 `cursor: grab` 暗示却缺失的交互）+ 设置页 Claude 风格分区重排（编号规则行、悬停删除、口语化文案）+ 侧边栏入口同标签冲突修复（可见性过滤 + 渲染验证 + 多候选重试）+ 详情 meta 精排（来源截断、相对时间）+ 新增只读 `GET /api/dsh-mneme/entities` 实体清单端点（19→20 条路由）；815 测试全绿 |
 | **v0.7.9** | issue #65 修复：v0.7.8 的 snapshotEvents 适配只改了 `src/`，npm 实际加载的 `lib/` 从未同步——静默失效；补齐 lib 三处垫片 + 新增 `scripts/check-sync.js` 发布前 src↔lib 一致性闸门（root prepack 调用，漂移直接 fail）+ `test/lib-smoke.test.js` 从 lib 导入复跑 + 一致性断言（CI 双保险）；815 测试全绿 |
 | **v0.7.8** | DSH 0.1.2-rc.1 兼容（issues #58 #59）：官方移除 `Session.events` 属性改为 `snapshotEvents()` 方法，autoSummarize 与 hot-context（短期上下文）注入取不到事件而失效；改用兼容垫片 `session.snapshotEvents?.() ?? session.events`，新旧 DSH 通吃，老版本行为不受影响；新增 2 个回归用例；812 测试全绿 |
