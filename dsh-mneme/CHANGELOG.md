@@ -2,17 +2,17 @@
 
 ## [0.7.14] - 2026-09-08
 
-### 修复
+## 🐛 修复
 
 - **蒸馏不再采集私有推理块（安全，CWE-200）**：`collectMessages` 原会把 `assistant/message` 里的 `reasoning` block 作为「助手思考」送进蒸馏上下文，生成的记忆可能沉淀模型私有思考链；现只采集公开 `text` 块，私有推理不进记忆库。CodeRabbit 评审（PR #76）指出后修复。
 
-### 测试
+## 🏗️ 工程
 
-- 617 全绿（+1：私有 reasoning 块不进入蒸馏上下文，公开文本照常蒸馏）。
+- 617 测试全绿（+1：私有 reasoning 块不进入蒸馏上下文，公开文本照常蒸馏）。
 
 ## [0.7.13] - 2026-09-08
 
-### 新增
+## 🆕 新功能
 
 - **编码记忆蒸馏（`codingRetrospect`，默认关）**：turn/end 蒸馏改用**完整转录**（用户输入 + 助手思考/回复 + 工具调用/结果 + 代码执行）提炼原子记忆，蒸馏模型能看到工具报错与调试全过程，不再只盯着用户打了什么字。新增三种编码专属记忆类型，专治重复踩坑 / 遗忘被否决方案 / 丢失工程约束：
   - `rejected_solution`（被否决/废弃的实现方案：方案简述 + 被否决原因 + 最终采用方案）
@@ -22,30 +22,30 @@
 - **智能调速器（429 保护）**：对话一多时 turn/end 会批量触发蒸馏，多个 LLM 请求「一拥而上」正是 429 的来源。所有蒸馏调用进**全局串行队列**（`distillRateLimitIntervalMs` 默认 1000ms 分批放行，单次蒸馏零延迟），命中 429 按 `distillRateLimitBaseDelayMs`（默认 1000ms）**指数退避**（1s→2s→4s…）自动重试 `distillRateLimitRetries`（默认 3）次，全程对用户透明，不把 429 错误码抛出去。
 - **语义保留（原子记忆）**：蒸馏 prompt 改为「每条记忆只装一个独立事实/偏好/决策，短小、自带完整上下文（数字/名字/路径/结论保留原文），宁可拆成多条也绝不合并丢细节」；完整转录上限由 `distillMaxChars`（默认 24000，可调大）控制。
 
-### 工程
+## 🐛 修复
 
-- **修复 v0.7.12 CI 回归**：v0.7.11（ce4658e）移除 c8 与 `test:coverage` 脚本但 `test.yml` 仍调用 → 两版测试工作流 `Missing script: "test:coverage"` 直接红；恢复 `c8@^12.0.0` devDependency + `test:coverage` 脚本，覆盖率流水线复原。
+- **v0.7.12 CI 回归**：v0.7.11（ce4658e）移除 c8 与 `test:coverage` 脚本但 `test.yml` 仍调用 → 两版测试工作流 `Missing script: "test:coverage"` 直接红；恢复 `c8@^12.0.0` devDependency + `test:coverage` 脚本，覆盖率流水线复原。
 
-### 测试
+## 🏗️ 工程
 
-- 616 全绿（+4）：蒸馏全局串行队列、429 指数退避重试（`distillRateLimitRetries:3` 实测 3 次退避）、完整转录原子记忆 prompt、`codingRetrospect` 落库 `rejected_solution`（tags 空数组，读取侧靠 `m.type` 门控）。
+- 616 测试全绿（+4）：蒸馏全局串行队列、429 指数退避重试（`distillRateLimitRetries:3` 实测 3 次退避）、完整转录原子记忆 prompt、`codingRetrospect` 落库 `rejected_solution`（tags 空数组，读取侧靠 `m.type` 门控）。
 
 ## [0.7.12] - 2026-09-08
 
-### 新增
+## 🆕 新功能
 
 - **独立外部 API（生态集成）**：插件可启动自己的 HTTP 服务（默认 `127.0.0.1:8790`，仅回环绑定），其他插件/CLI/桌面工具经 Bearer token 读写记忆，不再依赖 DSH 内部端口。路由：`GET /health`（免鉴权）、`GET /status`、`GET/POST/DELETE /memories`、`GET /memories/:id`、`GET /search`；token 首次启用自动生成并持久化（设置面板可查看复制）。配置：`externalApiEnabled/externalApiPort/externalApiHost` + 面板设置持久化（重启生效）；非回环绑定的安全责任由操作者承担。
 - **CLI 工具 `dsh-mneme`**：零依赖命令行（`bin/cli.mjs`）——`status` / `list` / `search` / `get` / `add` / `delete` / `config set|show|path`，配置优先级 参数 > 环境变量（DSH_MNEME_URL/TOKEN）> `~/.dsh-mneme/cli.json`；`--json` 机器输出。
 - **轻量模式（lightMode）**：面向非技术用户的简化预设——只保留核心的记忆读写与自动注入（autoInject/autoSummarize/hot memory/质量过滤），关闭 autoDream 巩固、实体抽取、语义搜索、rerank、bm25、选择性注入等重资源项；`applyLightModePreset` 纯函数 + `panel_mode` 持久化（持久化优先于 bundle 配置），设置面板一键切换（重启生效）。
 - **设置面板新卡片**：「运行模式」（轻量/标准）与「外部访问 API」（开关/地址端口/Token 复制），中英文案齐备。
 
-### 测试
+## 🏗️ 工程
 
-- 612 全绿（+17）：独立 API 10 例（401/health/CRUD 闭环/搜索/400 校验）、mode 路由 3 例、external_api kv 2 例、light 预设与 config 用例；`store.count` 支持 minImportance/source 后 total 与行一致。
+- 612 测试全绿（+17）：独立 API 10 例（401/health/CRUD 闭环/搜索/400 校验）、mode 路由 3 例、external_api kv 2 例、light 预设与 config 用例；`store.count` 支持 minImportance/source 后 total 与行一致。
 
 ## [0.7.11] - 2026-09-08
 
-### 新增
+## 🆕 新功能
 
 - **记忆库面板改版（可扩展性 + 实时性）**：
   - **按月分页 + 无限滚动**：记忆浏览从一次性 `limit=500`（超限即静默丢失）改为 100 条/页的时间序分页（`list?order=chrono`，`store.list` 新增 `order` 参数、`/api/dsh-mneme/list` 透传），滚动到底自动拉下一页（IntersectionObserver 哨兵 + 「加载更多」按钮兜底），底栏常显 `已加载/总数`。
@@ -59,26 +59,32 @@
 - **重要性过滤**：分类栏新增 全部/★3+/★4+/★5 服务端过滤芯片（`list?minImportance=`），`store.count` 同步接受过滤参数使分页 total 与行一致；浏览分页、加载更多、自动刷新共用同一过滤态。
 - **双语 README**：新增 `README.en.md`（与中文版逐节对齐），两版互挂语言切换链接。
 
-### 修复
+## 🐛 修复
 
 - **Issue #72：窗口最大化后图谱节点不可见**：力导向模拟此前以 SVG 元素的 CSS 宽度（`clientWidth`）为布局边界——最大化窗口下元素宽达上千 CSS px，重心（`clientWidth/2`）与钳制区间都落到 380×300 viewBox 之外，节点整体被裁剪出画布（窗口较小时两个空间近似重合，所以一切正常）。现在模拟全程在 viewBox 用户单位（`VIEW_W`/`VIEW_H`）中运行，与绘制空间严格一致；浏览器把 viewBox 等比缩放到元素实际尺寸，小窗、隐藏 tab、最大化均可见、可拖拽，布局不再依赖挂载时的容器测量。
 - **Issue #59：DSH ≥0.1.2-rc 上 autoSummarize 从不执行**：DSH 0.1.2-rc 起移除了 `Session.events` 属性，事件只能经 `snapshotEvents()` 获取——`collectMessages()` 拿到的恒为空数组导致 `summarize()` 直接退出，`llm_audit_logs` 全空、从未发起 LLM 调用。`summarize.js` 与 `inject.js`（`lastUserQuery` / `extractRounds`）三处统一改为 `session.snapshotEvents?.() ?? session.events ?? []` 兼容垫片：新 DSH 走 snapshot 方法，老版本回退 `.events`，两边都不破坏。
 
-### 测试
+## 🏗️ 工程
 
-- 595 全绿：新增 snapshotEvents 回归 2 例——summarize（仅暴露 `snapshotEvents()`、无 `.events` 的会话必须触发 LLM 调用并入库 2 条记忆）与 inject（无 `.events` 会话下「短期上下文」热记忆块照常渲染）。
+- 595 测试全绿：新增 snapshotEvents 回归 2 例——summarize（仅暴露 `snapshotEvents()`、无 `.events` 的会话必须触发 LLM 调用并入库 2 条记忆）与 inject（无 `.events` 会话下「短期上下文」热记忆块照常渲染）。
 
 ## [0.7.10] - 2026-09-07
 
-### 🆕 Web 面板体验升级：类型色点 / 图谱平移缩放 / 设置页重排 / 侧边栏冲突修复
+## 🆕 新功能
 
 - **记忆类型色点体系**：新增 `MEMORY_TYPE_COLORS` 调色板（preference 琥珀 / project 绿 / decision 蓝 / summary 紫 / user 琥珀 / fact 绿 / history 灰，与图谱实体色同一风格的中饱和固定色相，明暗主题均可读）与 `.mneme-xdot` 色点组件，贯穿三处——类型筛选行（「全部」为空心环保持对齐）、时间树每一行、详情 meta。同一颜色在任何位置都代表同一记忆类型，扫视时间树即可分辨构成。分类计数改为 `margin-left:auto` 右对齐，色点不挤计数。
 - **图谱画布平移 + 滚轮缩放 + 重置视图**：此前画布仅有节点拖拽，`cursor: grab` 暗示的画布拖动从未实现。新增 `viewRef`（translate+scale）视口状态与 `<g transform>` 包裹层——空白处按住拖动平移整图；滚轮缩放以光标为锚点（0.5x–3x，native 非 passive wheel 监听，React 合成 `onWheel` 为 passive 无法 `preventDefault`）；节点 `mousedown` 增加 `stopPropagation` 防止误触发平移；节点拖拽灵敏度按缩放系数换算，放大后拖节点不再"飘"；图谱工具栏新增「重置视图」一键复原；画布高度提升至 320px；操作提示更新为「拖拽节点调整布局 · 空白处拖动平移 · 滚轮缩放」。
 - **设置页分区重排（借鉴 Claude App 设置排版）**：设置内容改为 `.mneme-set-sec` 分区呈现——用户画像 → 规则 → 自定义指令 → 自动打标签 → 侧边栏入口 → 向量搜索 → API Token（高级项移至最后），每区标题 + 一句话说明 + 细分隔线；规则行重做：编号圆点 + 圆角行 + 悬停浮现删除按钮，输入框回车直接添加；命令行 `/名称` 主题蓝高亮；全部输入控件统一 `.mneme-set-input`（聚焦品牌蓝描边）与 `.mneme-btn`。中英文提示全部重写为口语化文案（如规则区"给 Agent 立下必须遵守的规矩，随时增删，下一轮即生效"）。0.7.3 引入的自动打标签与侧边栏入口开关功能原样保留，仅归入新排版。
-- **侧边栏入口同标签冲突修复**：会话 tab 在 DOM 上不带注册 id，旧激活逻辑取"文档中第一个文字匹配的 `[role=tab]`"——安装其他插件后，同名标签或隐藏的设置分页会被误激活（表现为点击「记忆」无反应或跳错视图）。现改为 `findExplorerTabs` 多候选：先以 `offsetParent` 过滤不可见面板，点击后验证 `.mneme-x` 确实渲染才算成功，失败自动尝试下一个候选，全部失败仍回退全屏覆盖层。`test/client.test.js` 新增两条契约断言（渲染验证 + 隐藏面板过滤）。
 - **详情 meta 精排**：来源 `session:<uuid>` 截断为 200px 省略（完整值悬停可见），创建时间只显日期、更新时间改相对时间（超一周回退日期，完整时间戳保留在 tooltip），meta 恢复单行。
 - **新增只读端点 `GET /api/dsh-mneme/entities`**：实体清单（名称/类型/提及次数/首末见时间，`limit` 上限 1000），为实体目录 UI 与后续视图供数；exact 路由 19 → 20 条。
-- **工程**：`scripts/e2e-dsh.js` 的路由数断言从失真的 9 条修正为与 `src/api.js` 返回值一致的 20 条；client 测试同步适配新激活契约。
+
+## 🐛 修复
+
+- **侧边栏入口同标签冲突**：会话 tab 在 DOM 上不带注册 id，旧激活逻辑取"文档中第一个文字匹配的 `[role=tab]`"——安装其他插件后，同名标签或隐藏的设置分页会被误激活（表现为点击「记忆」无反应或跳错视图）。现改为 `findExplorerTabs` 多候选：先以 `offsetParent` 过滤不可见面板，点击后验证 `.mneme-x` 确实渲染才算成功，失败自动尝试下一个候选，全部失败仍回退全屏覆盖层。`test/client.test.js` 新增两条契约断言（渲染验证 + 隐藏面板过滤）。
+
+## 🏗️ 工程
+
+- `scripts/e2e-dsh.js` 的路由数断言从失真的 9 条修正为与 `src/api.js` 返回值一致的 20 条；client 测试同步适配新激活契约。
 - 全套 **815 测试通过**（含 client 激活契约 2 个新断言）。
 
 ## [0.7.9] - 2026-09-06

@@ -169,12 +169,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.verify.outputs.version }}
         run: |
-          TITLE="$(head -1 notes/body.md | sed -E 's/^#+ *//; s/^\*\*//; s/\*\*$//')"
-          if [ -z "$TITLE" ]; then TITLE="v${VERSION}"; fi
+          # 标题统一纯版本号（v0.7.9 基准，桉桉 9/8 拍板）；Release 正文由
+          # 上方抽取的 CHANGELOG 分类小节提供（## 🆕 新功能 / 🐛 修复 / 🏗️ 工程 / 📦 升级提示）
           if gh release view "v${VERSION}" >/dev/null 2>&1; then
-            gh release edit "v${VERSION}" --title "v${VERSION} · ${TITLE}" --notes-file notes/body.md
+            gh release edit "v${VERSION}" --title "v${VERSION}" --notes-file notes/body.md
           else
-            gh release create "v${VERSION}" --title "v${VERSION} · ${TITLE}" --notes-file notes/body.md
+            gh release create "v${VERSION}" --title "v${VERSION}" --notes-file notes/body.md
           fi
 
   # ── 5. 通知与运行摘要（接入外部通知时往这里加一步 webhook 即可）────────────
