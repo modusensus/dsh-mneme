@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.7.13] - 2026-09-08
+
+### 新增
+
+- **编码记忆蒸馏（`codingRetrospect`，默认关）**：turn/end 蒸馏改用**完整转录**（用户输入 + 助手思考/回复 + 工具调用/结果 + 代码执行）提炼原子记忆，蒸馏模型能看到工具报错与调试全过程，不再只盯着用户打了什么字。新增三种编码专属记忆类型，专治重复踩坑 / 遗忘被否决方案 / 丢失工程约束：
+  - `rejected_solution`（被否决/废弃的实现方案：方案简述 + 被否决原因 + 最终采用方案）
+  - `pitfall`（调试踩坑记录：现象/报错 + 根因 + 解决/规避方法）
+  - `constraint`（项目工程约束：约束描述 + 来源）
+  - 读取侧按需加权：`isCodingTask` 判定编码任务（`codingKeywords` 关键词命中），命中时编码类记忆注入排序权重 ×`codingBoostFactor`（默认 2，封顶 5）；普通闲聊检索不到编码记忆，不污染通用召回。`tools.js` 的 `memory_save/search/list/update` 类型枚举同步扩到 7 种。
+- **智能调速器（429 保护）**：对话一多时 turn/end 会批量触发蒸馏，多个 LLM 请求「一拥而上」正是 429 的来源。所有蒸馏调用进**全局串行队列**（`distillRateLimitIntervalMs` 默认 1000ms 分批放行，单次蒸馏零延迟），命中 429 按 `distillRateLimitBaseDelayMs`（默认 1000ms）**指数退避**（1s→2s→4s…）自动重试 `distillRateLimitRetries`（默认 3）次，全程对用户透明，不把 429 错误码抛出去。
+- **语义保留（原子记忆）**：蒸馏 prompt 改为「每条记忆只装一个独立事实/偏好/决策，短小、自带完整上下文（数字/名字/路径/结论保留原文），宁可拆成多条也绝不合并丢细节」；完整转录上限由 `distillMaxChars`（默认 24000，可调大）控制。
+
+### 工程
+
+- **修复 v0.7.12 CI 回归**：v0.7.11（ce4658e）移除 c8 与 `test:coverage` 脚本但 `test.yml` 仍调用 → 两版测试工作流 `Missing script: "test:coverage"` 直接红；恢复 `c8@^12.0.0` devDependency + `test:coverage` 脚本，覆盖率流水线复原。
+
+### 测试
+
+- 616 全绿（+4）：蒸馏全局串行队列、429 指数退避重试（`distillRateLimitRetries:3` 实测 3 次退避）、完整转录原子记忆 prompt、`codingRetrospect` 落库 `rejected_solution`（tags 空数组，读取侧靠 `m.type` 门控）。
+
 ## [0.7.12] - 2026-09-08
 
 ### 新增
