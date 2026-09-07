@@ -241,6 +241,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 
 | 版本 | 亮点 |
 |------|------|
+| **v0.7.10** | Web 面板体验升级：记忆类型色点体系（筛选/时间树/详情三处贯穿）+ 图谱画布平移/滚轮缩放/重置视图（补齐 `cursor: grab` 暗示却缺失的交互）+ 设置页 Claude 风格分区重排（编号规则行、悬停删除、口语化文案）+ 侧边栏入口同标签冲突修复（可见性过滤 + 渲染验证 + 多候选重试）+ 详情 meta 精排（来源截断、相对时间）+ 新增只读 `GET /api/dsh-mneme/entities` 实体清单端点（19→20 条路由）；815 测试全绿 |
 | **v0.7.9** | issue #65 修复：v0.7.8 的 snapshotEvents 适配只改了 `src/`，npm 实际加载的 `lib/` 从未同步——静默失效；补齐 lib 三处垫片 + 新增 `scripts/check-sync.js` 发布前 src↔lib 一致性闸门（root prepack 调用，漂移直接 fail）+ `test/lib-smoke.test.js` 从 lib 导入复跑 + 一致性断言（CI 双保险）；815 测试全绿 |
 | **v0.7.8** | DSH 0.1.2-rc.1 兼容（issues #58 #59）：官方移除 `Session.events` 属性改为 `snapshotEvents()` 方法，autoSummarize 与 hot-context（短期上下文）注入取不到事件而失效；改用兼容垫片 `session.snapshotEvents?.() ?? session.events`，新旧 DSH 通吃，老版本行为不受影响；新增 2 个回归用例；812 测试全绿 |
 | **v0.7.7** | issue #23 实体图谱回填：sleep 批量实体抽取 phase（`sleepEntityExtractionEnabled` 默认关；最老优先、SQL LIMIT/OFFSET 分页下沉为有界查询不整表扫描；`pending_extracted_at` 幂等防重、成功/失败清除；metadata 合并不覆盖其他路径写入）；node:sqlite 兼容修复（pluck→all+map、`forgotten=0` 查询条件）；810 测试全绿 |
