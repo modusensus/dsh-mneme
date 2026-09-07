@@ -5,9 +5,10 @@ name: Release
 #
 #   verify（版本号管理）→ test（双平台全量测试，矩阵同 CI）→ publish（npm）→ release（GitHub Release）→ notify（结果摘要）
 #
-# 沿用 publish.yml 的两条血泪教训，并固化成步骤：
-#   1. root package.json 在 git 里是编排壳（版本停在 0.7.2），真实版本在
-#      dsh-mneme/package.json —— npm publish 前必须显式同步 root 版本。
+# 沿用 publish.yml 的血泪教训并固化成步骤：
+#   1. 发布根是 dsh-mneme/ 子目录（真实版本在 dsh-mneme/package.json，prepack 自动
+#      npm run sync 同步 src→lib）——npm publish 在 dsh-mneme/ 下跑，包结构与
+#      v0.7.12/0.7.13 本机发布一致；root package.json 是编排壳（版本停在 0.7.2，不参与发布）。
 #   2. 「skip if exists」幂等守卫：同一版本重复推 tag 不会重复发布。
 #
 # 新增的版本号管理规则：
@@ -117,15 +118,10 @@ jobs:
           npm view @modusensus/dsh-mneme versions --json || true
           npm view @modusensus/dsh-mneme time --json || true
 
-      # 血泪教训：npm 在跑 prepublishOnly 前已加载 manifest，必须显式同步 root 版本
-      - name: Sync root version from dsh-mneme
-        run: |
-          V="${{ needs.verify.outputs.version }}"
-          echo "Syncing root package.json to v${V}"
-          node -e "const fs=require('fs');const v=process.argv[1];const p=JSON.parse(fs.readFileSync('./package.json','utf8'));p.version=v;fs.writeFileSync('./package.json',JSON.stringify(p,null,2)+'\n')" "$V"
-          node -p "console.log('root now:', require('./package.json').version)"
-
+      # 发布根 = dsh-mneme/（dsh-mneme/package.json 是真实版本 + prepack `npm run sync` 自动同步
+      # src→lib），与 v0.7.12/0.7.13 本机发布包结构一致；root 壳不参与发布，无需 root 版本同步
       - name: Publish @modusensus/dsh-mneme (skip if exists)
+        working-directory: dsh-mneme
         run: |
           V="${{ needs.verify.outputs.version }}"
           if npm view "@modusensus/dsh-mneme@${V}" version >/dev/null 2>&1; then
