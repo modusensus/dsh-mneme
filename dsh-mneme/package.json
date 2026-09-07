@@ -73,6 +73,17 @@
     "e2e": "node scripts/e2e-dsh.js",
     "stress": "node scripts/stress-dsh.js"
   },
+  "c8": {
+    "reporter": [
+      "text",
+      "lcov"
+    ],
+    "exclude": [
+      "lib/**",
+      "test/**",
+      "**/*.test.js"
+    ]
+  },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
     "morphicons": "^1.7.1"
