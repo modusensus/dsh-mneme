@@ -293,6 +293,34 @@ test("distills full transcript (tool calls, results, code output) with atomic-me
   assert.ok(calls[0].messages[0].content[0].text.includes("原子记忆"));
 });
 
+test("distill excludes private assistant reasoning blocks from the transcript", async () => {
+  const { events, calls } = setup();
+  const handler = events.find((e) => e.name === "session/event").fn;
+  const session = {
+    id: "s12",
+    requestHeader: () => ({ config: { provider: "deepseek", model: "deepseek-chat" } }),
+    events: [
+      userMessage("解释一下这段代码"),
+      {
+        type: "assistant/message",
+        data: {
+          message: {
+            content: [
+              { type: "reasoning", text: "私有推理：内部权衡过程不该进记忆" },
+              { type: "text", text: "这段代码有死循环，第 3 行 while 条件恒真。" }
+            ]
+          }
+        }
+      },
+      { seq: 3, type: "turn/end" }
+    ]
+  };
+  await handler(session, { seq: 3, type: "turn/end" });
+  const transcript = JSON.stringify(calls[0].messages);
+  assert.ok(transcript.includes("有死循环，第 3 行"), "public assistant text still distills");
+  assert.ok(!transcript.includes("私有推理"), "private reasoning must never enter the distill context");
+});
+
 test("codingRetrospect stores coding memory types in the coding memory type set", async () => {
   const { events, store, calls } = setup({ codingRetrospect: true }, {
     stream() {

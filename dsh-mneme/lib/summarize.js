@@ -8,7 +8,7 @@ const SUMMARY_PROMPT = `你是记忆库提炼助手。根据下面的会话内�
 // 编码记忆蒸馏 prompt（codingRetrospect 开启时启用）：在通用记忆之外，额外提取
 // 三类编码专属记忆，专治重复踩坑 / 遗忘被否决方案 / 丢失工程约束。字段仍沿用
 // title/content 单列结构（store 无结构化字段），信息浓缩进 content。
-const CODING_SUMMARY_PROMPT = `你是记忆库提炼助手。根据下面的会话内容（含用户输入、助手思考/回答、工具调用与结果），提炼值得跨会话记住的原子记忆。
+const CODING_SUMMARY_PROMPT = `你是记忆库提炼助手。根据下面的会话内容（含用户输入、助手回答、工具调用与结果），提炼值得跨会话记住的原子记忆。
 原子记忆原则：每条记忆只装一个独立事实/偏好/决策，短小、自带完整上下文（把数字、报错信息、命令、路径、结论等原始细节保留在 content 里，不要抽象概括）；宁可拆成多条也绝不合并丢细节。信息量一般提 2-4 条，信息密集的对话可提 4-8 条。
 只输出 JSON 数组，每项形如 {"type":"preference|project|decision|history|rejected_solution|pitfall|constraint","title":"简短标题","content":"保留原始细节的一句话","importance":1-5}。
 若对话涉及编码/调试，可额外提取编码类记忆：
@@ -91,18 +91,22 @@ function toProtocolChunk(chunk) {
 // check below.
 //
 // codingRetrospect: the distill context is the FULL turn transcript —
-// user prompts plus assistant thinking/replies, tool calls + results and code
+// user prompts plus assistant public replies, tool calls + results and code
 // dispatch output — so the summarizer can see tool errors and extract pitfall
 // root causes, not just what the user typed. The same filtering stays: only
 // source.kind === "user" prompts enter (plugin/machine content is excluded).
 // The result is a single text transcript passed to the LLM as one user message
 // (SUMMARY_PROMPT already says "根据下面的会话内容").
+//
+// Privacy: assistant `reasoning` (private thought) blocks are deliberately NOT
+// collected — distilled memories must never sink private reasoning chains.
+// Only public text blocks (type "text") reach the summarizer.
 function collectMessages(session, maxChars = 8000) {
   // DSH 0.1.2-rc.1 起 Session 改用 snapshotEvents()，兼容旧版 .events
   const events = session.snapshotEvents?.() ?? session.events ?? [];
   const lines = [];
   // 兼容严格形状 [{type:"text",text}] 与宽松形状 ["字符串", ...]（lib-smoke 用例
-  // 直接传字符串数组）。text 之外按需抽 thinking/reasoning 块。
+  // 直接传字符串数组）。只取公开文本块；reasoning 私有推理块不进蒸馏上下文。
   const textOf = (content) => {
     if (typeof content === "string") return content;
     if (!Array.isArray(content)) return "";
@@ -127,11 +131,7 @@ function collectMessages(session, maxChars = 8000) {
         const blocks = Array.isArray(msg?.content) ? msg.content : [];
         const text = textOf(blocks);
         if (text.trim()) lines.push(`助手：${text}`);
-        const thinking = blocks
-          .map((b) => (typeof b === "string" ? "" : (b && b.type === "reasoning" && typeof b.text === "string" ? b.text : "")))
-          .filter((s) => s)
-          .join("\n");
-        if (thinking.trim()) lines.push(`助手思考：${thinking}`);
+        // 私有推理块（reasoning）刻意不采集：蒸馏记忆不得沉淀模型私有思考链。
         break;
       }
       case "tool/call": {
