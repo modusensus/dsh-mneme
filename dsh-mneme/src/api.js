@@ -637,6 +637,25 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
     }
   });
 
+  // --- entity directory (entity gene v0.3.0): read-only list for the UI ---
+  // Flat entity list (newest-seen first). Attributes and relations stay on
+  // their own per-entity endpoints, the directory only carries the columns
+  // the rail needs: name, type, mention_count, first/last seen.
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/entities",
+    handler(req, res) {
+      try {
+        const url = new URL(req.url, "http://localhost");
+        const limit = Math.min(1000, Math.max(1, Number(url.searchParams.get("limit") ?? 500) || 500));
+        const entities = service.listEntities?.({ limit }) ?? [];
+        sendJson(res, 200, { entities, total: entities.length });
+      } catch {
+        sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
   // --- health: mirror sync state (F-NEW-03 / v0.3.6) ---
   // Auth-gated; only returns a sanitized error code (never raw last_error which
   // may leak paths/token-like strings/internal hosts). On state read failure it
@@ -799,7 +818,7 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
   });
 
   return {
-    routes: 19,
+    routes: 20,
     dispose: () => {
       for (const dispose of disposers) dispose();
     }

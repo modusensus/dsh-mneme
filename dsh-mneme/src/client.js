@@ -69,11 +69,11 @@ window.__ModuleLoader__.load({
         "memory.tab.fact": "事实",
         "memory.settings.title": "记忆库设置",
         "memory.settings.profile": "用户画像",
-        "memory.settings.profileHint": "描述你自己（角色、背景、偏好），Agent 会在每轮遵循",
+        "memory.settings.profileHint": "写一段自我介绍（角色、背景、偏好），Agent 每轮对话都会自动带上。",
         "memory.settings.profileSave": "保存画像",
         "memory.settings.profileSaved": "画像已保存",
         "memory.settings.rules": "规则",
-        "memory.settings.rulesHint": "Agent 必须遵守的行为规则，每轮注入",
+        "memory.settings.rulesHint": "给 Agent 立下必须遵守的规矩，随时增删，下一轮即生效。",
         "memory.settings.autoTagTitle": "自动打标签",
         "memory.settings.autoTagHint": "开启后，新记忆由轻量模型自动打标签，目录页按标签自动分类（opt-in，默认关）",
         "memory.settings.autoTagEnabled": "自动打标签",
@@ -87,7 +87,7 @@ window.__ModuleLoader__.load({
         "memory.settings.ruleAdd": "添加规则",
         "memory.settings.rulePlaceholder": "例如：回答时总是先给结论",
         "memory.settings.commands": "自定义指令",
-        "memory.settings.commandsHint": "注册斜杠命令（/名称），触发时把指令内容交给 Agent",
+        "memory.settings.commandsHint": "把常用提示词存成 / 命令，聊天时直接键入调用。",
         "memory.settings.cmdName": "命令名",
         "memory.settings.cmdDesc": "描述",
         "memory.settings.cmdInstruction": "指令内容",
@@ -156,12 +156,13 @@ window.__ModuleLoader__.load({
         "memory.graph.related": "关联记忆",
         "memory.graph.relation": "关系",
         "memory.graph.sourceMemory": "查看来源记忆",
-        "memory.graph.hint": "点击节点展开 · 拖拽调整布局",
+        "memory.graph.hint": "拖拽节点调整布局 · 空白处拖动平移 · 滚轮缩放",
+        "memory.graph.resetView": "重置视图",
         "memory.graph.viewInGraph": "在图谱中查看",
         "memory.graph.loading": "加载中…",
         "memory.graph.distance": "距中心 {n} 跳",
         "memory.settings.vectorTitle": "向量搜索",
-        "memory.settings.vectorHint": "接入 OpenAI 兼容的 embeddings API 做语义搜索，可匹配字面不同但语义相近的记忆",
+        "memory.settings.vectorHint": "搜索不再只认字面：接入任意 OpenAI 兼容的 embedding 接口后，意思相近的记忆也能被召回。",
         "memory.settings.vectorEnabled": "启用向量搜索",
         "memory.settings.vectorBaseUrl": "API 地址 (Base URL)",
         "memory.settings.vectorApiKey": "API Key",
@@ -172,7 +173,7 @@ window.__ModuleLoader__.load({
         "memory.settings.vectorReindexing": "索引中…",
         "memory.settings.vectorReindexDone": "已索引 {n} 条",
         "memory.settings.apiTokenTitle": "API Token（可选）",
-        "memory.settings.apiTokenHint": "设置后，写操作与密钥接口（画像/规则/命令/向量配置）需携带 Authorization: Bearer <token>；面板只读操作不受影响。清空并保存可关闭鉴权。",
+        "memory.settings.apiTokenHint": "给面板的写操作加一道锁：设置后，修改记忆或配置需要携带 Token，纯浏览不受影响。清空并保存可关闭。",
         "memory.settings.apiTokenPlaceholder": "留空 = 不鉴权（默认）",
         "memory.settings.apiTokenSave": "保存 Token",
         "memory.settings.apiTokenSaved": "Token 已保存",
@@ -194,11 +195,11 @@ window.__ModuleLoader__.load({
         "memory.tab.fact": "Facts",
         "memory.settings.title": "Memory Settings",
         "memory.settings.profile": "User Profile",
-        "memory.settings.profileHint": "Describe yourself — the agent follows this every turn",
+        "memory.settings.profileHint": "Describe yourself once — the agent reads it every turn.",
         "memory.settings.profileSave": "Save Profile",
         "memory.settings.profileSaved": "Profile saved",
         "memory.settings.rules": "Rules",
-        "memory.settings.rulesHint": "Behavior rules the agent must follow every turn",
+        "memory.settings.rulesHint": "Rules the agent must follow — add or remove anytime, effective next turn.",
         "memory.settings.autoTagTitle": "Auto-Tag",
         "memory.settings.autoTagHint": "When on, new memories are auto-tagged by a light model and the directory auto-grouped by tag (opt-in, off by default)",
         "memory.settings.autoTagEnabled": "Auto-tagging",
@@ -212,7 +213,7 @@ window.__ModuleLoader__.load({
         "memory.settings.ruleAdd": "Add Rule",
         "memory.settings.rulePlaceholder": "e.g. Always lead with a conclusion",
         "memory.settings.commands": "Custom Commands",
-        "memory.settings.commandsHint": "Register slash commands (/name) whose instruction is handed to the agent",
+        "memory.settings.commandsHint": "Save prompts as slash commands and invoke them right from the composer.",
         "memory.settings.cmdName": "Name",
         "memory.settings.cmdDesc": "Description",
         "memory.settings.cmdInstruction": "Instruction",
@@ -281,12 +282,13 @@ window.__ModuleLoader__.load({
         "memory.graph.related": "Related memories",
         "memory.graph.relation": "Relation",
         "memory.graph.sourceMemory": "View source memory",
-        "memory.graph.hint": "Click a node to expand · drag to rearrange",
+        "memory.graph.hint": "Drag nodes to rearrange · drag the background to pan · scroll to zoom",
+        "memory.graph.resetView": "Reset view",
         "memory.graph.viewInGraph": "View in graph",
         "memory.graph.loading": "Loading…",
         "memory.graph.distance": "{n} hop(s) from root",
         "memory.settings.vectorTitle": "Vector Search",
-        "memory.settings.vectorHint": "Connect an OpenAI-compatible embeddings API for semantic search by meaning, not just keywords",
+        "memory.settings.vectorHint": "Match by meaning, not just wording — connect any OpenAI-compatible embeddings API.",
         "memory.settings.vectorEnabled": "Enable vector search",
         "memory.settings.vectorBaseUrl": "Base URL",
         "memory.settings.vectorApiKey": "API Key",
@@ -297,7 +299,7 @@ window.__ModuleLoader__.load({
         "memory.settings.vectorReindexing": "Indexing…",
         "memory.settings.vectorReindexDone": "Indexed {n} items",
         "memory.settings.apiTokenTitle": "API Token (optional)",
-        "memory.settings.apiTokenHint": "When set, write operations and secret endpoints (profile/rules/commands/vector config) require Authorization: Bearer <token>. Read-only panel calls stay open. Save empty to disable.",
+        "memory.settings.apiTokenHint": "Lock write operations behind a token — browsing stays open. Clear and save to disable.",
         "memory.settings.apiTokenPlaceholder": "Empty = no auth (default)",
         "memory.settings.apiTokenSave": "Save Token",
         "memory.settings.apiTokenSaved": "Token saved",
@@ -311,6 +313,14 @@ window.__ModuleLoader__.load({
 
     function typeLabel(t, type) {
       const key = `memory.tab.${type}`;
+      const label = t(key);
+      return label && label !== key ? label : String(type);
+    }
+
+    // Entity types live under their own i18n subtree (person/project/...);
+    // unknown or "other" falls back to the raw type string.
+    function entityTypeLabel(t, type) {
+      const key = `memory.entity.${type}`;
       const label = t(key);
       return label && label !== key ? label : String(type);
     }
@@ -392,10 +402,10 @@ window.__ModuleLoader__.load({
       ".mneme-xsearch{width:100%}",
       ".mneme-xselect{flex:1;min-width:0}",
       ".mneme-xcolhead{flex:none;font-size:12px;font-weight:500;color:var(--dsw-alias-label-tertiary);padding:2px 8px 8px}",
-      ".mneme-xtype{display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%;padding:5px 8px;border:none;border-radius:8px;background:none;color:var(--dsw-alias-label-secondary);cursor:pointer;font-family:inherit;font-size:13px;line-height:18px;text-align:left}",
+      ".mneme-xtype{display:flex;justify-content:flex-start;align-items:center;gap:8px;width:100%;padding:5px 8px;border:none;border-radius:8px;background:none;color:var(--dsw-alias-label-secondary);cursor:pointer;font-family:inherit;font-size:13px;line-height:18px;text-align:left}",
       ".mneme-xtype:hover{background:var(--dsw-alias-interactive-bg-hover)}",
       ".mneme-xtype.mneme-active{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary);font-weight:500}",
-      ".mneme-xcount2{flex:none;font-size:12px;color:var(--dsw-alias-label-tertiary)}",
+      ".mneme-xcount2{flex:none;margin-left:auto;font-size:12px;color:var(--dsw-alias-label-tertiary)}",
       ".mneme-xmonth{display:flex;align-items:center;gap:4px;width:100%;padding:6px 8px 4px;border:none;border-radius:8px;background:none;color:var(--dsw-alias-label-primary);cursor:pointer;font-family:inherit;font-size:13px;font-weight:500;line-height:18px;text-align:left}",
       ".mneme-xmonth:first-child{margin-top:0}",
       ".mneme-xmonth:hover{background:var(--dsw-alias-interactive-bg-hover)}",
@@ -407,7 +417,11 @@ window.__ModuleLoader__.load({
       ".mneme-xitem.mneme-active{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary)}",
       ".mneme-xtime{flex:none;font-size:12px;line-height:16px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}",
       ".mneme-xname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
-      ".mneme-xempty{padding:32px 16px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:13px}",
+      ".mneme-xempty{padding:18px 16px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:13px}",
+      // --- memory-type color dots (mirrored across filter / timeline / detail) ---
+      ".mneme-xdot{flex:none;display:inline-block;width:8px;height:8px;border-radius:50%;background:currentColor}",
+      ".mneme-xdot--all{background:transparent;border:1.5px solid currentColor;opacity:.55;box-sizing:border-box}",
+      ".mneme-xitem .mneme-xdot{align-self:center}",
       // --- memory explorer root ---
       ".mneme-xmain{display:flex;flex-direction:column}",
       ".mneme-xfilter-bar{flex:none;height:48px;display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--dsw-alias-border-l2,#ddd)}",
@@ -419,6 +433,7 @@ window.__ModuleLoader__.load({
       ".mneme-xdinner{max-width:720px}",
       ".mneme-xdtitle{font-size:16px;font-weight:600;line-height:24px;color:var(--dsw-alias-label-primary);margin-bottom:10px;word-break:break-word}",
       ".mneme-xdmeta{display:flex;flex-wrap:wrap;gap:4px 14px;margin-bottom:6px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}",
+      ".mneme-xdsrc{display:inline-block;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}",
       ".mneme-xdcontent{margin-top:14px;font-size:14px;line-height:1.75;color:var(--dsw-alias-label-primary);white-space:pre-wrap;word-break:break-word}",
       ".mneme-xdactions{display:flex;gap:8px;margin-top:18px}",
       // --- wiki-link backlinks panel (detail pane footer) ---
@@ -486,7 +501,28 @@ window.__ModuleLoader__.load({
       ".mneme-dir-itime{flex:none;font-size:12px;line-height:16px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}",
       ".mneme-dir-empty{color:var(--dsw-alias-label-tertiary);padding:24px 0;text-align:center;font-size:13px}",
       // --- settings sub-view ---
-      ".mneme-xsettings{flex:1;min-height:0;overflow-y:auto;padding:24px 24px 48px}",
+      ".mneme-xsettings{flex:1;min-height:0;overflow-y:auto;padding:8px 24px 48px;box-sizing:border-box}",
+      ".mneme-set-sec{padding:20px 0 24px;border-bottom:1px solid var(--dsw-alias-border-l2)}",
+      ".mneme-xsettings .mneme-set-sec:last-child{border-bottom:none}",
+      ".mneme-set-title{font-size:14px;font-weight:600;color:var(--dsw-alias-label-primary);margin-bottom:4px}",
+      ".mneme-set-desc{font-size:13px;line-height:19px;color:var(--dsw-alias-label-tertiary);margin-bottom:14px}",
+      ".mneme-set-input{box-sizing:border-box;width:100%;height:34px;padding:0 12px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base,transparent);color:var(--dsw-alias-label-primary);font-family:inherit;font-size:13px;outline:none;margin-bottom:10px;transition:border-color .12s,box-shadow .12s}",
+      ".mneme-set-input:focus{border-color:var(--dsw-alias-state-business-primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-business-primary) 15%,transparent)}",
+      ".mneme-set-input::placeholder{color:var(--dsw-alias-label-tertiary)}",
+      ".mneme-set-input--area{height:auto;min-height:76px;padding:8px 12px;resize:vertical;line-height:1.6}",
+      ".mneme-btn{flex:none;height:30px;padding:0 12px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:none;color:var(--dsw-alias-label-primary);cursor:pointer;font-family:inherit;font-size:12px;line-height:16px;display:inline-flex;align-items:center;gap:6px}",
+      ".mneme-btn:hover{background:var(--dsw-alias-interactive-bg-hover)}",
+      ".mneme-btn:disabled{opacity:.5;cursor:default}",
+      ".mneme-saved{font-size:12px;color:var(--dsw-alias-state-success,#2a7)}",
+      ".mneme-set-row{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;margin-bottom:8px;background:var(--dsw-alias-bg-base,transparent)}",
+      ".mneme-set-idx{flex:none;width:20px;height:20px;border-radius:50%;border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:18px;display:inline-flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}",
+      ".mneme-set-ruletext{flex:1;min-width:0;font-size:13px;line-height:20px;color:var(--dsw-alias-label-primary);word-break:break-word}",
+      ".mneme-set-del{flex:none;opacity:0;transition:opacity .12s;border:none;background:none;color:var(--dsw-alias-label-tertiary);cursor:pointer;font-size:14px;line-height:20px;padding:0 4px;border-radius:6px}",
+      ".mneme-set-row:hover .mneme-set-del,.mneme-set-row:focus-within .mneme-set-del{opacity:1}",
+      ".mneme-set-del:hover{color:var(--dsw-alias-state-error,#c33);background:var(--dsw-alias-interactive-bg-hover)}",
+      ".mneme-set-cmd{flex:1;min-width:0}",
+      ".mneme-set-cmdname{font-size:13px;font-weight:600;color:var(--dsw-alias-state-business-primary)}",
+      ".mneme-set-cmddesc{font-size:12px;line-height:17px;color:var(--dsw-alias-label-tertiary);margin-top:1px;word-break:break-word}",
       ".mneme-xsettings-inner{max-width:640px}",
       // --- overview sub-view (layered stats dashboard, .mneme-ov-* only) ---
       ".mneme-ov-wrap{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding:12px 16px 28px}",
@@ -552,6 +588,31 @@ window.__ModuleLoader__.load({
     };
     function typeColor(type) {
       return TYPE_COLORS[type] || "#94a3b8";
+    }
+
+    // Memory-type → dot fill, shared by the type filter, timeline rows and the
+    // detail meta so one hue always means one memory type across the panel.
+    // Same palette rules as TYPE_COLORS: fixed hues, medium saturation,
+    // similar luminance, legible on light and dark themes.
+    const MEMORY_TYPE_COLORS = {
+      preference: "#f59e0b",
+      project: "#22c55e",
+      decision: "#3b82f6",
+      summary: "#a855f7",
+      user: "#f59e0b",
+      fact: "#22c55e",
+      history: "#94a3b8"
+    };
+    function memoryTypeColor(type) {
+      return MEMORY_TYPE_COLORS[type] || "#94a3b8";
+    }
+
+    // Compact date for the detail meta ("2026/9/7"); the full timestamp
+    // stays in the tooltip.
+    function formatDateShort(value) {
+      if (!value) return "—";
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString();
     }
     function nodeRadius(n) {
       // mention_count → area-ish growth, clamped so hubs stay legible.
@@ -681,6 +742,7 @@ window.__ModuleLoader__.load({
       const svgRef = useRef(null);
       const posRef = useRef([]); // live simulation positions, not React state
       const dragRef = useRef(null); // { id, moved }
+      const viewRef = useRef({ x: 0, y: 0, k: 1 }); // pan/zoom viewport, viewBox units
       const [frame, setFrame] = useState(0); // re-render tick driven by the simulation
 
       useEffect(() => {
@@ -786,12 +848,13 @@ window.__ModuleLoader__.load({
       // drag handling on the svg surface
       const onNodeMouseDown = (e, node) => {
         e.preventDefault();
+        e.stopPropagation(); // node drag must not start a background pan
         dragRef.current = { node, moved: false };
         const startX = e.clientX, startY = e.clientY;
         const origX = node.x, origY = node.y;
         const svg = svgRef.current;
         const rect = svg.getBoundingClientRect();
-        const scale = 380 / Math.max(1, rect.width); // viewBox width / css width
+        const scale = 380 / Math.max(1, rect.width) / viewRef.current.k; // viewBox units per css px, zoom-aware
         const onMove = (ev) => {
           dragRef.current.moved = true;
           node.x = origX + (ev.clientX - startX) * scale;
@@ -805,6 +868,70 @@ window.__ModuleLoader__.load({
         };
         window.addEventListener("mousemove", onMove);
         window.addEventListener("mouseup", onUp);
+      };
+
+      // --- canvas pan & zoom ---
+      // The viewport (translate + scale) lives in viewRef so the simulation
+      // and the handlers share it without re-mounting; every mutation bumps
+      // `frame` to re-render. Panning starts on the bare svg surface (node
+      // mousedowns stopPropagation above); zooming is a native non-passive
+      // wheel listener because React attaches wheel handlers passively and
+      // could not preventDefault the page scroll.
+      const svgToView = (clientX, clientY) => {
+        const svg = svgRef.current;
+        const rect = svg.getBoundingClientRect();
+        const sx = VIEW_W / Math.max(1, rect.width);
+        const sy = VIEW_H / Math.max(1, rect.height);
+        return { x: (clientX - rect.left) * sx, y: (clientY - rect.top) * sy };
+      };
+
+      const onSurfaceMouseDown = (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        const start = { x: e.clientX, y: e.clientY };
+        const orig = { ...viewRef.current };
+        const onMove = (ev) => {
+          const rect = svgRef.current?.getBoundingClientRect();
+          if (!rect) return;
+          const sx = VIEW_W / Math.max(1, rect.width);
+          const sy = VIEW_H / Math.max(1, rect.height);
+          const v = viewRef.current;
+          v.x = orig.x + (ev.clientX - start.x) * sx;
+          v.y = orig.y + (ev.clientY - start.y) * sy;
+          setFrame((f) => f + 1);
+        };
+        const onUp = () => {
+          window.removeEventListener("mousemove", onMove);
+          window.removeEventListener("mouseup", onUp);
+        };
+        window.addEventListener("mousemove", onMove);
+        window.addEventListener("mouseup", onUp);
+      };
+
+      useEffect(() => {
+        const svg = svgRef.current;
+        if (!svg) return undefined;
+        const onWheel = (e) => {
+          e.preventDefault();
+          const v = viewRef.current;
+          const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+          const k = Math.min(3, Math.max(0.5, v.k * factor));
+          const s = svgToView(e.clientX, e.clientY);
+          // keep the point under the cursor pinned while the scale changes
+          const px = (s.x - v.x) / v.k;
+          const py = (s.y - v.y) / v.k;
+          v.k = k;
+          v.x = s.x - px * k;
+          v.y = s.y - py * k;
+          setFrame((f) => f + 1);
+        };
+        svg.addEventListener("wheel", onWheel, { passive: false });
+        return () => svg.removeEventListener("wheel", onWheel);
+      });
+
+      const resetView = () => {
+        viewRef.current = { x: 0, y: 0, k: 1 };
+        setFrame((f) => f + 1);
       };
 
       const onNodeClick = (node) => {
@@ -871,7 +998,12 @@ window.__ModuleLoader__.load({
             className: depth === 2 ? "mneme-chip mneme-active" : "mneme-chip",
             title: t("memory.graph.depth"),
             onClick: () => setDepth(depth === 1 ? 2 : 1)
-          }, `${depth} ${t("memory.graph.depth")}`)
+          }, `${depth} ${t("memory.graph.depth")}`),
+          h("button", {
+            className: "mneme-chip",
+            title: t("memory.graph.resetView"),
+            onClick: resetView
+          }, t("memory.graph.resetView"))
         ),
         status === "idle" && h("div", { className: "mneme-hint" }, t("memory.graph.empty")),
         status === "loading" && h("div", { className: "mneme-hint" }, t("memory.graph.loading")),
@@ -883,8 +1015,13 @@ window.__ModuleLoader__.load({
               h("svg", {
                 ref: svgRef,
                 className: "mneme-graphsvg",
-                viewBox: `0 0 ${VIEW_W} ${VIEW_H}`
+                viewBox: `0 0 ${VIEW_W} ${VIEW_H}`,
+                style: { height: 320 },
+                onMouseDown: onSurfaceMouseDown
               },
+                h("g", {
+                  transform: `translate(${viewRef.current.x},${viewRef.current.y}) scale(${viewRef.current.k})`
+                },
                 data.edges.map((e) => {
                   const a = nodeById.get(e.from), b = nodeById.get(e.to);
                   if (!a || !b) return null;
@@ -906,6 +1043,7 @@ window.__ModuleLoader__.load({
                   h("circle", { r: nodeRadius(n), fill: typeColor(n.type), fillOpacity: nodeOpacity(n) }),
                   h("text", { className: "mneme-glabel", y: nodeRadius(n) + 13 }, n.name)
                 ))
+                )
               ),
               h("div", { className: "mneme-graphhint" }, t("memory.graph.hint"))
             )),
@@ -1078,109 +1216,135 @@ window.__ModuleLoader__.load({
         } catch { /* ignore */ }
       }
 
-      const inputStyle = { boxSizing: "border-box", width: "100%", height: 34, padding: "0 12px", borderRadius: 10, border: "1px solid var(--dsw-alias-border-l2, #ddd)", background: "var(--dsw-alias-bg-base, transparent)", color: "var(--dsw-alias-label-primary)", fontFamily: "inherit", fontSize: 13, outline: "none", marginBottom: 8 };
-      const labelStyle = { fontSize: 12, fontWeight: 600, margin: "12px 0 4px", color: "var(--dsw-alias-label-primary)" };
-      const hintStyle = { fontSize: 11, color: "var(--dsw-alias-label-tertiary, #999)", marginBottom: 8 };
-      const rowStyle = { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: "1px solid var(--dsw-alias-border-l1, #eee)" };
-
-      return h("div", { style: { paddingBottom: 8 } },
-        // api token (optional)
-        h("div", { style: { ...labelStyle, marginTop: 20 } }, t("memory.settings.apiTokenTitle")),
-        h("div", { style: hintStyle }, t("memory.settings.apiTokenHint")),
-        h("div", { style: { display: "flex", gap: 6 } },
-          h("input", { style: { ...inputStyle, flex: 1, marginBottom: 0 }, type: "password", value: apiToken, placeholder: t("memory.settings.apiTokenPlaceholder"), onChange: (e) => setApiToken(e.target.value) }),
-          h("button", { style: styles.footerButton, onClick: saveToken }, t("memory.settings.apiTokenSave"))
-        ),
-        apiTokenSaved && h("div", { style: { fontSize: 12, color: "var(--dsw-alias-state-success, #2a7)" } }, t("memory.settings.apiTokenSaved")),
-        // profile
-        h("div", { style: labelStyle }, t("memory.settings.profile")),
-        h("div", { style: hintStyle }, t("memory.settings.profileHint")),
-        h("textarea", {
-          style: { ...inputStyle, minHeight: 72, resize: "vertical", fontFamily: "inherit", padding: "8px 12px", height: "auto" },
-          value: profile,
-          placeholder: t("memory.settings.profile"),
-          onChange: (e) => setProfile(e.target.value)
-        }),
-        h("div", null,
-          h("button", { style: styles.footerButton, onClick: saveProfile }, t("memory.settings.profileSave")),
-          saved && h("span", { style: { fontSize: 12, color: "var(--dsw-alias-state-success, #2a7)" } }, t("memory.settings.profileSaved"))
-        ),
-        // rules
-        h("div", { style: labelStyle }, t("memory.settings.rules")),
-        h("div", { style: hintStyle }, t("memory.settings.rulesHint")),
-        rules.length === 0 && h("div", { style: { fontSize: 12, color: "var(--dsw-alias-label-tertiary, #999)", padding: "8px 0" } }, t("memory.settings.empty")),
-        rules.map((rule, i) =>
-          h("div", { key: i, style: rowStyle },
-            h("span", { style: { fontSize: 13, flex: 1 } }, rule),
-            h("button", { style: { ...styles.footerButton, color: "var(--dsw-alias-state-error, #c33)" }, onClick: () => removeRule(i) }, "×")
-          )
-        ),
-        h("div", { style: { display: "flex", gap: 6 } },
-          h("input", {
-            style: { ...inputStyle, flex: 1, marginBottom: 0 },
-            value: newRule,
-            placeholder: t("memory.settings.rulePlaceholder"),
-            onChange: (e) => setNewRule(e.target.value)
+      return h("div", null,
+        h("section", { className: "mneme-set-sec" },
+          h("div", { className: "mneme-set-title" }, t("memory.settings.profile")),
+          h("div", { className: "mneme-set-desc" }, t("memory.settings.profileHint")),
+          h("textarea", {
+            className: "mneme-set-input mneme-set-input--area",
+            value: profile,
+            placeholder: t("memory.settings.profile"),
+            onChange: (e) => setProfile(e.target.value)
           }),
-          h("button", { style: styles.footerButton, onClick: addRule }, t("memory.settings.ruleAdd"))
-        ),
-        // custom commands
-        h("div", { style: labelStyle }, t("memory.settings.commands")),
-        h("div", { style: hintStyle }, t("memory.settings.commandsHint")),
-        commands.length === 0 && h("div", { style: { fontSize: 12, color: "var(--dsw-alias-label-tertiary, #999)", padding: "8px 0" } }, t("memory.settings.empty")),
-        commands.map((cmd) =>
-          h("div", { key: cmd.id, style: rowStyle },
-            h("div", { style: { flex: 1 } },
-              h("div", { style: { fontSize: 13, fontWeight: 600 } }, `/${cmd.name}`),
-              h("div", { style: { fontSize: 11, color: "var(--dsw-alias-label-tertiary, #999)" } }, cmd.description || cmd.instruction)
-            ),
-            h("button", { style: { ...styles.footerButton, color: "var(--dsw-alias-state-error, #c33)" }, onClick: () => removeCommand(cmd.id) }, t("memory.settings.cmdDelete"))
+          h("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+            h("button", { className: "mneme-btn", onClick: saveProfile }, t("memory.settings.profileSave")),
+            saved && h("span", { className: "mneme-saved" }, t("memory.settings.profileSaved"))
           )
         ),
-        h("div", { style: { display: "grid", gap: 6, marginTop: 6 } },
-          h("input", { style: { ...inputStyle, marginBottom: 0 }, value: newCmd.name, placeholder: t("memory.settings.cmdName"), onChange: (e) => setNewCmd({ ...newCmd, name: e.target.value }) }),
-          h("input", { style: { ...inputStyle, marginBottom: 0 }, value: newCmd.description, placeholder: t("memory.settings.cmdDesc"), onChange: (e) => setNewCmd({ ...newCmd, description: e.target.value }) }),
-          h("textarea", { style: { ...inputStyle, marginBottom: 0, minHeight: 48, resize: "vertical", fontFamily: "inherit", padding: "8px 12px", height: "auto" }, value: newCmd.instruction, placeholder: t("memory.settings.cmdInstruction"), onChange: (e) => setNewCmd({ ...newCmd, instruction: e.target.value }) }),
-          h("button", { style: styles.footerButton, onClick: addCommand }, t("memory.settings.cmdAdd")),
-          cmdError && h("div", { style: { fontSize: 12, color: "var(--dsw-alias-state-error, #c33)" } }, cmdError)
+        h("section", { className: "mneme-set-sec" },
+          h("div", { className: "mneme-set-title" }, t("memory.settings.rules")),
+          h("div", { className: "mneme-set-desc" }, t("memory.settings.rulesHint")),
+          rules.length === 0 && h("div", { className: "mneme-xempty" }, t("memory.settings.empty")),
+          rules.map((rule, i) =>
+            h("div", { key: i, className: "mneme-set-row" },
+              h("span", { className: "mneme-set-idx" }, String(i + 1)),
+              h("span", { className: "mneme-set-ruletext" }, rule),
+              h("button", {
+                className: "mneme-set-del",
+                title: t("memory.settings.cmdDelete"),
+                "aria-label": t("memory.settings.cmdDelete"),
+                onClick: () => removeRule(i)
+              }, "×")
+            )
+          ),
+          h("div", { style: { display: "flex", gap: 8 } },
+            h("input", {
+              className: "mneme-set-input",
+              style: { marginBottom: 0 },
+              value: newRule,
+              placeholder: t("memory.settings.rulePlaceholder"),
+              onChange: (e) => setNewRule(e.target.value),
+              onKeyDown: (e) => { if (e.key === "Enter") addRule(); }
+            }),
+            h("button", { className: "mneme-btn", onClick: addRule }, t("memory.settings.ruleAdd"))
+          )
         ),
-        // auto-tag switch
-        h("div", { style: { ...labelStyle, marginTop: 20 } }, t("memory.settings.autoTagTitle")),
-        h("div", { style: hintStyle }, t("memory.settings.autoTagHint")),
-        h("label", { style: { display: "flex", alignItems: "center", gap: 6, marginBottom: 8, fontSize: 13 } },
-          h("input", { type: "checkbox", checked: autoTag, onChange: (e) => setAutoTag(e.target.checked) }),
-          h("span", null, t("memory.settings.autoTagEnabled"))
+        h("section", { className: "mneme-set-sec" },
+          h("div", { className: "mneme-set-title" }, t("memory.settings.commands")),
+          h("div", { className: "mneme-set-desc" }, t("memory.settings.commandsHint")),
+          commands.length === 0 && h("div", { className: "mneme-xempty" }, t("memory.settings.empty")),
+          commands.map((cmd) =>
+            h("div", { key: cmd.id, className: "mneme-set-row" },
+              h("div", { className: "mneme-set-cmd" },
+                h("div", { className: "mneme-set-cmdname" }, `/${cmd.name}`),
+                (cmd.description || cmd.instruction) && h("div", { className: "mneme-set-cmddesc" }, cmd.description || cmd.instruction)
+              ),
+              h("button", {
+                className: "mneme-set-del",
+                title: t("memory.settings.cmdDelete"),
+                "aria-label": t("memory.settings.cmdDelete"),
+                onClick: () => removeCommand(cmd.id)
+              }, "×")
+            )
+          ),
+          h("div", { style: { display: "grid", gap: 8, marginTop: 10 } },
+            h("div", { style: { display: "flex", gap: 8 } },
+              h("input", { className: "mneme-set-input", style: { marginBottom: 0 }, value: newCmd.name, placeholder: t("memory.settings.cmdName"), onChange: (e) => setNewCmd({ ...newCmd, name: e.target.value }) }),
+              h("input", { className: "mneme-set-input", style: { marginBottom: 0 }, value: newCmd.description, placeholder: t("memory.settings.cmdDesc"), onChange: (e) => setNewCmd({ ...newCmd, description: e.target.value }) })
+            ),
+            h("textarea", { className: "mneme-set-input mneme-set-input--area", style: { minHeight: 56 }, value: newCmd.instruction, placeholder: t("memory.settings.cmdInstruction"), onChange: (e) => setNewCmd({ ...newCmd, instruction: e.target.value }) }),
+            h("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+              h("button", { className: "mneme-btn", onClick: addCommand }, t("memory.settings.cmdAdd")),
+              cmdError && h("span", { style: { fontSize: 12, color: "var(--dsw-alias-state-error, #c33)" } }, cmdError)
+            )
+          )
         ),
-        h("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
-          h("button", { style: styles.footerButton, onClick: saveAutoTag }, t("memory.settings.autoTagSave")),
-          autoTagSaved && h("span", { style: { fontSize: 12, color: "var(--dsw-alias-state-success, #2a7)" } }, t("memory.settings.autoTagSaved"))
+        h("section", { className: "mneme-set-sec" },
+          h("div", { className: "mneme-set-title" }, t("memory.settings.autoTagTitle")),
+          h("div", { className: "mneme-set-desc" }, t("memory.settings.autoTagHint")),
+          h("label", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 10, fontSize: 13, color: "var(--dsw-alias-label-primary)" } },
+            h("input", { type: "checkbox", checked: autoTag, onChange: (e) => setAutoTag(e.target.checked) }),
+            h("span", null, t("memory.settings.autoTagEnabled"))
+          ),
+          h("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+            h("button", { className: "mneme-btn", onClick: saveAutoTag }, t("memory.settings.autoTagSave")),
+            autoTagSaved && h("span", { className: "mneme-saved" }, t("memory.settings.autoTagSaved"))
+          )
         ),
-        // sidebar trigger switch (issue #38)
-        h("div", { style: { ...labelStyle, marginTop: 20 } }, t("memory.settings.sidebarTriggerTitle")),
-        h("div", { style: hintStyle }, t("memory.settings.sidebarTriggerHint")),
-        h("label", { style: { display: "flex", alignItems: "center", gap: 6, marginBottom: 8, fontSize: 13 } },
-          h("input", { type: "checkbox", checked: showSidebarTrigger, onChange: (e) => setShowSidebarTrigger(e.target.checked) }),
-          h("span", null, t("memory.settings.sidebarTriggerEnabled"))
+        h("section", { className: "mneme-set-sec" },
+          h("div", { className: "mneme-set-title" }, t("memory.settings.sidebarTriggerTitle")),
+          h("div", { className: "mneme-set-desc" }, t("memory.settings.sidebarTriggerHint")),
+          h("label", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 10, fontSize: 13, color: "var(--dsw-alias-label-primary)" } },
+            h("input", { type: "checkbox", checked: showSidebarTrigger, onChange: (e) => setShowSidebarTrigger(e.target.checked) }),
+            h("span", null, t("memory.settings.sidebarTriggerEnabled"))
+          ),
+          h("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+            h("button", { className: "mneme-btn", onClick: saveSidebarTrigger }, t("memory.settings.sidebarTriggerSave")),
+            sidebarTriggerSaved && h("span", { className: "mneme-saved" }, t("memory.settings.sidebarTriggerSaved"))
+          )
         ),
-        h("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
-          h("button", { style: styles.footerButton, onClick: saveSidebarTrigger }, t("memory.settings.sidebarTriggerSave")),
-          sidebarTriggerSaved && h("span", { style: { fontSize: 12, color: "var(--dsw-alias-state-success, #2a7)" } }, t("memory.settings.sidebarTriggerSaved"))
+        h("section", { className: "mneme-set-sec" },
+          h("div", { className: "mneme-set-title" }, t("memory.settings.vectorTitle")),
+          h("div", { className: "mneme-set-desc" }, t("memory.settings.vectorHint")),
+          h("label", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 10, fontSize: 13, color: "var(--dsw-alias-label-primary)" } },
+            h("input", { type: "checkbox", checked: !!vector.enabled, onChange: (e) => setVector({ ...vector, enabled: e.target.checked }) }),
+            h("span", null, t("memory.settings.vectorEnabled"))
+          ),
+          h("input", { className: "mneme-set-input", value: vector.baseUrl, placeholder: t("memory.settings.vectorBaseUrl"), onChange: (e) => setVector({ ...vector, baseUrl: e.target.value }) }),
+          h("input", { className: "mneme-set-input", type: "password", value: vector.apiKey, placeholder: t("memory.settings.vectorApiKey"), onChange: (e) => setVector({ ...vector, apiKey: e.target.value }) }),
+          h("input", { className: "mneme-set-input", value: vector.model, placeholder: t("memory.settings.vectorModel"), onChange: (e) => setVector({ ...vector, model: e.target.value }) }),
+          h("div", { style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" } },
+            h("button", { className: "mneme-btn", onClick: saveVector }, t("memory.settings.vectorSave")),
+            vectorSaved && h("span", { className: "mneme-saved" }, t("memory.settings.vectorSaved")),
+            h("button", { className: "mneme-btn", onClick: reindex, disabled: reindexing }, reindexing ? t("memory.settings.vectorReindexing") : t("memory.settings.vectorReindex")),
+            reindexMsg && h("span", { style: { fontSize: 12, color: "var(--dsw-alias-label-secondary, #666)" } }, reindexMsg)
+          )
         ),
-        // vector search
-        h("div", { style: { ...labelStyle, marginTop: 20 } }, t("memory.settings.vectorTitle")),
-        h("div", { style: hintStyle }, t("memory.settings.vectorHint")),
-        h("label", { style: { display: "flex", alignItems: "center", gap: 6, marginBottom: 8, fontSize: 13 } },
-          h("input", { type: "checkbox", checked: !!vector.enabled, onChange: (e) => setVector({ ...vector, enabled: e.target.checked }) }),
-          h("span", null, t("memory.settings.vectorEnabled"))
-        ),
-        h("input", { style: inputStyle, value: vector.baseUrl, placeholder: t("memory.settings.vectorBaseUrl"), onChange: (e) => setVector({ ...vector, baseUrl: e.target.value }) }),
-        h("input", { style: inputStyle, type: "password", value: vector.apiKey, placeholder: t("memory.settings.vectorApiKey"), onChange: (e) => setVector({ ...vector, apiKey: e.target.value }) }),
-        h("input", { style: inputStyle, value: vector.model, placeholder: t("memory.settings.vectorModel"), onChange: (e) => setVector({ ...vector, model: e.target.value }) }),
-        h("div", { style: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" } },
-          h("button", { style: styles.footerButton, onClick: saveVector }, t("memory.settings.vectorSave")),
-          vectorSaved && h("span", { style: { fontSize: 12, color: "var(--dsw-alias-state-success, #2a7)" } }, t("memory.settings.vectorSaved")),
-          h("button", { style: styles.footerButton, onClick: reindex, disabled: reindexing }, reindexing ? t("memory.settings.vectorReindexing") : t("memory.settings.vectorReindex")),
-          reindexMsg && h("span", { style: { fontSize: 12, color: "var(--dsw-alias-label-secondary, #666)" } }, reindexMsg)
+        h("section", { className: "mneme-set-sec" },
+          h("div", { className: "mneme-set-title" }, t("memory.settings.apiTokenTitle")),
+          h("div", { className: "mneme-set-desc" }, t("memory.settings.apiTokenHint")),
+          h("div", { style: { display: "flex", gap: 8 } },
+            h("input", {
+              className: "mneme-set-input",
+              style: { marginBottom: 0 },
+              type: "password",
+              value: apiToken,
+              placeholder: t("memory.settings.apiTokenPlaceholder"),
+              onChange: (e) => setApiToken(e.target.value)
+            }),
+            h("button", { className: "mneme-btn", onClick: saveToken }, t("memory.settings.apiTokenSave"))
+          ),
+          apiTokenSaved && h("div", { style: { marginTop: 8 } }, h("span", { className: "mneme-saved" }, t("memory.settings.apiTokenSaved")))
         )
       );
     }
@@ -1197,28 +1361,49 @@ window.__ModuleLoader__.load({
     // screen. There the tab simply does not exist, so activateExplorerTab
     // resolves false and the sidebar entry falls back to the full-viewport
     // overlay surface below.
-    function findExplorerTab(label) {
-      const tabs = document.querySelectorAll('[role="tab"]');
-      for (const tab of tabs) {
-        if ((tab.textContent || "").trim() === label) return tab;
+    // Candidate tabs whose label matches ours exactly. The conversation tab
+    // ring carries no registrant id in the DOM, so the label is all we have —
+    // but other plugins may register views (or settings dialogs may render
+    // panes) with the same text, and hidden panes still sit in the document.
+    // Restrict to rendered tabs (offsetParent filters display:none subtrees)
+    // and verify by rendering, not by label alone (see activateExplorerTab).
+    function findExplorerTabs(label) {
+      const matches = [];
+      for (const tab of document.querySelectorAll('[role="tab"]')) {
+        if ((tab.textContent || "").trim() !== label) continue;
+        if (tab.offsetParent === null && getComputedStyle(tab).position !== "fixed") continue;
+        matches.push(tab);
       }
-      return null;
+      return matches;
     }
 
     // Click the memory library tab and wait (bounded, rAF-polled) until the
     // host actually marks it selected — a silent React re-render gap must not
     // be mistaken for success, or the fallback would never kick in.
+    // Click the memory library tab and wait (bounded, rAF-polled) until the
+    // host marks it selected AND our explorer actually rendered (`.mneme-x`).
+    // aria-selected alone cannot tell our tab from a same-labelled tab of
+    // another plugin — the sidebar entry must not activate theirs. On a
+    // failed candidate, move on to the next one; resolve false when the
+    // fallback overlay should take over.
     function activateExplorerTab(label) {
       return new Promise((resolve) => {
-        const tab = findExplorerTab(label);
-        if (!tab) { resolve(false); return; }
-        tab.click();
-        const deadline = Date.now() + 400;
-        (function check() {
-          if (tab.getAttribute("aria-selected") === "true") { resolve(true); return; }
-          if (Date.now() >= deadline) { resolve(false); return; }
-          requestAnimationFrame(check);
-        })();
+        const candidates = findExplorerTabs(label);
+        if (candidates.length === 0) { resolve(false); return; }
+        let index = 0;
+        const tryNext = () => {
+          if (index >= candidates.length) { resolve(false); return; }
+          const tab = candidates[index++];
+          tab.click();
+          const deadline = Date.now() + 400;
+          (function check() {
+            const rendered = document.querySelector(".mneme-x") !== null;
+            if (tab.getAttribute("aria-selected") === "true" && rendered) { resolve(true); return; }
+            if (Date.now() >= deadline) { setTimeout(tryNext, 0); return; }
+            requestAnimationFrame(check);
+          })();
+        };
+        tryNext();
       });
     }
 
@@ -1802,7 +1987,7 @@ window.__ModuleLoader__.load({
               className: type === "all" ? "mneme-xtype mneme-active" : "mneme-xtype",
               "aria-pressed": type === "all",
               onClick: () => setType("all")
-            }, h("span", null, t("memory.tab.all")), h("span", { className: "mneme-xcount2" }, String(items.length))),
+            }, h("span", { className: "mneme-xdot mneme-xdot--all", "aria-hidden": "true" }), h("span", null, t("memory.tab.all")), h("span", { className: "mneme-xcount2" }, String(items.length))),
             knownTypes.concat(extraTypes).map((key) =>
               h("button", {
                 key,
@@ -1810,6 +1995,7 @@ window.__ModuleLoader__.load({
                 "aria-pressed": type === key,
                 onClick: () => setType(key)
               },
+                h("span", { className: "mneme-xdot", style: { color: memoryTypeColor(key) }, title: typeLabel(t, key), "aria-hidden": "true" }),
                 h("span", null, typeLabel(t, key)),
                 h("span", { className: "mneme-xcount2" }, String(counts[key]))
               ))
@@ -1887,6 +2073,7 @@ window.__ModuleLoader__.load({
                                 className: m.id === selectedId ? "mneme-xitem mneme-active" : "mneme-xitem",
                                 onClick: () => setSelectedId(m.id)
                               },
+                                h("span", { className: "mneme-xdot", style: { color: memoryTypeColor(m.type) }, title: typeLabel(t, m.type), "aria-hidden": "true" }),
                                 h("span", { className: "mneme-xtime" }, time),
                                 h("span", { className: "mneme-xname" }, m.title || m.content?.slice(0, 40))
                               );
@@ -1902,10 +2089,15 @@ window.__ModuleLoader__.load({
                     h("div", { className: "mneme-xdinner" },
                       h("div", { className: "mneme-xdtitle" }, selected.title),
                       h("div", { className: "mneme-xdmeta" },
-                        h("span", null, `${typeLabel(t, selected.type)} · ${t("memory.explorer.importance")} ★${selected.importance}`),
-                        selected.source && h("span", null, `${t("memory.explorer.source")}: ${selected.source}`),
-                        h("span", { title: formatDate(selected.created_at) }, `${t("memory.explorer.created")}: ${formatDate(selected.created_at)}`),
-                        h("span", { title: formatDate(selected.updated_at) }, `${t("memory.explorer.updated")}: ${formatDate(selected.updated_at)}`)
+                        h("span", { style: { display: "inline-flex", alignItems: "center", gap: "6px" } },
+                          h("span", { className: "mneme-xdot", style: { color: memoryTypeColor(selected.type) }, "aria-hidden": "true" }),
+                          `${typeLabel(t, selected.type)} · ${t("memory.explorer.importance")} ★${selected.importance}`
+                        ),
+                        selected.source && h("span", { title: selected.source },
+                          `${t("memory.explorer.source")}: `,
+                          h("span", { className: "mneme-xdsrc" }, selected.source)),
+                        h("span", { title: formatDate(selected.created_at) }, `${t("memory.explorer.created")}: ${formatDateShort(selected.created_at)}`),
+                        h("span", { title: formatDate(selected.updated_at) }, `${t("memory.explorer.updated")}: ${formatRelativeTime(selected.updated_at, t)}`)
                       ),
                       h("div", { className: "mneme-xdmeta" },
                         h("span", null, t("memory.explorer.tags")),

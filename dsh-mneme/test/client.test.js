@@ -67,12 +67,23 @@ test("tab-first activation with hero-screen overlay fallback", () => {
     "a failed tab activation must open the fallback overlay"
   );
   assert.ok(
-    /if \(!tab\) \{ resolve\(false\); return; \}/.test(clientSource),
+    /if \(candidates\.length === 0\) \{ resolve\(false\); return; \}/.test(clientSource),
     "activation must resolve false when the tab ring is absent (hero screen)"
   );
   assert.ok(
     /aria-selected.*true/.test(clientSource),
     "activation is only confirmed once the host marks the tab selected"
+  );
+  // Same-labelled tabs from other plugins must never be activated by mistake:
+  // the click is only trusted once OUR explorer view actually rendered, and
+  // hidden tab panes are excluded before any click happens.
+  assert.ok(
+    /querySelector\("\.mneme-x"\) !== null/.test(clientSource),
+    "activation must verify the memory explorer rendered, not just the tab state"
+  );
+  assert.ok(
+    /offsetParent === null/.test(clientSource),
+    "hidden tab panes (settings dialogs etc.) must be excluded from activation"
   );
 });
 
