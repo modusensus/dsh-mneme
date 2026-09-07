@@ -239,7 +239,10 @@ CREATE TABLE IF NOT EXISTS mirror_state (
 );
 `;
 
-const TYPES = new Set(["preference", "project", "decision", "history", "summary", "pattern"]);
+// Exported for API-layer type validation (standalone API POST /memories and
+// the /status byType breakdown); the set itself stays the single source of
+// truth for what store.save accepts.
+export const TYPES = new Set(["preference", "project", "decision", "history", "summary", "pattern"]);
 
 // Epistemic status: what kind of evidence a memory rests on. Defaults to
 // 'subjective' so legacy rows (and rows without any signal) stay compatible.

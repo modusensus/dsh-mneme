@@ -249,4 +249,53 @@ export const Config = z.object({
   // audits to recall_runs and NEVER touches recall_evals, regardless of this
   // flag (production isolation is unconditional).
   evalPersistTestResults: z.boolean().default(false),
+
+  // --- standalone external API (v0.7.12) ------------------------------------
+  // A plain node:http server for ecosystem integrations that cannot reach the
+  // DSH-internal webServer. Disabled by default; when enabled the Bearer token
+  // is persisted in the settings kv ("external_api"), auto-generated on first
+  // boot. Bind host: keep the loopback default — moving it to a non-loopback
+  // address exposes the whole memory store to the network and is the
+  // operator's responsibility.
+  externalApiEnabled: z.boolean().default(false),
+  externalApiPort: z.natural().default(8790),
+  externalApiHost: z.string().default("127.0.0.1"),
+
+  // --- light mode preset (v0.7.12) -------------------------------------------
+  // One switch for low-resource setups: turns off every background/semantic
+  // heavy path (dream consolidation, entity extraction, vector pipeline,
+  // reranker, BM25, semantic dedup / selective inject, sleep mode) while
+  // keeping the core loop (autoInject, autoSummarize, hot memory, quality
+  // filter, keyword search). Applied by applyLightModePreset before the config
+  // reaches any service; a persisted panel_mode="light" (settings kv) counts
+  // as lightMode=true too and wins over the bundle config.
+  lightMode: z.boolean().default(false),
 });
+
+// Fields forced to false by the light-mode preset. Everything not listed here
+// (autoInject, autoSummarize, hotMemory*, memoryQualityFilter, dream
+// thresholds/delays, ...) is left untouched — those are the core loop.
+const LIGHT_MODE_OFF = [
+  "entityExtractionEnabled",
+  "autoDream",
+  "sleepModeEnabled",
+  "rerankEnabled",
+  "autoReindexOnBoot",
+  "hybridInject",
+  "searchSemanticDedup",
+  "selectiveInjectEnabled",
+  "bm25SearchEnabled"
+];
+
+/**
+ * Apply the light-mode preset to a resolved config object (pure function,
+ * exported for tests). When cfg.lightMode is not exactly true the config is
+ * returned unchanged; otherwise a shallow copy carries false for every heavy
+ * feature. Idempotent and side-effect free.
+ */
+export function applyLightModePreset(cfg) {
+  if (cfg?.lightMode !== true) return cfg;
+  const preset = { ...cfg, lightMode: true };
+  for (const key of LIGHT_MODE_OFF) preset[key] = false;
+  return preset;
+}

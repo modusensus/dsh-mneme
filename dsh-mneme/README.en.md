@@ -297,6 +297,75 @@ It works out of the box with the defaults. To adjust, override in `~/.dsh/profil
 
 > 🔐 **API security**: DSH has no built-in authentication and by default listens only on `127.0.0.1`. The plugin API is open by default (so the web panel works out of the box). For protection (e.g. when exposed to a LAN), set `apiToken` in the configuration: write operations (profile/rules/commands) and key endpoints (`vector-config`, `vector-reindex`) require `Authorization: Bearer <token>` (the frontend settings panel accepts the same token), while the read-only `list` / `search` / `semantic` endpoints remain open. The `apiKey` returned by `/api/dsh-mneme/vector-config` is masked (`sk-***…`), while the stored plaintext is kept for actual calls; the frontend sending back an empty or masked value means "do not change the key".
 
+## External API & CLI
+
+Besides DSH's internal port, the plugin can also run a **standalone HTTP external API** (default `http://127.0.0.1:8790`, Bearer token auth) so other plugins, CLI scripts, or desktop tools can read and write memories without depending on DSH's internal port.
+
+### Enabling & Authentication
+
+- Enable the external API in the plugin settings (it listens on `127.0.0.1:8790` by default, local machine only);
+- The access token can be found in the plugin settings / the panel under "Settings → External Access";
+- Except for `GET /health` (no auth), all routes require an `Authorization: Bearer <token>` header; an invalid token returns `401 {"error":"unauthorized"}`.
+
+Main routes:
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| `GET` | `/health` | Health check (no auth), returns `{ok:true}` |
+| `GET` | `/status` | Version, memory stats, entity count, uptime |
+| `GET` | `/memories?limit&offset&type&minImportance&source&order=chrono` | List memories with pagination |
+| `GET` | `/memories/:id` | A single memory |
+| `POST` | `/memories` | Create a memory `{type,title,content,importance?,tags?,source?}` |
+| `DELETE` | `/memories/:id` | Delete a memory |
+| `GET` | `/search?q&mode=keyword\|vector\|auto&topK` | Search (keyword / vector / auto) |
+
+### curl Examples
+
+```bash
+# Service status
+curl -s -H "Authorization: Bearer $DSH_MNEME_TOKEN" http://127.0.0.1:8790/status
+
+# List the 5 most recent memories
+curl -s -H "Authorization: Bearer $DSH_MNEME_TOKEN" \
+  "http://127.0.0.1:8790/memories?limit=5"
+
+# Add a decision memory
+curl -s -X POST http://127.0.0.1:8790/memories \
+  -H "Authorization: Bearer $DSH_MNEME_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"decision","title":"Adopt SQLite","content":"Storage layer uses node:sqlite","importance":4,"tags":["storage"]}'
+```
+
+### Installing the CLI
+
+The plugin ships a zero-dependency CLI (published with the npm package):
+
+```bash
+npm i -g @modusensus/dsh-mneme
+dsh-mneme --help
+```
+
+On first use, configure the server URL and token (you can also use the `DSH_MNEME_URL` / `DSH_MNEME_TOKEN` environment variables, or override temporarily with `--url` / `--token`):
+
+```bash
+dsh-mneme config set http://127.0.0.1:8790 <your-token>
+```
+
+### Common CLI Commands
+
+```bash
+dsh-mneme status                                     # Service status
+dsh-mneme list --type project --limit 10             # List memories
+dsh-mneme search "deploy pipeline" --mode vector --topk 5   # Semantic search
+dsh-mneme add --type decision --title "Adopt SQLite" \
+  --content "Storage layer uses node:sqlite" --importance 4 --tags storage
+dsh-mneme get 42                                     # Show one memory
+dsh-mneme delete 42                                  # Delete
+dsh-mneme config show                                # Show current config (token masked)
+```
+
+> All read/write commands support `--json` for raw JSON output; `config path` prints the config file location (`~/.dsh-mneme/cli.json`).
+
 ## 🏗️ Architecture
 
 ```

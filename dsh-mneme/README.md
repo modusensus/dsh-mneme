@@ -2,24 +2,47 @@
 
 # dsh-mneme
 
-[English](README.en.md) | 简体中文
-
 [![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Awesome](https://awesome-dsh-plugin.com/badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
-[![tests](https://img.shields.io/badge/tests-450%20passed-success)](https://github.com/modusensus/dsh-mneme)
+[![tests](https://img.shields.io/badge/tests-815%20passed-success)](https://github.com/modusensus/dsh-mneme)
+[![CI](https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/test.yml)](https://github.com/modusensus/dsh-mneme/actions)
+[![node](https://img.shields.io/badge/node-24%2B-blue)](https://nodejs.org)
+[![npm downloads](https://img.shields.io/npm/dm/@modusensus/dsh-mneme?color=blue&label=downloads)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
+[![coverage](https://img.shields.io/codecov/c/github/modusensus/dsh-mneme/main)](https://codecov.io/gh/modusensus/dsh-mneme)
 
 > 给 DeepSeek Harness 的跨会话记忆插件：让 Agent 记住你、记住项目、自动整理记忆。**Mneme**（Μνήμη）——希腊记忆女神 Mnemosyne 之名，掌管记忆与梦境，正如 autoDream 在后台巩固记忆。
 
 `dsh-mneme` 是一个 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) 插件，为 Agent 提供持久的跨会话记忆能力。它借鉴了 Claude 的 **Dream 机制** 与 cc-haha / Claude Code 的 **autoDream** 实现思路——不仅**存储**记忆，还会**自动巩固**（去重、合并、冲突裁决、摘要生成），让记忆库越用越精炼。
+
+## ⏱️ 30 秒理解
+
+**一句话**：给 Agent 装上跨会话记忆——记住你、记住项目，并在后台自动整理，越用越懂你。
+
+| ① 写入 | ② 存储 | ③ 进化 |
+|--------|--------|--------|
+| 对话中模型主动记录（`memory_save`）；会话结束自动提炼（`autoSummarize`） | SQLite 主库 + 人类可编辑 Markdown 镜像；实体 / 属性 / 时间轴三层结构化 | 新会话自动注入相关记忆；autoDream 后台去重 / 合并 / 归档，记忆库自我精炼 |
+
+```bash
+# 30 秒上手
+dsh plugin --profile web add @modusensus/dsh-mneme
+dsh web
+```
+
+**它不是什么**（边界声明）：
+
+- 不是向量数据库——语义搜索是可选增强，默认零额外依赖
+- 不替代会话日志——它存的是「值得跨会话记住的」精炼知识
+- 不改变模型本身——进化的是记忆库与每次注入的上下文
+- 删对话 ≠ 删记忆——开启会话生命周期后，删除会话只是把该会话出生的记忆**软隐藏**（可恢复），数据不丢
 
 ## ✨ 功能
 
 ### 记忆存储（SQLite + Markdown 镜像）
 
 - **SQLite 主存储**：`~/.dsh/memory/memory.db`，`node:sqlite` 内置，零原生依赖
-- **Markdown 镜像**：`preferences.md` / `projects.md` / `decisions.md` / `history.md` / `summary.md`，人类可读、可手工编辑（**人工修改优先**合并回库）
-- **4+1 种记忆类型**：`preference`（偏好）/ `project`（项目）/ `decision`（决策）/ `history`（历史）/ `summary`（总览）
+- **Markdown 镜像**：`preferences.md` / `projects.md` / `decisions.md` / `history.md` / `summary.md` / `user.md` / `facts.md`，人类可读、可手工编辑（**人工修改优先**合并回库）
+- **8 种记忆类型**：用户可存 6 种（`preference` 偏好 / `project` 项目 / `decision` 决策 / `history` 历史 / `user` 用户画像 / `fact` 原子事实）+ AI 自动生成 2 种（`summary` 会话总览 / `pattern` 模式）（v0.7.5 起新增 user/fact 两个轻量分层，单表 `type` 字段扩展，不动表结构）
 - **镜像同步状态机（v0.3.6+）**：mirror 与主库强一致，用 `generation`（期望轮次）/ `applied_generation`（已应用轮次）建模同步债务
   - 业务写操作在**自身事务内原子递增** desired generation——崩溃在 COMMIT 后、渲染前，重启也能凭 durable 债务恢复，绝不静默跳过（v0.3.8）
   - `generation` 用 SQLite 原子语句递增，多进程并发零丢失；带 `CHECK` 上界，负数/溢出拒绝
@@ -34,7 +57,7 @@
 | `memory_search` | 全文搜索（中文子串友好，可启用向量语义搜索） |
 | `memory_list` | 按类型分页列出（`include_archived=true` 可查看已归档） |
 | `memory_update` | 修改已有记忆 |
-| `memory_delete` | 删除记忆 |
+| `memory_delete` | 删除记忆（v0.6.0 支持 `query` 按描述删除，不只能靠记忆 ID） |
 | `memory_forget` | 抑制注入（降权不删除，可恢复） |
 | `memory_archive` | 归档/恢复记忆（v0.2.5；归档后隐藏于列表/搜索/注入/整理，`archived=false` 可恢复） |
 
@@ -53,7 +76,7 @@
   - `update`（v0.2.1）：直接修正单条记忆的过时/错误内容（单 id / 必须实际变化 / 非 summary / 24h 保护 / 每次 ≤2）
 - **失败追踪（v0.2.1）**：用户纠正记忆时写入 `failure_memories` 表（旧值/新值），为后续自进化积累数据
 - **摘要生成**：整理后生成"记忆库总览"（单一实例），作为下次会话的优先注入
-- **Fail-safe**：非法 LLM 输出（未知 id / 非法 action / 跨类型合并 / 越界 importance）拒绝整单，绝不破坏记忆库
+- **Fail-safe**：非法 LLM 输出（未知 id / 非法 action / 越界 importance 等）拒绝整单，绝不破坏记忆库；跨类型合并这类"单条非法"决策（Issue #26）默认跳过并应用合法子集（run 记为 `degraded`），`dreamSkipInvalid:false` 可恢复旧的整单拒绝
 - **裁决审计**：每次运行写入 `dream_runs` 审计表（输入快照 sha256 digest + 完整输入快照 + 决策清单 + 逐 id 去向 + receipt），可离线回放；merge / conflict / update 幂等应用，重放/并发重复执行无累积副作用；update 记录 `_before` 快照
 
 #### dreamMaxTokens 调优指南
@@ -66,7 +89,7 @@
 | 中等（1 万-5 万字） | `65536` |
 | 大型（5 万字以上） | `131072`（上限） |
 
-> 若使用**思考型模型**（如 DeepSeek-R1 类），模型可能把全部预算花在 reasoning 上导致正文为空（日志出现 `no json array in llm output`）。此时把 `dreamReasoningEffort` 设为 `low` 可压制推理开销、把预算留给正文输出；sleep 侧对应 `sleepReasoningEffort`。默认 `none` 不传该字段，完全沿用模型自身默认，行为与旧版本一致。
+> 若使用**思考型模型**（如 deepseek-v4-flash / DeepSeek-R1 类），模型可能把全部预算花在 reasoning 上导致正文为空（日志出现 `no json array in llm output`）。此时把 `dreamReasoningEffort` 设为 `off` 显式关闭思考（实测 8192 token 预算不再被推理吃光，输出恢复正常）；sleep 侧对应 `sleepReasoningEffort`。默认 `none` 不传该字段，完全沿用模型自身默认，行为与旧版本一致。
 
 ### Sleep Mode 系统级睡眠 💤（v0.4.0，opt-in）
 
@@ -84,7 +107,30 @@
 
 > 配置详见 `docs/SLEEP.md`；迁移说明见 `docs/MIGRATION.md`。
 
-### Web 记忆面板
+### 会话生命周期：把对话当存档点 💾（v0.6.0，opt-in）
+
+**默认关闭**（`sessionLifecycleEnabled: false`，保持旧行为）。开启后，会话被删除/销毁（DSH `session/disposed` 事件）时，自动把该会话内出生（`session_id` 溯源）的记忆**软隐藏**——不再出现在检索/注入/列表/整理，但**不删除**，随时可恢复：
+
+- **与 `archived` 正交**：`archived` 是用户/AI 主动"长期保留但安静"，`session_disposed_at` 是会话删除被动隔离，两者互不覆盖。恢复会话绝不复活你手动归档的记忆
+- **全局记忆免疫**：存量无 `session_id` 的记忆视为全局，永不参与会话清理
+- **幂等 + 熔断**：dispose/restore 状态守卫幂等（重复调用 no-op）；事件回调内部异常 catch 住，不抛进 DSH 会话清理流程
+- **恢复**：整会话 `service.restoreBySession(sessionId)` 一键还原；`service.listBySession(sessionId, { includeDisposed: true })` 可查看当前隐藏了哪些（DTO 带 `disposed` 标记）
+
+### Wiki-Link 双向链接 🔗（v0.6.1，opt-in）
+
+**默认关闭**（`wikiLinkEnabled: false`）。开启后，记忆正文支持 `[[target]]` / `[[显示|target]]` 双括号链接语法：保存时自动解析并记录跨记忆 `links_to` 关系（partial 唯一索引只对 links_to 去重），记忆详情旁出现反向链接面板，点击可跳转来源记忆。提供只读 API：backlinks / forward-links / wikilink-resolve（输出脱敏）。
+
+### Tag 系统 🏷️（v0.6.2，opt-in）
+
+`autoTagEnabled` 默认关。开启后：正文 `#标签` 即时标记（规则 `[a-zA-Z0-9_一-龥-]+`，≤20 字符，非法/超长自动丢弃）；autoDream 整理后 LLM 自动打 1-3 个标签（`autoTagMaxPerRun=10` 频控，fail-safe）；tags 存 `entity_attrs`；`tag:` 搜索前缀可与关键词/`entity:`/`attr:` 组合；mirror 顶部渲染 `#tag` 行；记忆面板标签可点击（过滤）、添加、移除（`manualTagEnabled` 默认开）。存储与搜索能力始终可用，`autoTagEnabled` 只控制自动打标。
+
+### 目录视图 📁（v0.6.3）
+
+记忆面板新增「目录」视图：以 Tag 为轴心的一级手风琴文件夹，无标签记忆自动沉底到「无标签」兜底组；组内按重要性/时间双降序；点击条目直达详情页。数据由 `GET /api/dsh-mneme/directory` 提供（只读、排除 disposed/archived/forgotten）。
+
+### Tag 加权召回 ⚖️（v0.6.4，opt-in）
+
+`tagBoostEnabled` 默认关。开启后，三路召回合并出候选后做 tag 加权重排：候选记忆 tags 与 Query 提取 tags（`#xxx` + 已知 tag 列表）交集 → 分数 `×1.15`；与当前 Session 热记忆 tags 交集 → `×1.08`（可叠加，上限 1.0）。关闭时行为与旧版完全一致，可用 `evaluateRetrieval` 开关对比调优。
 
 官方设置面板 → 「记忆库设置」→「记忆」标签：按类型浏览、全文搜索；启用向量搜索后可用「语义」切换做向量召回。
 
@@ -160,10 +206,65 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 
 > 只读端点，与 list/search/semantic 一样在设置 `apiToken` 后仍保持开放。
 
+### 记忆库主区视图与记忆图谱 🕸️（v0.5.0）
+
+记忆功能从侧边栏抽屉收进**主内容区全宽 tab**（conversation.view 插槽，与「对话 / Trajectory」并列），侧边栏「记忆」入口点击后直接激活该 tab。页面顶部子 tab 行切换三个子视图：
+
+- **记忆（三栏浏览）**：左栏分类树（类型 + 计数）/ 中栏时间树（月 → 日两级倒序、可折叠）/ 右栏详情（**全文不截断** + 复制全文）；语义搜索内嵌工具栏开关（防抖 250ms），`entity:` 前缀可「在图谱中查看」
+- **图谱**：输入实体名，加载以该实体为中心的关联网络——
+  - 服务端只读 ego-graph API：`GET /api/dsh-mneme/semantic/graph/ego?entity=<name>&depth=1|2`（BFS 层级遍历，`limit` 防大图失控，实体不存在 404；配套 `/semantic/graph/entity-attrs` 查实体属性）
+  - 前端**零依赖手写 SVG 力导向布局**（插件运行时无法 require vis-network 等第三方库）：斥力 + 弹簧 + 向心引力物理模拟，节点按类型着色、按提及次数定半径，支持拖拽、点节点看属性、点边跳回来源记忆
+- **设置**：画像 / 规则 / 指令 / 向量配置，限宽居中
+
+图谱 ↔ 记忆双向互跳：图谱详情侧的关联记忆可点击，记忆边的「来源记忆」按 memory_id 直跳三栏视图并自动定位。
+
+### 三路召回融合与会话热记忆 🔎（v0.5.0）
+
+- **BM25 稀疏第三路召回**（`src/search/bm25.js`）：与向量召回、FTS5/LIKE 关键词并列——ASCII 词元 + CJK bigram 分词、IDF 加权（归一化 [0,1]），专有名词 / ID / 代码片段等散词查询不再依赖子串命中。融合规则：未召回行按 `0.3×BM25分` 回填；仅向量召回行获得词法加分；LIKE 已命中行不叠分。`bm25SearchEnabled` 可关
+- **自适应阈值**（`src/search/adaptive.js`）：取代固定 `0.65` 截断——`entity:`/`attr:` 前缀放宽 0.5，短查询（<5 字符）收紧 0.7，长查询（>50）放宽 0.6，Top1/Top5 分差 > 0.3 时放宽让尾部进 Rerank；显式传 `threshold` 或 `adaptiveThresholdEnabled=false` 走旧行为
+- **会话级短期热记忆**（`src/hot-memory.js`）：最近 N 轮对话（默认 5 轮，`hotMemoryRounds`）按 token 预算（默认 2000，`hotMemoryMaxTokens`）滚动截断，从会话事件日志无状态重建、不落库；注入顺序为「短期上下文 → 长期记忆召回 → 摘要」
+- **选择性注入**：query 向量可用时注入候选按主题相似度重排（`selectiveInjectEnabled` 可关）；**搜索时语义去重**为激进选项（`searchSemanticDedup=true` 显式开启，近重复行 Rerank 前丢弃）
+- **召回基准**（`scripts/benchmark-recall.js`）：标准查询集驱动，计算 Recall@5 与 MRR，`legacy`（三特性全关）vs `fused`（默认配置）双跑对比
+
+### 自进化记忆 🌡️（v0.7.0，默认保守开启）
+
+让记忆库从"存得准、召得回"进化为会自我衰减、识别兴趣漂移的智能体：
+
+- **heat 热度模型**（`src/heat.js`）：类遗忘曲线幂律衰减 `H = 1/(1+λ·Δt)^α`，per-type 差异化半衰期（TYPE_DECAY）：preference/pattern/summary 免疫（λ=0，热度恒 1.0），project 慢衰减（λ=0.0008），decision 中速（λ=0.002），history 较快（λ=0.006）；全局参数 `heatGlobalAlpha`(默认 1.2) 控制衰减速度
+- **sleep 热联合双保护**：降级需同时满足"冷"（heat < `sleepHeatThreshold` 0.05）+"非紧要"（importance < 5）+"非免疫类型"三重条件——冷但重要（如遗忘的高价值决策）与热但低值（如刚访问的闲聊）都受到保护，免疫类型（preference 等）永不降级
+- **updated_at 语义修正**：合并/更新刷新的 `updated_at` 不再计为访问（`last_accessed_at` 独立追踪），杜绝 autoDream 合并动作伪装成"刚被召回"；触达数据采集（touchRecalled）由 `heatEnabled` 门控
+- **recall_runs 数据前提**：检索记录默认开启（`recallRecordDefault: true`），candidates 打 `injected` 标记区分"被召回"（false）与"被注入上下文"（true）两个消耗强度；注入场景也记账（mode="inject"）；90 天滚动清理（`recallRetentionDays`）防膨胀
+- **实体热投影**（ego-graph API + 前端）：`entityHeat` 取关联记忆 heat 的 max 值，API 返回 `heat` 字段；前端节点大小/明暗随热度变化（`nodeRadius`/`fillOpacity`），兴趣漂移在图谱上可见
+- **配置**：`heatEnabled`(默认 true)、`heatTypeDecay`(per-type λ)、`heatGlobalAlpha`(1.2)、`sleepHeatThreshold`(0.05)、`recallRecordDefault`(true)、`recallRetentionDays`(90)
+
 ## 🆕 最近版本亮点
 
 | 版本 | 亮点 |
 |------|------|
+| **v0.7.10** | Web 面板体验升级：记忆类型色点体系（筛选/时间树/详情三处贯穿）+ 图谱画布平移/滚轮缩放/重置视图（补齐 `cursor: grab` 暗示却缺失的交互）+ 设置页 Claude 风格分区重排（编号规则行、悬停删除、口语化文案）+ 侧边栏入口同标签冲突修复（可见性过滤 + 渲染验证 + 多候选重试）+ 详情 meta 精排（来源截断、相对时间）+ 新增只读 `GET /api/dsh-mneme/entities` 实体清单端点（19→20 条路由）；815 测试全绿 |
+| **v0.7.9** | issue #65 修复：v0.7.8 的 snapshotEvents 适配只改了 `src/`，npm 实际加载的 `lib/` 从未同步——静默失效；补齐 lib 三处垫片 + 新增 `scripts/check-sync.js` 发布前 src↔lib 一致性闸门（root prepack 调用，漂移直接 fail）+ `test/lib-smoke.test.js` 从 lib 导入复跑 + 一致性断言（CI 双保险）；815 测试全绿 |
+| **v0.7.8** | DSH 0.1.2-rc.1 兼容（issues #58 #59）：官方移除 `Session.events` 属性改为 `snapshotEvents()` 方法，autoSummarize 与 hot-context（短期上下文）注入取不到事件而失效；改用兼容垫片 `session.snapshotEvents?.() ?? session.events`，新旧 DSH 通吃，老版本行为不受影响；新增 2 个回归用例；812 测试全绿 |
+| **v0.7.7** | issue #23 实体图谱回填：sleep 批量实体抽取 phase（`sleepEntityExtractionEnabled` 默认关；最老优先、SQL LIMIT/OFFSET 分页下沉为有界查询不整表扫描；`pending_extracted_at` 幂等防重、成功/失败清除；metadata 合并不覆盖其他路径写入）；node:sqlite 兼容修复（pluck→all+map、`forgotten=0` 查询条件）；810 测试全绿 |
+| **v0.7.6** | issue #48 修复：`memory_update`/`memory_delete`/`memory_forget`/`memory_archive` 支持截断/前缀短 id（新增 `service.resolveMemoryId`：精确命中优先 + 唯一前缀解析 + 多命中拒绝列出候选 + `memory_delete` 未命中幂等补 `logger.warn`；纯通配符/空白兜底）；Web bundle `client.js` 改 src 正源；801 测试全绿 |
+| **v0.7.5** | 分层记忆类型：新增 `user`（用户画像）/`fact`（原子事实）轻量记忆类型（单表 `type` 扩展，不动 schema）+ Web 面板「总览」视图（记忆分层卡片 + 用户画像卡 + 类型分布 + 近 7 天趋势）+ `/api/dsh-mneme/stats` 统计端点；kimi-k2.7-code 复验（days 整数化等）；790 测试全绿 |
+| **v0.7.4** | issue #40 修复：记忆内容含 `{{...}}` 模板语法时整轮崩溃（注入边界 run-based 花括号转义 `{{a}}`→`{\{a\}\}`，奇数连续如 `{{{a}}}` 也不残留字面 `{{`；新增 `escapePromptVariables` 配置默认开）；issue #41 修复：记忆窗口关闭按钮与宿主窗口控制按钮重叠无法点击（顶栏左对齐，关闭按钮离开右上角宿主控制区）；782 测试全绿 |
+| **v0.7.3** | issue #38 新功能：左下角入口按钮可选开关 `showSidebarTrigger`（默认开）——与 dsh-cost-meter 等抢占 footer slot 的插件冲突时可在 Web 面板「设置」一键关闭，仅隐藏按钮、记忆库标签不受影响；776 测试全绿 |
+| **v0.7.2** | issue #35 修复：目录页删除按钮改面板内联两步确认（不再依赖宿主 `window.confirm`）+ 删除失败可见报错；issue #34 新功能：opt-in `injectTimePrefix` 对话开始自动注入当前时间一次（默认关）；770 测试全绿 |
+| **v0.7.1** | issue #31 修复：memory_save/memory_update 的 tags 桥接进 entity_attrs 标签存储（目录/`tag:` 检索/tagBoost 立即可见，`tags: []` 清空移回 untagged）+ `store.setMemoryTags` 反向同步 `memories.tags` 列 + autoTag 面板开关成为运行时消费方（settings 覆盖 config）；764 测试全绿 |
+| **v0.7.0** | 自进化记忆（heat 热度模型 + per-type 差异化半衰期 + sleep 热联合双保护）+ updated_at 语义修正（不算访问）+ recall_runs injected 两档标记 + 90 天滚动清理 + 实体热投影（ego-graph node heat → 前端节点大小/明暗）；757 测试全绿 |
+| **v0.6.11** | 社区修复（PR #27，Jstn-1g）：memory 渲染器暴露记忆 ID + 防御性加固（条数/块预算/Unicode 截断/JSONL 注入防护）；issue #14 已关闭；735 测试全绿 |
+| **v0.6.10** | 记忆面板卡片布局品质优化：清理死 CSS + 合并 `.mneme-xmain` 双定义 + 补无障碍（分类按钮 `aria-pressed`、三卡 `role=region`+`aria-label`、搜索框 `aria-label`）；723 测试全绿 |
+| **v0.6.9** | autoDream 恒失败修复（Issue #26 P0）：`dreamSkipInvalid` 跳过非法决策 + `allowCrossTypeMerge` 开关；723 测试全绿 |
+| **v0.6.8** | dream/sleep LLM 路由修复（Issue #25）：config 指定模型优先于 agent 默认路由；716 测试全绿 |
+| **v0.6.7** | 记忆面板前端增强：记忆删除端点 + autoTag 手动开关 + 目录 VS Code 式文件树 + 面板卡片式布局（分类栏 + search/tree/detail 三卡）；723 测试全绿 |
+| **v0.6.6** | kimi-k3 复验 4 项修复：autoTag 跳过已打标记忆并合并、tag: 搜索召回统计门控（避免零召回拖垮 TopK）；710 测试全绿 |
+| **v0.6.5** | 整合 v0.6.2-0.6.4：Tag 系统 + 目录视图 + Tag 加权召回（全部 opt-in）；709 测试全绿 |
+| **v0.6.4** | Tag 加权召回：query/session tag 交集 boost（`tagBoostEnabled` 默认关） |
+| **v0.6.3** | 目录视图：Tag 文件夹 + 无标签兜底 + 点击跳详情 |
+| **v0.6.2** | Tag 系统：`#标签` + autoDream 自动打标 + `tag:` 搜索 + 面板 chips |
+| **v0.6.1** | Wiki-Link 双向链接（笔记化记忆库第一步）：[[笔记]] 跨记忆链接 + 反向链接面板 + links_to partial 唯一索引；654 测试全绿 |
+| **v0.6.0** | 会话生命周期（把对话当存档点）：`session_disposed_at` 独立字段软隐藏会话删除的记忆（与 `archived` 正交，可恢复）+ `memory_delete` 支持描述删除 + 事件订阅熔断；阿里云 kimi-k2.7-code 审查 4 项修复；628 测试全绿 |
+| **v0.5.0** | 主区「记忆库」视图（取代侧边栏抽屉）+ 记忆图谱可视化（ego-graph API + 零依赖 SVG 力导向）+ BM25 三路召回融合 + 自适应阈值 + 会话热记忆 + 召回基准评测；593 测试全绿 |
 | **v0.4.2** | autoSummarize 自定义模型：`summarizeProvider`/`summarizeModel` 配置项，可独立指定轻量模型（如 qwen3.6-plus）用于会话摘要，节省主模型 token；473 测试全绿 |
 | **v0.4.0** | 系统级睡眠 Sleep Mode：空闲触发的四阶段深度维护（冲突消解 / 归档降级 / 模式发现 / 关系补全），可中断、串行安全、fail-safe，分层压缩释放冷记忆；471 测试全绿 |
 | **v0.3.9** | 修复第三方审计 4 项 FAIL：CAS 同事务原子化、Mirror 降级回执透传、逐 type 物理终态收敛、Generation 强整数校验与并发初始化稳定化 |
@@ -187,7 +288,23 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 | **v0.4.5** | ✅ 完成 | epistemic trust + recall eval | 记忆可信度分级 `trustEpistemicWeighting`（observation>inferred>subjective：检索排序优先高可信、注入标注 `[verified]`、dream merge/conflict 偏向高可信；opt-in 默认关）+ 检索评估 `evaluateRetrieval` 落库 `recall_evals`（`evalPersistTestResults` opt-in 默认关，生产检索始终走 `recall_runs` 无条件隔离）；518 测试全绿 |
 | **v0.4.6** | ✅ 完成 | 8 项修复（向量链路 + 注入/质量/审计） | 向量链路修复（embedSingle 适配 / `autoReindexOnBoot` 存量回填 / `vector_meta` 元数据）+ 注入语义召回 `hybridInject` + 同标题追加 `content_history` + 注入长度上限（单条 300 / 整块 1500）+ 记忆质量过滤 `memoryQualityFilter` + LLM 消耗审计 `llmAudit`（表 + 埋点 + 只读 API）；553 测试全绿 |
 | **v0.4.7** | ✅ 完成 | schema 迁移幂等化 | 并发打开同一 db 时 `PRAGMA table_info` 检查与 ALTER 非原子，可能重复 `ADD COLUMN` 报 duplicate column name；改用 `addColumn` helper 吞掉竞态（try/catch），12 处迁移统一收口 |
-| **v0.5.0+** | 🚀 远期 | 自进化记忆 | 兴趣漂移跟踪 + 跨 workspace 记忆共享（等 DSH 支持） |
+| **v0.5.0** | ✅ 完成 | 召回融合与记忆可视化 | 主区「记忆库」视图 + 记忆图谱（ego-graph API + 零依赖 SVG 力导向）+ BM25 三路召回融合 + 自适应阈值 + 会话热记忆 + 召回基准；593 测试全绿 |
+| **v0.6.0** | ✅ 完成 | 会话生命周期 | 把对话当存档点：`session_disposed_at` 软隐藏会话删除的记忆（与 `archived` 正交、可恢复）+ `memory_delete` 描述删除 + 事件熔断；628 测试全绿 |
+| **v0.6.1** | ✅ 完成 | Wiki-Link 双向链接 | 笔记化记忆库第一步：`[[target]]` 跨记忆链接 + 反向链接面板 + links_to partial 唯一索引；654 测试全绿 |
+| **v0.6.2** | ✅ 完成 | Tag 系统 | `#标签` 解析 + autoDream 自动打标 + `tag:` 搜索 + 面板 chips + mirror `#tag` 行（全部 opt-in） |
+| **v0.6.3** | ✅ 完成 | 目录视图 | Tag 文件夹手风琴 + 无标签兜底 + 点击跳详情 + `GET /api/dsh-mneme/directory` 端点 |
+| **v0.6.4** | ✅ 完成 | Tag 加权召回 | query/session tag 交集 boost（×1.15 / ×1.08），`tagBoostEnabled` 默认关 |
+| **v0.7.0** | ✅ 完成 | 自进化记忆 | heat 幂律衰减 + per-type 差异化半衰期（TYPE_DECAY）+ sleep 热联合双保护 + updated_at 语义修正 + recall_runs injected 两档标记 + 90 天清理 + 实体热投影（前端节点大小/明暗）；757 测试全绿 |
+| **v0.7.1** | ✅ 完成 | issue #31 修复 | memory_save/update tags 桥接 entity_attrs 标签存储 + 列反向同步 + autoTag 面板开关生效（settings 覆盖 config）；764 测试全绿 |
+| **v0.7.2** | ✅ 完成 | issue #34 + #35 修复 | 目录页删除按钮改内联两步确认 + 删除失败可见报错；opt-in `injectTimePrefix` 对话开始注入当前时间一次（默认关）；770 测试全绿 |
+| **v0.7.3** | ✅ 完成 | issue #38 新功能 | 左下角入口按钮可选开关 `showSidebarTrigger`（默认开，settings-over-config）；Web 面板设置一键关闭，与 dsh-cost-meter 等 footer 插件冲突可隐藏按钮、记忆库标签不受影响；776 测试全绿 |
+| **v0.7.4** | ✅ 完成 | issue #40 + #41 修复 | 注入边界 run-based 花括号转义（`{{a}}`→`{\{a\}\}`、奇数连续如 `{{{a}}}` 不残留字面，`escapePromptVariables` 默认开）+ 记忆窗口顶栏左对齐、关闭按钮避开宿主窗口控制按钮区；782 测试全绿 |
+| **v0.7.5** | ✅ 完成 | 分层记忆类型 + 总览视图 | 借鉴 meow-memory 分层概念、贴合单表架构：新增 `user`（用户画像）/`fact`（原子事实）类型，注入/镜像/梦境/质量过滤全链路打通；Web 面板「总览」视图（分层卡片 + 用户画像卡 + 类型分布 + 近 7 天趋势）；`/api/dsh-mneme/stats` 端点；kimi-k2.7-code 复验；790 测试全绿 |
+| **v0.7.7** | ✅ 完成 | issue #23 图谱回填 | sleep 批量实体抽取 phase：默认关 `sleepEntityExtractionEnabled`，按最老优先、SQL LIMIT/OFFSET 分页（下沉为有界查询，不再整表扫描）批量抽取未打标记忆的实体（修复 issue #23 实体图谱空白）；`pending_extracted_at` 幂等防重、成功/失败清除，metadata 合并不覆盖；node:sqlite 兼容修复（pluck→all+map、`forgotten=0` 查询条件）；810 测试全绿 |
+| **v0.7.8** | ✅ 完成 | DSH 0.1.2-rc.1 兼容（issues #58 #59） | 官方移除 `Session.events` 属性、改用 `snapshotEvents()` 方法后 autoSummarize 与 hot-context 注入失效；改为兼容垫片 `session.snapshotEvents?.() ?? session.events`，新旧 DSH 通吃，老版本不受影响；新增 2 个回归用例；812 测试全绿 |
+| **v0.7.6** | ✅ 完成 | issue #48 修复 | 四工具统一 `service.resolveMemoryId`：截断/前缀短 id 也能精确操作（精确命中优先、唯一前缀解析、多命中拒绝并列出候选、`memory_delete` 未命中幂等返回 + `logger.warn` 留痕）；Web bundle `client.js` 改 src 正源；801 测试全绿 |
+| **v0.7.9** | ✅ 完成 | issue #65 修复 | v0.7.8 的 snapshotEvents 适配未同步 lib/（npm 实际加载 lib/）导致发布产物静默失效；补齐 lib 三处垫片 + 发布前 src↔lib 一致性校验（`scripts/check-sync.js`，root prepack 调用，漂移 exit 1）+ `test/lib-smoke.test.js` 从 lib 导入复跑 + 一致性断言；815 测试全绿 |
+| **v0.8.0** | 🚧 计划中（9 月末） | 图谱增强 | 兴趣漂移可视化 + scope 隔离（issue #17）+ 跨 workspace 记忆共享 + 更多 heat 信号 |
 
 > 新能力一律做成**可开关的功能**（配置启用/关闭），默认保守开启、不破坏现有行为。`failure_memories` 表与 autoDream 决策引擎已为后续反思性成长铺好路。
 
@@ -195,7 +312,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 
 ### 前置条件
 
-- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）
+- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）— 兼容 DSH 0.1.x，已验证 0.1.2-rc.1（`Session.events` → `snapshotEvents()` 变更已由插件垫片兼容，新旧版本通吃；v0.7.9 确保该垫片真正进入发布产物 lib/）
 - Node 24+（`node:sqlite`）
 
 ### 安装步骤
@@ -240,6 +357,8 @@ dsh web
     dreamThresholdCount: 10
     dreamThresholdChars: 5000
     dreamDelayMs: 2000
+    # 会话生命周期（v0.6.0，默认关）：会话被删时软隐藏其记忆，可恢复
+    # sessionLifecycleEnabled: false
 ```
 
 ## ⚙️ 配置
@@ -256,9 +375,11 @@ dsh web
 | `dreamThresholdCount` | `10` | 触发整理的记忆条数阈值 |
 | `dreamThresholdChars` | `5000` | 触发整理的总字符阈值 |
 | `dreamDelayMs` | `2000` | 整理异步延迟（去抖） |
-| `dreamProvider` / `dreamModel` | 空 | dream 的 LLM 路由回退（默认用 agent 默认模型） |
-| `dreamMaxTokens` | `4096` | dream LLM 调用最大 token 数（上限 131072；大记忆量建议调大，见下方调优指南） |
-| `dreamReasoningEffort` | `none` | dream LLM 推理强度透传：`low` / `medium` / `high` / `none`（`none`=不传该字段，使用模型默认；思考型模型预算被推理耗尽导致正文为空时可设 `low`） |
+| `dreamProvider` / `dreamModel` | 空 | dream 的 LLM 路由覆盖（显式配置优先于 agent 默认模型；留空则回退到 agent 默认模型） |
+| `dreamMaxTokens` | `8192` | dream LLM 调用最大 token 数（上限 131072；大记忆量建议调大，见下方调优指南） |
+| `dreamReasoningEffort` | `none` | dream LLM 推理强度透传：`off` / `low` / `medium` / `high` / `none`（`off`=显式关闭思考，思考型模型（如 deepseek-v4-flash）必须用它，否则推理会烧光 token 预算导致正文为空；`none`=不传该字段，沿用模型默认） |
+| `dreamSkipInvalid` | `true` | 跳过非法决策（Issue #26，默认开）：跨类型 merge 等"单条非法"决策不再整单拒绝，而是跳过该决策、应用合法子集，run 记为 `degraded`（`applied>0`，autoTag 照常触发）；设为 `false` 恢复旧的"任意非法即整单拒绝"（`applied=0`）。防洗白语义不变——显式覆盖率不足 / update 超量等全局错误仍整单拒绝 |
+| `allowCrossTypeMerge` | `false` | 允许跨类型合并（Issue #26，默认关）：类型有语义边界（`preference` 注入权重更高、`decision`/`project` 注入上下文不同），跨类型合并默认视为非法并被跳过；显式开启后放宽该检查，跨类型 merge 可被应用，类型边界由用户自行承担 |
 | `apiToken` | 空 | 可选 API 鉴权 token；设置后写操作与密钥接口要求 `Authorization: Bearer <apiToken>` |
 | `embedProvider` | `openai` | 语义后端：`openai`（默认，兼容 v0.1）/ `local`（ONNX 离线）/ `ollama` |
 | `localEmbedModel` | `Xenova/bge-small-zh-v1.5` | 本地 ONNX embedding 模型 |
@@ -292,10 +413,90 @@ dsh web
 | `evalPersistTestResults` | `false` | 检索评估落库（v0.4.5，opt-in 默认关）：开启后 `evaluateRetrieval` 把 precision/recall/mrr 快照写入 `recall_evals`；默认关时仅返回调用方不落库。生产 `searchMemories` 审计始终走 `recall_runs`，无条件不触碰 `recall_evals` |
 | `autoReindexOnBoot` | `true` | 存量记忆缺 embedding 时，向量已配置则启动后延迟后台按批次限速自动回填重建（设为 `false` 仅手动重建） |
 | `hybridInject` | `true` | 注入语义召回优先（v0.4.6，Bug4）：`injectCandidates` 带非空 query 时先走向量索引语义召回候选，规则筛选补足/去重；空 query / 无向量回退旧逻辑 |
+| `bm25SearchEnabled` | `true` | BM25 稀疏第三路召回（v0.5.0）：ASCII 词元 + CJK bigram，IDF 加权，散词/ID/代码片段查询不再依赖子串命中 |
+| `adaptiveThresholdEnabled` | `true` | 自适应相似度阈值（v0.5.0）：按查询形态动态截断（前缀 0.5 / 短查询 0.7 / 长查询 0.6 / 头部分差大放宽 0.5），显式传 `threshold` 走旧行为 |
+| `hotMemoryEnabled` | `true` | 会话级短期热记忆总开关（v0.5.0）：关闭后热记忆块不再注入（长期召回不受影响） |
+| `hotMemoryRounds` | `5` | 会话级短期热记忆轮次（v0.5.0）：最近 N 轮对话滚动注入，从会话事件日志无状态重建、不落库 |
+| `hotMemoryMaxTokens` | `2000` | 热记忆 token 预算（v0.5.0，200-32000），超出滚动截断 |
+| `selectiveInjectEnabled` | `true` | 选择性注入（v0.5.0）：query 向量可用时注入候选按主题相似度重排，替代固定规则序 |
+| `searchSemanticDedup` | `false` | 搜索时语义去重（v0.5.0，激进选项默认关）：embedding 余弦 ≥0.95 近重复行在 Rerank 前丢弃 |
+| `searchSemanticDedupThreshold` | `0.95` | 语义去重相似度阈值（v0.5.0，默认 0.95，范围 0.5-1.0）：`searchSemanticDedup=true` 时生效，调整可防小模型误折叠 |
 | `memoryQualityFilter` | `{enabled:true, archiveThreshold:30, degradeThreshold:60, minContentLength:10}` | 记忆质量过滤（v0.4.6，默认开）：写库前启发式打分 0-100，元记忆词汇/自指/过短/重复/近似重复扣分；≥60 正常存储，30-60 降权（注入排序按 importance×quality/100），<30 归档标记 `low_quality`（显式搜索仍可召回，永不自动注入） |
 | `llmAudit` | `{enabled:true, retentionDays:90}` | LLM 消耗审计（v0.4.6，默认开）：每次后台 LLM 调用（autoDream/autoSummarize）写 `llm_audit_logs`（tokens/duration/status/source）；失败记 error 不阻塞；只读 API `/api/dsh-mneme/semantic/llm-audit` + `/llm-audit/stats` |
+| `sessionLifecycleEnabled` | `false` | 会话生命周期（v0.6.0，默认关）：开启后会话被删除/销毁时自动把该会话出生的记忆软隐藏（`session_disposed_at`，与 `archived` 正交、可恢复）；存量无 `session_id` 的记忆永不参与清理 |
+| `showSidebarTrigger` | `true` | 侧边栏底部（左下角）记忆入口按钮（issue #38，默认开）：与其他插件（如 dsh-cost-meter）抢占同一 footer slot 导致 UI 冲突时可关掉；仅隐藏按钮，记忆库仍可通过顶部「记忆库」标签访问。Web 面板「设置」里有对应开关 |
 
 > 🔐 **API 安全**：DSH 无内置鉴权且默认仅监听 `127.0.0.1`。插件 API 默认开放（便于 Web 面板即装即用）。如需防护（如局域网暴露），在配置中设置 `apiToken`：写操作（画像/规则/命令）与密钥端点（`vector-config`、`vector-reindex`）需携带 `Authorization: Bearer <token>`（前端设置面板可填入同一 token），只读的 `list` / `search` / `semantic` 保持开放。`/api/dsh-mneme/vector-config` 返回的 `apiKey` 已掩码（`sk-***…`），存储仍保留明文供调用；前端回传空或掩码值表示"不改 key"。
+
+
+## 外部 API 与 CLI
+
+除 DSH 内部端口外，插件还可以开启一个**独立的 HTTP 外部 API**（默认 `http://127.0.0.1:8790`，Bearer token 鉴权），供其他插件、CLI 脚本或桌面工具读写记忆，不依赖 DSH 内部端口。
+
+### 启用与鉴权
+
+- 在插件设置中开启外部 API（默认监听 `127.0.0.1:8790`，仅本机可访问）；
+- 访问 token 在插件设置 / 面板「设置 → 外部访问」中查看；
+- 除 `GET /health`（免鉴权）外，所有路由需携带 `Authorization: Bearer <token>`，无效 token 返回 `401 {"error":"unauthorized"}`。
+
+主要路由：
+
+| 方法 | 路由 | 说明 |
+|------|------|------|
+| `GET` | `/health` | 健康检查（免鉴权），返回 `{ok:true}` |
+| `GET` | `/status` | 版本、记忆统计、实体数、运行时长 |
+| `GET` | `/memories?limit&offset&type&minImportance&source&order=chrono` | 分页列出记忆 |
+| `GET` | `/memories/:id` | 单条记忆 |
+| `POST` | `/memories` | 新增记忆 `{type,title,content,importance?,tags?,source?}` |
+| `DELETE` | `/memories/:id` | 删除记忆 |
+| `GET` | `/search?q&mode=keyword\|vector\|auto&topK` | 搜索（关键词 / 向量 / 自动） |
+
+### curl 示例
+
+```bash
+# 服务状态
+curl -s -H "Authorization: Bearer $DSH_MNEME_TOKEN" http://127.0.0.1:8790/status
+
+# 列出最近 5 条记忆
+curl -s -H "Authorization: Bearer $DSH_MNEME_TOKEN" \
+  "http://127.0.0.1:8790/memories?limit=5"
+
+# 新增一条决策记忆
+curl -s -X POST http://127.0.0.1:8790/memories \
+  -H "Authorization: Bearer $DSH_MNEME_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"decision","title":"采用 SQLite","content":"存储层使用 node:sqlite","importance":4,"tags":["存储"]}'
+```
+
+### CLI 安装
+
+插件自带零依赖 CLI（随 npm 包一起发布）：
+
+```bash
+npm i -g @modusensus/dsh-mneme
+dsh-mneme --help
+```
+
+首次使用先配置服务地址与 token（也可用环境变量 `DSH_MNEME_URL` / `DSH_MNEME_TOKEN`，或 `--url` / `--token` 参数临时覆盖）：
+
+```bash
+dsh-mneme config set http://127.0.0.1:8790 <你的token>
+```
+
+### CLI 常用命令
+
+```bash
+dsh-mneme status                                     # 服务状态
+dsh-mneme list --type project --limit 10             # 列出记忆
+dsh-mneme search "部署流程" --mode vector --topk 5    # 语义搜索
+dsh-mneme add --type decision --title "采用 SQLite" \
+  --content "存储层使用 node:sqlite" --importance 4 --tags 存储,决策
+dsh-mneme get 42                                     # 查看单条
+dsh-mneme delete 42                                  # 删除
+dsh-mneme config show                                # 查看当前配置（token 打码）
+```
+
+> 所有读取/写入命令支持 `--json` 输出原始 JSON；`config path` 打印配置文件路径（`~/.dsh-mneme/cli.json`）。
 
 ## 🏗️ 架构
 
@@ -330,14 +531,16 @@ src/
 ├── dream.js          # autoDream 调度 + runDream（LLM 决策 + 摘要）
 ├── dream/decisions.js# 决策校验（fail-safe）+ 决策应用
 ├── entities/extractor.js # 实体抽取器（v0.3.0：LLM JSON 抽取 + 去重 + fail-safe）
+├── search/bm25.js    # BM25 稀疏召回（v0.5.0：分词 + IDF 索引）
+├── search/adaptive.js# 自适应相似度阈值（v0.5.0）
+├── hot-memory.js     # 会话级短期热记忆（v0.5.0：滚动轮次 + token 预算）
 ├── embedding.js      # OpenAI 兼容 embeddings 客户端 + 向量检索
 ├── api.js            # HTTP 路由（Web 面板数据通道）
+├── client.js         # Web 面板 bundle（ModuleLoader 自注册；v0.7.6 起 src 正源）
 └── index.js          # 插件接线
-lib/
-├── client.js         # Web 面板（手写 ModuleLoader bundle）
-└── *.js              # src 的同步分发产物
-test/                 # 450 个 node:test 测试（含审计与三轴线压测不变量）
-scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压测 · sync-lib.js 同步
+lib/                  # src 的同步分发产物（npm run sync；发布前由 root prepack 的 check-sync.js 校验一致性，无手写例外）
+test/                 # 815 个 node:test 测试（含 lib-smoke.test.js：lib 产物冒烟 + src↔lib 一致性断言；审计与三轴线压测不变量）
+scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压测 · sync-lib.js 同步 · check-sync.js 发布闸门 · benchmark-recall.js 召回基准
 ```
 
 ## 🧪 开发
@@ -345,14 +548,14 @@ scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压
 ```bash
 cd dsh-mneme
 npm install        # 安装 peer 依赖（以 devDependencies 形式，用于本地测试）
-npm test           # 运行 450 个测试
+npm test           # 运行 815 个测试
 npm run stress     # 三轴线压测：长会话检索 / 冲突仲裁 / 多 Agent 并发（离线 mock LLM）
 npm run sync       # 把 src/ 同步到 lib/（发布时由 prepack 钩子自动执行）
 ```
 
 > 压测（`npm run stress`）三条轴线：**长会话检索**（Recall@k、陈旧残留率）、**冲突裁决**（可重放仲裁集：审计快照 hash + receipt + 幂等回放）、**多 Agent 并发**（丢更新、重复合并、事务/崩溃恢复）。每次 autoDream 运行都会写入审计表 `dream_runs`（输入快照 digest + 决策清单 + 逐 id 去向 + receipt），让高通过率下也能定位静默错误。
 
-> `lib/` 是 `src/` 的同步分发产物（`npm run sync`），其中 `lib/client.js` 为手写 Web 面板源码，不受同步影响。
+> `lib/` 是 `src/` 的同步分发产物（`npm run sync`）：v0.7.6 起全部由 src 复制而来，**不再有任何手写 lib 文件**——Web 面板 bundle 也以 `src/client.js` 为唯一正源。
 
 ## 📄 设计文档
 

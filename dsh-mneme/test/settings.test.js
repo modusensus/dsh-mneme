@@ -99,3 +99,27 @@ test("vector config disabled value is stored as false", () => {
   assert.equal(settings.getVectorConfig().enabled, false);
   store.close();
 });
+
+test("panel mode defaults to standard and round-trips", () => {
+  const { store, settings } = setup();
+  assert.equal(settings.getPanelMode(), "standard");
+  settings.setPanelMode("light");
+  assert.equal(settings.getPanelMode(), "light");
+  settings.setPanelMode("standard");
+  assert.equal(settings.getPanelMode(), "standard");
+  store.close();
+});
+
+test("external api settings persist token and merge partial writes", () => {
+  const { store, settings } = setup();
+  assert.equal(settings.getExternalApi(), undefined);
+  settings.setExternalApi({ enabled: true, port: 9000, token: "tok-1" });
+  assert.deepEqual(settings.getExternalApi(), { enabled: true, port: 9000, host: "127.0.0.1", token: "tok-1" });
+  // Token-only write preserves the other keys.
+  settings.setExternalApi({ token: "tok-2" });
+  assert.deepEqual(settings.getExternalApi(), { enabled: true, port: 9000, host: "127.0.0.1", token: "tok-2" });
+  // Host write persists and survives the next partial merge.
+  settings.setExternalApi({ host: "0.0.0.0" });
+  assert.deepEqual(settings.getExternalApi(), { enabled: true, port: 9000, host: "0.0.0.0", token: "tok-2" });
+  store.close();
+});

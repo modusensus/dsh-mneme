@@ -191,6 +191,50 @@ test("PUT /api/dsh-mneme/rules saves rules", async () => {
   assert.deepEqual(settings.getRules(), ["a", "b"]);
 });
 
+// --- panel mode (light/standard) ---
+
+test("GET /api/dsh-mneme/mode defaults to standard", async () => {
+  const { routes } = setup();
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/mode");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/mode"), res);
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(JSON.parse(res.body), { mode: "standard" });
+});
+
+test("PUT /api/dsh-mneme/mode validates the enum and persists", async () => {
+  const { routes, settings } = setup();
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/mode");
+
+  const put = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/mode", "PUT", { mode: "light" }), put);
+  assert.equal(put.statusCode, 200);
+  assert.deepEqual(JSON.parse(put.body), { mode: "light" });
+  assert.equal(settings.getPanelMode(), "light");
+
+  const back = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/mode", "PUT", { mode: "standard" }), back);
+  assert.deepEqual(JSON.parse(back.body), { mode: "standard" });
+
+  const bad = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/mode", "PUT", { mode: "turbo" }), bad);
+  assert.equal(bad.statusCode, 400);
+  assert.equal(settings.getPanelMode(), "standard", "invalid value not persisted");
+});
+
+test("PUT /api/dsh-mneme/mode is token-gated like other settings writes", async () => {
+  const { routes } = setup(undefined, "secret-token");
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/mode");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/mode", "PUT", { mode: "light" }), res);
+  assert.equal(res.statusCode, 401);
+  const ok = new FakeRes();
+  const authed = req("/api/dsh-mneme/mode", "PUT", { mode: "light" });
+  authed.headers = { authorization: "Bearer secret-token" };
+  await route.handler(authed, ok);
+  assert.equal(ok.statusCode, 200);
+});
+
 test("GET /api/dsh-mneme/commands lists commands", async () => {
   const { routes, settings } = setup();
   settings.addCommand({ name: "agenda", instruction: "x" });

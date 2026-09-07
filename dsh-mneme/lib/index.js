@@ -7,13 +7,14 @@ import { createSummarizer } from "./summarize.js";
 import { createDreamScheduler } from "./dream.js";
 import { createSleepScheduler, runSleep } from "./dream/sleep.js";
 import { createApi } from "./api.js";
+import { createStandaloneApi } from "./api-standalone.js";
 import { createSettings } from "./settings.js";
 import { createCommandManager } from "./commands.js";
 import { createEmbedder } from "./embedding.js";
 import { createEmbedderByProvider } from "./local-embedder.js";
 import { LocalReranker } from "./reranker.js";
 import { createVectorIndex } from "./vector-index.js";
-import { Config } from "./config.js";
+import { Config, applyLightModePreset } from "./config.js";
 import { extractEntities } from "./entities/extractor.js";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -29,12 +30,12 @@ export { Config };
 // has no prototype, is called normally, and its returned disposer is collected
 // and run by the fiber on unload.
 export const apply = (ctx, config) => {
-  const cfg = Config(config);
+  const rawCfg = Config(config);
 
   // Resolve memoryDir: expand leading "~"
-  const memoryDir = cfg.memoryDir.startsWith("~")
-    ? join(homedir(), cfg.memoryDir.slice(1))
-    : cfg.memoryDir;
+  const memoryDir = rawCfg.memoryDir.startsWith("~")
+    ? join(homedir(), rawCfg.memoryDir.slice(1))
+    : rawCfg.memoryDir;
   mkdirSync(memoryDir, { recursive: true });
 
   const store = createStore(join(memoryDir, "memory.db"));
@@ -47,11 +48,26 @@ export const apply = (ctx, config) => {
   // default 90). Best-effort like the failure prune — the audit trail is
   // bookkeeping and a failed purge must never block plugin boot.
   try {
-    if (cfg.llmAudit?.enabled !== false) {
-      const retentionMs = Number.isInteger(cfg.llmAudit?.retentionDays) ? cfg.llmAudit.retentionDays : 90;
+    if (rawCfg.llmAudit?.enabled !== false) {
+      const retentionMs = Number.isInteger(rawCfg.llmAudit?.retentionDays) ? rawCfg.llmAudit.retentionDays : 90;
       store.deleteOldLlmAudits(new Date(Date.now() - retentionMs * 86400000).toISOString());
     }
   } catch { /* non-fatal */ }
+
+  // User-configurable settings (profile, rules, panel mode, standalone API
+  // token) share the same SQLite file in dedicated tables, isolated from
+  // memories. Created before the config is finalized: the persisted
+  // panel_mode participates in light-mode resolution below.
+  const settings = createSettings(store.db);
+
+  // Light mode (v0.7.12): the bundle config flag OR a persisted panel_mode of
+  // "light" (the panel switch wins over the bundle config so it survives
+  // config redeploys). applyLightModePreset turns every heavy background /
+  // semantic feature off and keeps the core loop (autoInject, autoSummarize,
+  // hot memory, quality filter).
+  const lightMode = rawCfg.lightMode === true || settings.getPanelMode() === "light";
+  const cfg = applyLightModePreset({ ...rawCfg, lightMode });
+
   const mirror = createMirror(memoryDir);
   const service = createService({ store, mirror, config: cfg, logger: ctx.logger });
 
@@ -78,10 +94,6 @@ export const apply = (ctx, config) => {
     } catch { /* non-fatal: recall recording is bookkeeping */ }
   });
 
-  // User-configurable settings (profile, rules) and custom commands share the
-  // same SQLite file but live in dedicated tables, isolated from memories.
-  const settings = createSettings(store.db);
-
   // Semantic pipeline: a local/ollama embedder when configured, otherwise the
   // legacy OpenAI-compatible embedder (settings-driven). The vector index wraps
   // the store's embedding column and tracks the active model fingerprint. A
@@ -107,7 +119,13 @@ export const apply = (ctx, config) => {
 
   let embedder = null;
   let reranker = null;
-  if (cfg.embedProvider === "openai") {
+  if (lightMode) {
+    // Light mode: the whole vector pipeline stays off — no embedder (nothing
+    // pulls in ONNX/transformers), no reranker, no boot backfill (the preset
+    // also cleared autoReindexOnBoot). Recall degrades to keyword search and
+    // human mirror edits still merge on boot.
+    applyHumanEdits();
+  } else if (cfg.embedProvider === "openai") {
     // vectorIndex is passed so the legacy OpenAI embedder records the producing
     // model fingerprint after each successful embed (Bug3).
     embedder = createEmbedder({ store, settings, logger: ctx.logger, vectorIndex });
@@ -324,6 +342,19 @@ export const apply = (ctx, config) => {
       list: () => []
     }, embedder, { vectorIndex, reranker }, cfg.apiToken);
     disposers.push(api.dispose);
+  }
+
+  // Standalone external API (v0.7.12): plain node:http server for ecosystem
+  // integrations outside the DSH host. Persisted external_api settings win
+  // over the bundle config (enabled/port); the Bearer token lives in the same
+  // kv and is auto-generated on first boot by createStandaloneApi. Binding a
+  // non-loopback host is the operator's documented responsibility.
+  if ((settings.getExternalApi?.()?.enabled ?? cfg.externalApiEnabled) === true) {
+    const standalone = createStandaloneApi({ service, store, config: cfg, logger: ctx.logger, settings });
+    disposers.push(() => standalone.server.close());
+    standalone.ready.catch((error) => {
+      ctx.logger?.warn?.(`[dsh-mneme] standalone API failed to start: ${String(error)}`);
+    });
   }
 
   // Async disposer: cordis awaits the returned promise on unload (runDisposable),

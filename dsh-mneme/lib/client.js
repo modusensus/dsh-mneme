@@ -195,6 +195,23 @@ window.__ModuleLoader__.load({
         "memory.settings.apiTokenPlaceholder": "留空 = 不鉴权（默认）",
         "memory.settings.apiTokenSave": "保存 Token",
         "memory.settings.apiTokenSaved": "Token 已保存",
+        "memory.settings.mode.title": "运行模式",
+        "memory.settings.mode.desc": "轻量模式只保留核心的记忆读写与自动注入（关闭 autoDream 巩固、实体抽取、语义搜索等高级功能），适合只想「记住偏好」的轻量使用；标准模式开启全部功能。",
+        "memory.settings.mode.light": "轻量",
+        "memory.settings.mode.standard": "标准",
+        "memory.settings.mode.savedHint": "已保存，重启 DSH 后生效",
+        "memory.settings.mode.offList": "已关闭：巩固（autoDream）· 实体抽取 · 语义搜索",
+        "memory.settings.extapi.title": "外部访问 API",
+        "memory.settings.extapi.desc": "独立 HTTP 服务，供其他插件 / CLI / 桌面工具读写记忆，默认绑定 127.0.0.1。重启 DSH 后生效。",
+        "memory.settings.extapi.enabled": "启用",
+        "memory.settings.extapi.disabled": "停用",
+        "memory.settings.extapi.address": "地址",
+        "memory.settings.extapi.port": "端口",
+        "memory.settings.extapi.token": "Token",
+        "memory.settings.extapi.copy": "复制",
+        "memory.settings.extapi.copied": "已复制",
+        "memory.settings.extapi.savedHint": "已保存，重启 DSH 后生效",
+        "memory.settings.extapi.invalidPort": "端口需为 1-65535 的数字",
         "memory.explorer.delete": "删除",
         "memory.explorer.confirmDelete": "确认删除?",
         "memory.explorer.cancel": "取消",
@@ -312,6 +329,23 @@ window.__ModuleLoader__.load({
         "memory.settings.apiTokenPlaceholder": "Empty = no auth (default)",
         "memory.settings.apiTokenSave": "Save Token",
         "memory.settings.apiTokenSaved": "Token saved",
+        "memory.settings.mode.title": "Runtime mode",
+        "memory.settings.mode.desc": "Light mode keeps only the core memory read/write and auto-injection (autoDream consolidation, entity extraction and semantic search are off) — for light use where you just want preferences remembered. Standard mode enables everything.",
+        "memory.settings.mode.light": "Light",
+        "memory.settings.mode.standard": "Standard",
+        "memory.settings.mode.savedHint": "Saved. Takes effect after restarting DSH",
+        "memory.settings.mode.offList": "Off: consolidation (autoDream) · entity extraction · semantic search",
+        "memory.settings.extapi.title": "External API",
+        "memory.settings.extapi.desc": "A standalone HTTP service for other plugins / CLIs / desktop tools to read and write memories, bound to 127.0.0.1 by default. Takes effect after restarting DSH.",
+        "memory.settings.extapi.enabled": "Enable",
+        "memory.settings.extapi.disabled": "Disable",
+        "memory.settings.extapi.address": "Address",
+        "memory.settings.extapi.port": "Port",
+        "memory.settings.extapi.token": "Token",
+        "memory.settings.extapi.copy": "Copy",
+        "memory.settings.extapi.copied": "Copied",
+        "memory.settings.extapi.savedHint": "Saved. Takes effect after restarting DSH",
+        "memory.settings.extapi.invalidPort": "Port must be a number between 1 and 65535",
         "memory.explorer.delete": "Delete",
         "memory.explorer.confirmDelete": "Confirm delete?",
         "memory.explorer.cancel": "Cancel",
@@ -547,7 +581,13 @@ window.__ModuleLoader__.load({
       ".mneme-btndanger{color:var(--dsw-alias-state-error,#c33);border-color:var(--dsw-alias-state-error,#c33)}",
       ".mneme-btndanger:hover{background:color-mix(in srgb,var(--dsw-alias-state-error,#c33) 12%,transparent)}",
       ".mneme-btndangerconfirm{background:var(--dsw-alias-state-error,#c33);border-color:var(--dsw-alias-state-error,#c33);color:#fff}",
-      ".mneme-btndangerconfirm:hover{filter:brightness(.9)}"
+      ".mneme-btndangerconfirm:hover{filter:brightness(.9)}",
+      // --- settings cards: boxed cards for the runtime-mode and external-API
+      // sections — each card owns its fetch/PUT state, so it renders as a
+      // self-contained unit inside the stacked settings view ---
+      ".mneme-set-card{border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:14px;margin-bottom:12px}",
+      ".mneme-set-token{font-family:monospace;font-size:12px;padding:7px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-base,transparent);color:var(--dsw-alias-label-primary);word-break:break-all;user-select:all}",
+      ".mneme-set-hint{font-size:12px;color:var(--dsw-alias-label-tertiary)}"
     ].join("\n");
     if (typeof document !== "undefined" && document.querySelector(`style[data-plugin-css="${CSS_TAG}"]`) === null) {
       const tag = document.createElement("style");
@@ -1086,6 +1126,21 @@ window.__ModuleLoader__.load({
         (typeof window !== "undefined" && window.localStorage) ? window.localStorage.getItem("dsh-mneme-api-token") || "" : ""
       );
       const [apiTokenSaved, setApiTokenSaved] = react.useState(false);
+      // 运行模式 — light vs standard; null = still loading. The card keeps
+      // its own busy/saved/error state so it never blocks the others.
+      const [mode, setMode] = react.useState(null);
+      const [modeBusy, setModeBusy] = react.useState(false);
+      const [modeSaved, setModeSaved] = react.useState(false);
+      const [modeError, setModeError] = react.useState("");
+      // 外部访问 API — config fetched from the backend (the token is generated
+      // and kept server-side); host/port inputs are drafts, PUT only on save.
+      const [extapi, setExtapi] = react.useState(null);
+      const [extapiHost, setExtapiHost] = react.useState("127.0.0.1");
+      const [extapiPort, setExtapiPort] = react.useState("");
+      const [extapiBusy, setExtapiBusy] = react.useState(false);
+      const [extapiSaved, setExtapiSaved] = react.useState(false);
+      const [extapiCopied, setExtapiCopied] = react.useState(false);
+      const [extapiError, setExtapiError] = react.useState("");
 
       const load = react.useCallback(async () => {
         try {
@@ -1103,6 +1158,34 @@ window.__ModuleLoader__.load({
       }, []);
 
       react.useEffect(() => { load(); }, [load]);
+
+      // Runtime mode + external API — two independent fetches: one failing
+      // endpoint only errors its own card, never the other one.
+      react.useEffect(() => {
+        let cancelled = false;
+        const toErr = (err) => (err && err.message) || "failed";
+        apiFetch("/api/dsh-mneme/mode")
+          .then((res) => { if (!res.ok) throw new Error("HTTP " + res.status); return res.json(); })
+          .then((j) => { if (!cancelled) setMode(j.mode === "light" ? "light" : "standard"); })
+          .catch((err) => { if (!cancelled) setModeError(toErr(err)); });
+        apiFetch("/api/dsh-mneme/external-api")
+          .then((res) => { if (!res.ok) throw new Error("HTTP " + res.status); return res.json(); })
+          .then((j) => {
+            if (cancelled) return;
+            const cfg = (j && j.config) || {};
+            const next = {
+              enabled: !!cfg.enabled,
+              host: cfg.host || "127.0.0.1",
+              port: Number(cfg.port) || 0,
+              token: cfg.token || ""
+            };
+            setExtapi(next);
+            setExtapiHost(next.host);
+            setExtapiPort(next.port ? String(next.port) : "");
+          })
+          .catch((err) => { if (!cancelled) setExtapiError(toErr(err)); });
+        return () => { cancelled = true; };
+      }, []);
 
       async function saveProfile() {
         try {
@@ -1195,6 +1278,85 @@ window.__ModuleLoader__.load({
         } catch { /* ignore */ }
       }
 
+      // Runtime mode: optimistic chip flip, rolled back on failure. Both
+      // changes only take effect after a DSH restart — the saved hint says so.
+      async function saveMode(next) {
+        if (modeBusy) return;
+        const prev = mode;
+        setModeBusy(true);
+        setModeError("");
+        setMode(next);
+        try {
+          const res = await apiFetch("/api/dsh-mneme/mode", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mode: next })
+          });
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          setModeSaved(true);
+          setTimeout(() => setModeSaved(false), 2500);
+        } catch (err) {
+          setMode(prev);
+          setModeError((err && err.message) || "failed");
+        }
+        setModeBusy(false);
+      }
+
+      // External API: the backend owns the token and returns the full config,
+      // so every PUT response refreshes host/port/token from the server.
+      async function putExtapi(body) {
+        setExtapiBusy(true);
+        setExtapiError("");
+        try {
+          const res = await apiFetch("/api/dsh-mneme/external-api", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body)
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
+          const cfg = data.config || {};
+          const next = {
+            enabled: !!cfg.enabled,
+            host: cfg.host || "127.0.0.1",
+            port: Number(cfg.port) || 0,
+            token: cfg.token || ""
+          };
+          setExtapi(next);
+          setExtapiHost(next.host);
+          setExtapiPort(next.port ? String(next.port) : "");
+          setExtapiSaved(true);
+          setTimeout(() => setExtapiSaved(false), 2500);
+        } catch (err) {
+          setExtapiError((err && err.message) || "failed");
+        }
+        setExtapiBusy(false);
+      }
+
+      function saveExtapiEnabled(enabled) {
+        if (extapiBusy) return;
+        putExtapi({ enabled });
+      }
+
+      function saveExtapiAddress() {
+        if (extapiBusy) return;
+        const raw = String(extapiPort).trim();
+        const port = Number(raw);
+        if (!/^\d+$/.test(raw) || port < 1 || port > 65535) {
+          setExtapiError(t("memory.settings.extapi.invalidPort"));
+          return;
+        }
+        putExtapi({ port, host: extapiHost.trim() || "127.0.0.1" });
+      }
+
+      function copyExtapiToken() {
+        const token = extapi ? extapi.token || "" : "";
+        navigator.clipboard?.writeText(token).then(
+          () => { setExtapiCopied(true); setTimeout(() => setExtapiCopied(false), 1500); },
+          () => {}
+        );
+      }
+
       return h("div", null,
         // 用户画像 — who the agent is talking to
         h("section", { className: "mneme-set-sec" },
@@ -1270,6 +1432,86 @@ window.__ModuleLoader__.load({
               cmdError && h("span", { style: { fontSize: 12, color: "var(--dsw-alias-state-error, #c33)" } }, cmdError)
             )
           )
+        ),
+        // 运行模式 — light vs standard chip radios; each click PUTs and the
+        // change only lands after a DSH restart (green saved hint says so).
+        h("section", { className: "mneme-set-card" },
+          h("div", { className: "mneme-set-title" }, t("memory.settings.mode.title")),
+          h("div", { className: "mneme-set-desc" }, t("memory.settings.mode.desc")),
+          modeError && h("div", { style: { fontSize: 12, color: "var(--dsw-alias-state-error,#c33)", marginBottom: 8 } }, modeError),
+          mode === null && !modeError
+            ? h("div", { className: "mneme-set-hint" }, "…")
+            : h(react.Fragment, null,
+                h("div", { style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" } },
+                  h("button", {
+                    className: mode === "light" ? "mneme-chip mneme-active" : "mneme-chip",
+                    disabled: modeBusy,
+                    onClick: () => saveMode("light")
+                  }, t("memory.settings.mode.light")),
+                  h("button", {
+                    className: mode === "standard" ? "mneme-chip mneme-active" : "mneme-chip",
+                    disabled: modeBusy,
+                    onClick: () => saveMode("standard")
+                  }, t("memory.settings.mode.standard")),
+                  modeSaved && h("span", { className: "mneme-saved" }, t("memory.settings.mode.savedHint"))
+                ),
+                mode === "light" && h("div", { className: "mneme-set-hint", style: { marginTop: 8 } },
+                  t("memory.settings.mode.offList"))
+              )
+        ),
+        // 外部访问 API — standalone HTTP service for plugins/CLI/desktop tools;
+        // the token is generated and kept by the backend, so it is read-only
+        // here with a copy affordance. Changes need a DSH restart.
+        h("section", { className: "mneme-set-card" },
+          h("div", { className: "mneme-set-title" }, t("memory.settings.extapi.title")),
+          h("div", { className: "mneme-set-desc" }, t("memory.settings.extapi.desc")),
+          extapiError && h("div", { style: { fontSize: 12, color: "var(--dsw-alias-state-error,#c33)", marginBottom: 8 } }, extapiError),
+          extapi === null && !extapiError
+            ? h("div", { className: "mneme-set-hint" }, "…")
+            : h(react.Fragment, null,
+                h("div", { style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" } },
+                  h("button", {
+                    className: extapi && extapi.enabled ? "mneme-chip mneme-active" : "mneme-chip",
+                    disabled: extapiBusy,
+                    onClick: () => saveExtapiEnabled(true)
+                  }, t("memory.settings.extapi.enabled")),
+                  h("button", {
+                    className: extapi && !extapi.enabled ? "mneme-chip mneme-active" : "mneme-chip",
+                    disabled: extapiBusy,
+                    onClick: () => saveExtapiEnabled(false)
+                  }, t("memory.settings.extapi.disabled")),
+                  extapiSaved && h("span", { className: "mneme-saved" }, t("memory.settings.extapi.savedHint"))
+                ),
+                extapi && extapi.enabled && h(react.Fragment, null,
+                  h("div", { className: "mneme-set-hint", style: { marginTop: 10 } },
+                    `${t("memory.settings.extapi.address")}: http://${extapi.host}:${extapi.port}`),
+                  h("div", { style: { display: "flex", gap: 8, marginTop: 8 } },
+                    h("input", {
+                      className: "mneme-set-input",
+                      style: { marginBottom: 0, flex: 2, minWidth: 0, width: "auto" },
+                      value: extapiHost,
+                      placeholder: "127.0.0.1",
+                      onChange: (e) => setExtapiHost(e.target.value)
+                    }),
+                    h("input", {
+                      className: "mneme-set-input",
+                      style: { marginBottom: 0, flex: 1, minWidth: 0, width: "auto" },
+                      value: extapiPort,
+                      placeholder: t("memory.settings.extapi.port"),
+                      inputMode: "numeric",
+                      onChange: (e) => setExtapiPort(e.target.value)
+                    }),
+                    h("button", { className: "mneme-btn", disabled: extapiBusy, onClick: saveExtapiAddress },
+                      t("memory.settings.vectorSave"))
+                  ),
+                  h("div", { style: { display: "flex", alignItems: "center", gap: 8, marginTop: 10 } },
+                    h("div", { className: "mneme-set-token", style: { flex: 1, minWidth: 0 } }, extapi.token || "—"),
+                    h("button", { className: "mneme-btn", onClick: copyExtapiToken },
+                      t("memory.settings.extapi.copy")),
+                    extapiCopied && h("span", { className: "mneme-saved" }, t("memory.settings.extapi.copied"))
+                  )
+                )
+              )
         ),
         // 向量搜索 — semantic recall over an embeddings API
         h("section", { className: "mneme-set-sec" },

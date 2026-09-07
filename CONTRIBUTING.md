@@ -62,6 +62,7 @@ Common scripts (all run under `dsh-mneme/`):
 | `npm run e2e` | End-to-end smoke test (scripts/e2e-dsh.js) |
 | `npm run stress` | Three-axis stress test (scripts/stress-dsh.js) |
 | `npm run sync` | src/ → lib/ mirror |
+| `node bin/cli.mjs --help` | CLI smoke check (zero-dep external API client, v0.7.12+) |
 
 ---
 
@@ -131,6 +132,14 @@ Versioning follows semantic versioning (`MAJOR.MINOR.PATCH`). Full flow:
 6. **Publish to npm**: run `npm publish` from the **repository root** (`prepublishOnly` copies the version from `dsh-mneme/package.json` into the root `package.json`; `prepack` runs `scripts/check-sync.js` and fails if `src/` ↔ `lib/` drifted — ensure `npm run sync` + commit ran first).
 
 ---
+
+## External API & CLI (v0.7.12+)
+
+The standalone external API (`src/api-standalone.js`) and the `bin/cli.mjs` client let other plugins and desktop tools read/write memories over loopback HTTP. When touching them:
+
+- Keep the route surface read/write on memories only; new routes need tests in `test/standalone-api.test.js` (they spin the real server on port 0).
+- Auth additions/changes must keep `timingSafeEqual` token comparison and the `GET /health` exception.
+- The CLI is dependency-free by contract - do not add imports to `bin/cli.mjs`.
 
 ## Contact
 
