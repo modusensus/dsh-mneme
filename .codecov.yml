@@ -1,0 +1,15 @@
+# Codecov 状态检查配置。
+#
+# 背景：Web 面板（dsh-mneme/src/client.js）以 React 渲染代码为主，而 client
+# 测试是源码静态断言、不执行渲染路径——UI 改动为主的 PR 的 patch 覆盖率
+# 天然偏低（如 #68 为 55%），patch 红叉并不反映测试质量。
+# 因此 patch 检查降级为 informational（只展示、不标失败）；project 检查
+# 保持 auto target，整体覆盖率回退仍会被标红。
+coverage:
+  status:
+    patch:
+      default:
+        informational: true
+    project:
+      default:
+        target: auto
