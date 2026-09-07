@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.7.12] - 2026-09-08
+
+### 新增
+
+- **独立外部 API（生态集成）**：插件可启动自己的 HTTP 服务（默认 `127.0.0.1:8790`，仅回环绑定），其他插件/CLI/桌面工具经 Bearer token 读写记忆，不再依赖 DSH 内部端口。路由：`GET /health`（免鉴权）、`GET /status`、`GET/POST/DELETE /memories`、`GET /memories/:id`、`GET /search`；token 首次启用自动生成并持久化（设置面板可查看复制）。配置：`externalApiEnabled/externalApiPort/externalApiHost` + 面板设置持久化（重启生效）；非回环绑定的安全责任由操作者承担。
+- **CLI 工具 `dsh-mneme`**：零依赖命令行（`bin/cli.mjs`）——`status` / `list` / `search` / `get` / `add` / `delete` / `config set|show|path`，配置优先级 参数 > 环境变量（DSH_MNEME_URL/TOKEN）> `~/.dsh-mneme/cli.json`；`--json` 机器输出。
+- **轻量模式（lightMode）**：面向非技术用户的简化预设——只保留核心的记忆读写与自动注入（autoInject/autoSummarize/hot memory/质量过滤），关闭 autoDream 巩固、实体抽取、语义搜索、rerank、bm25、选择性注入等重资源项；`applyLightModePreset` 纯函数 + `panel_mode` 持久化（持久化优先于 bundle 配置），设置面板一键切换（重启生效）。
+- **设置面板新卡片**：「运行模式」（轻量/标准）与「外部访问 API」（开关/地址端口/Token 复制），中英文案齐备。
+
+### 测试
+
+- 612 全绿（+17）：独立 API 10 例（401/health/CRUD 闭环/搜索/400 校验）、mode 路由 3 例、external_api kv 2 例、light 预设与 config 用例；`store.count` 支持 minImportance/source 后 total 与行一致。
+
+## [0.7.11] - 2026-09-08
+
+### 新增
+
+- **记忆库面板改版（可扩展性 + 实时性）**：
+  - **按月分页 + 无限滚动**：记忆浏览从一次性 `limit=500`（超限即静默丢失）改为 100 条/页的时间序分页（`list?order=chrono`，`store.list` 新增 `order` 参数、`/api/dsh-mneme/list` 透传），滚动到底自动拉下一页（IntersectionObserver 哨兵 + 「加载更多」按钮兜底），底栏常显 `已加载/总数`。
+  - **月份默认折叠**：仅最新一个月展开，历史月份收起为一行标题（带条目计数），月份表头吸顶；几千条记忆也只渲染少量 DOM。
+  - **搜索全局化**：关键词/语义搜索都改走服务端（`mode=keyword|vector`），命中全库而不仅已加载页；`type` 过滤在搜索结果上继续生效。
+  - **数据实时性**：记忆子视图激活时即刷新第一页，打开期间每 30s 静默刷新（页面不可见时暂停），新记忆无需手动刷新即可出现；图跳转的记忆若在未加载页，以单条结果呈现并选中。
+  - **图标与视觉**：内联 Lucide 风格 stroke 图标（路径数据打包进 bundle，运行时零依赖；与 morphicons 消费的 lucide 数据同源），替换文字箭头/子 tab 图标/搜索/刷新/复制等；月份表头、加载更多、空态样式梳理。
+- **bundle 默认开启实体抽取**：`cordis.patch.yml` 增加 `entityExtractionEnabled: true`（此前默认 false，图谱实体只在显式配置过的环境增长）。新记忆落库即自动抽取实体/关系，图谱随对话自动生长。
+- **记忆库「状态」子页**：记忆总数（含分类型小计）、实体计数（含分类型小计）、向量索引开关状态、近 7 天 LLM 调用/消耗四张卡片，分区独立加载互不阻塞。
+- **记忆删除（两步确认）**：详情面板新增红色「删除」按钮——首次点击变为实心红「确认删除？」+「取消」，确认后走新增的 `POST /api/dsh-mneme/delete`（`{id}`，复用 requireAuth 围栏；400 缺 id / 404 不存在），本地列表与计数同步移除。
+- **重要性过滤**：分类栏新增 全部/★3+/★4+/★5 服务端过滤芯片（`list?minImportance=`），`store.count` 同步接受过滤参数使分页 total 与行一致；浏览分页、加载更多、自动刷新共用同一过滤态。
+- **双语 README**：新增 `README.en.md`（与中文版逐节对齐），两版互挂语言切换链接。
+
+### 修复
+
+- **Issue #72：窗口最大化后图谱节点不可见**：力导向模拟此前以 SVG 元素的 CSS 宽度（`clientWidth`）为布局边界——最大化窗口下元素宽达上千 CSS px，重心（`clientWidth/2`）与钳制区间都落到 380×300 viewBox 之外，节点整体被裁剪出画布（窗口较小时两个空间近似重合，所以一切正常）。现在模拟全程在 viewBox 用户单位（`VIEW_W`/`VIEW_H`）中运行，与绘制空间严格一致；浏览器把 viewBox 等比缩放到元素实际尺寸，小窗、隐藏 tab、最大化均可见、可拖拽，布局不再依赖挂载时的容器测量。
+- **Issue #59：DSH ≥0.1.2-rc 上 autoSummarize 从不执行**：DSH 0.1.2-rc 起移除了 `Session.events` 属性，事件只能经 `snapshotEvents()` 获取——`collectMessages()` 拿到的恒为空数组导致 `summarize()` 直接退出，`llm_audit_logs` 全空、从未发起 LLM 调用。`summarize.js` 与 `inject.js`（`lastUserQuery` / `extractRounds`）三处统一改为 `session.snapshotEvents?.() ?? session.events ?? []` 兼容垫片：新 DSH 走 snapshot 方法，老版本回退 `.events`，两边都不破坏。
+
+### 测试
+
+- 595 全绿：新增 snapshotEvents 回归 2 例——summarize（仅暴露 `snapshotEvents()`、无 `.events` 的会话必须触发 LLM 调用并入库 2 条记忆）与 inject（无 `.events` 会话下「短期上下文」热记忆块照常渲染）。
+
 ## [0.7.10] - 2026-09-07
 
 ### 🆕 Web 面板体验升级：类型色点 / 图谱平移缩放 / 设置页重排 / 侧边栏冲突修复

@@ -428,6 +428,76 @@ dsh web
 
 > 🔐 **API 安全**：DSH 无内置鉴权且默认仅监听 `127.0.0.1`。插件 API 默认开放（便于 Web 面板即装即用）。如需防护（如局域网暴露），在配置中设置 `apiToken`：写操作（画像/规则/命令）与密钥端点（`vector-config`、`vector-reindex`）需携带 `Authorization: Bearer <token>`（前端设置面板可填入同一 token），只读的 `list` / `search` / `semantic` 保持开放。`/api/dsh-mneme/vector-config` 返回的 `apiKey` 已掩码（`sk-***…`），存储仍保留明文供调用；前端回传空或掩码值表示"不改 key"。
 
+
+## 外部 API 与 CLI
+
+除 DSH 内部端口外，插件还可以开启一个**独立的 HTTP 外部 API**（默认 `http://127.0.0.1:8790`，Bearer token 鉴权），供其他插件、CLI 脚本或桌面工具读写记忆，不依赖 DSH 内部端口。
+
+### 启用与鉴权
+
+- 在插件设置中开启外部 API（默认监听 `127.0.0.1:8790`，仅本机可访问）；
+- 访问 token 在插件设置 / 面板「设置 → 外部访问」中查看；
+- 除 `GET /health`（免鉴权）外，所有路由需携带 `Authorization: Bearer <token>`，无效 token 返回 `401 {"error":"unauthorized"}`。
+
+主要路由：
+
+| 方法 | 路由 | 说明 |
+|------|------|------|
+| `GET` | `/health` | 健康检查（免鉴权），返回 `{ok:true}` |
+| `GET` | `/status` | 版本、记忆统计、实体数、运行时长 |
+| `GET` | `/memories?limit&offset&type&minImportance&source&order=chrono` | 分页列出记忆 |
+| `GET` | `/memories/:id` | 单条记忆 |
+| `POST` | `/memories` | 新增记忆 `{type,title,content,importance?,tags?,source?}` |
+| `DELETE` | `/memories/:id` | 删除记忆 |
+| `GET` | `/search?q&mode=keyword\|vector\|auto&topK` | 搜索（关键词 / 向量 / 自动） |
+
+### curl 示例
+
+```bash
+# 服务状态
+curl -s -H "Authorization: Bearer $DSH_MNEME_TOKEN" http://127.0.0.1:8790/status
+
+# 列出最近 5 条记忆
+curl -s -H "Authorization: Bearer $DSH_MNEME_TOKEN" \
+  "http://127.0.0.1:8790/memories?limit=5"
+
+# 新增一条决策记忆
+curl -s -X POST http://127.0.0.1:8790/memories \
+  -H "Authorization: Bearer $DSH_MNEME_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"decision","title":"采用 SQLite","content":"存储层使用 node:sqlite","importance":4,"tags":["存储"]}'
+```
+
+### CLI 安装
+
+插件自带零依赖 CLI（随 npm 包一起发布）：
+
+```bash
+npm i -g @modusensus/dsh-mneme
+dsh-mneme --help
+```
+
+首次使用先配置服务地址与 token（也可用环境变量 `DSH_MNEME_URL` / `DSH_MNEME_TOKEN`，或 `--url` / `--token` 参数临时覆盖）：
+
+```bash
+dsh-mneme config set http://127.0.0.1:8790 <你的token>
+```
+
+### CLI 常用命令
+
+```bash
+dsh-mneme status                                     # 服务状态
+dsh-mneme list --type project --limit 10             # 列出记忆
+dsh-mneme search "部署流程" --mode vector --topk 5    # 语义搜索
+dsh-mneme add --type decision --title "采用 SQLite" \
+  --content "存储层使用 node:sqlite" --importance 4 --tags 存储,决策
+dsh-mneme get 42                                     # 查看单条
+dsh-mneme delete 42                                  # 删除
+dsh-mneme config show                                # 查看当前配置（token 打码）
+```
+
+> 所有读取/写入命令支持 `--json` 输出原始 JSON；`config path` 打印配置文件路径（`~/.dsh-mneme/cli.json`）。
+
 ## 🏗️ 架构
 
 ```

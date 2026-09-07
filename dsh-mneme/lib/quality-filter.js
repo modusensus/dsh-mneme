@@ -35,8 +35,9 @@ const TYPE_LABELS = {
   history: ["history", "历史", "事件"],
   summary: ["summary", "总结", "摘要", "总览"],
   pattern: ["pattern", "模式", "规律"],
-  user: ["user", "用户"],
-  fact: ["fact", "事实", "原子事实"]
+  rejected_solution: ["rejected_solution", "被否决", "废弃方案"],
+  pitfall: ["pitfall", "踩坑"],
+  constraint: ["constraint", "约束"]
 };
 
 /** Normalized bigram-overlap similarity in [0,1]; 0 for tiny/empty inputs. */

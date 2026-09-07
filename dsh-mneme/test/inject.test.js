@@ -102,105 +102,19 @@ test("Bug6: injected block stays within the ~1500 char budget, later entries col
   for (let i = 0; i < 8; i++) assert.ok(text.includes(`长标题记忆${i}`), `entry ${i} present`);
 });
 
-test("injectTimePrefix: off by default, no time prefix injected", () => {
+// DSH ≥0.1.2-rc removed Session.events; events are only reachable via
+// snapshotEvents(). Regression for #59: the hot block must still render from
+// a session object that has no .events property.
+test("extracts hot rounds from snapshotEvents() when Session.events is absent", () => {
   const { contexts } = setup();
-  const text = contexts[0].text({ agent: { session: { id: "s1" } } });
-  assert.ok(!text.includes("[当前时间:"), "no time prefix when disabled");
-});
-
-test("injectTimePrefix: enabled injects once at conversation start with correct format", () => {
-  const { contexts, service } = setup({ injectTimePrefix: true });
-  service.saveWithDedupe({ type: "preference", title: "语言", content: "用户用中文交流", importance: 5 });
-  const text = contexts[0].text({ agent: { session: { id: "s1" } } });
-  assert.match(
-    text,
-    /^\[当前时间: \d{4}-\d{2}-\d{2} 周[一二三四五六日] \d{2}:\d{2}\]\n\n/,
-    "prefix leads the injection with the documented format"
-  );
-  assert.ok(text.includes("语言"), "memory body still rendered after the prefix");
-});
-
-test("injectTimePrefix: same session never re-injects, a new session injects again", () => {
-  const { contexts } = setup({ injectTimePrefix: true });
-  const first = contexts[0].text({ agent: { session: { id: "s1" } } });
-  assert.match(first, /^\[当前时间:/, "injects on the first render of s1");
-  const second = contexts[0].text({ agent: { session: { id: "s1" } } });
-  assert.ok(!second.includes("[当前时间:"), "no re-inject within the same session");
-  const third = contexts[0].text({ agent: { session: { id: "s2" } } });
-  assert.match(third, /^\[当前时间:/, "a new session injects the prefix again");
-});
-
-test("issue #40: {{...}} in memory content is escaped at the injection boundary", () => {
-  const { contexts, service } = setup();
-  service.saveWithDedupe({ type: "preference", title: "模板记忆", content: "{{hl|highlight}} 和 {{挖空}} {{关键词}}", importance: 5 });
-  const text = contexts[0].text({});
-  assert.ok(text.includes("模板记忆"), "memory still rendered by title");
-  assert.ok(text.includes("{\\{hl|highlight}\\}"), "ASCII template braces escaped");
-  assert.ok(text.includes("{\\{挖空}\\}"), "CJK template braces escaped");
-  assert.ok(!text.includes("{{"), "no raw {{ survives into the prompt");
-  assert.ok(!text.includes("}}"), "no raw }} survives into the prompt");
-});
-
-test("issue #40: odd brace runs like {{{a}}} are escaped too", () => {
-  const { contexts, service } = setup();
-  service.saveWithDedupe({ type: "preference", title: "三层模板", content: "{{{a}}} 和 }}} 结尾", importance: 5 });
-  const text = contexts[0].text({});
-  assert.ok(!text.includes("{{"), "no raw {{ for odd brace runs");
-  assert.ok(!text.includes("}}"), "no raw }} for odd brace runs");
-});
-
-test("issue #40: {{...}} in user profile/rules is escaped", () => {
-  const { contexts, settings } = setup();
-  settings.setProfile("我叫{{名字}}，前端开发者");
-  settings.setRules(["回答时用 {{hl|term}}", "以 }} 结尾的规则"]);
-  const settingsCtx = contexts.find((c) => c.name === "user-settings");
-  const text = settingsCtx.text({});
-  assert.ok(text.includes("{\\{名字}\\}"), "profile braces escaped");
-  assert.ok(text.includes("{\\{hl|term}\\}"), "rule braces escaped");
-  assert.ok(!text.includes("{{"), "no raw {{ in user-settings block");
-  assert.ok(!text.includes("}}"), "no raw }} in user-settings block");
-});
-
-test("issue #40: hot-context rounds with {{...}} are escaped", () => {
-  const { contexts } = setup();
-  const text = contexts[0].text({
-    agent: {
-      session: {
-        id: "s1",
-        events: [
-          { type: "user/message", data: { source: { kind: "user" }, content: ["用 {{hl|你好}} 测试"] } },
-          { type: "assistant/message", data: { source: { kind: "assistant" }, content: ["返回 {{答案}}"] } }
-        ]
-      }
-    }
-  });
-  assert.ok(text.includes("[短期上下文]"), "hot context rendered");
-  assert.ok(!text.includes("{{"), "no raw {{ in hot context");
-  assert.ok(!text.includes("}}"), "no raw }} in hot context");
-});
-
-test("session with only snapshotEvents() (DSH 0.1.2-rc.1) still renders hot context", () => {
-  const { contexts } = setup();
-  const text = contexts[0].text({
-    agent: {
-      session: {
-        id: "s1",
-        snapshotEvents: () => [
-          { type: "user/message", data: { source: { kind: "user" }, content: ["用快照接口提问"] } },
-          { type: "assistant/message", data: { source: { kind: "assistant" }, content: ["快照返回的答复"] } }
-        ]
-      }
-    }
-  });
-  assert.ok(text.includes("[短期上下文]"), "hot context rendered");
-  assert.ok(text.includes("用快照接口提问"), "user query picked up from snapshotEvents");
-  assert.ok(text.includes("快照返回的答复"), "assistant reply picked up from snapshotEvents");
-});
-
-test("issue #40: escapePromptVariables=false passes {{...}} through verbatim", () => {
-  const { contexts, service } = setup({ escapePromptVariables: false });
-  service.saveWithDedupe({ type: "preference", title: "模板", content: "{{挖空}} 与 {{hl|term}}", importance: 5 });
-  const text = contexts[0].text({});
-  assert.ok(text.includes("{{挖空}}"), "raw braces preserved when escaping disabled");
-  assert.ok(text.includes("{{hl|term}}"), "raw ASCII braces preserved when escaping disabled");
+  const session = {
+    snapshotEvents: () => [
+      { type: "user/message", data: { source: { kind: "user" }, content: [{ type: "text", text: "怎么修图谱面板" }] } },
+      { type: "assistant/message", data: { content: [{ type: "text", text: "用 viewBox 单位跑模拟" }] } }
+    ]
+  };
+  const text = contexts[0].text({ agent: { session } });
+  assert.ok(text.includes("[短期上下文]"), "hot block rendered");
+  assert.ok(text.includes("怎么修图谱面板"), "round query present");
+  assert.ok(text.includes("用 viewBox 单位跑模拟"), "round response present");
 });

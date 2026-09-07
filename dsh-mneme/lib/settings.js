@@ -138,75 +138,45 @@ export function createSettings(db) {
       setSetting("vector", JSON.stringify(cfg));
       return cfg;
     },
-    /** Tagging switches (autoTag opt-in LLM pass + manual tag editing gate). */
-    getAutoTagConfig() {
-      const raw = getSetting("autoTag");
-      let stored = {};
-      if (raw) {
-        try {
-          const j = JSON.parse(raw);
-          if (j && typeof j === "object") stored = j;
-        } catch { /* fall through to defaults */ }
+
+    /**
+     * Standalone external API settings (kv "external_api"): {enabled, port,
+     * token}. The Bearer token is auto-generated on first boot and persisted
+     * here. Partial writes preserve the keys they don't mention.
+     */
+    getExternalApi() {
+      const raw = getSetting("external_api");
+      if (!raw) return undefined;
+      try {
+        const cfg = JSON.parse(raw);
+        return typeof cfg === "object" && cfg !== null ? cfg : undefined;
+      } catch {
+        return undefined;
       }
-      // null = never explicitly stored → callers fall back to the plugin
-      // config default, so the settings layer can't override a toggle the
-      // user never touched (issue #31). This also unifies the manualTagEnabled
-      // default (settings no longer invents false where plugin config says true).
-      return {
-        autoTagEnabled: typeof stored.autoTagEnabled === "boolean" ? stored.autoTagEnabled : null,
-        manualTagEnabled: typeof stored.manualTagEnabled === "boolean" ? stored.manualTagEnabled : null
-      };
     },
-    setAutoTagConfig(partial) {
-      const cur = (() => {
-        const raw = getSetting("autoTag");
-        try {
-          const j = JSON.parse(raw);
-          return j && typeof j === "object" ? j : {};
-        } catch { return {}; }
-      })();
-      const cfg = {};
-      // Only persist keys the caller explicitly set (or already stored). A
-      // partial update must never invent `false` for a key the user left
-      // alone — that would silently disable manual tagging on a toggle of
-      // autoTag alone (issue #31).
-      if (partial.autoTagEnabled !== undefined) cfg.autoTagEnabled = partial.autoTagEnabled === true;
-      else if (cur.autoTagEnabled !== undefined) cfg.autoTagEnabled = cur.autoTagEnabled === true;
-      if (partial.manualTagEnabled !== undefined) cfg.manualTagEnabled = partial.manualTagEnabled === true;
-      else if (cur.manualTagEnabled !== undefined) cfg.manualTagEnabled = cur.manualTagEnabled === true;
-      setSetting("autoTag", JSON.stringify(cfg));
+    setExternalApi(patch = {}) {
+      const prev = this.getExternalApi() ?? {};
+      const port = Number(patch.port ?? prev.port);
+      const host = typeof patch.host === "string" && patch.host.trim() ? patch.host.trim() : (prev.host ?? "127.0.0.1");
+      const cfg = {
+        enabled: patch.enabled !== undefined ? patch.enabled === true : prev.enabled === true,
+        port: Number.isInteger(port) && port > 0 ? port : 8790,
+        host,
+        token: String(patch.token ?? prev.token ?? "")
+      };
+      setSetting("external_api", JSON.stringify(cfg));
       return cfg;
     },
-    /** UI preferences (issue #38): same settings-over-config pattern as the
-     * tag toggles. null = never explicitly stored → callers fall back to the
-     * plugin-config default, so a partial update can't invent a value for a
-     * key the user never touched. */
-    getUiConfig() {
-      const raw = getSetting("ui");
-      let stored = {};
-      if (raw) {
-        try {
-          const j = JSON.parse(raw);
-          if (j && typeof j === "object") stored = j;
-        } catch { /* fall through to defaults */ }
-      }
-      return {
-        showSidebarTrigger: typeof stored.showSidebarTrigger === "boolean" ? stored.showSidebarTrigger : null
-      };
+
+    /**
+     * Web panel mode (kv "panel_mode"): "light" (low-resource preset) or
+     * "standard" (full feature set). Unset reads as "standard".
+     */
+    getPanelMode() {
+      return getSetting("panel_mode") === "light" ? "light" : "standard";
     },
-    setUiConfig(partial) {
-      const cur = (() => {
-        const raw = getSetting("ui");
-        try {
-          const j = JSON.parse(raw);
-          return j && typeof j === "object" ? j : {};
-        } catch { return {}; }
-      })();
-      const cfg = {};
-      if (partial.showSidebarTrigger !== undefined) cfg.showSidebarTrigger = partial.showSidebarTrigger === true;
-      else if (cur.showSidebarTrigger !== undefined) cfg.showSidebarTrigger = cur.showSidebarTrigger === true;
-      setSetting("ui", JSON.stringify(cfg));
-      return cfg;
+    setPanelMode(mode) {
+      setSetting("panel_mode", mode === "light" ? "light" : "standard");
     }
   };
 }

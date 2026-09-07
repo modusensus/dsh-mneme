@@ -7,9 +7,7 @@ export const TYPE_FILE = {
   project: "projects.md",
   decision: "decisions.md",
   history: "history.md",
-  summary: "summary.md",
-  user: "user.md",
-  fact: "facts.md"
+  summary: "summary.md"
 };
 
 const ESCAPE = /([\\`*_[\]{}()#+.!|>~-])/g;
@@ -33,15 +31,6 @@ function renderMemory(m) {
     .digest("hex");
   const lines = [];
   lines.push(`## ${esc(m.title)}`);
-  // v0.6.2 tag line: entity_attrs-backed tags (attached by the service as
-  // `entityTags`) rendered as `#tag` space-separated under the title. No tags
-  // → no line. Legacy `- **标签**:` metadata below keeps the memories.tags
-  // column (still written by save/update) readable.
-  const entityTags = Array.isArray(m.entityTags) ? m.entityTags : [];
-  if (entityTags.length) {
-    lines.push("");
-    lines.push(entityTags.map((t) => `#${esc(t)}`).join(" "));
-  }
   lines.push("");
   lines.push(`- **ID**: \`${m.id}\``);
   lines.push(`- **类型**: ${m.type}`);

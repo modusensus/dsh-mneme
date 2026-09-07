@@ -100,45 +100,26 @@ test("vector config disabled value is stored as false", () => {
   store.close();
 });
 
-test("autoTag config defaults to null (unset) and round-trips only explicit keys", () => {
+test("panel mode defaults to standard and round-trips", () => {
   const { store, settings } = setup();
-  // Issue #31: an unset key is null so runtime consumers fall back to the
-  // plugin config default — the settings layer must not invent `false`.
-  assert.deepEqual(settings.getAutoTagConfig(), { autoTagEnabled: null, manualTagEnabled: null });
-  settings.setAutoTagConfig({ autoTagEnabled: true, manualTagEnabled: true });
-  assert.deepEqual(settings.getAutoTagConfig(), { autoTagEnabled: true, manualTagEnabled: true });
-  // A partial update only touches the key it was given: manualTagEnabled was
-  // stored earlier so it keeps its value (true), it does not revert to null.
-  settings.setAutoTagConfig({ autoTagEnabled: false });
-  assert.deepEqual(settings.getAutoTagConfig(), { autoTagEnabled: false, manualTagEnabled: true });
+  assert.equal(settings.getPanelMode(), "standard");
+  settings.setPanelMode("light");
+  assert.equal(settings.getPanelMode(), "light");
+  settings.setPanelMode("standard");
+  assert.equal(settings.getPanelMode(), "standard");
   store.close();
 });
 
-test("autoTag config coerces non-boolean to false", () => {
+test("external api settings persist token and merge partial writes", () => {
   const { store, settings } = setup();
-  settings.setAutoTagConfig({ autoTagEnabled: "yes", manualTagEnabled: 1 });
-  assert.deepEqual(settings.getAutoTagConfig(), { autoTagEnabled: false, manualTagEnabled: false });
-  store.close();
-});
-
-test("ui config (sidebar trigger) defaults to null and round-trips only explicit keys", () => {
-  const { store, settings } = setup();
-  // Issue #38: same settings-over-config pattern as the tag toggles — an unset
-  // key is null so consumers fall back to the plugin-config default (visible).
-  assert.deepEqual(settings.getUiConfig(), { showSidebarTrigger: null });
-  settings.setUiConfig({ showSidebarTrigger: false });
-  assert.deepEqual(settings.getUiConfig(), { showSidebarTrigger: false });
-  settings.setUiConfig({ showSidebarTrigger: true });
-  assert.deepEqual(settings.getUiConfig(), { showSidebarTrigger: true });
-  // A partial update with no showSidebarTrigger keeps the stored value.
-  settings.setUiConfig({});
-  assert.deepEqual(settings.getUiConfig(), { showSidebarTrigger: true });
-  store.close();
-});
-
-test("ui config coerces non-boolean to false", () => {
-  const { store, settings } = setup();
-  settings.setUiConfig({ showSidebarTrigger: "yes" });
-  assert.deepEqual(settings.getUiConfig(), { showSidebarTrigger: false });
+  assert.equal(settings.getExternalApi(), undefined);
+  settings.setExternalApi({ enabled: true, port: 9000, token: "tok-1" });
+  assert.deepEqual(settings.getExternalApi(), { enabled: true, port: 9000, host: "127.0.0.1", token: "tok-1" });
+  // Token-only write preserves the other keys.
+  settings.setExternalApi({ token: "tok-2" });
+  assert.deepEqual(settings.getExternalApi(), { enabled: true, port: 9000, host: "127.0.0.1", token: "tok-2" });
+  // Host write persists and survives the next partial merge.
+  settings.setExternalApi({ host: "0.0.0.0" });
+  assert.deepEqual(settings.getExternalApi(), { enabled: true, port: 9000, host: "0.0.0.0", token: "tok-2" });
   store.close();
 });

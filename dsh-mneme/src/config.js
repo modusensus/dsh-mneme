@@ -1,34 +1,47 @@
 import z from "@deepseek-ai/schemastery";
-import { TYPE_DECAY_DEFAULTS } from "./heat.js";
 
 export const Config = z.object({
   memoryDir: z.string().default("~/.dsh/memory"),
   autoInject: z.boolean().default(true),
   autoSummarize: z.boolean().default(true),
-  // Session lifecycle (v0.6.0): when enabled, deleting/disposing a session also
-  // archives every memory that was born in it (treating the session as a save
-  // point — entries stay recoverable via memory_archive/restoreBySession).
-  // Default OFF: legacy behavior, a disposed session leaves its memories active.
-  sessionLifecycleEnabled: z.boolean().default(false),
   // Optional model override for summarization. When both are non-empty, they
   // take priority over the session's current model. Empty = use the session's
   // active provider/model (same as before).
   summarizeProvider: z.string().default(""),
   summarizeModel: z.string().default(""),
+  // 蒸馏转录上限（字符）。借鉴 Codex「保留原始、替代压缩摘要」的思路：
+  // 蒸馏把完整对话上下文交给 LLM 提炼，不硬裁到 8000 字就截断语义；默认
+  // 24000 字符（约覆盖一整轮中等对话），需要更完整可调大。
+  distillMaxChars: z.natural().min(1000).max(200000).default(24000),
+  // 智能调速器（429 保护，默认开）：蒸馏 LLM 调用全局串行排队，相邻请求
+  // 间隔 distillRateLimitIntervalMs（默认 1s 一次）；命中 429 限流时按
+  // distillRateLimitBaseDelayMs 指数退避（1s→2s→4s…）自动重试
+  // distillRateLimitRetries 次，全程对用户透明，不把 429 错误码抛给用户。
+  distillRateLimitIntervalMs: z.natural().min(0).max(60000).default(1000),
+  distillRateLimitRetries: z.natural().min(0).max(10).default(3),
+  distillRateLimitBaseDelayMs: z.natural().min(100).max(60000).default(1000),
   maxInjectedItems: z.natural().min(1).max(20).default(5),
   importanceThreshold: z.natural().min(1).max(5).default(3),
-  // 时间前缀注入（issue #34，opt-in，默认关）：开启时，新对话开始时把当前
-  // 日期时间以 [当前时间: 2026-08-26 周二 19:30] 前缀注入一次，让模型感知
-  // "现在几点/周几"。只注入一次（对话开始时），同会话后续渲染不再重复；
+  // 编码记忆蒸馏（codingRetrospect，opt-in，默认关）。开启时，turn/end 蒸馏
+  // 额外提取三类编码专属记忆：rejected_solution（被否决方案）/ pitfall（踩坑）/
+  // constraint（工程约束）。蒸馏上下文为整轮完整对话（用户输入 → 助手思考/回答
+  // → 工具调用与结果 → 代码执行），不再只看用户消息，便于提炼踩坑根因。
   // 关闭时行为与之前完全一致。
-  injectTimePrefix: z.boolean().default(false),
-  // 花括号转义（issue #40，默认开）：DSH 核心 interpolate() 会把 `{{name}}`
-  // 当 prompt 变量做严格校验（变量名须匹配 /^[a-z][a-z0-9_]*$/），记忆正文里
-  // 合法的模板语法（如 `{{hl|}}`、`{{挖空}}`、`{{关键词}}`）会因非法变量名
-  // 直接 throw、让整轮对话崩溃。开启后注入边界把 `{{`→`\{\{`、`}}`→`\}\}`，
-  // 文本不再含 `{{`/`}}` 子串，interpolate 不再扫描到，内容保持可读且幂等
-  // （不会二次转义）。关闭后按原样透传。
-  escapePromptVariables: z.boolean().default(true),
+  codingRetrospect: z.boolean().default(false),
+  // 编码任务识别词表（读取侧门控用）：命中即视为编码类任务，编码记忆才注入。
+  codingKeywords: z.array(z.string()).default([
+    "代码", "编码", "写一个", "写个", "实现", "函数", "方法", "类",
+    "接口", "bug", "调试", "报错", "错误", "异常", "堆栈", "脚本",
+    "python", "javascript", "typescript", "node", "js", "ts",
+    "sql", "sqlite", "数据库", "算法", "重构", "优化", "性能",
+    "测试", "单测", "修复", "补丁", "依赖", "npm", "pip",
+    "命令行", "shell", "配置", "配置文件", "yaml", "json",
+    "插件", "开发", "编译", "构建", "部署", "git", "commit",
+    "review", "前端", "后端", "页面", "组件", "dsh", "memos"
+  ]),
+  // 编码记忆注入加权系数：编码任务时对 rejected_solution/pitfall/constraint
+  // 记忆的 importance 乘以该系数排序，让编码记忆在编码场景更靠前。
+  codingBoostFactor: z.number().min(1).max(5).default(2),
   autoDream: z.boolean().default(true),
   dreamThresholdCount: z.natural().min(1).max(1000).default(10),
   dreamThresholdChars: z.natural().min(100).max(100000).default(5000),
@@ -37,13 +50,11 @@ export const Config = z.object({
   dreamModel: z.string(),
   dreamMaxTokens: z.natural().min(256).max(131072).default(8192),
   // Pass-through reasoning effort for dream's LLM calls. 'none' (default)
-  // omits the field so the provider's own default applies; 'off' explicitly
-  // disables thinking — REQUIRED for thinking-type models (deepseek-v4-flash
-  // etc.) that would otherwise drain the whole token budget into reasoning and
-  // return an empty body ("no json array in llm output"); low/medium/high are
-  // forwarded verbatim to cap reasoning spend.
+  // omits the field so the provider's own default applies; low/medium/high
+  // are forwarded verbatim. Useful to cap reasoning spend on thinking-type
+  // models that would otherwise drain the whole token budget and return an
+  // empty body ("no json array in llm output").
   dreamReasoningEffort: z.union([
-    z.const("off"),
     z.const("low"),
     z.const("medium"),
     z.const("high"),
@@ -62,16 +73,6 @@ export const Config = z.object({
   // → 整单拒绝，防止残缺输出被隐式 keep 洗白成 ok 后再被真实 apply。0-1，
   // 默认 0.5（至少显式覆盖一半 snapshot）。
   dreamMinExplicitCoverage: z.number().min(0).max(1).default(0.5),
-  // 跳过非法决策（Issue #26 P0，默认开）：跨类型 merge 等"单条非法"决策不再
-  // 让整批校验失败 → 跳过该决策、应用合法子集，run 记为 degraded（applied>0）。
-  // 关闭后恢复旧的"任意非法即整单拒绝"（applied=0）。防洗白语义不受影响——
-  // 显式覆盖率不足/update 超量等全局错误仍整单拒绝。
-  dreamSkipInvalid: z.boolean().default(true),
-  // 允许跨类型合并（Issue #26 P1，默认关）：类型有语义边界（preference 注入
-  // 权重更高、decision/project 注入上下文不同），跨类型合并会丢类型信息，故
-  // 默认禁止并在 skipInvalid 下被跳过；显式开启后放宽该检查，类型边界由用户
-  // 自行承担（需与 dreamSkipInvalid 配合：开启后跨类型 merge 视为合法、可应用）。
-  allowCrossTypeMerge: z.boolean().default(false),
   // Rule version for dream adjudication: when this bumps, older dream_runs
   // degrade to historical evidence (their receipts no longer drive live
   // decisions). Default 0 = no versioning in use yet.
@@ -189,43 +190,6 @@ export const Config = z.object({
   // Prefix/semantic search over entity names (used by recall).
   entitySearchEnabled: z.boolean().default(true),
 
-  // --- wiki-link: explicit cross-memory [[links]] (v0.6.1) ----------------
-  // Opt-in, off by default. When enabled, saveWithDedupe/update fire-and-forget
-  // a wiki-link resolution pass: [[target]] / [[显示|target]] markers in a
-  // memory's content become links_to relations in entity_relations (idempotent,
-  // deduped by the unique relation index). The storage layer + read APIs
-  // (getBacklinks/getForwardLinks/resolveWikiLink) are always available
-  // regardless of this flag.
-  wikiLinkEnabled: z.boolean().default(false),
-
-  // --- tag system (v0.6.2) ---------------------------------------------------
-  // Opt-in: when autoTagEnabled is true, a light LLM pass runs after each
-  // autoDream consolidation and extracts 1-3 tags per retained memory
-  // (autoTagMaxPerRun bounds how many memories are tagged per run). The tag
-  // storage layer (store.setMemoryTags/getMemoryTags + tag: search + mirror
-  // `#tag` line) is always available regardless of this flag.
-  autoTagEnabled: z.boolean().default(false),
-  autoTagMaxPerRun: z.natural().min(1).max(100).default(10),
-  // Manual tagging (service.setMemoryTags / memory tools) is on by default;
-  // set false to disable the manual write path too.
-  manualTagEnabled: z.boolean().default(true),
-
-  // --- sidebar trigger (issue #38) ---------------------------------------
-  // The memory library is reachable from two UI surfaces: a "记忆库" tab in the
-  // conversation header AND an entrance button at the sidebar footer (bottom
-  // left). Some sidebars get crowded there — dsh-cost-meter and friends also
-  // claim the footer slot — so the entrance button is now optional. Off just
-  // hides the button; the conversation tab stays, so no functionality is lost.
-  // The Web panel exposes this as a toggle (settings-over-config, see
-  // settings.getUiConfig); the value here is the plugin-config default.
-  showSidebarTrigger: z.boolean().default(true),
-
-  // --- tag-weighted re-rank (v0.6.4) -------------------------------------
-  // Opt-in: boost candidates whose tags overlap the query/session tags.
-  tagBoostEnabled: z.boolean().default(false),
-  tagBoostFactor: z.number().min(1).max(2).default(1.15),
-  sessionTagBoostFactor: z.number().min(1).max(2).default(1.08),
-
   // --- sleep mode: idle-triggered deep maintenance (v0.4.0) ---------------
   // Opt-in, off by default. Unlike autoDream (threshold-triggered, lightweight)
   // sleep fires when the store has been quiet for sleepIdleMinutes and deep-
@@ -264,25 +228,14 @@ export const Config = z.object({
   sleepProvider: z.string().default(""),
   sleepModel: z.string().default(""),
   // Pass-through reasoning effort for sleep's LLM passes, same semantics as
-  // dreamReasoningEffort: 'none' (default) omits the field; 'off' explicitly
-  // disables thinking (thinking-type models would burn the whole budget on
-  // reasoning); low/medium/high are forwarded verbatim.
+  // dreamReasoningEffort: 'none' (default) omits the field; low/medium/high
+  // are forwarded verbatim.
   sleepReasoningEffort: z.union([
-    z.const("off"),
     z.const("low"),
     z.const("medium"),
     z.const("high"),
     z.const("none")
   ]).default("none"),
-  // Batch entity extraction during sleep (issue #23). The write-path extractor
-  // only fires when entityExtractionEnabled is on (an LLM call per write);
-  // this additive phase backfills entities/attrs/relations for memories that
-  // never went through it, so stores that leave the write-path extractor off
-  // still accumulate an ego graph as long as sleep runs. On by default (it is
-  // a no-op until a sleep cycle fires), capped per run to bound token spend.
-  sleepEntityExtractionEnabled: z.boolean().default(true),
-  // Max memories entity-extracted per sleep run (oldest un-extracted first).
-  sleepEntityExtractionMaxPerRun: z.natural().min(1).max(100).default(20),
 
   // --- epistemic trust: memory source credibility (v0.4.5) -----------------
   // Distinguish memories by source: observation (measured / witnessed),
@@ -328,19 +281,52 @@ export const Config = z.object({
   // flag (production isolation is unconditional).
   evalPersistTestResults: z.boolean().default(false),
 
-  // --- heat: v0.7.0 self-evolution (heat + interest drift) ----------------
-  // 总开关，默认开但保守：不改变召回排序，只提供热度字段 / sleep 降级
-  // 联合判定保护 / 前端热度投影。关闭后跳过所有 heat 计算与热度触达。
-  heatEnabled: z.boolean().default(true),
-  // 幂律形状参数 α（heat = 1/(1+λΔt)^α），越大衰减越快。
-  heatGlobalAlpha: z.number().min(0.1).max(5).default(1.2),
-  // per-type 衰减因子 λ；λ=0 的类型免疫（热度恒 1.0，sleep 永不降级）。
-  // 未知类型走默认 0.002。z.dict 的键为 type 字符串、值为数字 λ。
-  heatTypeDecay: z.dict(z.number(), z.string()).default({ ...TYPE_DECAY_DEFAULTS }),
-  // sleep 降级联合判定的热度下限：heat < 该值 且 importance<5 才允许降级。
-  sleepHeatThreshold: z.number().min(0).max(1).default(0.05),
-  // recordRecall 默认值（recall_runs 记录默认开；显式传 false 的调用方不受影响）。
-  recallRecordDefault: z.boolean().default(true),
-  // recall_runs 滚动清理保留天数。
-  recallRetentionDays: z.natural().min(1).max(3650).default(90),
+  // --- standalone external API (v0.7.12) ------------------------------------
+  // A plain node:http server for ecosystem integrations that cannot reach the
+  // DSH-internal webServer. Disabled by default; when enabled the Bearer token
+  // is persisted in the settings kv ("external_api"), auto-generated on first
+  // boot. Bind host: keep the loopback default — moving it to a non-loopback
+  // address exposes the whole memory store to the network and is the
+  // operator's responsibility.
+  externalApiEnabled: z.boolean().default(false),
+  externalApiPort: z.natural().default(8790),
+  externalApiHost: z.string().default("127.0.0.1"),
+
+  // --- light mode preset (v0.7.12) -------------------------------------------
+  // One switch for low-resource setups: turns off every background/semantic
+  // heavy path (dream consolidation, entity extraction, vector pipeline,
+  // reranker, BM25, semantic dedup / selective inject, sleep mode) while
+  // keeping the core loop (autoInject, autoSummarize, hot memory, quality
+  // filter, keyword search). Applied by applyLightModePreset before the config
+  // reaches any service; a persisted panel_mode="light" (settings kv) counts
+  // as lightMode=true too and wins over the bundle config.
+  lightMode: z.boolean().default(false),
 });
+
+// Fields forced to false by the light-mode preset. Everything not listed here
+// (autoInject, autoSummarize, hotMemory*, memoryQualityFilter, dream
+// thresholds/delays, ...) is left untouched — those are the core loop.
+const LIGHT_MODE_OFF = [
+  "entityExtractionEnabled",
+  "autoDream",
+  "sleepModeEnabled",
+  "rerankEnabled",
+  "autoReindexOnBoot",
+  "hybridInject",
+  "searchSemanticDedup",
+  "selectiveInjectEnabled",
+  "bm25SearchEnabled"
+];
+
+/**
+ * Apply the light-mode preset to a resolved config object (pure function,
+ * exported for tests). When cfg.lightMode is not exactly true the config is
+ * returned unchanged; otherwise a shallow copy carries false for every heavy
+ * feature. Idempotent and side-effect free.
+ */
+export function applyLightModePreset(cfg) {
+  if (cfg?.lightMode !== true) return cfg;
+  const preset = { ...cfg, lightMode: true };
+  for (const key of LIGHT_MODE_OFF) preset[key] = false;
+  return preset;
+}

@@ -11,7 +11,6 @@ import { createMirror } from "../src/mirror.js";
 import { createService } from "../src/service.js";
 
 const execFileP = promisify(execFile);
-const STORE_PATH = fileURLToPath(new URL("../src/store.js", import.meta.url));
 
 /**
  * v0.3.8 回归测试（audit peer 6 项运行时阻断 → INSTALLATION_NOT_APPROVED）。
@@ -98,16 +97,12 @@ test("peer-C: 多进程并发原子递增——8 进程×10 次 incrementGenerat
   const N = 8;
   const M = 10;
   try {
-    // 子进程脚本：打开同一 DB 文件，原子递增 M 次
-    const worker = `
-      const { createStore } = require(process.argv[1]);
-      const store = createStore(process.argv[2]);
-      for (let i = 0; i < ${M}; i++) { store.incrementGeneration(); }
-      store.close();
-    `;
+    // 子进程：静态 worker 脚本（test/helpers/peer-worker.mjs，可审查、无动态
+    // 生成代码），execFile 参数数组、无 shell；DB 路径与迭代数经 argv 传入。
+    const workerPath = fileURLToPath(new URL("./helpers/peer-worker.mjs", import.meta.url));
     await Promise.all(
       Array.from({ length: N }, () =>
-        execFileP(process.execPath, ["-e", worker, STORE_PATH, dbPath], { timeout: 30000 })
+        execFileP(process.execPath, [workerPath, dbPath, String(M)], { timeout: 30000 })
       )
     );
     const store = createStore(dbPath);

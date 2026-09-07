@@ -13,3 +13,4 @@
         dreamThresholdCount: 10
         dreamThresholdChars: 5000
         dreamDelayMs: 2000
+        entityExtractionEnabled: true

@@ -21,10 +21,7 @@ function modelHash(model) {
 
 /** Lazy default pipeline factory: dynamic import keeps module load cheap. */
 async function defaultPipelineLoader(task, model, options) {
-  const { env, pipeline } = await import("@huggingface/transformers");
-  // issue #13: mirror cache_dir onto env.cacheDir so the tokenizer pre-check
-  // resolves locally too (same fix as local-embedder.js).
-  if (options?.cache_dir) env.cacheDir = options.cache_dir;
+  const { pipeline } = await import("@huggingface/transformers");
   return pipeline(task, model, options);
 }
 

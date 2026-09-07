@@ -42,7 +42,17 @@ The following security features are implemented and maintained in the project:
 | `/health` Auth-Gated Endpoint | Health endpoint requires `apiToken`; error codes are sanitized (no-space / permission / sync-failed) and read failures fail closed as `unknown` | ✅ Implemented |
 | Fail-Closed Input Validation | Generation counters and hot-memory parameters are validated (`Number.isInteger`, finite, non-negative) with SQL `CHECK` constraints; invalid input falls back to safe defaults or is rejected | ✅ Implemented |
 | Hybrid Score Clamping | Hybrid fusion scores are clamped to [0, 1] to prevent vector + BM25 stacking from breaking normalization bounds | ✅ Implemented |
+| Standalone External API (v0.7.12, opt-in) | Optional per-plugin HTTP server for ecosystem integrations, bound to `127.0.0.1` by default with an auto-generated persistent Bearer token (`timingSafeEqual` verified); `/health` is the only unauthenticated route; binding a non-loopback host is an explicit operator decision | Implemented |
 | Tag Sanitization | Tag normalization reuses the sanitizer; `autoTag` skips forgotten memories; `setMemoryTags` runs inside a SAVEPOINT for atomic rollback | ✅ Implemented |
+
+### Standalone External API (v0.7.12)
+
+Since v0.7.12 the plugin can optionally start its own HTTP server (`externalApiEnabled`, default **off**) so other plugins, CLIs, and desktop tools can read and write memories without going through the DSH host port.
+
+- **Loopback by default**: the server binds `127.0.0.1:8790` (`externalApiHost` / `externalApiPort`, or persisted panel settings). Rebinding to a non-loopback address exposes the store to your network and is an explicit operator decision.
+- **Token authentication**: every route except `GET /health` requires `Authorization: Bearer <token>`; the token is auto-generated on first use, persisted in the plugin settings store, verified with `timingSafeEqual`, and can be rotated from the web panel (Settings -> External API).
+- **Surface**: read/write on memories only (`GET/POST/DELETE /memories`, `GET /memories/:id`, `GET /search`, `GET /status`). No profile, rules, commands, or configuration endpoints are exposed; writes go through the same dedupe + quality-filter path as in-conversation saves.
+- **CLI**: `bin/cli.mjs` is a thin client over this API and stores its credentials in `~/.dsh-mneme/cli.json` - treat that file like any credential file.
 
 ---
 

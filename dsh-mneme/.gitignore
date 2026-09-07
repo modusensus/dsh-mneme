@@ -24,3 +24,9 @@ id_rsa*
 *.db-shm
 *.sqlite
 memory.db
+
+# local tooling state
+.mimosa/
+.v2c/
+out/
+

@@ -3,11 +3,22 @@ import { TYPE_FILE } from "./mirror.js";
 import { evaluateMemoryQuality } from "./quality-filter.js";
 import { createBM25Index } from "./search/bm25.js";
 import { adaptiveThreshold } from "./search/adaptive.js";
-import { parseWikiLinks } from "./parser/wiki-link.js";
-import { extractQueryTags, applyTagBoost } from "./search/tag-boost.js";
-import { computeHeat } from "./heat.js";
 
-const INJECT_TYPES = new Set(["preference", "project", "decision", "summary", "user", "fact"]);
+const INJECT_TYPES = new Set(["preference", "project", "decision", "summary", "rejected_solution", "pitfall", "constraint"]);
+
+// 编码记忆类型（codingRetrospect）：rejected_solution / pitfall / constraint
+// 只在编码任务时注入（防噪声污染其他业务），且编码场景下按 codingBoostFactor
+// 加权排序提前。
+const CODING_MEMORY_TYPES = new Set(["rejected_solution", "pitfall", "constraint"]);
+
+/**
+ * 判断一段文本是否编码类任务（关键词匹配，codingRetrospect 读取侧门控）。
+ * 纯函数，无副作用，便于单测。
+ */
+export function isCodingTask(text, keywords = []) {
+  const t = String(text ?? "").toLowerCase();
+  return keywords.some((kw) => t.includes(String(kw).toLowerCase()));
+}
 
 // Epistemic trust weights (v0.4.5): when config.trustEpistemicWeighting is on,
 // each recall candidate's existing score is multiplied by the weight of its
@@ -65,7 +76,7 @@ export function computeRetrievalMetrics(actualIds, expectedIds) {
   };
 }
 
-export function createService({ store, mirror, config, onWrite, logger, settings }) {
+export function createService({ store, mirror, config, onWrite, logger }) {
   // Optional dream scheduler hook, installed via setDreamHook after creation
   // (the scheduler holds a reference back to the service, so it cannot be
   // passed in the constructor). Fired on the same write events as onWrite.
@@ -90,33 +101,6 @@ export function createService({ store, mirror, config, onWrite, logger, settings
   let entityExtractor = null;
   let vectorIndex = null;
   let reranker = null;
-
-  // Effective tag toggles (issue #31): the settings layer (Web panel switches,
-  // persisted in user_settings) overrides the plugin config when explicitly
-  // stored; unset keys fall back to the zod config default. This is the single
-  // runtime source of truth for setMemoryTags' manual gate and the Web panel's
-  // getTagConfig display — the panel toggle and the dream autoTag gate were
-  // previously writing/reading two disconnected stores.
-  const tagConfig = () => {
-    const stored = settings?.getAutoTagConfig?.() ?? {};
-    return {
-      autoTagEnabled: typeof stored.autoTagEnabled === "boolean" ? stored.autoTagEnabled : (config.autoTagEnabled ?? false),
-      manualTagEnabled: typeof stored.manualTagEnabled === "boolean" ? stored.manualTagEnabled : (config.manualTagEnabled ?? true)
-    };
-  };
-
-  // App-wide effective config for the Web panel (/api/dsh-mneme/config): the
-  // tag toggles plus UI preferences (issue #38). Settings overrides plugin
-  // config when explicitly stored; unset keys fall back to the zod default.
-  const appConfig = () => {
-    const stored = settings?.getUiConfig?.() ?? {};
-    return {
-      ...tagConfig(),
-      showSidebarTrigger: typeof stored.showSidebarTrigger === "boolean"
-        ? stored.showSidebarTrigger
-        : (config.showSidebarTrigger ?? true)
-    };
-  };
 
   // Optional recall recorder, installed via setRecallRecorder after creation.
   // When searchMemories is called with recordRecall=true it receives the
@@ -259,36 +243,6 @@ export function createService({ store, mirror, config, onWrite, logger, settings
   }
 
   /**
-   * Fire-and-forget wiki-link resolution for a freshly saved/updated memory
-   * (v0.6.1). Opt-in via config.wikiLinkEnabled. Parses [[target]] /
-   * [[显示|target]] markers out of the memory content and writes links_to
-   * relations (idempotent via the unique relation index). Runs through
-   * service.enqueue so it serializes with autoDream/sleep and never overlaps
-   * another background pass. Fully fail-safe: parse/store errors are swallowed
-   * and logged, never a write failure.
-   */
-  function scheduleWikiLinkResolve(memory) {
-    if (txDepth > 0) return; // deferred to the transaction's commit
-    if (!config.wikiLinkEnabled || !memory?.id) return;
-    try {
-      const links = parseWikiLinks(memory?.content ?? "");
-      if (!links.length) return;
-      const targets = [...new Set(links.map((l) => l.target).filter(Boolean))];
-      enqueue(() => {
-        try {
-          store.saveWikiLinks({ memoryId: memory.id, title: memory.title, targets });
-        } catch (err) {
-          logger?.warn?.("wiki link resolve failed:", err);
-        }
-      }).catch((err) => {
-        logger?.warn?.("wiki link resolve failed:", err);
-      });
-    } catch (err) {
-      logger?.warn?.("wiki link resolve failed:", err);
-    }
-  }
-
-  /**
    * Cross-encoder rerank over a candidate list (best effort). Reranker
    * failures degrade to the original candidate order — reranking is an
    * accuracy upgrade, never a correctness gate.
@@ -357,57 +311,6 @@ export function createService({ store, mirror, config, onWrite, logger, settings
   }
 
   /**
-   * Search for memories carrying a given tag set (v0.6.2). Multiple tag:
-   * tokens in one query use AND semantics — a memory must carry every tag.
-   * Combinable with the leftover query: an entity:/attr: prefix is intersected
-   * with the tag-matched set, and plain keyword text ranks it (only rows whose
-   * keyword score > 0 survive). Tags are first-class recall, not entity-gated:
-   * the tag match itself does not depend on config.entitySearchEnabled.
-   * @param {string[]} tagTokens
-   * @param {string} q — leftover query after tag: tokens were stripped
-   * @param {object} [options]
-   * @param {number} [options.topK=20]
-   * @returns {any[]}
-   */
-  function searchByTags(tagTokens, q, options) {
-    const { topK = 20 } = options;
-    const tags = (Array.isArray(tagTokens) ? tagTokens : [])
-      .map((t) => String(t).trim()).filter(Boolean);
-    if (!tags.length) return [];
-    let hits = store.findMemoriesByTags(tags);
-    if (!hits.length) return [];
-    // Intersect with entity:/attr: prefixes present in the leftover query.
-    if (config?.entitySearchEnabled) {
-      if (q.startsWith("entity:")) {
-        const ids = new Set(searchByEntity(q.slice(7).trim(), { topK: 10000 }).map((m) => m.id));
-        hits = hits.filter((m) => ids.has(m.id));
-      }
-      if (q.startsWith("attr:")) {
-        const [key, value] = q.slice(5).split("=");
-        const ids = new Set(searchByAttr(key, value, { topK: 10000 }).map((m) => m.id));
-        hits = hits.filter((m) => ids.has(m.id));
-      }
-    }
-    // Leftover plain text ranks the tag-matched set; only rows whose title or
-    // content actually mentions the keyword survive (scoreKeyword's 0.3 base is
-    // a non-match, so the containment check is the real gate); otherwise
-    // preserve insertion order.
-    const keywordOnly = q && !q.startsWith("entity:") && !q.startsWith("attr:");
-    hits = keywordOnly
-      ? hits
-          .map((m) => ({ ...m, score: scoreKeyword(m, q), source: "tag" }))
-          .filter((m) => (m.title ?? "").toLowerCase().includes(q.toLowerCase())
-            || (m.content ?? "").toLowerCase().includes(q.toLowerCase()))
-          .sort((a, b) => b.score - a.score)
-      : hits.map((m) => ({ ...m, source: "tag" }));
-    const result = hits.slice(0, topK);
-    // Only count toward recall stats/forgetting when the caller asked for
-    // recording — the panel's `tag:` search must not pollute the curve.
-    if (options.recordRecall) touchRecalled(result);
-    return result;
-  }
-
-  /**
    * Semantic-aware memory search: keyword recall (store.search) plus optional
    * vector recall + rerank. mode:
    *   auto    (default) keyword first, vector fills remaining slots (legacy)
@@ -442,7 +345,7 @@ export function createService({ store, mirror, config, onWrite, logger, settings
   function bm25Recall(q, limit) {
     if (config?.bm25SearchEnabled === false) return [];
     try {
-      const docs = store.list({ limit: 500, includeForgotten: false }).filter((m) => !m.archived && !m.session_disposed_at);
+      const docs = store.list({ limit: 500, includeForgotten: false }).filter((m) => !m.archived);
       if (!docs.length) return [];
       return createBM25Index(docs).search(q, { limit });
     } catch {
@@ -495,15 +398,14 @@ export function createService({ store, mirror, config, onWrite, logger, settings
   }
 
   /**
-   * Recall touch (v0.7.0 数据前提): any memory surfaced by recall or
-   * auto-injection gets its last_accessed_at bumped so the heat model has a
-   * truthful access clock. Previously gated on config.sleepModeEnabled — now
-   * gated on config.heatEnabled (default on) so heat data is collected
-   * independently of sleep mode; sleep consumes it when it runs. Best-effort:
-   * a touch failure must never break search/inject.
+   * Sleep touch (v0.4.0): when sleep is enabled, any memory surfaced by recall
+   * or auto-injection gets its last_accessed_at bumped, so the "unrecalled N
+   * days → demote/archive" tiering counts real access. Best-effort and gated on
+   * config.sleepModeEnabled — when sleep is off this is a complete no-op (no
+   * writes on the hot recall path). A touch failure must never break search/inject.
    */
   function touchRecalled(memories) {
-    if (config?.heatEnabled === false || !Array.isArray(memories) || memories.length === 0) return;
+    if (config?.sleepModeEnabled !== true || !Array.isArray(memories) || memories.length === 0) return;
     for (const m of memories) {
       if (!m?.id) continue;
       try {
@@ -513,27 +415,9 @@ export function createService({ store, mirror, config, onWrite, logger, settings
   }
 
   async function searchMemories(query, options = {}) {
-    // v0.7.0: recall_runs 记录默认开（config.recallRecordDefault，默认 true）；
-    // 显式传 recordRecall:false 或配置 recallRecordDefault:false 可关。
-    const {
-      mode = "auto",
-      topK = 20,
-      threshold,
-      useRerank = true,
-      recordRecall = options.recordRecall ?? (config?.recallRecordDefault ?? true)
-    } = options;
-    const raw = String(query ?? "").trim();
-    if (!raw) return [];
-
-    // tag: 前缀（v0.6.2）。先把所有 tag: 令牌从 query 里剥出来，剩余的 q 仍可带
-    // entity:/attr: 前缀或普通关键词 —— searchByTags 负责交集/排序。没有 tag:
-    // 令牌则走下面的 entity:/attr:/文本原逻辑（完全向后兼容）。
-    const tagTokens = [];
-    const q = raw.replace(/\btag:([^\s]+)/g, (_, tok) => {
-      if (tok) tagTokens.push(tok);
-      return "";
-    }).trim();
-    if (tagTokens.length) return searchByTags(tagTokens, q, options);
+    const { mode = "auto", topK = 20, threshold, useRerank = true, recordRecall = false } = options;
+    const q = String(query ?? "").trim();
+    if (!q) return [];
 
     // entity:/attr: 前缀路由（v0.3.0 Phase 3）。entitySearchEnabled 关闭时走原逻辑。
     if (config?.entitySearchEnabled) {
@@ -635,13 +519,8 @@ export function createService({ store, mirror, config, onWrite, logger, settings
           byId.set(m.id, { ...m, score: wb * (m.score ?? 0) });
         }
       }
-      const ranked = [...byId.values()]
-        .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
-        .map((r) => ({ ...r, score: Math.max(0, Math.min(1, r.score ?? 0)) }));
-      // Tag boost (v0.6.4) needs the full ranked pool, not just the top-lim
-      // slice, so a tagged candidate just below the line can be re-admitted
-      // after the boost. Without boost this is the legacy lim truncation.
-      merged = config.tagBoostEnabled === true ? ranked : ranked.slice(0, lim);
+      const ranked = [...byId.values()].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+      merged = ranked.slice(0, lim);
       if (merged.length < lim && !merged.length) {
         // Vector unavailable entirely: fall back to plain keyword.
         merged = keyword.slice(0, lim);
@@ -667,31 +546,7 @@ export function createService({ store, mirror, config, onWrite, logger, settings
     // it is the documented text-only path and must not be altered by
     // embedding state.
     merged = mode === "keyword" ? merged : semanticDeduplicate(merged);
-
-    // Tag-weighted re-rank (v0.6.4): boost candidates whose tags overlap the
-    // query tags or the current session's hot-memory tags — applied BEFORE the
-    // final top-K cut so tagged candidates just below the line can be
-    // re-admitted. Opt-in, and skipped entirely on the keyword-only path. When
-    // a reranker is configured (opt-in), it remains the final authority on
-    // order; the boost still shapes which candidates reach it.
-    if (config.tagBoostEnabled === true && mode !== "keyword" && merged.length) {
-      const ids = merged.map((m) => m.id);
-      const tagsMap = store.getMemoryTagsMap(ids);
-      const enriched = merged.map((m) => ({ ...m, tags: tagsMap.get(m.id) ?? [] }));
-      const knownTags = [...tagsMap.values()].flat();
-      const queryTags = extractQueryTags(q, knownTags);
-      const sessionTags = Array.isArray(options?.sessionTags) ? options.sessionTags : [];
-      if (queryTags.length || sessionTags.length) {
-        merged = applyTagBoost(enriched, {
-          queryTags,
-          sessionTags,
-          factor: config.tagBoostFactor,
-          sessionFactor: config.sessionTagBoostFactor,
-        }).map(({ tags, ...rest }) => rest);
-      }
-    }
     merged = merged.slice(0, lim);
-
     let result = useRerank && reranker && merged.length
       ? await rerankCandidates(q, merged, lim)
       : merged;
@@ -720,16 +575,12 @@ export function createService({ store, mirror, config, onWrite, logger, settings
           mode,
           topK: lim,
           threshold: threshold ?? null,
-          // v0.7.0 recall-layer 强度标记：搜索帧一律 injected:false（被召回 =
-          // 检索直接命中）；注入上下文帧由 injectCandidates 以 injected:true
-          // 单独记账（被注入 = 替对话搭建上下文），两档强度可区分。
           candidates: result.map((m) => ({
             id: m.id,
             title: m.title,
             content: m.content,
             score: m.score ?? null,
-            source: m.source ?? "keyword",
-            injected: false
+            source: m.source ?? "keyword"
           })),
           createdAt: new Date().toISOString()
         });
@@ -960,17 +811,9 @@ export function createService({ store, mirror, config, onWrite, logger, settings
       });
       // Bug7: a degraded/archived result is applied on top of the merged row.
       const result = applyQualityDisposition(merged, quality, qf);
-      // Bridge tool-passed tags (plus any quality signal tags) into the
-      // entity_attrs tag store so directory / tag: recall / tagBoost see them
-      // (issue #31). Must run before afterSync so the mirror re-render reads
-      // the bridged row. Unconditional on the array (empty included): a merge
-      // that clears tags must also invalidate any stale entity_attrs row from
-      // an earlier save, or the directory keeps showing the old tag.
-      if (Array.isArray(result.tags)) store.setMemoryTags(result.id, result.tags);
       afterSync("write");
       notifyWrite();
       scheduleEmbed(result);
-      scheduleWikiLinkResolve(result);
       return { action: "merged", memory: result };
     }
     const created = store.save({
@@ -980,22 +823,13 @@ export function createService({ store, mirror, config, onWrite, logger, settings
       tags: memory.tags ?? [],
       importance: memory.importance ?? 3,
       source: memory.source ?? "manual",
-      // Provenance (v0.5.x): birth session rides through the create path; the
-      // merge path above preserves the original row's session_id untouched.
-      session_id: memory.session_id ?? undefined,
       ...(quality ? { quality_score: quality.score } : {})
     });
     const result = applyQualityDisposition(created, quality, qf);
-    // Bridge tool-passed tags (plus any quality signal tags) into the
-    // entity_attrs tag store so directory / tag: recall / tagBoost see them
-    // (issue #31). Must run before afterSync so the mirror re-render reads
-    // the bridged row.
-    if (Array.isArray(result.tags) && result.tags.length) store.setMemoryTags(result.id, result.tags);
     afterSync("write");
     notifyWrite();
     scheduleEmbed(result);
     scheduleEntityExtraction(result);
-    scheduleWikiLinkResolve(result);
     return { action: "created", memory: result };
   }
 
@@ -1043,20 +877,35 @@ export function createService({ store, mirror, config, onWrite, logger, settings
    */
   function injectCandidates({ query = "", maxItems = 5, threshold = 3, queryVector } = {}) {
     const q = String(query ?? "").trim();
+    // codingRetrospect 读取侧门控：编码记忆（rejected_solution / pitfall /
+    // constraint）只在编码任务时注入，防噪声污染其他业务；编码任务时按
+    // codingBoostFactor 加权，让编码记忆在编码场景更靠前。
+    const isCoding = isCodingTask(q, config.codingKeywords ?? []);
+    const codingGate = (m) => isCoding || !CODING_MEMORY_TYPES.has(m.type);
     // Bug7: quality-weighted importance in the rule-based tier. Unassessed rows
     // (quality_score null) count as 100 (weight 1), so legacy stores keep their
     // exact summary>preference>importance ordering.
     const qualityWeight = (m) => (m.quality_score != null ? m.quality_score / 100 : 1);
-    // summary/user/preference are injected regardless of importance (context
-    // layers); every other INJECT_TYPES type (e.g. fact) only when
-    // importance >= threshold — the frontend "常注入" badge maps to this split.
     const items = store.list({ limit: 200, includeForgotten: false })
       .filter((m) => !m.archived && INJECT_TYPES.has(m.type) && !m.forgotten &&
-        (m.type === "summary" || m.type === "preference" || m.type === "user" || m.importance >= threshold))
+        codingGate(m) &&
+        (m.type === "summary" || m.type === "preference" || m.importance >= threshold))
       .sort((a, b) => {
-        const pa = a.type === "summary" ? 0 : (a.type === "preference" || a.type === "user") ? 1 : 2;
-        const pb = b.type === "summary" ? 0 : (b.type === "preference" || b.type === "user") ? 1 : 2;
-        return pa - pb || (b.importance * qualityWeight(b)) - (a.importance * qualityWeight(a));
+        // 编码记忆在编码任务时优先于普通 decision（与 preference 同级），
+        // importance 乘 codingBoostFactor 加权（封顶 5，保持 importance 语义）。
+        const priority = (m) => {
+          if (m.type === "summary") return 0;
+          if (m.type === "preference") return 1;
+          if (isCoding && CODING_MEMORY_TYPES.has(m.type)) return 1;
+          return 2;
+        };
+        const effImportance = (m) =>
+          (isCoding && CODING_MEMORY_TYPES.has(m.type))
+            ? Math.min(5, m.importance * (config.codingBoostFactor ?? 2))
+            : m.importance;
+        const pa = priority(a);
+        const pb = priority(b);
+        return pa - pb || (effImportance(b) * qualityWeight(b)) - (effImportance(a) * qualityWeight(a));
       });
     let candidates = items;
     if (config.hybridInject !== false && q) {
@@ -1071,7 +920,8 @@ export function createService({ store, mirror, config, onWrite, logger, settings
           const hits = vectorIndex.search(queryVector, { limit: maxItems * 2, threshold: 0 });
           for (const m of hits) {
             if (m && !m.archived && INJECT_TYPES.has(m.type) && !m.forgotten &&
-              (m.type === "summary" || m.type === "preference" || m.type === "user" || m.importance >= threshold)) {
+              codingGate(m) &&
+              (m.type === "summary" || m.type === "preference" || m.importance >= threshold)) {
               semanticItems.push(m);
             }
           }
@@ -1079,7 +929,7 @@ export function createService({ store, mirror, config, onWrite, logger, settings
       }
       if (!semanticItems.length && lastSemanticRecall?.query === q && lastSemanticRecall.items?.length) {
         for (const m of lastSemanticRecall.items) {
-          if (m && !m.archived && INJECT_TYPES.has(m.type) && !m.forgotten) semanticItems.push(m);
+          if (m && !m.archived && INJECT_TYPES.has(m.type) && !m.forgotten && codingGate(m)) semanticItems.push(m);
         }
       }
       if (semanticItems.length) {
@@ -1116,32 +966,6 @@ export function createService({ store, mirror, config, onWrite, logger, settings
       } catch { /* topic re-rank unavailable: keep rule-based order */ }
     }
     const selected = candidates.slice(0, maxItems);
-    // v0.7.0 recall-layer 强度标记：注入场景也走 recall_runs 记账（mode="inject"、
-    // injected:true），与 searchMemories 的搜索帧（injected:false）互补，区分
-    // "被召回"与"被注入上下文"两个消耗强度。与搜索侧同受 recallRecordDefault
-    // 门控；记账失败绝不阻断注入本身。
-    if (recallRecorder && config.recallRecordDefault !== false) {
-      try {
-        recallRecorder({
-          query: q,
-          mode: "inject",
-          topK: selected.length,
-          threshold: null,
-          candidates: selected.map((m) => ({
-            id: m.id,
-            title: m.title,
-            content: m.content,
-            score: m.score ?? null,
-            // 注入帧的 source 固定为帧级标记 "inject"，与搜索帧的
-            // keyword/vector/rerank 对齐（记忆行自带的 source 是来源列，
-            // 与检索层级无关，不混入）。
-            source: "inject",
-            injected: true
-          })),
-          createdAt: new Date().toISOString()
-        });
-      } catch { /* recall receipt is best effort */ }
-    }
     touchRecalled(selected);
     return selected;
   }
@@ -1203,30 +1027,9 @@ export function createService({ store, mirror, config, onWrite, logger, settings
       tags: m.tags,
       importance: m.importance,
       source: m.source,
-      // session_id is optional on the wire: only carry it when present, so the
-      // DTO stays a lossless JSON object (undefined would vanish on serialize).
-      ...(m.session_id != null ? { session_id: m.session_id } : {}),
-      // Disposed state rides along when set, so a restore flow is not a blind
-      // op — the caller can see which entries are hidden before restoreBySession.
-      ...(m.session_disposed_at != null ? { disposed: true } : {}),
       created_at: m.created_at,
       updated_at: m.updated_at
     }));
-  }
-
-  /**
-   * Directory view (v0.6.3): group live memories by tag. Delegates to
-   * store.getDirectory (tag-sorted groups, importance/updated DESC members,
-   * live-only filtering) and maps every memory to the wire DTO so the result
-   * is JSON-safe for the API endpoint.
-   * @returns {{groups: {tag: string, memories: object[]}[], untagged: object[]}}
-   */
-  function getDirectory() {
-    const { groups, untagged } = store.getDirectory();
-    return {
-      groups: groups.map((g) => ({ tag: g.tag, memories: toApiList(g.memories) })),
-      untagged: toApiList(untagged)
-    };
   }
 
   /**
@@ -1336,14 +1139,8 @@ export function createService({ store, mirror, config, onWrite, logger, settings
       // leaving committed files mislabeled as failed and masking partial state.
       // Absent entries (a type with no memories) count as success: sync prunes
       // the stale file, which is itself a completed physical state.
-      // v0.6.2: attach entity_attrs-backed tags (entityTags) after the human-edit
-      // merge so renderMemory can draw the `#tag` line under each title. The
-      // bulk map is a single query, and a missing row simply renders no line.
-      const reconciled = reconcileHumanEdits(list);
-      const tagsMap = store.getMemoryTagsMap(reconciled.map((m) => m.id));
-      const tagged = reconciled.map((m) => ({ ...m, entityTags: tagsMap.get(m.id) ?? [] }));
       let allOk = true;
-      const results = mirror.sync(tagged) ?? {};
+      const results = mirror.sync(reconcileHumanEdits(list)) ?? {};
       for (const type of Object.keys(TYPE_FILE)) {
         const r = results[type];
         const ok = !r || r.ok === true;
@@ -1511,59 +1308,14 @@ export function createService({ store, mirror, config, onWrite, logger, settings
     }
   }
 
-  /**
-   * Forward links (v0.6.1): memories the given memory explicitly links to via
-   * [[wiki-links]] in its content. Reads the links_to relations whose
-   * from_entity is this memory's title and resolves each to_entity back to a
-   * memory row (case-insensitive title match). Returns [{ target, relation }];
-   * a target title with no matching memory surfaces as { target: null }.
-   */
-  function getForwardLinks(memoryId) {
-    const memory = store.getById(memoryId);
-    if (!memory) return [];
-    const out = [];
-    for (const rel of store.getRelations(memory.title) ?? []) {
-      if (rel.relation_type !== "links_to" || rel.from_entity !== memory.title) continue;
-      out.push({ target: store.findByTitle?.(rel.to_entity) ?? null, relation: rel });
-    }
-    return out;
-  }
-
-  /**
-   * Back links (v0.6.1): memories that explicitly link TO the given memory
-   * (their content carries a wiki-link whose target resolves to this memory's
-   * title). Reads the links_to relations whose to_entity is this memory's
-   * title; the linking memory is rel.memory_id (the source that wrote the
-   * relation). Deduped per source memory; missing/self links are dropped.
-   * Returns [{ source, relation }].
-   */
-  function getBacklinks(memoryId) {
-    const memory = store.getById(memoryId);
-    if (!memory) return [];
-    const out = [];
-    const seen = new Set();
-    for (const rel of store.getRelations(memory.title) ?? []) {
-      if (rel.relation_type !== "links_to" || rel.to_entity !== memory.title) continue;
-      const source = rel.memory_id ? store.getById(rel.memory_id) : undefined;
-      if (!source || source.id === memory.id || seen.has(source.id)) continue;
-      seen.add(source.id);
-      out.push({ source, relation: rel });
-    }
-    return out;
-  }
-
   return {
     saveWithDedupe,
-    getBacklinks,
-    getForwardLinks,
-    resolveWikiLink: (title) => store.findByTitle?.(title),
     recoverMirror,
     getMirrorHealth,
     getMirrorState: () => store.getMirrorState(),
     injectCandidates,
     mergeHumanEdits,
     toApiList,
-    getDirectory,
     transaction,
     enqueue,
     setDreamHook(fn) { dreamHook = fn; },
@@ -1608,83 +1360,16 @@ export function createService({ store, mirror, config, onWrite, logger, settings
     embeddedCount: () => store.embeddedCount(),
     list: (o) => store.list(o),
     all: () => store.all(),
-    listForEntityExtraction: (opts) => store.listForEntityExtraction(opts),
     count: (type, opts) => store.count(type, opts),
-    stats: (opts) => store.stats(opts),
     getById: (id) => store.getById(id),
-    // issue #48: resolve a possibly-truncated id to its canonical full id.
-    // Exact hit wins; otherwise the input is treated as a prefix of the id
-    // PRIMARY KEY. Never guesses on ambiguity — returns the candidates and the
-    // caller must pass a full id. Outcome is {ok:true,id} or {ok:false,reason,
-    // message} with reason ∈ invalid | not-found | ambiguous. warnMiss logs the
-    // silent-miss case the delete tool previously swallowed (no return channel
-    // for it, so observability has to live here in the service layer).
-    resolveMemoryId: (input, { warnMiss = false } = {}) => {
-      const bad = (reason, message) => ({ ok: false, reason, message });
-      if (typeof input !== "string") return bad("invalid", "memory id is required");
-      // 手抄/上下文压缩来的 id 可能带首尾空白，统一 trim 后再做精确与前缀解析。
-      const id = input.trim();
-      if (!id) return bad("invalid", "memory id is required");
-      const exact = store.getById(id);
-      if (exact) return { ok: true, id: exact.id };
-      const matches = store.listByIdPrefix(id);
-      if (matches.length === 0) {
-        if (warnMiss) {
-          logger?.warn?.(
-            `[dsh-mneme] memory id "${id}" matched nothing (exact or prefix) — ` +
-            "no entry was deleted; ids are full-length, pass one from memory_list/memory_search output or delete by query=…"
-          );
-        }
-        return bad(
-          "not-found",
-          `memory not found: ${id} (checked exact id and prefix; use a full id from memory_list/memory_search output)`
-        );
-      }
-      if (matches.length > 1) {
-        const sample = matches.slice(0, 5).map((m) => m.id);
-        const tail = matches.length > sample.length ? ` …(+${matches.length - sample.length})` : "";
-        return bad(
-          "ambiguous",
-          `memory id prefix "${id}" matches ${matches.length} entries (${sample.join(", ")}${tail}); refusing to guess — pass a full id`
-        );
-      }
-      return { ok: true, id: matches[0].id };
-    },
     remove: (id) => {
       store.remove(id);
       afterSync("write");
       notifyWrite();
     },
-    // Session lifecycle (v0.6.0): mark/clear the session-disposed state on every
-    // memory born in a given session. Uses the dedicated `session_disposed_at`
-    // column, orthogonal to `archived` — restoring a session never resurrects
-    // memories the user archived on purpose. Nothing is destroyed; a session
-    // treated as a save point is fully recoverable via restoreBySession.
-    disposeBySession: (sessionId) => {
-      const disposed = store.setDisposedBySession(sessionId, true);
-      if (disposed > 0) {
-        afterSync("write");
-        notifyWrite();
-      }
-      return { disposed };
-    },
-    restoreBySession: (sessionId) => {
-      const restored = store.setDisposedBySession(sessionId, false);
-      if (restored > 0) {
-        afterSync("write");
-        notifyWrite();
-      }
-      return { restored };
-    },
-    listBySession: (sessionId, opts = {}) => toApiList(store.listBySession(sessionId, opts)),
     update: (id, p, ctx = {}) => {
       const old = store.getById(id);
       const updated = store.update(id, p);
-      // Bridge tag edits made through update (memory_update tool / panel) into
-      // the entity_attrs tag store too (issue #31) — same convergence as
-      // saveWithDedupe. An explicit empty array clears the live tag row, moving
-      // the memory back to `untagged`.
-      if (p?.tags !== undefined) store.setMemoryTags(updated.id, updated.tags);
       // Record a user correction when any meaningful field changed and the
       // reflection failure tracker is enabled. expected = what it became,
       // actual = what it was before; query (when provided) captures the
@@ -1708,7 +1393,6 @@ export function createService({ store, mirror, config, onWrite, logger, settings
       const sync = afterSync("write");
       notifyWrite();
       scheduleEmbed(updated);
-      scheduleWikiLinkResolve(updated);
       // Audit peer B: when the mirror sync failed, the store write landed but
       // the mirror did not converge — return an explicit degraded receipt rather
       // than a plain success. Non-enumerable so existing deepEqual assertions on
@@ -1820,54 +1504,13 @@ export function createService({ store, mirror, config, onWrite, logger, settings
     // migrates entity_attrs on merge. Bookkeeping writes like the audit
     // passthroughs above — never write-hook-triggering memory mutations.
     saveRelation: (r) => store.saveRelation(r),
-    saveWikiLinks: (r) => store.saveWikiLinks(r),
     listEntities: (o) => store.listEntities(o),
     getRelations: (id) => store.getRelations(id),
-    // v0.7.0 实体热投影：实体热 = 关联记忆 heat 聚合（取 max）。无关联记忆
-    // 或 heatEnabled=false 时返回 null；前端据此决定图谱节点大小/明暗。
-    entityHeat: (entityId) => {
-      if (config.heatEnabled === false) return null;
-      const rels = store.getRelations(entityId) ?? [];
-      let max = -Infinity;
-      for (const rel of rels) {
-        if (!rel.memory_id) continue;
-        const mem = store.getById(rel.memory_id);
-        if (!mem) continue;
-        const h = computeHeat(mem, Date.now(), config);
-        if (h > max) max = h;
-      }
-      return max === -Infinity ? null : max;
-    },
-    // Tag system (v0.6.2). setMemoryTags is the manual/user path: gated by
-    // config.manualTagEnabled (default true), re-renders the mirror and fires
-    // the write hook. applyMemoryTags is the raw write used by the autoDream
-    // tag pass (gated by autoTagEnabled, wrapped in a transaction by the
-    // extractor so the mirror re-renders exactly once).
-    setMemoryTags: (memoryId, tags) => {
-      if (tagConfig().manualTagEnabled === false) {
-        return { ok: false, error: "manualTagEnabled is off" };
-      }
-      const stored = store.setMemoryTags(memoryId, tags);
-      afterSync("write");
-      notifyWrite();
-      return { ok: true, tags: stored };
-    },
-    getMemoryTags: (memoryId) => store.getMemoryTags(memoryId),
-    // Read-only gate flag so the Web panel can hide tag editing when the
-    // manual path is disabled (default: manual tagging is on).
-    manualTagEnabled: () => tagConfig().manualTagEnabled !== false,
-    // Effective tag toggle pair (settings-over-config merge) for the panel
-    // (/api/dsh-mneme/config GET/PUT).
-    getTagConfig: tagConfig,
-    getAppConfig: appConfig,
-    applyMemoryTags: (memoryId, tags) => store.setMemoryTags(memoryId, tags),
     saveAttr: (r) => store.saveAttr(r),
     createEntity: (r) => store.createEntity(r),
-    updateEntity: (id, patch) => store.updateEntity(id, patch),
     findEntityByName: (n) => store.findEntityByName(n),
     findEntityById: (id) => store.findEntityById(id),
     getAttrsByMemory: (id) => store.getAttrsByMemory(id),
-    setMemoryMetadata: (id, metadata) => store.setMemoryMetadata(id, metadata),
     getCurrentAttrs: (id) => store.getCurrentAttrs(id),
     migrateAttrsToMemory: (fromId, toId, now) => store.migrateAttrsToMemory(fromId, toId, now)
   };

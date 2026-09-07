@@ -1,6 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
-import { sanitizeTags } from "./parser/tag.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS memories (
@@ -12,15 +11,12 @@ CREATE TABLE IF NOT EXISTS memories (
   importance  INTEGER NOT NULL DEFAULT 3,
   forgotten   INTEGER NOT NULL DEFAULT 0,
   archived    INTEGER NOT NULL DEFAULT 0,
-  session_disposed_at TEXT,
   source      TEXT,
-  session_id  TEXT,
   content_history TEXT,
   embedding   TEXT,
   epistemic_status TEXT NOT NULL DEFAULT 'subjective',
   last_accessed_at  TEXT,
   _full_content     TEXT,
-  metadata    TEXT,               -- JSON: free-form extras (e.g. sleep entity_extracted_at)
   created_at  TEXT NOT NULL,
   updated_at  TEXT NOT NULL
 );
@@ -243,7 +239,10 @@ CREATE TABLE IF NOT EXISTS mirror_state (
 );
 `;
 
-const TYPES = new Set(["preference", "project", "decision", "history", "summary", "pattern", "user", "fact"]);
+// Exported for API-layer type validation (standalone API POST /memories and
+// the /status byType breakdown); the set itself stays the single source of
+// truth for what store.save accepts.
+export const TYPES = new Set(["preference", "project", "decision", "history", "summary", "pattern", "rejected_solution", "pitfall", "constraint"]);
 
 // Epistemic status: what kind of evidence a memory rests on. Defaults to
 // 'subjective' so legacy rows (and rows without any signal) stay compatible.
@@ -315,14 +314,6 @@ function parseTags(raw) {
 
 function toRow(row) {
   if (!row) return undefined;
-  let metadata;
-  if (row.metadata != null) {
-    try {
-      metadata = JSON.parse(row.metadata);
-    } catch {
-      metadata = row.metadata;
-    }
-  }
   return {
     id: row.id,
     type: row.type,
@@ -332,13 +323,10 @@ function toRow(row) {
     importance: row.importance,
     forgotten: row.forgotten === 1,
     archived: row.archived === 1,
-    session_disposed_at: row.session_disposed_at ?? undefined,
     source: row.source ?? undefined,
-    session_id: row.session_id ?? undefined,
     content_history: parseJsonArray(row.content_history),
     quality_score: row.quality_score !== null && row.quality_score !== undefined ? Number(row.quality_score) : undefined,
     epistemic_status: row.epistemic_status ?? "subjective",
-    metadata,
     created_at: row.created_at,
     updated_at: row.updated_at,
     last_accessed_at: row.last_accessed_at ?? undefined,
@@ -563,17 +551,6 @@ export function createStore(path) {
   db.exec("PRAGMA journal_mode = WAL;");
   db.exec(SCHEMA);
 
-  // Wiki-link dedup (v0.6.1): a (from_entity, to_entity) pair is unique only for
-  // relation_type='links_to'. This is a PARTIAL index scoped to links_to, so the
-  // append-only semantics of all other relation types (uses/depends_on/part_of/
-  // related_to/supersedes — the extractor and autoDream write these per-run
-  // without global dedup, and supersedes rows carry distinct metadata like
-  // attr_key/old_value) are preserved. Idempotent (IF NOT EXISTS), atomic, and
-  // race-safe. Legacy DBs have no links_to rows yet, so the index builds cleanly
-  // everywhere and never breaks plugin startup (a full-table UNIQUE index would
-  // fail on legacy duplicates).
-  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_relations_wikilink ON entity_relations(from_entity, to_entity, relation_type) WHERE relation_type = 'links_to'");
-
   // Schema migrations for legacy databases (idempotent). Each ADD COLUMN is
   // also race-safe: two concurrently-opening processes can both pass the
   // PRAGMA table_info check before either ALTERs, so the ALTER itself is
@@ -591,21 +568,12 @@ export function createStore(path) {
   };
 
   addColumn("memories", "archived", "ALTER TABLE memories ADD COLUMN archived INTEGER NOT NULL DEFAULT 0");
-  addColumn("memories", "session_disposed_at", "ALTER TABLE memories ADD COLUMN session_disposed_at TEXT");
   addColumn("memories", "embedding", "ALTER TABLE memories ADD COLUMN embedding TEXT");
   addColumn("memories", "last_accessed_at", "ALTER TABLE memories ADD COLUMN last_accessed_at TEXT");
   addColumn("memories", "_full_content", "ALTER TABLE memories ADD COLUMN _full_content TEXT");
   addColumn("memories", "epistemic_status", "ALTER TABLE memories ADD COLUMN epistemic_status TEXT NOT NULL DEFAULT 'subjective'");
   addColumn("memories", "content_history", "ALTER TABLE memories ADD COLUMN content_history TEXT");
   addColumn("memories", "quality_score", "ALTER TABLE memories ADD COLUMN quality_score REAL");
-  addColumn("memories", "session_id", "ALTER TABLE memories ADD COLUMN session_id TEXT");
-  addColumn("memories", "metadata", "ALTER TABLE memories ADD COLUMN metadata TEXT");
-
-  // Composite index for session-lifecycle queries (dispose/restore/listBySession).
-  // Created post-migration, NOT in SCHEMA: on legacy DBs both columns arrive via
-  // ADD COLUMN above, so the index would fail at db.exec(SCHEMA) time. CREATE
-  // INDEX IF NOT EXISTS is atomic, so the two-process race is safe here.
-  db.exec("CREATE INDEX IF NOT EXISTS idx_memories_session ON memories(session_id, session_disposed_at)");
 
   // Legacy dream_runs without policy_epoch → backfill with the default epoch.
   addColumn("dream_runs", "policy_epoch", "ALTER TABLE dream_runs ADD COLUMN policy_epoch INTEGER NOT NULL DEFAULT 0");
@@ -650,12 +618,21 @@ export function createStore(path) {
     return ts;
   }
 
-  function count(type, { includeForgotten = false, includeArchived = false, includeDisposed = false } = {}) {
+  function count(type, { minImportance = null, source = null, includeForgotten = false, includeArchived = false } = {}) {
     const clauses = [];
     const params = [];
     if (type !== undefined) {
       clauses.push("type = ?");
       params.push(type);
+    }
+    // Same filters as list() so a paged caller's total matches its rows.
+    if (minImportance != null) {
+      clauses.push("importance >= ?");
+      params.push(minImportance);
+    }
+    if (source != null) {
+      clauses.push("source = ?");
+      params.push(source);
     }
     if (!includeForgotten) {
       clauses.push("forgotten = 0");
@@ -663,83 +640,13 @@ export function createStore(path) {
     if (!includeArchived) {
       clauses.push("archived = 0");
     }
-    if (!includeDisposed) {
-      clauses.push("session_disposed_at IS NULL");
-    }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     return db.prepare(`SELECT count(*) AS c FROM memories ${where}`).get(...params).c;
-  }
-
-  /**
-   * Aggregated stats for the Web panel layered overview: per-type distribution
-   * plus a recent daily creation trend. Counts live (non-forgotten /
-   * non-archived / not session-disposed) memories only, matching `count`.
-   * created_at is ISO TEXT, so date strings compare lexicographically.
-   */
-  function stats({ days = 7 } = {}) {
-    const LIVE = "forgotten = 0 AND archived = 0 AND session_disposed_at IS NULL";
-    // Clamp + integer-coerce so fractional strings (e.g. ?days=7.5) can't
-    // produce ragged trend windows (kimi-k2.7-code 复验 S2).
-    days = Math.min(30, Math.max(1, Math.floor(Number(days) || 7)));
-    const now = Date.now(); // single clock read so the window doesn't span a day boundary
-    const byType = db.prepare(
-      `SELECT type, count(*) AS c FROM memories WHERE ${LIVE} GROUP BY type`
-    ).all();
-    const byTypeCounts = {};
-    for (const row of byType) byTypeCounts[row.type] = row.c;
-    const since = new Date(now - (days - 1) * 86400000).toISOString().slice(0, 10);
-    const trend = db.prepare(
-      `SELECT substr(created_at, 1, 10) AS d, count(*) AS c FROM memories
-       WHERE ${LIVE} AND created_at >= ? GROUP BY d ORDER BY d`
-    ).all(since);
-    const trendCounts = {};
-    for (const row of trend) trendCounts[row.d] = row.c;
-    const recent = [];
-    for (let i = days - 1; i >= 0; i--) {
-      const d = new Date(now - i * 86400000).toISOString().slice(0, 10);
-      recent.push({ date: d, count: trendCounts[d] ?? 0 });
-    }
-    const total = Object.values(byTypeCounts).reduce((s, n) => s + n, 0);
-    return { byType: byTypeCounts, total, recent, days };
   }
 
   function getById(id) {
     const row = db.prepare("SELECT * FROM memories WHERE id = ?").get(id);
     return toRow(row);
-  }
-
-  /**
-   * issue #48: resolve a truncated id — as can leak through an agent's context
-   * window when list/search output is shortened — by matching it as a prefix of
-   * the id PRIMARY KEY. Exact lookups keep using getById; this only serves
-   * resolving a *candidate* id. Returns up to 51 rows so the caller can tell
-   * "unique" from "ambiguous" without a second query. LIKE wildcards are
-   * stripped from the input (a valid id fragment is hex/UUID text, never % or
-   * _). Prefix over a PK stays an index scan, so this is cheap even at scale.
-   */
-  function listByIdPrefix(idPrefix) {
-    if (typeof idPrefix !== "string" || !idPrefix.trim()) return [];
-    // LIKE 通配符不参与 id 匹配，一律剥掉。若剥完为空（如 id="%"），
-    // 不能让 SQL 退化成 `LIKE '%'` 全表命中——那会让单条记忆被误删，
-    // 一律视为无匹配返回。
-    const safe = idPrefix.replace(/[\\%_]/g, "");
-    if (!safe) return [];
-    const rows = db.prepare("SELECT * FROM memories WHERE id LIKE ? LIMIT 51")
-      .all(`${safe}%`);
-    return rows.map(toRow);
-  }
-
-  /**
-   * Case-insensitive exact title lookup (v0.6.1 wiki-link). COLLATE NOCASE
-   * folds ASCII case (CJK titles are inherently case-free, so they match
-   * verbatim). Returns the first matching memory or undefined. Best-effort —
-   * used by wiki-link target resolution and the read APIs.
-   */
-  function findByTitle(title) {
-    if (typeof title !== "string" || !title.trim()) return undefined;
-    return toRow(db.prepare(
-      "SELECT * FROM memories WHERE title = ? COLLATE NOCASE LIMIT 1"
-    ).get(title.trim()));
   }
 
   function save(memory) {
@@ -762,8 +669,8 @@ export function createStore(path) {
       : inferEpistemicStatus(memory);
     runAtomically(() => {
       db.prepare(
-        `INSERT INTO memories (id, type, title, content, tags, importance, forgotten, archived, source, session_id, content_history, quality_score, embedding, epistemic_status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO memories (id, type, title, content, tags, importance, forgotten, archived, source, content_history, quality_score, embedding, epistemic_status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         id,
         type,
@@ -773,7 +680,6 @@ export function createStore(path) {
         importance,
         memory.archived ? 1 : 0,
         memory.source ?? null,
-        memory.session_id ?? null,
         JSON.stringify(memory.content_history ?? []),
         Number.isFinite(memory.quality_score) ? memory.quality_score : null,
         embedding,
@@ -790,9 +696,6 @@ export function createStore(path) {
     return getById(id);
   }
 
-  // v0.7.0 语义：updated_at 只记录内容变更，绝不当访问（与 last_accessed_at
-  // 正交，sleep/heat 永不 fallback 到它）。合并/更新刷 updated_at 不应
-  // 重置热度时钟 —— 防 autoDream 合并动作伪装成"刚被召回"。
   function update(id, patch) {
     const existing = getById(id);
     if (!existing) throw new Error(`memory not found: ${id}`);
@@ -843,50 +746,6 @@ export function createStore(path) {
       // crash between the delete and syncMirror leaves a recoverable debt.
       incrementGeneration();
     });
-  }
-
-  /**
-   * Bounded scan for sleep's entity-extraction phase: oldest memories without
-   * an entity_extracted_at stamp (row-level filters only — attr presence is a
-   * cross-table check, so the caller filters the returned page via
-   * getAttrsByMemory). Caller pages with {limit, offset}; a full-table scan +
-   * JS filter would be O(N) per sleep cycle.
-   */
-  function listForEntityExtraction({ limit = 50, offset = 0 } = {}) {
-    // node:sqlite has no StatementSync#pluck; all() returns row objects.
-    return db
-      .prepare(`
-        SELECT id FROM memories
-        WHERE (archived = 0 OR archived IS NULL)
-          AND session_disposed_at IS NULL
-          AND (forgotten = 0 OR forgotten IS NULL)
-          AND type != 'summary'
-          AND content IS NOT NULL AND content != ''
-          AND (metadata IS NULL OR json_extract(metadata, '$.entity_extracted_at') IS NULL)
-        ORDER BY created_at ASC
-        LIMIT ? OFFSET ?
-      `)
-      .all(limit, offset)
-      .map((row) => getById(row.id));
-  }
-
-  /**
-   * Lightweight metadata-only update (used by sleep's batch entity extraction
-   * to stamp `entity_extracted_at` without disturbing title/content/embedding
-   * or the normal update semantics). Does not bump updated_at — metadata
-   * stamps are bookkeeping, not content, so they must not fake freshness.
-   * Incoming fields are MERGED into the existing metadata object so a stamp
-   * never clobbers metadata another path just wrote.
-   */
-  function setMemoryMetadata(id, metadata) {
-    const existing = getById(id);
-    if (!existing) throw new Error(`memory not found: ${id}`);
-    const patch = typeof metadata === "string"
-      ? JSON.parse(metadata)
-      : (metadata ?? {});
-    const merged = { ...(existing.metadata ?? {}), ...patch };
-    db.prepare("UPDATE memories SET metadata = ? WHERE id = ?").run(JSON.stringify(merged), id);
-    return getById(id);
   }
 
   /**
@@ -969,45 +828,6 @@ export function createStore(path) {
     return getById(id);
   }
 
-  // --- session lifecycle (v0.6.0) ------------------------------------------
-  // Session dispose is orthogonal to `archived`: memory_archive is the user/AI
-  // choosing to keep an entry long-term-but-quiet, while session_disposed_at
-  // marks entries hidden because the session they were born in was deleted
-  // (a reversible "undo" — restoreBySession clears it). They never clobber each
-  // other: restoreBySession must not resurrect user-archived memories.
-  // Mirrors list/search: disposed rows are hidden by default. A consumer that
-  // needs to see the full picture (e.g. a restore flow that tells the user
-  // "these N entries were hidden") opts in via includeDisposed.
-  function listBySession(sessionId, { includeDisposed = false } = {}) {
-    const disposedFilter = includeDisposed ? "" : "AND session_disposed_at IS NULL";
-    const rows = db.prepare(
-      `SELECT * FROM memories WHERE session_id = ? ${disposedFilter} ORDER BY updated_at DESC`
-    ).all(sessionId);
-    return rows.map(toRow);
-  }
-
-  // Idempotent by state guard, not timestamp compare (nowIso() differs every
-  // call, so a fresh-timestamp re-dispose would spuriously count): dispose only
-  // touches rows that are NOT yet disposed; restore only touches rows that ARE.
-  // updated_at is deliberately left alone — this is a lifecycle flag, not
-  // content — so a true flip is the sole trigger for a mirror generation.
-  function setDisposedBySession(sessionId, disposed) {
-    const at = disposed ? nowIso() : null;
-    let affected = 0;
-    runAtomically(() => {
-      const result = disposed
-        ? db.prepare(
-            "UPDATE memories SET session_disposed_at = ? WHERE session_id = ? AND session_disposed_at IS NULL"
-          ).run(at, sessionId)
-        : db.prepare(
-            "UPDATE memories SET session_disposed_at = NULL WHERE session_id = ? AND session_disposed_at IS NOT NULL"
-          ).run(sessionId);
-      affected = result.changes;
-      if (affected > 0) incrementGeneration();
-    });
-    return affected;
-  }
-
   // --- sleep-mode storage support (v0.4.0) ---------------------------------
   // touchLastAccess stamps the read time on recall/inject paths. It deliberately
   // does NOT bump the mirror generation: reads must not mark the mirror dirty.
@@ -1064,7 +884,6 @@ export function createStore(path) {
     const rows = db.prepare(
       `SELECT * FROM memories
        WHERE forgotten = 0 AND archived = 0
-         AND session_disposed_at IS NULL
          AND (last_accessed_at IS NULL OR last_accessed_at < ?)
        ORDER BY COALESCE(last_accessed_at, created_at) ASC, id
        LIMIT ?`
@@ -1072,12 +891,22 @@ export function createStore(path) {
     return rows.map(toRow);
   }
 
-  function list({ type, limit = 50, offset = 0, includeForgotten = false, includeArchived = false, includeDisposed = false } = {}) {
+  function list({ type, limit = 50, offset = 0, order = "importance", includeForgotten = false, includeArchived = false, minImportance = null, source = null } = {}) {
     const clauses = [];
     const params = [];
     if (type) {
       clauses.push("type = ?");
       params.push(type);
+    }
+    // Optional server-side filters: importance floor and exact source match.
+    // Both stay out of the query when unset so existing callers are unaffected.
+    if (minImportance != null) {
+      clauses.push("importance >= ?");
+      params.push(minImportance);
+    }
+    if (source) {
+      clauses.push("source = ?");
+      params.push(source);
     }
     if (!includeForgotten) {
       clauses.push("forgotten = 0");
@@ -1085,13 +914,14 @@ export function createStore(path) {
     if (!includeArchived) {
       clauses.push("archived = 0");
     }
-    if (!includeDisposed) {
-      clauses.push("session_disposed_at IS NULL");
-    }
     const { limit: lim, offset: off } = sanitizePage(limit, offset, 50);
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    // "chrono" is pure newest-first — the stable order paged browsing (month
+    // tree, infinite scroll) needs; importance ordering would interleave
+    // months across pages.
+    const orderBy = order === "chrono" ? "updated_at DESC, id DESC" : "importance DESC, updated_at DESC, id";
     const rows = db.prepare(
-      `SELECT * FROM memories ${where} ORDER BY importance DESC, updated_at DESC, id LIMIT ? OFFSET ?`
+      `SELECT * FROM memories ${where} ORDER BY ${orderBy} LIMIT ? OFFSET ?`
     ).all(...params, lim, off);
     return rows.map(toRow);
   }
@@ -1145,7 +975,7 @@ export function createStore(path) {
     ).all(limit);
   }
 
-  function search(query, { limit = 20, includeArchived = false, includeDisposed = false } = {}) {
+  function search(query, { limit = 20, includeArchived = false } = {}) {
     const q = String(query).trim();
     if (!q) return [];
     // Plain LIKE substring scan over title/content/tags (wildcards escaped so
@@ -1154,10 +984,9 @@ export function createStore(path) {
     const like = `%${escapeLike(q)}%`;
     const { limit: lim } = sanitizePage(limit, 0, 20);
     const archivedFilter = includeArchived ? "" : "archived = 0 AND ";
-    const disposedFilter = includeDisposed ? "" : "session_disposed_at IS NULL AND ";
     const rows = db.prepare(
       `SELECT * FROM memories
-       WHERE ${archivedFilter}${disposedFilter}forgotten = 0 AND (title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\' OR tags LIKE ? ESCAPE '\\')
+       WHERE ${archivedFilter}forgotten = 0 AND (title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\' OR tags LIKE ? ESCAPE '\\')
        ORDER BY
          CASE WHEN title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END,
          importance DESC,
@@ -1188,13 +1017,12 @@ export function createStore(path) {
    * Brute-force cosine similarity over embedded rows. Returns rows decorated
    * with a `score` (0..1). Only rows with a stored embedding participate.
    */
-  function searchVector(vector, { limit = 20, includeArchived = false, includeDisposed = false, threshold = 0 } = {}) {
+  function searchVector(vector, { limit = 20, includeArchived = false, threshold = 0 } = {}) {
     if (!Array.isArray(vector) || !vector.length) return [];
     const archivedFilter = includeArchived ? "" : "archived = 0 AND ";
-    const disposedFilter = includeDisposed ? "" : "session_disposed_at IS NULL AND ";
     const rows = db.prepare(
       `SELECT * FROM memories
-       WHERE ${archivedFilter}${disposedFilter}forgotten = 0 AND embedding IS NOT NULL AND embedding != ''`
+       WHERE ${archivedFilter}forgotten = 0 AND embedding IS NOT NULL AND embedding != ''`
     ).all();
     const scored = [];
     for (const row of rows) {
@@ -1398,19 +1226,6 @@ export function createStore(path) {
       `SELECT * FROM recall_runs ${where} ORDER BY created_at DESC, id LIMIT ? OFFSET ?`
     ).all(...params, lim, off);
     return rows.map(toRecallRun);
-  }
-
-  /**
-   * Rolling purge of the recall_runs production audit (v0.7.0): with recordRecall
-   * defaulting ON, the table would otherwise grow unboundedly on a busy store.
-   * Drop rows older than `days` (config.recallRetentionDays, default 90).
-   * created_at is an ISO TEXT string, so the ISO bound compares lexicographically.
-   * Returns the number of rows deleted (bookkeeping — never throws on empty).
-   */
-  function purgeRecallRunsOlderThan(days) {
-    const cutoff = new Date(Date.now() - days * 86400000).toISOString();
-    const result = db.prepare("DELETE FROM recall_runs WHERE created_at < ?").run(cutoff);
-    return result.changes;
   }
 
   // --- recall evaluation trail (方案 B: separate from the production audit) -
@@ -1810,173 +1625,9 @@ export function createStore(path) {
     return memories;
   }
 
-  // --- tag storage (v0.6.2) ------------------------------------------------
-  // Tags ride the snapshot-style entity_attrs table (attr_key='tags'), so one
-  // memory has exactly one live tags row; setMemoryTags invalidates any prior
-  // live row and inserts a fresh one (idempotent overwrite). entity_id is the
-  // memory id itself (the memory is its own tag entity), memory_id is kept so
-  // the existing memory-scoped attr queries (getAttrsByMemory / findMemoriesByAttr)
-  // and the bulk tag map all work without a special path.
-
-  /** Normalize an arbitrary tags input to a deduplicated string array.
-   *  Delegates to parser/tag.js sanitizeTags (shared validation with parseTags
-   *  and the autoDream tag-extractor): strips a leading `#`, trims, drops
-   *  non-strings/blanks/over-long/illegal-char tags. Kept as a thin alias so
-   *  the tag write path validates identically to the parser path. */
-  function normalizeTags(tags) {
-    return sanitizeTags(tags);
-  }
-
-  /**
-   * Set (overwrite) the live tag set for a memory. Exactly one tags row stays
-   * live per memory: any prior live row is invalidated first, then one fresh
-   * row is written (no-op when tags is empty — the invalidated row is removed
-   * so "clear tags" = no live row). Returns the stored tag array.
-   */
-  function setMemoryTags(memoryId, tags) {
-    const arr = normalizeTags(tags);
-    const now = nowIso();
-    // Atomic: the invalidation and the fresh row must land together, so a
-    // mid-write crash never leaves the old live row gone without a replacement.
-    // SAVEPOINT (not BEGIN) so this nests safely inside service.transaction().
-    db.exec("SAVEPOINT set_memory_tags");
-    try {
-      db.prepare(
-        `UPDATE entity_attrs SET valid_until = ?
-         WHERE attr_key = 'tags' AND memory_id = ? AND valid_until IS NULL`
-      ).run(now, memoryId);
-      if (arr.length) {
-        const id = randomUUID();
-        db.prepare(
-          `INSERT INTO entity_attrs (id, entity_id, attr_key, attr_value, memory_id, valid_from, valid_until, confidence, source)
-           VALUES (?, ?, 'tags', ?, ?, ?, NULL, 1.0, 'manual')`
-        ).run(id, memoryId, JSON.stringify(arr), memoryId, now);
-      }
-      // Keep memories.tags (the display/search column) as a mirror of the
-      // entity_attrs source of truth, so API rows and keyword search never
-      // drift from the directory/tag store (issue #31).
-      db.prepare("UPDATE memories SET tags = ?, updated_at = ? WHERE id = ?")
-        .run(JSON.stringify(arr), now, memoryId);
-      db.exec("RELEASE set_memory_tags");
-    } catch (e) {
-      db.exec("ROLLBACK TO set_memory_tags");
-      db.exec("RELEASE set_memory_tags");
-      throw e;
-    }
-    return arr;
-  }
-
-  /** Live tags for a memory ([] when none / unknown). */
-  function getMemoryTags(memoryId) {
-    const row = db.prepare(
-      `SELECT attr_value FROM entity_attrs
-       WHERE attr_key = 'tags' AND memory_id = ? AND valid_until IS NULL
-       ORDER BY valid_from DESC LIMIT 1`
-    ).get(memoryId);
-    if (!row) return [];
-    try {
-      const arr = JSON.parse(row.attr_value);
-      return Array.isArray(arr) ? arr : [];
-    } catch {
-      return [];
-    }
-  }
-
-  /** Bulk live-tags lookup for mirror rendering. Returns Map<memoryId, string[]>. */
-  function getMemoryTagsMap(ids) {
-    const out = new Map();
-    const list = (Array.isArray(ids) ? ids : []).filter(Boolean);
-    for (let i = 0; i < list.length; i += 100) {
-      const chunk = list.slice(i, i + 100);
-      const rows = db.prepare(
-        `SELECT memory_id, attr_value FROM entity_attrs
-         WHERE attr_key = 'tags' AND valid_until IS NULL
-           AND memory_id IN (${chunk.map(() => "?").join(",")})`
-      ).all(...chunk);
-      for (const row of rows) {
-        try {
-          const arr = JSON.parse(row.attr_value);
-          if (Array.isArray(arr) && arr.length) out.set(row.memory_id, arr);
-        } catch { /* corrupt row: skip */ }
-      }
-    }
-    return out;
-  }
-
-  /**
-   * Memories carrying a live tags row that contains EVERY requested tag
-   * (AND semantics for a multi-tag query). attr_value is a JSON array, so the
-   * match uses quoted `"tag"` substrings — `tag:lin` never collides with
-   * `linux` because JSON array elements are quote-delimited. Only live rows
-   * (valid_until IS NULL) with a memory reference participate; each memory
-   * appears once.
-   */
-  function findMemoriesByTags(tags) {
-    const list = normalizeTags(tags);
-    if (!list.length) return [];
-    const where = list.map(() => `attr_value LIKE ? ESCAPE '\\'`).join(" AND ");
-    const params = list.map((t) => `%"${escapeLike(t)}"%`);
-    const rows = db.prepare(
-      `SELECT DISTINCT memory_id FROM entity_attrs
-       WHERE attr_key = 'tags' AND valid_until IS NULL
-         AND memory_id IS NOT NULL AND memory_id != ''
-         AND (${where})`
-    ).all(...params);
-    // Same live-memory filter as getDirectory/store.search: forgotten/archived/
-    // session-disposed memories are invisible to `tag:` recall.
-    const stmt = db.prepare(
-      "SELECT * FROM memories WHERE id = ? AND forgotten = 0 AND archived = 0 AND session_disposed_at IS NULL"
-    );
-    const memories = [];
-    for (const { memory_id } of rows) {
-      const row = stmt.get(memory_id);
-      if (row) memories.push(toRow(row));
-    }
-    return memories;
-  }
-
-  /**
-   * Directory view (v0.6.3): group live memories by their entity_attrs-backed
-   * tag set. A memory carrying N tags appears under all N tag folders; a memory
-   * with no live tags lands in `untagged`. Only live rows participate —
-   * forgotten, archived and session-disposed memories are excluded. Groups are
-   * ordered by tag (locale-aware), group members and untagged follow the
-   * canonical memory order (importance DESC, updated_at DESC, id).
-   * @returns {{groups: {tag: string, memories: object[]}[], untagged: object[]}}
-   */
-  function getDirectory() {
-    const rows = db.prepare(
-      `SELECT * FROM memories
-       WHERE forgotten = 0 AND archived = 0 AND session_disposed_at IS NULL
-       ORDER BY importance DESC, updated_at DESC, id`
-    ).all();
-    const memories = rows.map(toRow);
-    const tagMap = getMemoryTagsMap(memories.map((m) => m.id));
-    const byTag = new Map(); // tag -> memory[]
-    const untagged = [];
-    for (const m of memories) {
-      const tags = tagMap.get(m.id);
-      if (!tags || tags.length === 0) {
-        untagged.push(m);
-        continue;
-      }
-      for (const tag of tags) {
-        if (!byTag.has(tag)) byTag.set(tag, []);
-        byTag.get(tag).push(m);
-      }
-    }
-    const groups = [...byTag.entries()]
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([tag, ms]) => ({ tag, memories: ms }));
-    return { groups, untagged };
-  }
-
   /**
    * Record a typed relation between two entities. metadata (optional) is a
-   * free-form JSON blob describing the relation. Relations are append-only —
-   * callers that need idempotency (e.g. wiki-links, via saveWikiLinks) guard
-   * with their own existence check plus the partial links_to unique index
-   * (idx_relations_wikilink) as a race backstop.
+   * free-form JSON blob describing the relation. Relations are append-only.
    */
   function saveRelation({ from_entity, to_entity, relation_type, memory_id, metadata }) {
     const id = randomUUID();
@@ -1990,56 +1641,7 @@ export function createStore(path) {
       `INSERT INTO entity_relations (id, from_entity, to_entity, relation_type, memory_id, created_at, metadata)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     ).run(id, from_entity, to_entity, relation_type, memory_id ?? null, now, metaStr);
-    return toRelation(db.prepare(
-      "SELECT * FROM entity_relations WHERE from_entity = ? AND to_entity = ? AND relation_type = ? LIMIT 1"
-    ).get(from_entity, to_entity, relation_type));
-  }
-
-  /**
-   * Record wiki-link relations (v0.6.1). For each target title, resolve the
-   * target memory (case-insensitive title match via findByTitle) and write a
-   * links_to relation:
-   *   from_entity = source memory title, to_entity = canonical target memory
-   *   title, relation_type = 'links_to', memory_id = source memory id.
-   * Using the canonical resolved title keeps the graph case-consistent
-   * ([[beta]] and [[Beta]] collapse onto the same to_entity), so backlink
-   * lookups never fight the way a target was typed.
-   * Fail-safe: a target with no matching memory is skipped (never an error).
-   * Idempotent: an already-existing triple is a silent no-op (existence check
-   * here + the idx_relations_wikilink partial unique index as a race backstop),
-   * so `saved` only counts newly written relations. Returns { saved, skipped }.
-   */
-  function saveWikiLinks({ memoryId, title, targets }) {
-    const saved = [];
-    const skipped = [];
-    const seen = new Set(); // canonical (lowercased) targets already handled
-    const existsStmt = db.prepare(
-      "SELECT id FROM entity_relations WHERE from_entity = ? AND to_entity = ? AND relation_type = ?"
-    );
-    const list = Array.isArray(targets)
-      ? targets.filter((t) => typeof t === "string" && t.trim())
-      : [];
-    for (const raw of list) {
-      const target = raw.trim();
-      const key = target.toLowerCase();
-      if (seen.has(key)) continue; // dedupe within a single call (case-insensitive)
-      seen.add(key);
-      const targetMem = findByTitle(target);
-      if (!targetMem) {
-        skipped.push(target); // 目标不存在 → 跳过（Fail-safe）
-        continue;
-      }
-      const toEntity = targetMem.title;
-      if (existsStmt.get(title, toEntity, "links_to")) continue; // already linked → no-op
-      saved.push(saveRelation({
-        from_entity: title,
-        to_entity: toEntity,
-        relation_type: "links_to",
-        memory_id: memoryId,
-        metadata: { target_memory_id: targetMem.id }
-      }));
-    }
-    return { saved, skipped };
+    return toRelation(db.prepare("SELECT * FROM entity_relations WHERE id = ?").get(id));
   }
 
   /**
@@ -2284,19 +1886,13 @@ export function createStore(path) {
   return {
     db,
     count,
-    stats,
     getById,
-    listByIdPrefix,
     save,
     update,
-    listForEntityExtraction,
-    setMemoryMetadata,
     compareAndUpdate,
     remove,
     setForget,
     setArchived,
-    listBySession,
-    setDisposedBySession,
     touchLastAccess,
     demoteToSummary,
     restoreContent,
@@ -2319,7 +1915,6 @@ export function createStore(path) {
     saveRecallRun,
     getRecallRun,
     listRecallRuns,
-    purgeRecallRunsOlderThan,
     saveRecallEval,
     getRecallEval,
     listRecallEvals,
@@ -2347,14 +1942,7 @@ export function createStore(path) {
     getAttrHistory,
     getAttrsByMemory,
     findMemoriesByAttr,
-    setMemoryTags,
-    getMemoryTags,
-    getMemoryTagsMap,
-    findMemoriesByTags,
-    getDirectory,
     saveRelation,
-    saveWikiLinks,
-    findByTitle,
     migrateAttrsToMemory,
     getRelations,
     setMirrorState,
