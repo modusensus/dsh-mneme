@@ -52,20 +52,8 @@ export const apply = (ctx, config) => {
       store.deleteOldLlmAudits(new Date(Date.now() - retentionMs * 86400000).toISOString());
     }
   } catch { /* non-fatal */ }
-  // v0.7.0: recall_runs 滚动清理 —— recordRecall 默认开且注入路径也记账，表随
-  // 活跃度增长；启动时按 recallRetentionDays（默认 90 天）清一次，防膨胀。
-  // 与 llm_audit 同策略：纯 bookkeeping，清理失败绝不阻塞插件启动。
-  try {
-    const recallRetentionDays = Number.isInteger(cfg.recallRetentionDays) ? cfg.recallRetentionDays : 90;
-    store.purgeRecallRunsOlderThan(recallRetentionDays);
-  } catch { /* non-fatal */ }
   const mirror = createMirror(memoryDir);
-  // User-configurable settings (profile, rules) and custom commands share the
-  // same SQLite file but live in dedicated tables, isolated from memories.
-  // Created before the service so the tag-config resolver (issue #31) can merge
-  // the Web panel's persisted toggles over the plugin config at runtime.
-  const settings = createSettings(store.db);
-  const service = createService({ store, mirror, config: cfg, logger: ctx.logger, settings });
+  const service = createService({ store, mirror, config: cfg, logger: ctx.logger });
 
   // F-NEW-03: if the mirror sync failed last run (persisted dirty state), retry
   // a safe re-render at boot so a stale mirror converges without needing a
@@ -89,6 +77,10 @@ export const apply = (ctx, config) => {
       });
     } catch { /* non-fatal: recall recording is bookkeeping */ }
   });
+
+  // User-configurable settings (profile, rules) and custom commands share the
+  // same SQLite file but live in dedicated tables, isolated from memories.
+  const settings = createSettings(store.db);
 
   // Semantic pipeline: a local/ollama embedder when configured, otherwise the
   // legacy OpenAI-compatible embedder (settings-driven). The vector index wraps
@@ -252,7 +244,7 @@ export const apply = (ctx, config) => {
       delayMs: cfg.dreamDelayMs,
       logger: ctx.logger,
       semantic: { embedder, vectorIndex },
-      onRun: () => (dream ? dream.runDream(ctx, service, cfg, settings) : Promise.resolve({ ok: true, skipped: true }))
+      onRun: () => (dream ? dream.runDream(ctx, service, cfg) : Promise.resolve({ ok: true, skipped: true }))
     });
     service.setDreamHook(() => dream.maybeSchedule(service));
   }
@@ -324,26 +316,6 @@ export const apply = (ctx, config) => {
 
   const summarizer = createSummarizer(ctx, service, cfg);
   disposers.push(summarizer.dispose);
-
-  // Session lifecycle (v0.6.0): when a session leaves the store and the toggle
-  // is enabled, mark every memory born in it as session-disposed (hidden from
-  // injection/search/dream but never destroyed — recoverable via
-  // restoreBySession). Default off, so a disposed session leaves its memories
-  // active (legacy behavior). Every path is guarded: a failure inside the
-  // callback must never propagate into DSH's session teardown (that would crash
-  // the plugin on the very delete action it serves).
-  if (cfg.sessionLifecycleEnabled) {
-    disposers.push(ctx.on("session/disposed", (session) => {
-      const sessionId = session?.id;
-      if (!sessionId) return;
-      try {
-        const { disposed } = service.disposeBySession(sessionId);
-        ctx.logger?.info?.(`[dsh-mneme] session disposed, hid ${disposed} memory(s) for ${sessionId}`);
-      } catch (error) {
-        ctx.logger?.warn?.(`[dsh-mneme] session dispose failed for ${sessionId}: ${String(error)}`);
-      }
-    }));
-  }
 
   if (ctx.webServer) {
     const api = createApi(ctx, service, settings, commands ?? {

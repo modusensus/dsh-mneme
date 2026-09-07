@@ -18,8 +18,6 @@ import { randomUUID, createHash } from "node:crypto";
 import { validateDecisions, applyDecisions } from "./decisions.js";
 import { findPotentialConflicts } from "./clustering.js";
 import { buildReceipt } from "../dream.js";
-import { computeHeat } from "../heat.js";
-import { extractEntities } from "../entities/extractor.js";
 
 const SUMMARY_MAX = 120;
 // Conflict similarity threshold per strictness level (v0.4.0):
@@ -74,23 +72,16 @@ async function streamText(ctx, options) {
   return text;
 }
 
-// LLM route (Issue #25): explicit config wins — sleepProvider/sleepModel first,
-// then the dream route as a shared fallback (config is the user's declared
-// override), and agent default model only last as the generic fallback. Sleep
-// can pin a cheaper model for its bulk passes without disturbing the dream
-// route. The agent-default-last ordering matters: in a standard DSH install
-// agentDefaultModel always resolves, so putting it first would make every
-// config route dead code.
+/** LLM route: agent default model first, then sleepProvider/Model, then the
+ *  dream route as a shared fallback. Sleep can pin a cheaper model for its
+ *  bulk passes without disturbing the dream route. */
 function resolveSleepRoute(ctx, config, logger) {
-  if (config.sleepProvider && config.sleepModel) return { provider: config.sleepProvider, model: config.sleepModel };
-  if (config.dreamProvider && config.dreamModel) return { provider: config.dreamProvider, model: config.dreamModel };
   try {
     const sel = ctx?.agentDefaultModel?.currentSelection?.();
-    if (sel?.provider && sel?.model) {
-      logger?.info?.("dsh-mneme sleep: no sleepProvider/sleepModel config, falling back to agent default");
-      return { provider: sel.provider, model: sel.model };
-    }
-  } catch { /* fall through */ }
+    if (sel?.provider && sel?.model) return { provider: sel.provider, model: sel.model };
+  } catch { /* fall through to config route */ }
+  if (config.sleepProvider && config.sleepModel) return { provider: config.sleepProvider, model: config.sleepModel };
+  if (config.dreamProvider && config.dreamModel) return { provider: config.dreamProvider, model: config.dreamModel };
   logger?.warn?.("dsh-mneme sleep: no llm route available");
   return undefined;
 }
@@ -117,7 +108,7 @@ async function phaseConflicts(ctx, service, config, logger, runId, semantic = nu
   }
   const strictness = config.sleepConflictStrictness ?? "normal";
   const threshold = CONFLICT_THRESHOLDS[strictness] ?? CONFLICT_THRESHOLDS.normal;
-  const memories = service.all().filter((m) => !m.archived && !m.session_disposed_at && !m.forgotten && m.type !== "summary");
+  const memories = service.all().filter((m) => !m.archived && !m.forgotten && m.type !== "summary");
   if (memories.length < 2) return { status: "skipped", reason: "too few memories" };
   if (signal?.aborted) return { status: "aborted", reason: "user activity" };
 
@@ -248,22 +239,11 @@ function phaseDemotion(service, config, logger, runId, signal = null) {
   const archived = [];
   for (const m of service.all()) {
     if (signal?.aborted) break;
-    if (m.archived || m.forgotten || m.session_disposed_at) continue;
-    // v0.7.0 语义修正：ref 只用 last_accessed_at，缺失退 created_at；不再
-    // fallback updated_at —— 合并/更新刷的 updated_at 不是访问，防止
-    // autoDream 合并动作重置新鲜度时钟而伪装成"刚被召回"。
-    const ref = m.last_accessed_at ?? m.created_at;
+    if (m.archived || m.forgotten) continue;
+    const ref = m.last_accessed_at ?? m.updated_at ?? m.created_at;
     if (!ref) continue;
     const t = new Date(ref).getTime();
     if (Number.isNaN(t)) continue;
-    // v0.7.0 热联合判定（待办③）：时间窗之外再加两道保护闸——热度低于
-    // sleepHeatThreshold 且 importance<5 才允许降级。λ=0 的免疫类型 heat 恒
-    // 1.0 天然豁免（preference/pattern/summary 永不因 sleep 降级）；importance
-    // ≥5 的紧要记忆无论多冷都保留。`冷但重要` 与 `热但低值` 均不满足条件。
-    const heat = computeHeat(m, Date.now(), config);
-    const heatProtected = heat >= (config.sleepHeatThreshold ?? 0.05);
-    const important = (m.importance ?? 0) >= 5;
-    if (heatProtected || important) continue;
     if (t < compressCut) {
       service.setArchived(m.id, true);
       archived.push(m.id);
@@ -293,7 +273,7 @@ async function phasePatterns(ctx, service, config, logger, runId, signal = null)
   const limit = config.sleepPatternMinMemories ?? 100;
   const memories = service
     .list({ limit: 200, includeForgotten: false })
-    .filter((m) => !m.archived && !m.session_disposed_at && m.type !== "summary" && m.type !== "pattern")
+    .filter((m) => !m.archived && m.type !== "summary" && m.type !== "pattern")
     .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1))
     .slice(0, limit);
   if (memories.length === 0) return { status: "skipped", reason: "no memories to scan" };
@@ -362,7 +342,7 @@ function phaseRelations(service, config, logger, runId, signal = null) {
   if (entities.length < 2) return { status: "skipped", reason: "too few entities" };
   const orphans = entities.filter((e) => (service.getRelations(e.id) ?? []).length === 0);
   if (orphans.length === 0) return { status: "skipped", reason: "no orphan entities" };
-  const memories = service.all().filter((m) => !m.archived && !m.session_disposed_at && !m.forgotten);
+  const memories = service.all().filter((m) => !m.archived && !m.forgotten);
   const seen = new Set();
   const related = [];
   const MAX_RELATIONS_PER_ORPHAN = 3;
@@ -394,123 +374,6 @@ function phaseRelations(service, config, logger, runId, signal = null) {
     status: related.length > 0 ? "ok" : "noop",
     orphanCount: orphans.length,
     related
-  };
-}
-
-/**
- * Phase 4.5 — batch entity extraction. The write-path extractor (index.js)
- * only fires when entityExtractionEnabled is on — one LLM call per write, a
- * deliberate cost decision — so default installs never accumulate entities,
- * which is exactly why the ego-graph panel (issue #23) renders blank for users
- * with plenty of memories. This phase backfills the entity graph in bulk:
- * memories that carry no entity attrs yet are passed through extractEntities
- * one at a time (oldest first, capped per run). Write-path stays untouched —
- * this is an additive channel for sleep users. Fail-safe per memory: one bad
- * extract never aborts the phase or the cycle.
- */
-async function phaseEntityExtraction(ctx, service, config, logger, runId, signal = null) {
-  if (config.sleepEntityExtractionEnabled !== true) {
-    return { status: "skipped", reason: "disabled" };
-  }
-  const route = resolveSleepRoute(ctx, config, logger);
-  if (!route) return { status: "skipped", reason: "no llm route" };
-  const maxPerRun = config.sleepEntityExtractionMaxPerRun ?? 20;
-
-  // Oldest un-extracted first. The store returns bounded pages via SQL (no
-  // O(N) full-table scan); JS pages through offsets and only pays the
-  // getAttrsByMemory cross-table check on each page, stopping once it has
-  // maxPerRun un-extracted memories or the store is exhausted. Every memory
-  // this phase touches gets stamped entity_extracted_at (successful or
-  // entity-less extracts alike) so a text with no extractable entities is not
-  // re-queued forever; failures are NOT stamped, so a transient LLM hiccup
-  // retries next cycle.
-  const candidates = [];
-  for (let offset = 0; candidates.length < maxPerRun; offset += 100) {
-    const page = service.listForEntityExtraction({ limit: 100, offset });
-    if (page.length === 0) break;
-    candidates.push(...page.filter((m) => (service.getAttrsByMemory?.(m.id) ?? []).length === 0));
-  }
-  candidates.length = Math.min(candidates.length, maxPerRun);
-  if (candidates.length === 0) return { status: "skipped", reason: "no memories to extract" };
-  if (signal?.aborted) return { status: "aborted", reason: "user activity" };
-
-  // extractEntities expects callLLM(messages, options) → text; adapt sleep's
-  // streamText + route resolution (same precedence as the other phases).
-  const callLLM = async (messages) => {
-    const r = resolveSleepRoute(ctx, config, logger);
-    if (!r) return undefined;
-    return streamText(ctx, {
-      ...r,
-      purpose: "sleep-entity-extract",
-      maxTokens: 4096,
-      ...(config.sleepReasoningEffort && config.sleepReasoningEffort !== "none"
-        ? { reasoningEffort: config.sleepReasoningEffort }
-        : {}),
-      messages
-    });
-  };
-
-  let extracted = 0;
-  let failed = 0;
-  let aborted = false;
-  const extractedIds = [];
-  for (const m of candidates) {
-    if (signal?.aborted) {
-      aborted = true;
-      break;
-    }
-    const now = new Date().toISOString();
-    try {
-      // Stamp a pending marker BEFORE the LLM call so a crash mid-extract (the
-      // stamp and the entity writes are not one transaction) cannot re-queue
-      // this memory while we are already working it. Cleared on outcome.
-      service.setMemoryMetadata?.(m.id, { pending_extracted_at: now });
-    } catch (error) {
-      logger?.warn?.(`dsh-mneme sleep: failed to stamp pending_extracted_at for ${m.id}: ${String(error)}`);
-      failed++;
-      continue;
-    }
-    try {
-      const result = await extractEntities(m, { store: service, config, callLLM, logger });
-      if (result?.ok) {
-        extracted++;
-        extractedIds.push(m.id);
-        // Stamp done regardless of whether the LLM found entities — an empty
-        // extract is still a definitive answer for this memory.
-        try {
-          service.setMemoryMetadata?.(m.id, { entity_extracted_at: now, pending_extracted_at: null });
-        } catch (error) {
-          logger?.warn?.(`dsh-mneme sleep: failed to stamp entity_extracted_at for ${m.id}: ${String(error)}`);
-        }
-      } else {
-        failed++;
-        logger?.warn?.(`dsh-mneme sleep: entity extraction failed for ${m.id}: ${result?.error ?? "unknown"}`);
-        try {
-          service.setMemoryMetadata?.(m.id, { pending_extracted_at: null });
-        } catch (error) {
-          logger?.warn?.(`dsh-mneme sleep: failed to clear pending_extracted_at for ${m.id}: ${String(error)}`);
-        }
-      }
-    } catch (error) {
-      failed++;
-      logger?.warn?.(`dsh-mneme sleep: entity extraction threw for ${m.id}: ${String(error)}`);
-      try {
-        service.setMemoryMetadata?.(m.id, { pending_extracted_at: null });
-      } catch (err) {
-        logger?.warn?.(`dsh-mneme sleep: failed to clear pending_extracted_at for ${m.id}: ${String(err)}`);
-      }
-    }
-  }
-  return {
-    // Any success counts as ok (failures are surfaced via detail.failed + warn,
-    // matching phaseConflicts); all-failed reports failed so deriveStatus can
-    // reflect a broken route without aborting the other phases.
-    status: aborted ? "aborted" : extracted > 0 ? "ok" : failed > 0 ? "failed" : "noop",
-    scanned: candidates.length,
-    extracted,
-    failed,
-    aborted,
-    extractedIds
   };
 }
 
@@ -547,9 +410,6 @@ export async function runSleep(ctx, service, config, logger, semantic = null, si
   await attempt("conflicts", () => phaseConflicts(ctx, service, config, logger, runId, semantic, signal));
   await attempt("demotion", () => phaseDemotion(service, config, logger, runId, signal));
   await attempt("patterns", () => phasePatterns(ctx, service, config, logger, runId, signal));
-  // entity-extraction runs before relation completion so freshly minted
-  // entities get their orphan relations completed in the same cycle.
-  await attempt("entity-extraction", () => phaseEntityExtraction(ctx, service, config, logger, runId, signal));
   await attempt("relations", () => phaseRelations(service, config, logger, runId, signal));
 
   const status = deriveStatus(phases);

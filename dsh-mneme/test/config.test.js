@@ -27,13 +27,6 @@ test("dream sliding window + implicit keep config defaults and bounds (v0.4.4)",
   assert.equal(off.dreamImplicitKeep, false, "implicit keep can be disabled");
 });
 
-test("injectTimePrefix is opt-in: default off, enabled explicitly (issue #34)", () => {
-  const cfg = Config({});
-  assert.equal(cfg.injectTimePrefix, false, "time prefix defaults to false (behavior unchanged)");
-  const on = Config({ injectTimePrefix: true });
-  assert.equal(on.injectTimePrefix, true, "explicit opt-in enables it");
-});
-
 test("dream explicit coverage threshold config defaults and bounds (v0.4.4 fix)", () => {
   const cfg = Config({});
   assert.equal(cfg.dreamMinExplicitCoverage, 0.5, "coverage threshold defaults to 0.5");
@@ -54,18 +47,4 @@ test("startup probe: the reranker module never statically imports transformers/o
     "no static transformers.js import in reranker.js"
   );
   assert.match(src, /await import\("@huggingface\/transformers"\)/, "transformers.js loads lazily via dynamic import");
-});
-
-test("showSidebarTrigger is on by default, disabled explicitly (issue #38)", () => {
-  const cfg = Config({});
-  assert.equal(cfg.showSidebarTrigger, true, "sidebar trigger defaults to visible (behavior unchanged)");
-  const off = Config({ showSidebarTrigger: false });
-  assert.equal(off.showSidebarTrigger, false, "explicit false hides the trigger");
-});
-
-test("escapePromptVariables is on by default, disabled explicitly (issue #40)", () => {
-  const cfg = Config({});
-  assert.equal(cfg.escapePromptVariables, true, "{{...}} escaping defaults to on (protects interpolate)");
-  const off = Config({ escapePromptVariables: false });
-  assert.equal(off.escapePromptVariables, false, "explicit false passes {{...}} through verbatim");
 });

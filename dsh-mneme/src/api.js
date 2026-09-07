@@ -88,23 +88,20 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
         const type = url.searchParams.get("type") ?? undefined;
         const limit = Number(url.searchParams.get("limit") ?? 50);
         const offset = Number(url.searchParams.get("offset") ?? 0);
-        const items = service.toApiList(service.list({ type, limit, offset }));
-        sendJson(res, 200, { items, total: service.count(type) });
-      } catch {
-        sendJson(res, 500, { error: "internal" });
-      }
-    }
-  });
-
-  register({
-    kind: "exact",
-    path: "/api/dsh-mneme/stats",
-    handler(req, res) {
-      try {
-        const url = new URL(req.url, "http://localhost");
-        const raw = url.searchParams.get("days");
-        const days = Math.min(30, Math.max(1, parseInt(raw ?? "7", 10) || 7));
-        sendJson(res, 200, service.stats({ days }));
+        // order=chrono: pure newest-first for paged browsing; default keeps
+        // the importance-ranked order other callers rely on.
+        const order = url.searchParams.get("order") ?? undefined;
+        // minImportance: numeric lower bound on importance (absent/NaN → no
+        // floor); source: exact match on the source column (empty → no filter).
+        const minRaw = url.searchParams.get("minImportance");
+        const minImportance = minRaw !== null && minRaw !== "" && !Number.isNaN(Number(minRaw))
+          ? Number(minRaw)
+          : undefined;
+        const source = url.searchParams.get("source") || undefined;
+        const items = service.toApiList(service.list({ type, limit, offset, order, minImportance, source }));
+        // Total honors the same filters as the rows, or the pager's
+        // has-more math breaks whenever minImportance/source is active.
+        sendJson(res, 200, { items, total: service.count(type, { minImportance, source }) });
       } catch {
         sendJson(res, 500, { error: "internal" });
       }
@@ -175,6 +172,40 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
     }
   });
 
+  // --- delete one memory by id ---
+  // Mutation route: apiToken-gated like the profile/rules writes above. POST
+  // body is JSON { id }. store.remove deletes silently, so existence is checked
+  // up front to give clients a distinguishable 404 instead of a fake success.
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/delete",
+    handler(req, res) {
+      try {
+        if (req.method !== "POST") {
+          sendJson(res, 404, { error: "not-found" });
+          return;
+        }
+        if (!requireAuth(req, res, apiToken)) return;
+        return readBody(req).then((text) => {
+          const body = parseBody(text);
+          const id = typeof body.id === "string" ? body.id.trim() : "";
+          if (!id) {
+            sendJson(res, 400, { error: "missing-id" });
+            return;
+          }
+          if (!service.getById(id)) {
+            sendJson(res, 404, { error: "not-found" });
+            return;
+          }
+          service.remove(id);
+          sendJson(res, 200, { ok: true });
+        });
+      } catch {
+        sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
   // --- rules ---
   register({
     kind: "exact",
@@ -227,102 +258,6 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
         }
         const cfg = settings.getVectorConfig() ?? { enabled: false, baseUrl: "", apiKey: "", model: "" };
         sendJson(res, 200, { config: { ...cfg, apiKey: maskApiKey(cfg.apiKey) } });
-      } catch {
-        sendJson(res, 500, { error: "internal" });
-      }
-    }
-  });
-
-  // --- app config read/write (partial: pass only the fields to change) ---
-  register({
-    kind: "exact",
-    path: "/api/dsh-mneme/config",
-    handler: async (req, res) => {
-      try {
-        if (!requireAuth(req, res, apiToken)) return;
-        if (req.method === "PUT" || req.method === "POST") {
-          const body = parseBody(await readBody(req));
-          const patch = {};
-          const setIfBoolean = (key) => {
-            if (Object.prototype.hasOwnProperty.call(body, key)) {
-              if (typeof body[key] !== "boolean") {
-                sendJson(res, 400, { error: `${key} must be a boolean` });
-                return false;
-              }
-              patch[key] = body[key];
-            }
-            return true;
-          };
-          if (!setIfBoolean("autoTagEnabled") || !setIfBoolean("manualTagEnabled") || !setIfBoolean("showSidebarTrigger")) return;
-          if (Object.keys(patch).length === 0) {
-            sendJson(res, 400, { error: "no valid config field provided" });
-            return;
-          }
-          // Each setter ignores the keys it doesn't own, so one patch can feed
-          // both stores safely (tag toggles → "autoTag", UI prefs → "ui").
-          settings.setAutoTagConfig(patch);
-          settings.setUiConfig(patch);
-          // Respond with the effective (settings-over-config merged) toggles
-          // so the panel always sees booleans that actually gate runtime
-          // behaviour (issue #31).
-          sendJson(res, 200, { config: service.getAppConfig() });
-          return;
-        }
-        sendJson(res, 200, { config: service.getAppConfig() });
-      } catch {
-        sendJson(res, 500, { error: "internal" });
-      }
-    }
-  });
-
-  // --- delete a memory by exact id or best query match (mirrors memory_delete tool) ---
-  register({
-    kind: "exact",
-    path: "/api/dsh-mneme/memories",
-    handler: async (req, res) => {
-      try {
-        if (!requireAuth(req, res, apiToken)) return;
-        if (req.method !== "DELETE") {
-          sendJson(res, 405, { error: "method not allowed" });
-          return;
-        }
-        const body = parseBody(await readBody(req));
-        const hasId = Object.prototype.hasOwnProperty.call(body, "id");
-        const hasQuery = Object.prototype.hasOwnProperty.call(body, "query");
-        if ((hasId && hasQuery) || (!hasId && !hasQuery)) {
-          sendJson(res, 400, { error: "provide exactly one of id or query" });
-          return;
-        }
-        if (hasId) {
-          if (typeof body.id !== "string" || !body.id.trim()) {
-            sendJson(res, 400, { error: "invalid id" });
-            return;
-          }
-          const mem = service.getById(body.id);
-          if (!mem) {
-            sendJson(res, 200, { deleted: false });
-            return;
-          }
-          service.remove(body.id);
-          sendJson(res, 200, { deleted: true, id: body.id });
-          return;
-        }
-        if (typeof body.query !== "string" || !body.query.trim()) {
-          sendJson(res, 400, { error: "invalid query" });
-          return;
-        }
-        const results = await service.searchMemories(body.query, { mode: "auto", topK: 1, useRerank: true });
-        if (!Array.isArray(results) || results.length === 0) {
-          sendJson(res, 200, { deleted: false });
-          return;
-        }
-        const mem = results[0];
-        if (!mem || !mem.id) {
-          sendJson(res, 200, { deleted: false });
-          return;
-        }
-        service.remove(mem.id);
-        sendJson(res, 200, { deleted: true, id: mem.id });
       } catch {
         sendJson(res, 500, { error: "internal" });
       }
@@ -479,10 +414,7 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
             name: n.name,
             type: n.type ?? null,
             mention_count: n.mention_count ?? 1,
-            distance: n.distance,
-            // v0.7.0 实体热投影：实体热 = 关联记忆 heat 聚合（max），前端据此
-            // 缩放节点大小/明暗。heatEnabled=false 时 entityHeat 返回 null。
-            heat: service.entityHeat?.(n.id) ?? null
+            distance: n.distance
           })),
           edges: [...edgeMap.values()].map((e) => ({
             id: e.id,
@@ -529,107 +461,6 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
                 valid_from: a.valid_from ?? null
               }))
             : []
-        });
-      } catch {
-        sendJson(res, 500, { error: "internal" });
-      }
-    }
-  });
-
-  // --- wiki-link back links (v0.6.1) --------------------------------------
-  // Read-only like the graph endpoints, so it stays open when apiToken is set.
-  // GET /api/dsh-mneme/wikilinks/backlinks?id=<memoryId> → memories whose
-  // content carries a [[wiki-link]] resolving to the given memory.
-  register({
-    kind: "exact",
-    path: "/api/dsh-mneme/wikilinks/backlinks",
-    handler(req, res) {
-      try {
-        const url = new URL(req.url, "http://localhost");
-        const id = (url.searchParams.get("id") ?? "").trim();
-        if (!id) {
-          sendJson(res, 400, { error: "missing-id" });
-          return;
-        }
-        const memory = service.getById?.(id) ?? null;
-        const backlinks = (service.getBacklinks?.(id) ?? []).map(({ source, relation }) => ({
-          id: source.id,
-          title: source.title,
-          type: source.type,
-          created_at: relation.created_at
-        }));
-        sendJson(res, 200, {
-          memoryId: id,
-          memory: memory ? { id: memory.id, title: memory.title, type: memory.type } : null,
-          backlinks
-        });
-      } catch {
-        sendJson(res, 500, { error: "internal" });
-      }
-    }
-  });
-
-  // --- wiki-link forward links (v0.6.1) -----------------------------------
-  // GET /api/dsh-mneme/wikilinks/forward?id=<memoryId> → memories the given
-  // memory explicitly links to. Unresolved target titles surface with id:null.
-  register({
-    kind: "exact",
-    path: "/api/dsh-mneme/wikilinks/forward",
-    handler(req, res) {
-      try {
-        const url = new URL(req.url, "http://localhost");
-        const id = (url.searchParams.get("id") ?? "").trim();
-        if (!id) {
-          sendJson(res, 400, { error: "missing-id" });
-          return;
-        }
-        const memory = service.getById?.(id) ?? null;
-        const links = (service.getForwardLinks?.(id) ?? []).map(({ target, relation }) => ({
-          id: target?.id ?? null,
-          title: target?.title ?? relation.to_entity,
-          type: target?.type ?? null,
-          created_at: relation.created_at
-        }));
-        sendJson(res, 200, {
-          memoryId: id,
-          memory: memory ? { id: memory.id, title: memory.title, type: memory.type } : null,
-          links
-        });
-      } catch {
-        sendJson(res, 500, { error: "internal" });
-      }
-    }
-  });
-
-  // --- wiki-link resolve (v0.6.1) -----------------------------------------
-  // GET /api/dsh-mneme/wikilinks/resolve?title=<title> → case-insensitive exact
-  // title match against the memories table (the resolution used when writing
-  // links_to relations). 404 when no memory matches.
-  register({
-    kind: "exact",
-    path: "/api/dsh-mneme/wikilinks/resolve",
-    handler(req, res) {
-      try {
-        const url = new URL(req.url, "http://localhost");
-        const title = (url.searchParams.get("title") ?? "").trim();
-        if (!title) {
-          sendJson(res, 400, { error: "missing-title" });
-          return;
-        }
-        const memory = service.resolveWikiLink?.(title) ?? null;
-        if (!memory) {
-          sendJson(res, 404, { error: "memory-not-found", title });
-          return;
-        }
-        // Note: no `source` field — it may carry file paths/internal host info
-        // and this endpoint is read-only without auth when apiToken is set.
-        sendJson(res, 200, {
-          title,
-          memory: {
-            id: memory.id,
-            title: memory.title,
-            type: memory.type
-          }
         });
       } catch {
         sendJson(res, 500, { error: "internal" });
@@ -741,84 +572,8 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
     }
   });
 
-  // --- memory tags (v0.6.2) ------------------------------------------------
-  // GET  /api/dsh-mneme/memory/tags?id=<memoryId> → live entity_attrs-backed
-  //       tag set for one memory plus the manualTagEnabled gate (so the panel
-  //       can hide tag editing when the manual path is off). Read-only, stays
-  //       open when apiToken is set (like list/search/semantic).
-  // POST /api/dsh-mneme/memory/tags { id, tags } → overwrite the live tag set
-  //       via service.setMemoryTags (manualTagEnabled gate); 409 when the gate
-  //       is closed. Auth-gated like the other write endpoints.
-  register({
-    kind: "exact",
-    path: "/api/dsh-mneme/memory/tags",
-    handler(req, res) {
-      try {
-        if (req.method === "POST" || req.method === "PUT") {
-          if (!requireAuth(req, res, apiToken)) return;
-          return readBody(req).then((text) => {
-            const body = parseBody(text);
-            const id = typeof body.id === "string" ? body.id.trim() : "";
-            if (!id) {
-              sendJson(res, 400, { error: "missing-id" });
-              return;
-            }
-            const memory = service.getById?.(id) ?? null;
-            if (!memory) {
-              sendJson(res, 404, { error: "memory-not-found" });
-              return;
-            }
-            const result = service.setMemoryTags(id, Array.isArray(body.tags) ? body.tags : []);
-            if (result?.ok === false) {
-              sendJson(res, 409, { error: result.error || "tags-disabled" });
-              return;
-            }
-            sendJson(res, 200, { ok: true, memoryId: id, tags: result?.tags ?? [] });
-          });
-        }
-        const url = new URL(req.url, "http://localhost");
-        const id = (url.searchParams.get("id") ?? "").trim();
-        if (!id) {
-          sendJson(res, 400, { error: "missing-id" });
-          return;
-        }
-        const memory = service.getById?.(id) ?? null;
-        if (!memory) {
-          sendJson(res, 404, { error: "memory-not-found" });
-          return;
-        }
-        const tags = service.getMemoryTags?.(id) ?? [];
-        sendJson(res, 200, {
-          memoryId: id,
-          tags: Array.isArray(tags) ? tags : [],
-          manualTagEnabled: service.manualTagEnabled?.() ?? true
-        });
-      } catch {
-        sendJson(res, 500, { error: "internal" });
-      }
-    }
-  });
-
-  // --- directory view (v0.6.3) ---------------------------------------------
-  // GET /api/dsh-mneme/directory → memories grouped by tag as
-  // { groups: [{ tag, memories: [...] }], untagged: [...] }. Live-only
-  // (forgotten/archived/session-disposed excluded), groups tag-sorted, members
-  // importance+updated DESC. Read-only, stays open when apiToken is set.
-  register({
-    kind: "exact",
-    path: "/api/dsh-mneme/directory",
-    handler(req, res) {
-      try {
-        const dir = service.getDirectory?.() ?? { groups: [], untagged: [] };
-        sendJson(res, 200, dir);
-      } catch {
-        sendJson(res, 500, { error: "internal" });
-      }
-    }
-  });
-
   return {
-    routes: 20,
+    routes: 15,
     dispose: () => {
       for (const dispose of disposers) dispose();
     }

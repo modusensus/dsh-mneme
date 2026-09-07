@@ -106,10 +106,9 @@ console.log("【1】插件装载");
 const checks = [];
 checks.push(["注册 7 个模型工具", registeredTools.length === 7]);
 checks.push(["注册 2 个注入上下文", injectContexts.length === 2 && injectContexts[0].name === "memory"]);
-// 契约是 20 条 exact 路由（实体清单接口后由 19 条扩到 20 条）；该断言此前
-// 长期停在 9 条失去意义，现与 src/api.js 的 routes 返回值对齐，prefix
-// fallback（/api/dsh-mneme → 404）是兜底，不计入路由数。
-checks.push(["注册 20 条 API 路由", apiRoutes.filter((r) => r.kind === "exact").length === 20]);
+// 契约是 14 条 exact 路由（v0.3 实体清单接口后由 13 条扩到 14 条）；
+// prefix fallback（/api/dsh-mneme → 404）是兜底，不计入路由数。
+checks.push(["注册 14 条 API 路由", apiRoutes.filter((r) => r.kind === "exact").length === 14]);
 for (const [label, ok] of checks) console.log(`  ${ok ? "✅" : "❌"} ${label}`);
 if (!checks.every(([, ok]) => ok)) { console.log("\n装载检查失败，中止。"); process.exit(1); }
 console.log(`  工具：${registeredTools.map((t) => t.name).join(", ")}\n`);

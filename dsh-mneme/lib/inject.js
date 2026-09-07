@@ -8,7 +8,10 @@ import { createHotMemory } from "./hot-memory.js";
 // falls back to the legacy rule-based pick, never breaking the render.
 function lastUserQuery(ctx) {
   try {
-    const events = ctx?.agent?.session?.snapshotEvents?.() ?? ctx?.agent?.session?.events;
+    const session = ctx?.agent?.session;
+    // DSH ≥0.1.2-rc only exposes events via snapshotEvents(); older builds
+    // still have the .events property, so fall back to it.
+    const events = session?.snapshotEvents?.() ?? session?.events;
     if (!Array.isArray(events) || events.length === 0) return "";
     for (let i = events.length - 1; i >= 0; i--) {
       const event = events[i];
@@ -34,7 +37,8 @@ function lastUserQuery(ctx) {
 // returns [] on any failure, and the hot block simply does not render.
 function extractRounds(ctx, maxRounds) {
   try {
-    const events = ctx?.agent?.session?.snapshotEvents?.() ?? ctx?.agent?.session?.events;
+    const session = ctx?.agent?.session;
+    const events = session?.snapshotEvents?.() ?? session?.events;
     if (!Array.isArray(events) || events.length === 0) return [];
     const rounds = [];
     let pendingQuery = null;
@@ -75,49 +79,6 @@ export function createInjector(ctx, service, settings, config) {
   const maxItems = config.maxInjectedItems ?? 5;
   const threshold = config.importanceThreshold ?? 3;
 
-  // Prompt-variable escaping (issue #40): DSH's interpolate() treats `{{name}}`
-  // as a prompt variable and strictly validates the name against
-  // /^[a-z][a-z0-9_]*$/ — memory/profile content carrying legal template syntax
-  // (Obsidian-style `{{hl|}}`, `{{挖空}}`, `{{关键词}}`) would hit an illegal
-  // variable name and throw, crashing the whole turn. At the injection boundary
-  // we escape every run of 2+ consecutive braces, inserting a `\` between each
-  // pair, so no `{{`/`}}` substring survives into the prompt: `{{a}}` → `{\{a\}\}`,
-  // and odd runs like `{{{a}}}` (which pair-wise escaping would leave with a
-  // literal `{{`) are handled too. The text keeps its readable template form,
-  // the transform is idempotent (escaped braces are single + `\`, never two
-  // adjacent), and single braces pass through untouched — interpolate only
-  // scans `{{`. Off via config.escapePromptVariables=false (default true).
-  function escapePromptVars(text) {
-    if (config.escapePromptVariables === false) return String(text);
-    return String(text).replace(/[{}]{2,}/g, (run) => run.split("").join("\\"));
-  }
-
-  // Time-prefix injection (issue #34): opt-in, off by default. When enabled the
-  // current date/time is injected once per conversation — at the first prompt
-  // assembly of a new session — so the model can sense what time/day it is.
-  // A per-session latch means later assemblies in the same session never
-  // re-inject; a bare render ctx (no session id) falls back to once per
-  // injector lifetime.
-  const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
-  let timePrefixSession = null;
-
-  function renderTimePrefix(ctx) {
-    if (config.injectTimePrefix !== true) return "";
-    const sessionId = ctx?.agent?.session?.id;
-    if (sessionId === undefined) {
-      if (timePrefixSession !== null) return "";
-      timePrefixSession = true;
-    } else {
-      if (sessionId === timePrefixSession) return "";
-      timePrefixSession = sessionId;
-    }
-    const now = new Date();
-    const pad = (n) => String(n).padStart(2, "0");
-    const date = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-    const time = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-    return `[当前时间: ${date} ${WEEKDAYS[now.getDay()]} ${time}]`;
-  }
-
   // Bug6: bound the injected memory block. Each entry's content is truncated to
   // MAX_CONTENT chars (trailing `…`); the whole block gets a MAX_BLOCK budget
   // and an entry that would exceed it collapses to its title only, so a long
@@ -151,7 +112,7 @@ export function createInjector(ctx, service, settings, config) {
     for (const r of rounds) hot.add(r);
     const body = hot.getContext();
     if (!body) return "";
-    return escapePromptVars(`[短期上下文] 最近对话（共 ${rounds.length} 轮）：\n${body}`);
+    return `[短期上下文] 最近对话（共 ${rounds.length} 轮）：\n${body}`;
   }
 
   function render(candidates) {
@@ -175,7 +136,7 @@ export function createInjector(ctx, service, settings, config) {
         lines.push(`- [${m.type}] ${verified}${title}`);
       }
     }
-    return escapePromptVars(lines.join("\n"));
+    return lines.join("\n");
   }
 
   // Bug4: the system-prompt render is synchronous, so the semantic query vector
@@ -209,7 +170,7 @@ export function createInjector(ctx, service, settings, config) {
     const lines = ["[用户设置] 来自 dsh-mneme 的用户画像与规则："];
     if (profile) lines.push(`- 用户画像：${profile}`);
     for (const rule of rules) lines.push(`- 规则：${rule}`);
-    return escapePromptVars(lines.join("\n"));
+    return lines.join("\n");
   }
 
   const disposers = [
@@ -231,11 +192,8 @@ export function createInjector(ctx, service, settings, config) {
         // separate context) keeps the prompt assembly stable at two blocks.
         const hotText = renderHotContext(ctx);
         const body = render(candidates);
-        let out = !hotText ? body : (body ? `${hotText}\n\n${body}` : hotText);
-        // Time prefix (issue #34): leads the injection block once per session.
-        const timePrefix = renderTimePrefix(ctx);
-        if (!timePrefix) return out;
-        return out ? `${timePrefix}\n\n${out}` : timePrefix;
+        if (!hotText) return body;
+        return body ? `${hotText}\n\n${body}` : hotText;
       }
     }),
     ctx.systemPrompt.context({

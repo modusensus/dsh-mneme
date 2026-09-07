@@ -1,8 +1,7 @@
 import { validateDecisions, applyDecisions } from "./dream/decisions.js";
 import { clusterMemories, findPotentialConflicts } from "./dream/clustering.js";
-import { runAutoTag } from "./dream/tag-extractor.js";
 import { createHash, randomUUID } from "node:crypto";
-export { validateDecisions, applyDecisions, normalizeDecisions };
+export { validateDecisions, applyDecisions };
 
 
 // Extract the first JSON array from LLM output, tolerating markdown fences,
@@ -40,95 +39,6 @@ function extractJsonArray(text) {
     // fall through
   }
   return null;
-}
-
-/**
- * Field-name drift guard (v0.5.3): thinking-type models (deepseek-v4-flash
- * etc.) occasionally ignore the prompt's exact decision schema and emit alias
- * keys —实测方案 A 输出 "consolidation"/"target_ids"、方案 B 输出
- * "action"/"targetIds"，都不是插件要求的 "action"/"ids"。normalizeDecisions
- * 在 validateDecisions 之前把常见变体重写回规范字段名，让"字段名不听话但
- * 语义正确"的输出仍可被应用，而不是整单被拒。覆盖三类漂移：
- *   1. 整个 body 是包在对象里的数组（{consolidation:[...]} /
- *      {decisions:[...]} / {actions:[...]}）；
- *   2. 决策对象用了别名键（target_ids→ids、keep_source→keepSource、
- *      winner_id→winner、targetIds→ids 等）；
- *   3. action 值用了同义词（archived→archive、consolidation→merge 等）。
- * 无归一化必要时原样返回（null→null，调用方"no json array"分支不受影响）。
- */
-const FIELD_ALIASES = {
-  // "consolidation" 也可作 action 键（实测 deepseek-v4-flash 这么写过）；
-  // 但 normalizeOne 对 action 键做字符串过滤，{consolidation:[...]} 这种
-  // wrapper 数组不会被误当成 action（顶层 WRAPPER_KEYS 负责解包）。
-  action: ["action", "decision", "operation", "op", "action_type", "actionType", "mode", "consolidation"],
-  // 注意：action 别名不含 "type"——create 决策的 type 是合法的记忆类型字段，
-  // 不能误当 action。
-  ids: ["ids", "target_ids", "targetIds", "targets", "memory_ids", "memoryIds", "id_list", "idList", "memories"],
-  reason: ["reason", "rationale", "why", "comment", "note", "explanation"],
-  importance: ["importance", "priority", "weight", "level", "score"],
-  keepSource: ["keepSource", "keep_source", "source_id", "sourceId", "keeper", "keep_id", "keepId"],
-  winner: ["winner", "winner_id", "winnerId", "win_id", "winId", "preferred", "primary"],
-  loser: ["loser", "loser_id", "loserId", "lose_id", "loseId", "drop_id", "dropId", "archive_id", "archiveId"],
-  title: ["title", "new_title", "newTitle", "merged_title", "mergedTitle", "merge_title", "mergeTitle"],
-  content: ["content", "new_content", "newContent", "merged_content", "mergedContent", "merge_content", "mergeContent"],
-  evidence: ["evidence", "evidence_ids", "evidenceIds"]
-};
-
-// 保守的 action 值同义词：只收语义无歧义、不可能被误认为记忆类型/其他 action 的映射。
-const ACTION_SYNONYMS = {
-  archived: "archive",
-  remove: "archive",
-  delete: "archive",
-  combine: "merge",
-  consolidation: "merge",
-  consolidate: "merge",
-  modify: "update",
-  edit: "update"
-};
-
-const WRAPPER_KEYS = ["consolidation", "decisions", "actions", "results", "updates", "list", "data"];
-
-/** 把单个决策对象重写到规范字段名；非对象原样返回。 */
-function normalizeOne(raw) {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
-  const d = {};
-  const consumed = new Set();
-  for (const [canon, aliases] of Object.entries(FIELD_ALIASES)) {
-    for (const key of aliases) {
-      if (key in raw && raw[key] !== undefined && raw[key] !== null) {
-        // action 必须是字符串——{consolidation:[...]} 的 wrapper 数组跳过。
-        if (canon === "action" && Array.isArray(raw[key])) continue;
-        d[canon] = raw[key];
-        consumed.add(key);
-        break;
-      }
-    }
-  }
-  // 保留未被别名消费的原始键（create 的 type、未来字段）原样透传。
-  for (const key of Object.keys(raw)) {
-    if (!consumed.has(key)) d[key] = raw[key];
-  }
-  if (typeof d.action === "string") {
-    const low = d.action.toLowerCase();
-    if (ACTION_SYNONYMS[low] !== undefined) d.action = ACTION_SYNONYMS[low];
-  }
-  // ids 若被写成单个字符串则包成数组（validateDecisions 要求数组）。
-  if (d.ids !== undefined && typeof d.ids === "string") d.ids = [d.ids];
-  return d;
-}
-
-/** 归一化 LLM 决策 body（数组 / 包裹对象 / 单个决策对象），null 原样返回。 */
-function normalizeDecisions(raw) {
-  if (!raw) return raw;
-  if (Array.isArray(raw)) return raw.map(normalizeOne).filter((d) => d && typeof d === "object");
-  if (typeof raw === "object") {
-    for (const key of WRAPPER_KEYS) {
-      if (Array.isArray(raw[key])) return normalizeDecisions(raw[key]);
-    }
-    // 单个决策对象 → 包成单元素数组（validateDecisions 要求数组）。
-    return [normalizeOne(raw)];
-  }
-  return raw;
 }
 const SUMMARY_PROMPT = `你是记忆库摘要助手。根据整理后的记忆，生成一段 150-200 字的记忆库总览，覆盖：用户偏好、活跃项目、关键决策。之后作为会话上下文注入。只输出摘要文本，不要其他内容。`;
 
@@ -401,26 +311,20 @@ async function runAuditedLlm(ctx, service, config, spec, body) {
 }
 
 /**
- * Resolve the LLM route (Issue #25): an explicit plugin config
- * (dreamProvider/dreamModel) is the user's declared override and wins; the
- * agent default model (deployment) is only a fallback when no config route is
- * set. In a standard DSH install agentDefaultModel always resolves, so without
- * this ordering the config route would be dead code and dreamProvider/dreamModel
- * could never take effect. Falls through to undefined when no route exists —
- * runDream then fails safe. A config→default switch is logged so it is observable.
+ * Resolve the LLM route: agent default model (deployment) first, plugin config
+ * (dreamProvider/dreamModel) as fallback. Falls through to undefined when no
+ * route exists — runDream then fails safe. Fallback is logged so a silent
+ * route switch is observable.
  */
 function resolveRoute(ctx, config, logger) {
-  if (config.dreamProvider && config.dreamModel) return { provider: config.dreamProvider, model: config.dreamModel };
   try {
     const sel = ctx.agentDefaultModel?.currentSelection?.();
-    if (sel?.provider && sel?.model) {
-      logger?.info?.("dsh-mneme dream: no dreamProvider/dreamModel config, falling back to agent default");
-      return { provider: sel.provider, model: sel.model };
-    }
-    logger?.warn?.("dsh-mneme dream: agentDefaultModel unavailable, no config route either");
+    if (sel?.provider && sel?.model) return { provider: sel.provider, model: sel.model };
+    logger?.warn?.("dsh-mneme dream: agentDefaultModel unavailable, falling back to config route");
   } catch (error) {
-    logger?.warn?.(`dsh-mneme dream: agentDefaultModel lookup failed: ${String(error)}`);
+    logger?.warn?.(`dsh-mneme dream: agentDefaultModel lookup failed, falling back to config route: ${String(error)}`);
   }
+  if (config.dreamProvider && config.dreamModel) return { provider: config.dreamProvider, model: config.dreamModel };
   return undefined;
 }
 
@@ -502,7 +406,7 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
   let inFlight = null;
 
   function shouldTrigger(service) {
-    const memories = service.all().filter((m) => !m.archived && !m.session_disposed_at && m.type !== "summary");
+    const memories = service.all().filter((m) => !m.archived && m.type !== "summary");
     const count = memories.length;
     const chars = totalChars(memories);
     const overBase = count >= baseline.count + thresholdCount || chars >= baseline.chars + thresholdChars;
@@ -559,7 +463,7 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     if (inFlight) await inFlight.catch(() => {});
   }
 
-  async function runDream(ctx, service, config, settings) {
+  async function runDream(ctx, service, config) {
     const logger = ctx.logger;
     let memories = service.all().filter((m) => !m.archived && m.type !== "summary");
     if (memories.length === 0) return { ok: true, applied: 0, skipped: true, summary: false };
@@ -712,34 +616,22 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       return finish({ ok: false, error: "llm failed", summary: false });
     }
 
-    // v0.5.3 字段名归一化兜底：thinking 模型可能输出别名键/wrapper 对象，
-    // 在 validateDecisions 之前重写到规范字段名，语义正确但 schema 不听话的
-    // 输出不再整单被拒。
-    const decisions = normalizeDecisions(extractJsonArray(decisionText));
+    const decisions = extractJsonArray(decisionText);
     if (!Array.isArray(decisions)) {
       logger?.warn?.(`dsh-mneme dream: no json array in llm output (raw length ${decisionText?.length ?? 0})`);
       return finish({ ok: false, error: "no json array in llm output", summary: false });
     }
-    const { ok, errors, skipped = [] } = validateDecisions(decisions, snapshot, {
+    const { ok, errors } = validateDecisions(decisions, snapshot, {
       maxUpdatePerRun: config.reflectionUpdateMaxPerRun,
       minAgeHours: config.reflectionUpdateMinAgeHours,
       // v0.4.4 fix：显式透传，用户配 dreamImplicitKeep:false 时严格模式必须
       // 真正生效，dreamMinExplicitCoverage 决定隐式 keep 下的覆盖率下限。
       dreamImplicitKeep: config.dreamImplicitKeep,
-      dreamMinExplicitCoverage: config.dreamMinExplicitCoverage,
-      // Issue #26 (P0)：跨类型 merge 等"单条非法"决策不再拖垮整批——默认开启
-      // skipInvalid，非法决策跳过、合法子集照常应用（run 记为 degraded）。
-      // dreamSkipInvalid:false 可恢复旧的"任意非法即整单拒绝"。
-      skipInvalid: config.dreamSkipInvalid !== false,
-      // Issue #26 (P1)：显式开启 allowCrossTypeMerge 后放宽跨类型合并检查。
-      allowCrossTypeMerge: config.allowCrossTypeMerge === true
+      dreamMinExplicitCoverage: config.dreamMinExplicitCoverage
     });
     if (!ok) {
       logger?.warn?.(`dsh-mneme dream: invalid decisions: ${errors.join("; ")}`);
       return finish({ ok: false, error: `invalid decisions: ${errors.length} errors`, summary: false });
-    }
-    for (const s of skipped) {
-      logger?.warn?.(`dsh-mneme dream: skipping invalid decision[${s.index}] (${s.action}): ${s.error}`);
     }
 
     // Capture pre-update snapshots so the audit records what each update changed.
@@ -813,11 +705,9 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     );
     // Outcome is derived from the ACTUALLY committed sub-steps, never from the
     // raw LLM decision list — a merge whose archive step rolled back must not
-    // claim "merge-archived" (item ②). Conflicts/failures/skipped ride along
-    // so the audit row records why the run diverged (Issue #26: skipped =
-    // decisions dropped by skipInvalid because they were individually invalid,
-    // e.g. cross-type merge).
-    const outcome = { ...buildOutcome(committed), conflicts, failures, skipped };
+    // claim "merge-archived" (item ②). Conflicts/failures ride along so the
+    // audit row records why the run diverged.
+    const outcome = { ...buildOutcome(committed), conflicts, failures };
     // Frozen conflicts were not adjudicated: mark both sides pending in the
     // per-id outcome so the audit row shows they were parked, not skipped.
     if (frozenIds.length) {
@@ -832,30 +722,6 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     // Frozen conflicts are substantive output (parked for review), so a run
     // that only froze conflicts is not a noop.
     const noChange = frozenCount === 0 && applied === 0 && committed.every((c) => c.action === "keep");
-
-    // v0.6.2 auto-tag: a light LLM pass over the retained (post-consolidation)
-    // memories. Opt-in via config.autoTagEnabled, bounded by autoTagMaxPerRun,
-    // and always fail-safe — a tag failure must never change the consolidation
-    // outcome reported below (it is logged and counted, nothing more).
-    let autoTagged = 0;
-    // Effective opt-in (issue #31): the Web panel's settings toggle
-    // (user_settings) overrides the zod plugin config when explicitly stored;
-    // unset → fall back to config.autoTagEnabled. settings is null-safe (absent
-    // in tests / direct calls) so behaviour is unchanged without it.
-    const autoTagEnabled = settings?.getAutoTagConfig?.().autoTagEnabled ?? config.autoTagEnabled;
-    if (autoTagEnabled === true) {
-      try {
-        const tagResult = await runAutoTag({ ctx, service, config, route });
-        autoTagged = tagResult?.tagged ?? 0;
-        if (tagResult?.ok === false && tagResult?.skippedBy && tagResult.skippedBy !== "empty") {
-          logger?.warn?.(`dsh-mneme dream: auto-tag skipped (${tagResult.skippedBy})`);
-        } else if (autoTagged > 0) {
-          logger?.info?.(`[dsh-mneme] auto-tag: ${autoTagged} memory(ies) tagged`);
-        }
-      } catch (error) {
-        logger?.warn?.(`dsh-mneme dream: auto-tag failed: ${String(error)}`);
-      }
-    }
 
     // Keep the vector index consistent with the post-dream store state.
     if (semantic?.embedder && semantic?.vectorIndex) {
@@ -886,7 +752,7 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
           : {}),
         messages: [
           { role: "system", content: [{ type: "text", text: SUMMARY_PROMPT }] },
-          { role: "user", content: [{ type: "text", text: service.all().filter((m) => !m.archived && !m.session_disposed_at && m.type !== "summary").map((m) => `- ${m.title}: ${m.content}`).join("\n") }] }
+          { role: "user", content: [{ type: "text", text: service.all().filter((m) => !m.archived && m.type !== "summary").map((m) => `- ${m.title}: ${m.content}`).join("\n") }] }
         ]
       }, reportUsage));
     } catch (error) {
@@ -919,12 +785,9 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     //               run. ok:false keeps the scheduler from moving the baseline.
     //   ok        — either real changes landed, or a fresh summary was stored
     //               (all-keep + summary is a substantive summary refresh).
-    //   degraded  — real consolidation landed but the run did not produce its
-    //               full output: the summary came back empty/missing, or
-    //               (Issue #26) some individually-invalid decisions were
-    //               skipped by skipInvalid. The valid subset was absorbed (ok
-    //               for the baseline — a future run won't re-fail on the same
-    //               permanently-invalid pairs), but the run is marked, not faked.
+    //   degraded  — real consolidation landed but the summary came back empty/
+    //               missing: the store was absorbed (ok for the baseline) but
+    //               the run did not produce its full output (marked, not faked).
     let status;
     let okResult;
     if (partial) {
@@ -933,13 +796,6 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     } else if (noChange) {
       status = summaryStored ? "ok" : "noop";
       okResult = summaryStored;
-    } else if (skipped.length > 0) {
-      // Issue #26: valid subset landed but at least one decision was dropped as
-      // invalid (e.g. cross-type merge). degraded (not ok) — never a fake ok.
-      // autoTag still runs on degraded runs, so it is not blocked behind a
-      // "success" that a skipped-invalid run can never reach.
-      status = "degraded";
-      okResult = true;
     } else {
       status = summaryStored ? "ok" : "degraded";
       okResult = true;
@@ -952,10 +808,8 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       outcome,
       conflicts,
       failures,
-      skipped,
       frozen: frozenCount,
-      summary: summaryStored,
-      error: skipped.length > 0 ? `skipped ${skipped.length} invalid decision(s)` : undefined
+      summary: summaryStored
     });
   }
 

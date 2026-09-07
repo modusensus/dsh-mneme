@@ -85,21 +85,6 @@ test("turn/end event triggers summarization and stores entries", async () => {
   assert.ok(all.some((m) => m.type === "preference"));
 });
 
-test("session with only snapshotEvents() (DSH 0.1.2-rc.1) still summarizes", async () => {
-  const { events, store } = setup();
-  const handler = events.find((e) => e.name === "session/event").fn;
-  const session = {
-    id: "s6",
-    requestHeader: () => ({ config: { provider: "deepseek", model: "deepseek-chat" } }),
-    snapshotEvents: () => [userMessage("用快照接口提问"), { seq: 2, type: "turn/end" }]
-  };
-  await handler(session, { seq: 2, type: "turn/end" });
-  assert.equal(store.count(), 2);
-  const all = store.all();
-  assert.ok(all.some((m) => m.type === "decision"));
-  assert.ok(all.some((m) => m.type === "preference"));
-});
-
 test("skips summarization for events other than turn/end", async () => {
   const { events, store, calls } = setup();
   const handler = events.find((e) => e.name === "session/event").fn;
@@ -107,6 +92,22 @@ test("skips summarization for events other than turn/end", async () => {
   await handler(session, { seq: 1, type: "user/message" });
   assert.equal(store.count(), 0);
   assert.equal(calls.length, 0);
+});
+
+// DSH ≥0.1.2-rc removed Session.events; the session object only exposes
+// snapshotEvents(). Regression for #59: with only the old .events path the
+// collector saw an empty log and no LLM call ever happened.
+test("reads events from snapshotEvents() when Session.events is absent", async () => {
+  const { events, store, calls } = setup();
+  const handler = events.find((e) => e.name === "session/event").fn;
+  const session = {
+    id: "s1",
+    requestHeader: () => ({ config: { provider: "deepseek", model: "deepseek-chat" } }),
+    snapshotEvents: () => [userMessage("帮我选型"), { seq: 2, type: "turn/end" }]
+  };
+  await handler(session, { seq: 2, type: "turn/end" });
+  assert.equal(calls.length, 1, "an LLM call must be made");
+  assert.equal(store.count(), 2);
 });
 
 test("dispose unsubscribes and stops later turn/end events from summarizing", async () => {

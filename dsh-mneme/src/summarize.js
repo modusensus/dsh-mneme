@@ -1,7 +1,7 @@
 import { BlockAssembler, createUserMessage } from "@deepseek-ai/dsh-llm";
 
 const SUMMARY_PROMPT = `你是记忆库提炼助手。根据下面的会话内容，提炼 2-3 条值得跨会话记住的记忆。
-只输出 JSON 数组，每项形如 {"type":"preference|project|decision|history|user|fact","title":"简短标题","content":"一句话内容","importance":1-5}。
+只输出 JSON 数组，每项形如 {"type":"preference|project|decision|history","title":"简短标题","content":"一句话内容","importance":1-5}。
 不要输出任何其他文字。`;
 
 /** Extract a JSON array from LLM output that may contain prose around it. */
@@ -17,7 +17,7 @@ export function parseSummaryJson(raw) {
     return [];
   }
   if (!Array.isArray(arr)) return [];
-  const VALID = new Set(["preference", "project", "decision", "history", "user", "fact"]);
+  const VALID = new Set(["preference", "project", "decision", "history"]);
   return arr.filter(
     (item) =>
       item &&
@@ -76,11 +76,15 @@ function toProtocolChunk(chunk) {
 // events must not leak into the memory store. Events without a data payload
 // (minimal test doubles) pass the kind check and are handled by the content
 // check below.
+// DSH ≥0.1.2-rc removed the Session.events property; events are only reachable
+// via snapshotEvents(). Older DSH builds still expose .events, so fall back.
+function getSessionEvents(session) {
+  return session?.snapshotEvents?.() ?? session?.events ?? [];
+}
+
 function collectMessages(session) {
   const messages = [];
-  // DSH 0.1.2-rc.1 起 Session 改用 snapshotEvents()，兼容旧版 .events
-  const events = session.snapshotEvents?.() ?? session.events ?? [];
-  for (const event of events) {
+  for (const event of getSessionEvents(session)) {
     const kind = event.data?.source?.kind;
     if (event.type !== "user/message") continue;
     if (kind !== undefined && kind !== "user") continue;
@@ -184,11 +188,7 @@ export function createSummarizer(ctx, service, config) {
         .join("");
       const entries = parseSummaryJson(text || assembledText);
       for (const entry of entries) {
-        // Provenance: the summarizer runs on a real session (turn/end hook), so
-        // session.id is always available here — it rides both the human-readable
-        // source label and the structured session_id column (v0.5.x memory
-        // provenance, the raw material for v0.6.0 reasoning-path / drift analysis).
-        service.saveWithDedupe({ ...entry, source: `session:${session.id}`, session_id: session.id });
+        service.saveWithDedupe({ ...entry, source: `session:${session.id}` });
       }
     } finally {
       if (audit) {

@@ -39,6 +39,41 @@ window.__ModuleLoader__.load({
       h("circle", { cx: 12.4, cy: 12, r: 1.8, fill: "currentColor" })
     );
 
+    // Stroke icons, Lucide path data (ISC license) inlined as [tag, attrs]
+    // tuples — the plugin runtime cannot require third-party libraries, so
+    // the data ships with the bundle (the morphicons/lucide pairing the
+    // data package documents, minus the runtime dependency). Stroke picks
+    // up currentColor, so icons follow the host theme tokens.
+    const ICON_PATHS = {
+      database: [["ellipse", { cx: "12", cy: "5", rx: "9", ry: "3" }], ["path", { d: "M3 5V19A9 3 0 0 0 21 19V5" }], ["path", { d: "M3 12A9 3 0 0 0 21 12" }]],
+      waypoints: [["path", { d: "m10.586 5.414-5.172 5.172" }], ["path", { d: "m18.586 13.414-5.172 5.172" }], ["path", { d: "M6 12h12" }], ["circle", { cx: "12", cy: "20", r: "2" }], ["circle", { cx: "12", cy: "4", r: "2" }], ["circle", { cx: "20", cy: "12", r: "2" }], ["circle", { cx: "4", cy: "12", r: "2" }]],
+      settings: [["path", { d: "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" }], ["circle", { cx: "12", cy: "12", r: "3" }]],
+      search: [["path", { d: "m21 21-4.34-4.34" }], ["circle", { cx: "11", cy: "11", r: "8" }]],
+      refresh: [["path", { d: "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" }], ["path", { d: "M21 3v5h-5" }], ["path", { d: "M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" }], ["path", { d: "M8 16H3v5" }]],
+      chevronDown: [["path", { d: "m6 9 6 6 6-6" }]],
+      chevronRight: [["path", { d: "m9 18 6-6-6-6" }]],
+      copy: [["rect", { width: "14", height: "14", x: "8", y: "8", rx: "2", ry: "2" }], ["path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" }]],
+      check: [["path", { d: "M20 6 9 17l-5-5" }]],
+      inbox: [["polyline", { points: "22 12 16 12 14 15 10 15 8 12 2 12" }], ["path", { d: "M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" }]],
+      activity: [["path", { d: "M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" }]]
+    };
+    const Icon = ({ name, size = 16, className }) => {
+      const parts = ICON_PATHS[name];
+      if (!parts) return null;
+      return h("svg", {
+        width: size,
+        height: size,
+        viewBox: "0 0 24 24",
+        fill: "none",
+        stroke: "currentColor",
+        strokeWidth: 2,
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        className,
+        "aria-hidden": "true"
+      }, parts.map(([tag, attrs], i) => h(tag, { key: i, ...attrs })));
+    };
+
     // Unified API fetcher: attaches the optional apiToken (set in the settings
     // view, persisted in localStorage) as a Bearer header. When no token has
     // been configured the header is omitted and the API stays open (default).
@@ -65,8 +100,6 @@ window.__ModuleLoader__.load({
         "memory.tab.project": "项目",
         "memory.tab.decision": "决策",
         "memory.tab.history": "历史",
-        "memory.tab.user": "用户",
-        "memory.tab.fact": "事实",
         "memory.settings.title": "记忆库设置",
         "memory.settings.profile": "用户画像",
         "memory.settings.profileHint": "写一段自我介绍（角色、背景、偏好），Agent 每轮对话都会自动带上。",
@@ -74,16 +107,6 @@ window.__ModuleLoader__.load({
         "memory.settings.profileSaved": "画像已保存",
         "memory.settings.rules": "规则",
         "memory.settings.rulesHint": "给 Agent 立下必须遵守的规矩，随时增删，下一轮即生效。",
-        "memory.settings.autoTagTitle": "自动打标签",
-        "memory.settings.autoTagHint": "开启后，新记忆由轻量模型自动打标签，目录页按标签自动分类（opt-in，默认关）",
-        "memory.settings.autoTagEnabled": "自动打标签",
-        "memory.settings.autoTagSave": "保存",
-        "memory.settings.autoTagSaved": "已保存",
-        "memory.settings.sidebarTriggerTitle": "侧边栏入口按钮",
-        "memory.settings.sidebarTriggerHint": "关闭后隐藏侧边栏底部（左下角）的记忆入口按钮。与其他插件 UI 冲突时建议关闭；记忆库仍可通过顶部「记忆库」标签访问",
-        "memory.settings.sidebarTriggerEnabled": "显示左下角入口按钮",
-        "memory.settings.sidebarTriggerSave": "保存",
-        "memory.settings.sidebarTriggerSaved": "已保存",
         "memory.settings.ruleAdd": "添加规则",
         "memory.settings.rulePlaceholder": "例如：回答时总是先给结论",
         "memory.settings.commands": "自定义指令",
@@ -99,10 +122,23 @@ window.__ModuleLoader__.load({
         "memory.view.label": "记忆库",
         "memory.overlay.close": "关闭",
         "memory.explorer.tabMemory": "记忆",
-        "memory.explorer.tabGraph": "图谱",
-        "memory.explorer.tabDirectory": "目录",
+        "memory.explorer.tabEntities": "实体",
         "memory.explorer.tabSettings": "设置",
-        "memory.explorer.tabOverview": "总览",
+        "memory.explorer.tabStatus": "状态",
+        "memory.entities.count": "{n} 个实体",
+        "memory.entities.pick": "从左侧选择一个实体，查看它的属性与关系",
+        "memory.entities.none": "暂无实体：开启实体抽取后，记忆里的人物 / 项目 / 概念会自动沉淀到这里",
+        "memory.entities.attrs": "属性",
+        "memory.entities.relations": "关系",
+        "memory.entities.mentions": "{n} 次提及",
+        "memory.entities.lastSeen": "最近出现",
+        "memory.entities.graph": "关系图谱",
+        "memory.entity.person": "人物",
+        "memory.entity.project": "项目",
+        "memory.entity.concept": "概念",
+        "memory.entity.technology": "技术",
+        "memory.entity.organization": "组织",
+        "memory.entity.other": "其他",
         "memory.explorer.search": "搜索标题或内容…",
         "memory.explorer.searchTitle": "语义检索",
         "memory.explorer.types": "分类",
@@ -112,34 +148,16 @@ window.__ModuleLoader__.load({
         "memory.explorer.copy": "复制全文",
         "memory.explorer.copied": "已复制",
         "memory.explorer.refresh": "刷新",
+        "memory.explorer.loadMore": "加载更多",
         "memory.explorer.count": "共 {n} 条",
         "memory.explorer.empty": "暂无记忆条目",
         "memory.explorer.source": "来源",
         "memory.explorer.created": "创建",
         "memory.explorer.updated": "更新",
         "memory.explorer.tags": "标签",
-        "memory.explorer.tagAdd": "添加标签",
-        "memory.explorer.tagRemove": "移除标签",
-        "memory.explorer.tagPlaceholder": "输入标签，回车添加",
-        "memory.explorer.tagsEmpty": "暂无标签",
         "memory.explorer.importance": "重要性",
         "memory.explorer.topK": "返回数量",
         "memory.explorer.topKOption": "返回 {n} 条",
-        "memory.overview.empty": "还没有记忆。开始对话后 Agent 会自动沉淀记忆，这里会展示分层总览",
-        "memory.overview.profileEmpty": "暂无用户画像记忆，可在对话中让 AI 记录",
-        "memory.overview.distribution": "类型分布",
-        "memory.overview.layers": "记忆分层",
-        "memory.overview.trend": "近 7 天趋势",
-        "memory.overview.none": "暂无",
-        "memory.overview.badgeInject": "常注入",
-        "memory.overview.badgeImportance": "按重要性",
-        "memory.directory.untagged": "无标签",
-        "memory.directory.loading": "加载中…",
-        "memory.directory.empty": "暂无记忆条目",
-        "directory.editToggle": "编辑模式（显示删除）",
-        "directory.deleteConfirm": "确定删除这条记忆吗？",
-        "directory.deleteConfirmShort": "确认？",
-        "directory.deleteError": "删除失败",
         "memory.card.open": "在主区记忆库中查看全文",
         "memory.time.now": "刚刚",
         "memory.time.seconds": "{n}秒前",
@@ -158,7 +176,7 @@ window.__ModuleLoader__.load({
         "memory.graph.sourceMemory": "查看来源记忆",
         "memory.graph.hint": "拖拽节点调整布局 · 空白处拖动平移 · 滚轮缩放",
         "memory.graph.resetView": "重置视图",
-        "memory.graph.viewInGraph": "在图谱中查看",
+        "memory.graph.viewInGraph": "在实体视图中打开",
         "memory.graph.loading": "加载中…",
         "memory.graph.distance": "距中心 {n} 跳",
         "memory.settings.vectorTitle": "向量搜索",
@@ -177,11 +195,19 @@ window.__ModuleLoader__.load({
         "memory.settings.apiTokenPlaceholder": "留空 = 不鉴权（默认）",
         "memory.settings.apiTokenSave": "保存 Token",
         "memory.settings.apiTokenSaved": "Token 已保存",
-        "memory.wikilink.backlinks": "链接到此记忆",
-        "memory.wikilink.forward": "此记忆链接到",
-        "memory.wikilink.empty": "暂无关联记忆",
-        "memory.wikilink.loading": "加载中…",
-        "memory.wikilink.unresolved": "目标记忆不存在"
+        "memory.explorer.delete": "删除",
+        "memory.explorer.confirmDelete": "确认删除?",
+        "memory.explorer.cancel": "取消",
+        "memory.explorer.deleted": "已删除",
+        "memory.explorer.deleteFailed": "删除失败",
+        "memory.status.memories": "记忆总数",
+        "memory.status.entities": "实体",
+        "memory.status.vector": "向量索引",
+        "memory.status.vectorOn": "已启用",
+        "memory.status.vectorOff": "未启用",
+        "memory.status.llm": "LLM 消耗",
+        "memory.status.llmCalls": "近 7 天 · {n} 次调用",
+        "memory.status.error": "加载失败"
       },
       en: {
         "memory.panel.empty": "No memories yet",
@@ -191,8 +217,6 @@ window.__ModuleLoader__.load({
         "memory.tab.project": "Projects",
         "memory.tab.decision": "Decisions",
         "memory.tab.history": "History",
-        "memory.tab.user": "User",
-        "memory.tab.fact": "Facts",
         "memory.settings.title": "Memory Settings",
         "memory.settings.profile": "User Profile",
         "memory.settings.profileHint": "Describe yourself once — the agent reads it every turn.",
@@ -200,16 +224,6 @@ window.__ModuleLoader__.load({
         "memory.settings.profileSaved": "Profile saved",
         "memory.settings.rules": "Rules",
         "memory.settings.rulesHint": "Rules the agent must follow — add or remove anytime, effective next turn.",
-        "memory.settings.autoTagTitle": "Auto-Tag",
-        "memory.settings.autoTagHint": "When on, new memories are auto-tagged by a light model and the directory auto-grouped by tag (opt-in, off by default)",
-        "memory.settings.autoTagEnabled": "Auto-tagging",
-        "memory.settings.autoTagSave": "Save",
-        "memory.settings.autoTagSaved": "Saved",
-        "memory.settings.sidebarTriggerTitle": "Sidebar trigger",
-        "memory.settings.sidebarTriggerHint": "Hide the memory entrance button at the sidebar footer (bottom-left) when it clashes with other plugins. The library stays reachable via the 记忆库 conversation tab",
-        "memory.settings.sidebarTriggerEnabled": "Show the bottom-left trigger",
-        "memory.settings.sidebarTriggerSave": "Save",
-        "memory.settings.sidebarTriggerSaved": "Saved",
         "memory.settings.ruleAdd": "Add Rule",
         "memory.settings.rulePlaceholder": "e.g. Always lead with a conclusion",
         "memory.settings.commands": "Custom Commands",
@@ -225,10 +239,23 @@ window.__ModuleLoader__.load({
         "memory.view.label": "Memory",
         "memory.overlay.close": "Close",
         "memory.explorer.tabMemory": "Memories",
-        "memory.explorer.tabGraph": "Graph",
-        "memory.explorer.tabDirectory": "Directory",
+        "memory.explorer.tabEntities": "Entities",
         "memory.explorer.tabSettings": "Settings",
-        "memory.explorer.tabOverview": "Overview",
+        "memory.explorer.tabStatus": "Status",
+        "memory.entities.count": "{n} entities",
+        "memory.entities.pick": "Select an entity to see its attributes and relations",
+        "memory.entities.none": "No entities yet — turn on entity extraction and people / projects / concepts will accumulate here",
+        "memory.entities.attrs": "Attributes",
+        "memory.entities.relations": "Relations",
+        "memory.entities.mentions": "{n} mentions",
+        "memory.entities.lastSeen": "Last seen",
+        "memory.entities.graph": "Relation graph",
+        "memory.entity.person": "People",
+        "memory.entity.project": "Projects",
+        "memory.entity.concept": "Concepts",
+        "memory.entity.technology": "Technologies",
+        "memory.entity.organization": "Organizations",
+        "memory.entity.other": "Others",
         "memory.explorer.search": "Search title or content…",
         "memory.explorer.searchTitle": "Semantic Search",
         "memory.explorer.types": "Types",
@@ -238,34 +265,16 @@ window.__ModuleLoader__.load({
         "memory.explorer.copy": "Copy content",
         "memory.explorer.copied": "Copied",
         "memory.explorer.refresh": "Refresh",
+        "memory.explorer.loadMore": "Load more",
         "memory.explorer.count": "{n} items",
         "memory.explorer.empty": "No memories yet",
         "memory.explorer.source": "Source",
         "memory.explorer.created": "Created",
         "memory.explorer.updated": "Updated",
         "memory.explorer.tags": "Tags",
-        "memory.explorer.tagAdd": "Add tag",
-        "memory.explorer.tagRemove": "Remove tag",
-        "memory.explorer.tagPlaceholder": "Type a tag, press Enter",
-        "memory.explorer.tagsEmpty": "No tags",
         "memory.explorer.importance": "Importance",
         "memory.explorer.topK": "Results limit",
         "memory.explorer.topKOption": "Return {n}",
-        "memory.overview.empty": "No memories yet. Once you chat, the agent starts saving memories and the layered overview appears here",
-        "memory.overview.profileEmpty": "No user-profile memories yet — ask the agent to remember things about you in chat",
-        "memory.overview.distribution": "By Type",
-        "memory.overview.layers": "Memory Layers",
-        "memory.overview.trend": "Last 7 days",
-        "memory.overview.none": "None",
-        "memory.overview.badgeInject": "Auto-inject",
-        "memory.overview.badgeImportance": "By importance",
-        "memory.directory.untagged": "Untagged",
-        "memory.directory.loading": "Loading…",
-        "memory.directory.empty": "No memories yet",
-        "directory.editToggle": "Edit mode",
-        "directory.deleteConfirm": "Delete this memory?",
-        "directory.deleteConfirmShort": "Confirm?",
-        "directory.deleteError": "Delete failed",
         "memory.card.open": "Open full text in the Memory tab",
         "memory.time.now": "just now",
         "memory.time.seconds": "{n}s ago",
@@ -284,7 +293,7 @@ window.__ModuleLoader__.load({
         "memory.graph.sourceMemory": "View source memory",
         "memory.graph.hint": "Drag nodes to rearrange · drag the background to pan · scroll to zoom",
         "memory.graph.resetView": "Reset view",
-        "memory.graph.viewInGraph": "View in graph",
+        "memory.graph.viewInGraph": "Open in entity explorer",
         "memory.graph.loading": "Loading…",
         "memory.graph.distance": "{n} hop(s) from root",
         "memory.settings.vectorTitle": "Vector Search",
@@ -303,11 +312,19 @@ window.__ModuleLoader__.load({
         "memory.settings.apiTokenPlaceholder": "Empty = no auth (default)",
         "memory.settings.apiTokenSave": "Save Token",
         "memory.settings.apiTokenSaved": "Token saved",
-        "memory.wikilink.backlinks": "Links to this memory",
-        "memory.wikilink.forward": "This memory links to",
-        "memory.wikilink.empty": "No linked memories",
-        "memory.wikilink.loading": "Loading…",
-        "memory.wikilink.unresolved": "Target memory not found"
+        "memory.explorer.delete": "Delete",
+        "memory.explorer.confirmDelete": "Confirm delete?",
+        "memory.explorer.cancel": "Cancel",
+        "memory.explorer.deleted": "Deleted",
+        "memory.explorer.deleteFailed": "Delete failed",
+        "memory.status.memories": "Total memories",
+        "memory.status.entities": "Entities",
+        "memory.status.vector": "Vector index",
+        "memory.status.vectorOn": "Enabled",
+        "memory.status.vectorOff": "Disabled",
+        "memory.status.llm": "LLM Usage",
+        "memory.status.llmCalls": "Last 7 days · {n} calls",
+        "memory.status.error": "Failed to load"
       }
     };
 
@@ -375,17 +392,6 @@ window.__ModuleLoader__.load({
       ".mneme-hint{color:var(--dsw-alias-label-tertiary);padding:24px 0;text-align:center;font-size:13px}",
       ".mneme-entitychip{flex:none;height:26px;padding:0 10px;border-radius:8px;border:none;background:none;color:var(--dsw-alias-state-business-primary);cursor:pointer;font-family:inherit;font-size:12px;line-height:16px;display:inline-flex;align-items:center}",
       ".mneme-entitychip:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent)}",
-      // --- tag chips in the detail meta (v0.6.2) ---
-      ".mneme-tagrow{display:flex;flex-wrap:wrap;gap:6px;align-items:center}",
-      ".mneme-tagchip{display:inline-flex;align-items:center;gap:4px;max-width:100%;height:22px;padding:0 4px 0 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base,transparent);color:var(--dsw-alias-state-business-primary);cursor:pointer;font-family:inherit;font-size:12px;line-height:16px}",
-      ".mneme-tagchip:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent)}",
-      ".mneme-tagremove{flex:none;display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border:none;border-radius:4px;background:none;color:var(--dsw-alias-label-tertiary);cursor:pointer;font-family:inherit;font-size:12px;line-height:1;padding:0}",
-      ".mneme-tagremove:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}",
-      ".mneme-tagadd{border:none;background:none;color:var(--dsw-alias-label-secondary);cursor:pointer;font-family:inherit;font-size:12px;line-height:16px;padding:2px 8px;border-radius:6px;flex:none}",
-      ".mneme-tagadd:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}",
-      ".mneme-taginput{box-sizing:border-box;height:22px;padding:0 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base,transparent);color:var(--dsw-alias-label-primary);font-family:inherit;font-size:12px;outline:none;width:150px}",
-      ".mneme-taginput:focus{border-color:var(--dsw-alias-state-business-primary)}",
-      ".mneme-tagempty{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:16px}",
       // --- main-area memory library page ---
       ".mneme-x{flex:1;min-height:0;height:100%;width:100%;box-sizing:border-box;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1);--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2)}",
       ".mneme-xbar{flex:none;display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--dsw-alias-border-l2);padding:0 16px}",
@@ -397,7 +403,11 @@ window.__ModuleLoader__.load({
       ".mneme-vtab.mneme-active::after{content:\"\";position:absolute;left:8px;right:8px;bottom:-1px;height:2px;border-radius:2px;background:var(--dsw-alias-state-business-primary)}",
       ".mneme-xtools{margin-left:auto;display:flex;align-items:center;gap:8px;padding:0 0 0 12px}",
       ".mneme-xcount{flex:none;font-size:12px;line-height:16px;color:var(--dsw-alias-label-tertiary);white-space:nowrap}",
-      // --- memory explorer cards (column layout) ---
+      // --- three-column browse layout: hairline separators, no outer box ---
+      ".mneme-xmain{flex:1;min-height:0;display:flex;flex-direction:row;overflow:hidden}",
+      ".mneme-xside{flex:none;width:236px;min-width:0;min-height:0;overflow-y:auto;padding:12px;border-right:1px solid var(--dsw-alias-border-l2);box-sizing:border-box;display:flex;flex-direction:column;gap:8px}",
+      ".mneme-xside--filter{width:214px}",
+      ".mneme-xbrowse{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}",
       ".mneme-xrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}",
       ".mneme-xsearch{width:100%}",
       ".mneme-xselect{flex:1;min-width:0}",
@@ -422,35 +432,17 @@ window.__ModuleLoader__.load({
       ".mneme-xdot{flex:none;display:inline-block;width:8px;height:8px;border-radius:50%;background:currentColor}",
       ".mneme-xdot--all{background:transparent;border:1.5px solid currentColor;opacity:.55;box-sizing:border-box}",
       ".mneme-xitem .mneme-xdot{align-self:center}",
-      // --- memory explorer root ---
-      ".mneme-xmain{display:flex;flex-direction:column}",
-      ".mneme-xfilter-bar{flex:none;height:48px;display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--dsw-alias-border-l2,#ddd)}",
-      ".mneme-xcards{flex:1;display:flex;flex-direction:row;gap:12px;padding:12px;overflow:hidden}",
-      ".mneme-card{background:var(--dsw-alias-bg-base,#fafafa);border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.06);padding:12px;display:flex;flex-direction:column;overflow:auto}",
-      ".mneme-card--search{width:236px;flex:none}",
-      ".mneme-card--tree{width:260px;flex:none}",
-      ".mneme-card--detail{flex:1;min-width:0}",
+      // --- detail column (preview pane sits BELOW the timeline: the list is
+      // the primary scan target, the detail grows only when something is
+      // selected so the empty state never eats the viewport) ---
+      ".mneme-xdetail{flex:none;max-height:56%;min-height:0;overflow-y:auto;padding:12px 20px 16px;border-top:1px solid var(--dsw-alias-border-l2)}",
+      ".mneme-xtree{flex:1;min-height:0;overflow-y:auto;padding:8px 10px 28px}",
       ".mneme-xdinner{max-width:720px}",
       ".mneme-xdtitle{font-size:16px;font-weight:600;line-height:24px;color:var(--dsw-alias-label-primary);margin-bottom:10px;word-break:break-word}",
       ".mneme-xdmeta{display:flex;flex-wrap:wrap;gap:4px 14px;margin-bottom:6px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}",
       ".mneme-xdsrc{display:inline-block;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}",
       ".mneme-xdcontent{margin-top:14px;font-size:14px;line-height:1.75;color:var(--dsw-alias-label-primary);white-space:pre-wrap;word-break:break-word}",
       ".mneme-xdactions{display:flex;gap:8px;margin-top:18px}",
-      // --- wiki-link backlinks panel (detail pane footer) ---
-      ".mneme-backlinks{margin-top:18px;padding-top:14px;border-top:1px solid var(--dsw-alias-border-l1);display:flex;flex-direction:column;gap:12px}",
-      ".mneme-bl-block{display:flex;flex-direction:column;gap:4px}",
-      ".mneme-bl-head{font-size:12px;font-weight:500;color:var(--dsw-alias-label-tertiary)}",
-      ".mneme-bl-list{display:flex;flex-wrap:wrap;gap:6px}",
-      ".mneme-bl-link{display:inline-flex;align-items:center;gap:6px;max-width:100%;border:none;background:none;color:var(--dsw-alias-state-business-primary);cursor:pointer;font-family:inherit;font-size:13px;line-height:18px;padding:2px 8px;border-radius:6px;text-align:left}",
-      ".mneme-bl-link:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent)}",
-      ".mneme-bl-link.mneme-bl-link--dim{color:var(--dsw-alias-label-tertiary);cursor:default}",
-      ".mneme-bl-link.mneme-bl-link--dim:hover{background:none}",
-      ".mneme-bl-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
-      ".mneme-bl-meta{flex:none;font-size:11px;color:var(--dsw-alias-label-tertiary)}",
-      ".mneme-bl-empty{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}",
-      // --- inline [[wiki-link]] links inside the detail content ---
-      ".mneme-wikilink{display:inline;padding:0 2px;border:none;background:none;color:var(--dsw-alias-state-business-primary);cursor:pointer;font-family:inherit;font-size:inherit;line-height:inherit;text-decoration:underline;text-underline-offset:2px;border-radius:3px}",
-      ".mneme-wikilink:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 8%,transparent)}",
       // --- graph sub-view (fills the content area under the tabs) ---
       ".mneme-graph{flex:1;min-height:0;width:100%;display:flex;flex-direction:column;padding:12px 16px 16px;box-sizing:border-box}",
       ".mneme-graphbar{display:flex;gap:8px;align-items:center;flex:none;margin-bottom:10px}",
@@ -472,38 +464,36 @@ window.__ModuleLoader__.load({
       ".mneme-gs-attrval{color:var(--dsw-alias-label-secondary);word-break:break-word;font-size:13px}",
       ".mneme-gs-link{display:block;width:100%;text-align:left;border:none;background:none;color:var(--dsw-alias-label-secondary);cursor:pointer;font-family:inherit;font-size:13px;padding:3px 6px;border-radius:6px;word-break:break-word}",
       ".mneme-gs-link:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}",
-      // --- directory sub-view (v0.6.3): tag folders + memory entries ---
-      ".mneme-directory{flex:1;min-height:0;overflow-y:auto;padding:8px 10px 28px}",
-      ".mneme-edit-toggle{margin:6px 10px;display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;user-select:none}",
-      ".mneme-dir-item{position:relative;display:flex;align-items:center;gap:6px;padding:2px 6px;border-radius:4px}",
-      ".mneme-dir-item:hover{background:rgba(127,127,127,.18)}",
-      ".mneme-tree-line{width:14px;height:1px;border-top:1px dashed rgba(127,127,127,.5);flex:none}",
-      ".mneme-dir-item .mneme-dir-del{opacity:0;transition:opacity .12s}",
-      ".mneme-dir-item:hover .mneme-dir-del{opacity:1}",
-      ".mneme-dir-del{margin-left:auto;background:none;border:none;color:#e5484d;cursor:pointer;font-size:13px;line-height:1;padding:2px 4px}",
-      ".mneme-dir-del:hover{filter:brightness(1.25)}",
-      ".mneme-edit-on .mneme-dir-del{opacity:1}",
-      ".mneme-dir-del-confirm{font-weight:700;background:rgba(229,72,77,.12);border-radius:4px}",
-      ".mneme-dir-item.mneme-dir-error{background:rgba(229,72,77,.14)}",
-      ".mneme-dir-del-err{flex:none;font-size:12px;line-height:16px;color:#e5484d}",
-      ".mneme-dir-ititle{background:none;border:none;padding:0;font:inherit;color:inherit;cursor:pointer;flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
-      ".mneme-dir-folder{margin-bottom:4px}",
-      ".mneme-dir-folderhead{display:flex;align-items:center;gap:6px;width:100%;padding:6px 8px;border:none;border-radius:8px;background:none;color:var(--dsw-alias-label-primary);cursor:pointer;font-family:inherit;font-size:13px;font-weight:500;line-height:18px;text-align:left}",
-      ".mneme-dir-folderhead:hover{background:var(--dsw-alias-interactive-bg-hover)}",
-      ".mneme-dir-caret{flex:none;width:10px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:12px}",
-      ".mneme-dir-fname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
-      ".mneme-dir-fcount{flex:none;margin-left:auto;font-size:12px;line-height:16px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}",
-      ".mneme-dir-fbody{margin:2px 0 4px 22px;padding-left:8px;border-left:1px solid var(--dsw-alias-border-l2)}",
-      ".mneme-dir-item{display:flex;gap:8px;align-items:baseline;width:100%;padding:4px 8px;border:none;border-radius:8px;background:none;color:var(--dsw-alias-label-secondary);cursor:pointer;font-family:inherit;font-size:13px;line-height:18px;text-align:left}",
-      ".mneme-dir-item:hover{background:var(--dsw-alias-interactive-bg-hover)}",
-      ".mneme-dir-item.mneme-active{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary)}",
-      ".mneme-dir-ititle{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
-      ".mneme-dir-itime{flex:none;font-size:12px;line-height:16px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}",
-      ".mneme-dir-empty{color:var(--dsw-alias-label-tertiary);padding:24px 0;text-align:center;font-size:13px}",
-      // --- settings sub-view ---
-      ".mneme-xsettings{flex:1;min-height:0;overflow-y:auto;padding:8px 24px 48px;box-sizing:border-box}",
+      // --- entity explorer: rail + layered detail (entities → attrs → relations → graph) ---
+      ".mneme-ent{flex:1;min-height:0;display:flex;overflow:hidden}",
+      ".mneme-entrail{flex:none;width:224px;min-height:0;overflow-y:auto;padding:12px;border-right:1px solid var(--dsw-alias-border-l2);box-sizing:border-box;display:flex;flex-direction:column;gap:4px}",
+      ".mneme-enttype{display:flex;align-items:center;gap:6px;width:100%;padding:8px 8px 2px;border:none;background:none;color:var(--dsw-alias-label-tertiary);cursor:pointer;font-family:inherit;font-size:11px;font-weight:600;line-height:16px;text-align:left;letter-spacing:.02em}",
+      ".mneme-entitem{display:flex;align-items:center;gap:8px;width:100%;padding:5px 8px;border:none;border-radius:8px;background:none;color:var(--dsw-alias-label-secondary);cursor:pointer;font-family:inherit;font-size:13px;line-height:18px;text-align:left}",
+      ".mneme-entitem:hover{background:var(--dsw-alias-interactive-bg-hover)}",
+      ".mneme-entitem.mneme-active{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary)}",
+      ".mneme-entname{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+      ".mneme-entmentions{flex:none;font-size:11px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}",
+      ".mneme-entdetail{flex:1;min-width:0;min-height:0;overflow-y:auto;padding:20px 24px 32px;box-sizing:border-box}",
+      ".mneme-entinner{max-width:720px}",
+      ".mneme-enttitle{display:flex;align-items:center;gap:10px;font-size:17px;font-weight:600;line-height:24px;color:var(--dsw-alias-label-primary);word-break:break-word}",
+      ".mneme-enttitle .mneme-xdot{width:10px;height:10px}",
+      ".mneme-entmeta{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:6px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}",
+      ".mneme-layer{margin-top:24px}",
+      ".mneme-layerhead{display:flex;align-items:baseline;gap:8px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);margin-bottom:10px}",
+      ".mneme-layercount{font-size:12px;font-weight:400;color:var(--dsw-alias-label-tertiary)}",
+      ".mneme-attrgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}",
+      ".mneme-attrcard{min-width:0;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:8px 12px}",
+      ".mneme-attrkey{font-size:11px;color:var(--dsw-alias-label-tertiary);margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+      ".mneme-attrval{font-size:13px;line-height:19px;color:var(--dsw-alias-label-primary);word-break:break-word}",
+      ".mneme-relrow{display:flex;align-items:center;gap:10px;width:100%;padding:7px 10px;border:none;border-radius:10px;background:none;color:var(--dsw-alias-label-secondary);cursor:pointer;font-family:inherit;font-size:13px;line-height:20px;text-align:left}",
+      ".mneme-relrow:hover{background:var(--dsw-alias-interactive-bg-hover)}",
+      ".mneme-reltype{flex:none;font-size:11px;line-height:16px;color:var(--dsw-alias-state-business-primary);border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 35%,transparent);border-radius:6px;padding:0 6px}",
+      ".mneme-relname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+      // --- settings: quiet stacked sections, one concern per section ---
+      ".mneme-set{flex:1;min-height:0;overflow-y:auto;padding:8px 24px 48px;box-sizing:border-box}",
+      ".mneme-set-inner{max-width:680px}",
       ".mneme-set-sec{padding:20px 0 24px;border-bottom:1px solid var(--dsw-alias-border-l2)}",
-      ".mneme-xsettings .mneme-set-sec:last-child{border-bottom:none}",
+      ".mneme-set-sec:last-child{border-bottom:none}",
       ".mneme-set-title{font-size:14px;font-weight:600;color:var(--dsw-alias-label-primary);margin-bottom:4px}",
       ".mneme-set-desc{font-size:13px;line-height:19px;color:var(--dsw-alias-label-tertiary);margin-bottom:14px}",
       ".mneme-set-input{box-sizing:border-box;width:100%;height:34px;padding:0 12px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base,transparent);color:var(--dsw-alias-label-primary);font-family:inherit;font-size:13px;outline:none;margin-bottom:10px;transition:border-color .12s,box-shadow .12s}",
@@ -514,6 +504,7 @@ window.__ModuleLoader__.load({
       ".mneme-btn:hover{background:var(--dsw-alias-interactive-bg-hover)}",
       ".mneme-btn:disabled{opacity:.5;cursor:default}",
       ".mneme-saved{font-size:12px;color:var(--dsw-alias-state-success,#2a7)}",
+      // rule rows: numbered chips + hover-revealed delete
       ".mneme-set-row{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;margin-bottom:8px;background:var(--dsw-alias-bg-base,transparent)}",
       ".mneme-set-idx{flex:none;width:20px;height:20px;border-radius:50%;border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:18px;display:inline-flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}",
       ".mneme-set-ruletext{flex:1;min-width:0;font-size:13px;line-height:20px;color:var(--dsw-alias-label-primary);word-break:break-word}",
@@ -523,47 +514,40 @@ window.__ModuleLoader__.load({
       ".mneme-set-cmd{flex:1;min-width:0}",
       ".mneme-set-cmdname{font-size:13px;font-weight:600;color:var(--dsw-alias-state-business-primary)}",
       ".mneme-set-cmddesc{font-size:12px;line-height:17px;color:var(--dsw-alias-label-tertiary);margin-top:1px;word-break:break-word}",
-      ".mneme-xsettings-inner{max-width:640px}",
-      // --- overview sub-view (layered stats dashboard, .mneme-ov-* only) ---
-      ".mneme-ov-wrap{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding:12px 16px 28px}",
-      ".mneme-ov-profile{gap:8px}",
-      ".mneme-ov-prow{display:flex;flex-direction:column;gap:2px;padding:4px 0;border-top:1px solid var(--dsw-alias-border-l1)}",
-      ".mneme-ov-prow:first-of-type{border-top:none}",
-      ".mneme-ov-ptitle{font-size:13px;font-weight:600;line-height:18px;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
-      ".mneme-ov-ppreview{font-size:12px;line-height:17px;color:var(--dsw-alias-label-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
-      ".mneme-ov-dist{display:flex;flex-direction:column;gap:6px}",
-      ".mneme-ov-distrow{display:flex;align-items:center;gap:8px}",
-      ".mneme-ov-distlabel{flex:none;width:76px;font-size:12px;line-height:16px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
-      ".mneme-ov-distcount{flex:none;width:34px;font-size:12px;line-height:16px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;text-align:right}",
-      ".mneme-ov-disttrack{flex:1;min-width:0;height:8px;border-radius:4px;background:var(--dsw-alias-border-l2)}",
-      ".mneme-ov-distbar{height:100%;min-width:2px;border-radius:4px;background:var(--dsw-alias-state-business-primary)}",
-      ".mneme-ov-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}",
-      ".mneme-ov-tile{box-sizing:border-box;text-align:left;border:none;cursor:pointer;font-family:inherit;gap:6px;overflow:hidden}",
-      ".mneme-ov-tile:hover{background:var(--dsw-alias-interactive-bg-hover)}",
-      ".mneme-ov-tilehead{display:flex;align-items:center;gap:6px}",
-      ".mneme-ov-tiletitle{min-width:0;font-size:13px;font-weight:600;line-height:18px;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
-      ".mneme-ov-tilecount{flex:none;margin-left:auto;font-size:12px;line-height:16px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}",
-      ".mneme-ov-badge{flex:none;font-size:11px;line-height:16px;padding:0 6px;border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);color:var(--dsw-alias-state-business-primary)}",
-      ".mneme-ov-badge--dim{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-tertiary)}",
-      ".mneme-ov-tilelatest{font-size:12px;line-height:17px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
-      ".mneme-ov-trend{display:flex;align-items:flex-end;gap:8px;padding:8px 4px 0}",
-      ".mneme-ov-trendcol{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:4px}",
-      ".mneme-ov-trendbar{width:min(100%,30px);border-radius:4px 4px 0 0;background:var(--dsw-alias-state-business-primary)}",
-      ".mneme-ov-trenddate{font-size:10px;line-height:12px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;white-space:nowrap}",
+      // --- settings sub-view ---
+      ".mneme-set{flex:1;min-height:0;overflow-y:auto;padding:8px 24px 48px;box-sizing:border-box}",
       // --- hero fallback: full-viewport memory library when no tab ring exists ---
       // The host hides the whole conversation tab ring while a session is
       // blank (hero screen), so the sidebar entry cannot activate the tab
       // there. This surface reuses the exact MemoryExplorer UI at full size —
       // not a side drawer — so the library stays reachable from any state.
       ".mneme-overlay{position:fixed;inset:0;z-index:1000;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1);animation:mneme-fadein .12s ease-out}",
-      // issue #41: overlay 顶栏右侧原本与宿主窗口标题栏的控制按钮（最小化/最大化/关闭）
-      // 落在同一区域——宿主控制按钮浮在 web 内容最上层，抢占了 overlay"关闭"按钮的
-      // 点击热区，导致记忆窗口无法关闭。改为左对齐（标题 + 关闭按钮并排），关闭按钮
-      // 离开右上角宿主控制按钮区，任何窗口尺寸/宿主下都可见可点。
-      ".mneme-overlaybar{flex:none;display:flex;align-items:center;justify-content:flex-start;gap:12px;height:44px;padding:0 12px 0 16px;border-bottom:1px solid var(--dsw-alias-border-l2)}",
+      ".mneme-overlaybar{flex:none;display:flex;align-items:center;justify-content:space-between;height:44px;padding:0 12px 0 16px;border-bottom:1px solid var(--dsw-alias-border-l2)}",
       ".mneme-overlaytitle{font-size:14px;font-weight:600;color:var(--dsw-alias-label-primary)}",
       ".mneme-overlaybody{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}",
-      "@keyframes mneme-fadein{from{opacity:0}to{opacity:1}}"
+      "@keyframes mneme-fadein{from{opacity:0}to{opacity:1}}",
+      // --- explorer refresh: paged month tree, sticky headers, inline icons ---
+      ".mneme-vtabico{flex:none;opacity:.85}",
+      ".mneme-xsearchwrap{position:relative;flex:none}",
+      ".mneme-xsearchico{position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--dsw-alias-label-tertiary);pointer-events:none}",
+      ".mneme-xsearchwrap .mneme-xsearch{padding-left:27px}",
+      ".mneme-footbtn{display:inline-flex;align-items:center;gap:4px}",
+      ".mneme-xmonth{position:sticky;top:0;z-index:2;background:var(--dsw-alias-bg-layer-1);display:flex;align-items:center;gap:6px}",
+      ".mneme-xmonthcount{margin-left:auto;color:var(--dsw-alias-label-tertiary);font-weight:400;font-variant-numeric:tabular-nums}",
+      ".mneme-xcaret{display:inline-flex;align-items:center;justify-content:center;color:var(--dsw-alias-label-tertiary)}",
+      ".mneme-xmore{display:flex;justify-content:center;align-items:center;padding:10px 0 24px;min-height:20px}",
+      ".mneme-xemptyico{display:block;margin:0 auto 6px;opacity:.7}",
+      // --- status sub-view: responsive stat-card grid (auto-fill, ~220px min) ---
+      ".mneme-status{flex:1;min-height:0;overflow-y:auto;padding:16px 20px 32px;box-sizing:border-box}",
+      ".mneme-statusgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;max-width:960px}",
+      ".mneme-statuscard{min-width:0;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:14px}",
+      ".mneme-statusnum{font-size:24px;font-weight:600;line-height:32px;color:var(--dsw-alias-label-primary);font-variant-numeric:tabular-nums}",
+      ".mneme-statuscap{margin-top:4px;font-size:13px;line-height:19px;color:var(--dsw-alias-label-tertiary);word-break:break-word}",
+      // --- destructive actions: red outline = delete, solid red = confirm ---
+      ".mneme-btndanger{color:var(--dsw-alias-state-error,#c33);border-color:var(--dsw-alias-state-error,#c33)}",
+      ".mneme-btndanger:hover{background:color-mix(in srgb,var(--dsw-alias-state-error,#c33) 12%,transparent)}",
+      ".mneme-btndangerconfirm{background:var(--dsw-alias-state-error,#c33);border-color:var(--dsw-alias-state-error,#c33);color:#fff}",
+      ".mneme-btndangerconfirm:hover{filter:brightness(.9)}"
     ].join("\n");
     if (typeof document !== "undefined" && document.querySelector(`style[data-plugin-css="${CSS_TAG}"]`) === null) {
       const tag = document.createElement("style");
@@ -599,32 +583,28 @@ window.__ModuleLoader__.load({
       project: "#22c55e",
       decision: "#3b82f6",
       summary: "#a855f7",
-      user: "#f59e0b",
-      fact: "#22c55e",
       history: "#94a3b8"
     };
     function memoryTypeColor(type) {
       return MEMORY_TYPE_COLORS[type] || "#94a3b8";
     }
 
-    // Compact date for the detail meta ("2026/9/7"); the full timestamp
+    // Compact date for the detail meta ("2026/8/16"); the full timestamp
     // stays in the tooltip.
     function formatDateShort(value) {
       if (!value) return "—";
       const date = new Date(value);
       return Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString();
     }
+    // Graph canvas space: the svg's fixed viewBox. The simulation runs in
+    // these user units — never in CSS pixels — so node positions always land
+    // inside the drawn area; the browser scales the viewBox to whatever the
+    // element's CSS size is (small window, hidden tab, maximized #72).
+    const VIEW_W = 380, VIEW_H = 300;
+
     function nodeRadius(n) {
       // mention_count → area-ish growth, clamped so hubs stay legible.
-      const base = 7 + Math.min(20, Math.max(1, n.mention_count ?? 1)) * 0.55;
-      // v0.7.0 heat: hot entities render slightly larger; cold → base.
-      if (n.heat == null) return base;
-      return base + (Math.max(0, Math.min(1, n.heat)) - 0.5) * 4;
-    }
-    function nodeOpacity(n) {
-      // v0.7.0 heat: hot entities are bright (opacity 1), cold fade to 0.4.
-      if (n.heat == null) return 1;
-      return 0.4 + 0.6 * Math.max(0, Math.min(1, n.heat));
+      return 7 + Math.min(20, Math.max(1, n.mention_count ?? 1)) * 0.55;
     }
 
     // Deterministic golden-angle spiral: no two nodes start overlapping, and
@@ -639,100 +619,17 @@ window.__ModuleLoader__.load({
       });
     }
 
-    // --- wiki-link (v0.6.1) -------------------------------------------------
-    // Splits detail content into literal text and clickable [[target]] /
-    // [[display|target]] links. Mirrors src/parser/wiki-link.js: single pipe
-    // only, empty / multi-pipe / unclosed markers stay literal text.
-    function wikilinkSegments(text, onClick) {
-      if (typeof text !== "string" || text.length === 0) return text;
-      const out = [];
-      let last = 0;
-      let key = 0;
-      const re = /\[\[([^\[\]]*)\]\]/g;
-      let m;
-      while ((m = re.exec(text)) !== null) {
-        const parts = m[1].split("|");
-        if (parts.length > 2) continue; // 多管道 → 非法，保留字面文本
-        const target = (parts.length === 2 ? parts[1] : parts[0]).trim();
-        if (!target) continue; // 空目标 → 非法
-        if (m.index > last) out.push(text.slice(last, m.index));
-        out.push(h("button", {
-          key: `w${key++}`,
-          type: "button",
-          className: "mneme-wikilink",
-          title: target,
-          onClick: () => onClick(target)
-        }, parts[0].trim() || target));
-        last = m.index + m[0].length;
-      }
-      if (last < text.length) out.push(text.slice(last));
-      return out.length ? out : text;
-    }
-
-    // Backlinks panel: the two wiki-link relation blocks under the detail pane.
-    // Backlinks = memories whose content links to this one; forward = memories
-    // this one links to (unresolved targets surface as dim, non-clickable).
-    // Mounted per-selection (the surrounding Fragment keys on selected.id), so
-    // state resets and the fetches re-run on every switch.
-    function BacklinksPanel({ memory, t, onJump }) {
-      const [back, setBack] = useState(null); // null = loading
-      const [forward, setForward] = useState(null);
-
-      useEffect(() => {
-        let cancelled = false;
-        if (!memory || !memory.id) return;
-        apiFetch(`/api/dsh-mneme/wikilinks/backlinks?id=${encodeURIComponent(memory.id)}`)
-          .then((r) => (r.ok ? r.json() : { backlinks: [] }))
-          .then((j) => { if (!cancelled) setBack(Array.isArray(j.backlinks) ? j.backlinks : []); })
-          .catch(() => { if (!cancelled) setBack([]); });
-        apiFetch(`/api/dsh-mneme/wikilinks/forward?id=${encodeURIComponent(memory.id)}`)
-          .then((r) => (r.ok ? r.json() : { links: [] }))
-          .then((j) => { if (!cancelled) setForward(Array.isArray(j.links) ? j.links : []); })
-          .catch(() => { if (!cancelled) setForward([]); });
-        return () => { cancelled = true; };
-      }, [memory && memory.id]);
-
-      if (!memory || !memory.id) return null;
-
-      const loading = back === null || forward === null;
-      const row = (link, i) => {
-        const canJump = !!link.id;
-        return h("button", {
-          key: link.id ?? `unresolved-${i}`,
-          type: "button",
-          className: canJump ? "mneme-bl-link" : "mneme-bl-link mneme-bl-link--dim",
-          title: canJump ? t("memory.card.open") : t("memory.wikilink.unresolved"),
-          disabled: !canJump,
-          onClick: () => onJump && onJump({ id: link.id })
-        },
-          h("span", { className: "mneme-bl-title" }, link.title || "—"),
-          link.type && h("span", { className: "mneme-bl-meta" }, typeLabel(t, link.type))
-        );
-      };
-      const section = (label, items) =>
-        h("div", { className: "mneme-bl-block" },
-          h("div", { className: "mneme-bl-head" }, label),
-          loading
-            ? h("div", { className: "mneme-bl-empty" }, t("memory.wikilink.loading"))
-            : items.length === 0
-              ? h("div", { className: "mneme-bl-empty" }, t("memory.wikilink.empty"))
-              : h("div", { className: "mneme-bl-list" }, items.map(row))
-        );
-
-      return h("div", { className: "mneme-backlinks" },
-        section(t("memory.wikilink.backlinks"), back || []),
-        section(t("memory.wikilink.forward"), forward || [])
-      );
-    }
-
-    // --- Graph view: ego-graph of one entity, zero-dependency SVG force layout ---
-    // The DSH client module table only whitelists platform modules, so a graph
-    // library like vis-network cannot be required from a plugin. A hand-rolled
-    // spring simulation (repulsion + edge springs + center gravity, damped) is
-    // plenty for the ≤40 nodes the ego API returns.
-    function GraphPanel({ t, focusEntity, onJumpMemory }) {
+    // --- Entity explorer: the entity-gene layers made visible ---
+    // Rail = the entity directory (grouped by type, mention-ranked inside a
+    // type). Detail = the layered structure from docs/ENTITIES.md:
+    //   ① 属性  current snapshot of entity_attrs (saveAttr invalidates old rows)
+    //   ② 关系  entity_relations touching the entity (from the 1-hop ego walk)
+    //   ③ 关联记忆  memories recalled through the entity: prefix search
+    //   ④ 关系图谱  the same ego graph the old graph-only tab drew
+    function EntityPanel({ t, focusEntity, onJumpMemory }) {
+      const [entities, setEntities] = useState(null); // null = still loading
+      const [railQuery, setRailQuery] = useState("");
       const [entityName, setEntityName] = useState(focusEntity || "");
-      const [inputValue, setInputValue] = useState(focusEntity || "");
       const [depth, setDepth] = useState(1);
       const [data, setData] = useState(null);
       const [status, setStatus] = useState("idle"); // idle | loading | ready | notfound | error
@@ -746,12 +643,27 @@ window.__ModuleLoader__.load({
       const [frame, setFrame] = useState(0); // re-render tick driven by the simulation
 
       useEffect(() => {
+        let cancelled = false;
+        apiFetch("/api/dsh-mneme/entities?limit=500")
+          .then((r) => (r.ok ? r.json() : { entities: [] }))
+          .then((j) => { if (!cancelled) setEntities(Array.isArray(j.entities) ? j.entities : []); })
+          .catch(() => { if (!cancelled) setEntities([]); });
+        return () => { cancelled = true; };
+      }, []);
+
+      useEffect(() => {
         if (focusEntity && focusEntity !== entityName) {
           setEntityName(focusEntity);
-          setInputValue(focusEntity);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
       }, [focusEntity]);
+
+      // Auto-select the most recently seen entity so the layers are never a
+      // dead end on first open (the rail still allows picking another one).
+      useEffect(() => {
+        if (!entities || entityName || entities.length === 0) return;
+        setEntityName(entities[0].name);
+      }, [entities, entityName]);
 
       const load = useCallback(async (name, d) => {
         if (!name) { setData(null); setStatus("idle"); return; }
@@ -772,31 +684,32 @@ window.__ModuleLoader__.load({
 
       useEffect(() => { load(entityName, depth); }, [load, entityName, depth]);
 
-      // Detail pane: node → current attrs + entity: search for related memories.
+      // Layer data for the selected entity: current attrs + related memories.
       useEffect(() => {
         setAttrs([]);
         setRelated([]);
-        if (!selected || selected.kind !== "node") return;
-        const name = selected.node.name;
+        if (!entityName) return;
         let cancelled = false;
-        apiFetch(`/api/dsh-mneme/semantic/graph/entity-attrs?entity=${encodeURIComponent(name)}`)
+        apiFetch(`/api/dsh-mneme/semantic/graph/entity-attrs?entity=${encodeURIComponent(entityName)}`)
           .then((r) => (r.ok ? r.json() : { attrs: [] }))
           .then((j) => { if (!cancelled) setAttrs(Array.isArray(j.attrs) ? j.attrs : []); })
           .catch(() => {});
-        apiFetch(`/api/dsh-mneme/search?q=${encodeURIComponent("entity:" + name)}&limit=10`)
+        apiFetch(`/api/dsh-mneme/search?q=${encodeURIComponent("entity:" + entityName)}&limit=10`)
           .then((r) => (r.ok ? r.json() : { items: [] }))
           .then((j) => { if (!cancelled) setRelated(Array.isArray(j.items) ? j.items : []); })
           .catch(() => {});
         return () => { cancelled = true; };
-      }, [selected]);
+      }, [entityName]);
 
       // Simulation: run in rAF against posRef, tick React only every few frames.
       // Re-seeds when data changes; dragging writes straight into posRef.
       useEffect(() => {
         if (!data || data.nodes.length === 0) return;
-        const width = Math.max(280, svgRef.current?.clientWidth || 380);
-        const height = 300;
-        posRef.current = initialPositions(data.nodes, width, height);
+        // Bounds in viewBox units: measuring clientWidth here put the gravity
+        // center and clamp range outside the 380-wide viewBox once the window
+        // (or its hidden-then-shown container) got wide, and every node was
+        // clipped off-canvas — the maximized-invisible bug (#72).
+        posRef.current = initialPositions(data.nodes, VIEW_W, VIEW_H);
         const byId = new Map(posRef.current.map((n) => [n.id, n]));
         const edges = data.edges;
         let raf = 0;
@@ -829,12 +742,12 @@ window.__ModuleLoader__.load({
           let energy = 0;
           for (const node of nodes) {
             // gentle gravity toward center keeps the cloud from drifting off-canvas
-            node.vx += (width / 2 - node.x) * 0.002;
-            node.vy += (height / 2 - node.y) * 0.002;
+            node.vx += (VIEW_W / 2 - node.x) * 0.002;
+            node.vy += (VIEW_H / 2 - node.y) * 0.002;
             if (node.pinned || node === dragRef.current?.node) { node.vx = 0; node.vy = 0; continue; }
             node.vx *= 0.85; node.vy *= 0.85;
-            node.x = Math.max(nodeRadius(node) + 4, Math.min(width - nodeRadius(node) - 4, node.x + node.vx));
-            node.y = Math.max(nodeRadius(node) + 14, Math.min(height - nodeRadius(node) - 14, node.y + node.vy));
+            node.x = Math.max(nodeRadius(node) + 4, Math.min(VIEW_W - nodeRadius(node) - 4, node.x + node.vx));
+            node.y = Math.max(nodeRadius(node) + 14, Math.min(VIEW_H - nodeRadius(node) - 14, node.y + node.vy));
             energy += Math.abs(node.vx) + Math.abs(node.vy);
           }
           n++;
@@ -854,7 +767,7 @@ window.__ModuleLoader__.load({
         const origX = node.x, origY = node.y;
         const svg = svgRef.current;
         const rect = svg.getBoundingClientRect();
-        const scale = 380 / Math.max(1, rect.width) / viewRef.current.k; // viewBox units per css px, zoom-aware
+        const scale = VIEW_W / Math.max(1, rect.width) / viewRef.current.k; // viewBox units per css px, zoom-aware
         const onMove = (ev) => {
           dragRef.current.moved = true;
           node.x = origX + (ev.clientX - startX) * scale;
@@ -869,6 +782,12 @@ window.__ModuleLoader__.load({
         window.addEventListener("mousemove", onMove);
         window.addEventListener("mouseup", onUp);
       };
+
+      const onNodeClick = (node) => {
+        if (dragRef.current?.moved) return; // it was a drag, not a click
+        setSelected({ kind: "node", node });
+      };
+      const onEdgeClick = (edge) => setSelected({ kind: "edge", edge });
 
       // --- canvas pan & zoom ---
       // The viewport (translate + scale) lives in viewRef so the simulation
@@ -934,39 +853,71 @@ window.__ModuleLoader__.load({
         setFrame((f) => f + 1);
       };
 
-      const onNodeClick = (node) => {
-        if (dragRef.current?.moved) return; // it was a drag, not a click
-        setSelected({ kind: "node", node });
-      };
-      const onEdgeClick = (edge) => setSelected({ kind: "edge", edge });
-
       const nodes = posRef.current;
       const nodeById = new Map(nodes.map((n) => [n.id, n]));
-      const VIEW_W = 380, VIEW_H = 300;
 
+      // --- rail: entity directory grouped by type ---
+      const q = railQuery.trim().toLowerCase();
+      const visibleEntities = (entities || []).filter((e) => !q || (e.name || "").toLowerCase().includes(q));
+      const ENTITY_TYPE_ORDER = ["person", "project", "concept", "technology", "organization"];
+      const groups = [];
+      const byType = new Map();
+      for (const e of visibleEntities) {
+        const key = ENTITY_TYPE_ORDER.includes(e.type) ? e.type : "other";
+        if (!byType.has(key)) { const g = { key, items: [] }; byType.set(key, g); groups.push(g); }
+        byType.get(key).items.push(e);
+      }
+
+      const entity = entities?.find((e) => e.name === entityName) || null;
+      const rootEdges = (data?.edges || []).filter((e) => e.from === data?.root?.id || e.to === data?.root?.id);
+      const graphStatus = status === "ready" && data && data.nodes.length <= 1 ? "empty" : status;
+
+      const rail = h("div", { className: "mneme-entrail" },
+        h("div", { className: "mneme-xcolhead" }, t("memory.view.label")),
+        h("input", {
+          className: "mneme-search mneme-xsearch",
+          placeholder: t("memory.graph.placeholder"),
+          value: railQuery,
+          onChange: (e) => setRailQuery(e.target.value)
+        }),
+        entities === null && h("div", { className: "mneme-xempty" }, "…"),
+        entities !== null && entities.length === 0 && h("div", { className: "mneme-xempty" }, t("memory.entities.none")),
+        entities !== null && entities.length > 0 && h("div", { className: "mneme-xcount" },
+          t("memory.entities.count").replace("{n}", String(entities.length))),
+        groups.map((g) => h("div", { key: g.key },
+          h("div", { className: "mneme-enttype" },
+            h("span", { className: "mneme-xdot", style: { color: typeColor(g.key === "other" ? null : g.key) }, "aria-hidden": "true" }),
+            entityTypeLabel(t, g.key)
+          ),
+          g.items.map((e) => h("button", {
+            key: e.id,
+            className: e.name === entityName ? "mneme-entitem mneme-active" : "mneme-entitem",
+            onClick: () => setEntityName(e.name)
+          },
+            h("span", { className: "mneme-entname" }, e.name),
+            h("span", { className: "mneme-entmentions" }, `×${e.mention_count ?? 1}`)
+          ))
+        ))
+      );
+
+      // side card for a clicked (non-root) node or edge inside the graph layer
       const side = selected?.kind === "node"
         ? h("div", { className: "mneme-graphside" },
             h("div", { className: "mneme-gs-title" },
               h("span", null, selected.node.name),
               h("span", { className: "mneme-gs-meta" },
-                `${typeLabel(t, selected.node.type || "concept")} · ★${selected.node.mention_count ?? 1}`)
+                `${entityTypeLabel(t, selected.node.type || "concept")} · ★${selected.node.mention_count ?? 1}`)
             ),
+            selected.node.name !== entityName && h("button", {
+              className: "mneme-footbtn",
+              onClick: () => setEntityName(selected.node.name)
+            }, t("memory.graph.viewInGraph")),
             attrs.length > 0 && h("div", null,
               h("div", { className: "mneme-gs-meta" }, t("memory.graph.attrs")),
               attrs.map((a, i) => h("div", { key: i, className: "mneme-gs-attr" },
                 h("span", { className: "mneme-gs-attrkey" }, `${a.key}:`),
                 h("span", { className: "mneme-gs-attrval" }, a.value)
               ))
-            ),
-            related.length > 0 && h("div", { style: { marginTop: 8 } },
-              h("div", { className: "mneme-gs-meta" }, t("memory.graph.related")),
-              related.map((m) => h("button", {
-                key: m.id,
-                type: "button",
-                className: "mneme-gs-link",
-                title: t("memory.card.open"),
-                onClick: () => onJumpMemory && onJumpMemory(m)
-              }, m.title || m.content?.slice(0, 60)))
             )
           )
         : selected?.kind === "edge"
@@ -984,77 +935,140 @@ window.__ModuleLoader__.load({
             )
           : null;
 
-      return h("div", { className: "mneme-graph" },
-        h("div", { className: "mneme-graphbar" },
-          h("input", {
-            className: "mneme-search",
-            style: { flex: 1, minWidth: 0, maxWidth: 280 },
-            placeholder: t("memory.graph.placeholder"),
-            value: inputValue,
-            onChange: (e) => setInputValue(e.target.value),
-            onKeyDown: (e) => { if (e.key === "Enter") setEntityName(inputValue.trim()); }
-          }),
-          h("button", {
-            className: depth === 2 ? "mneme-chip mneme-active" : "mneme-chip",
-            title: t("memory.graph.depth"),
-            onClick: () => setDepth(depth === 1 ? 2 : 1)
-          }, `${depth} ${t("memory.graph.depth")}`),
-          h("button", {
-            className: "mneme-chip",
-            title: t("memory.graph.resetView"),
-            onClick: resetView
-          }, t("memory.graph.resetView"))
-        ),
-        status === "idle" && h("div", { className: "mneme-hint" }, t("memory.graph.empty")),
-        status === "loading" && h("div", { className: "mneme-hint" }, t("memory.graph.loading")),
-        status === "notfound" && h("div", { className: "mneme-hint" }, t("memory.graph.notFound")),
-        status === "error" && h("div", { className: "mneme-hint" }, t("memory.panel.empty")),
-        status === "ready" && (data.nodes.length <= 1
-          ? h("div", { className: "mneme-hint" }, t("memory.graph.empty"))
-          : h(react.Fragment, null,
-              h("svg", {
-                ref: svgRef,
-                className: "mneme-graphsvg",
-                viewBox: `0 0 ${VIEW_W} ${VIEW_H}`,
-                style: { height: 320 },
-                onMouseDown: onSurfaceMouseDown
-              },
-                h("g", {
-                  transform: `translate(${viewRef.current.x},${viewRef.current.y}) scale(${viewRef.current.k})`
-                },
-                data.edges.map((e) => {
-                  const a = nodeById.get(e.from), b = nodeById.get(e.to);
-                  if (!a || !b) return null;
-                  return h("line", {
-                    key: e.id,
-                    x1: a.x, y1: a.y, x2: b.x, y2: b.y,
-                    className: e.memory_id ? "mneme-gedge" : "mneme-gedge mneme-gedge-dashed",
-                    onClick: () => onEdgeClick(e)
-                  });
-                }),
-                nodes.map((n) => h("g", {
-                  key: n.id,
-                  className: n.id === data.root.id ? "mneme-gnode mneme-groot" : "mneme-gnode",
-                  transform: `translate(${n.x},${n.y})`,
-                  onMouseDown: (e) => onNodeMouseDown(e, n),
-                  onClick: () => onNodeClick(n),
-                  "data-node": n.name
-                },
-                  h("circle", { r: nodeRadius(n), fill: typeColor(n.type), fillOpacity: nodeOpacity(n) }),
-                  h("text", { className: "mneme-glabel", y: nodeRadius(n) + 13 }, n.name)
-                ))
-                )
+      const detail = h("div", { className: "mneme-entdetail" },
+        h("div", { className: "mneme-entinner" },
+          status === "idle" && h("div", { className: "mneme-hint" }, t("memory.entities.pick")),
+          status === "loading" && h("div", { className: "mneme-hint" }, t("memory.graph.loading")),
+          status === "notfound" && h("div", { className: "mneme-hint" }, t("memory.graph.notFound")),
+          status === "error" && h("div", { className: "mneme-hint" }, t("memory.panel.empty")),
+          status === "ready" && entity && h(react.Fragment, null,
+            h("div", { className: "mneme-enttitle" },
+              h("span", { className: "mneme-xdot", style: { color: typeColor(entity.type) }, "aria-hidden": "true" }),
+              entity.name
+            ),
+            h("div", { className: "mneme-entmeta" },
+              h("span", null, entityTypeLabel(t, entity.type || "other")),
+              h("span", null, t("memory.entities.mentions").replace("{n}", String(entity.mention_count ?? 1))),
+              h("span", { title: formatDate(entity.last_seen) },
+                `${t("memory.entities.lastSeen")}: ${formatRelativeTime(entity.last_seen, t)}`)
+            ),
+            // ① 属性 — current snapshot (valid_until IS NULL)
+            h("div", { className: "mneme-layer" },
+              h("div", { className: "mneme-layerhead" },
+                t("memory.entities.attrs"),
+                h("span", { className: "mneme-layercount" }, String(attrs.length))
               ),
-              h("div", { className: "mneme-graphhint" }, t("memory.graph.hint"))
-            )),
-        side
+              attrs.length === 0
+                ? h("div", { className: "mneme-xempty" }, t("memory.settings.empty"))
+                : h("div", { className: "mneme-attrgrid" },
+                    attrs.map((a, i) => h("div", { key: i, className: "mneme-attrcard", title: a.value },
+                      h("div", { className: "mneme-attrkey" }, a.key),
+                      h("div", { className: "mneme-attrval" }, a.value)
+                    ))
+                  )
+            ),
+            // ② 关系 — both directions from the 1-hop ego walk
+            h("div", { className: "mneme-layer" },
+              h("div", { className: "mneme-layerhead" },
+                t("memory.entities.relations"),
+                h("span", { className: "mneme-layercount" }, String(rootEdges.length))
+              ),
+              rootEdges.length === 0
+                ? h("div", { className: "mneme-xempty" }, t("memory.settings.empty"))
+                : rootEdges.map((e) => {
+                    const out = e.from === data.root.id;
+                    const other = nodeById.get(out ? e.to : e.from);
+                    const otherName = other?.name ?? (out ? e.to : e.from);
+                    return h("button", {
+                      key: e.id,
+                      className: "mneme-relrow",
+                      title: e.memory_id ? t("memory.graph.sourceMemory") : undefined,
+                      onClick: () => { if (e.memory_id && onJumpMemory) onJumpMemory({ id: e.memory_id }); }
+                    },
+                      h("span", { className: "mneme-relname", style: { textAlign: "right", flex: 1 } }, entity.name),
+                      h("span", { className: "mneme-reltype" }, e.relation_type),
+                      h("span", { className: "mneme-relname", style: { flex: 1 } }, otherName)
+                    );
+                  })
+            ),
+            // ③ 关联记忆 — entity: prefix recall
+            related.length > 0 && h("div", { className: "mneme-layer" },
+              h("div", { className: "mneme-layerhead" },
+                t("memory.graph.related"),
+                h("span", { className: "mneme-layercount" }, String(related.length))
+              ),
+              related.map((m) => h("button", {
+                key: m.id,
+                type: "button",
+                className: "mneme-gs-link",
+                title: t("memory.card.open"),
+                onClick: () => onJumpMemory && onJumpMemory(m)
+              }, m.title || m.content?.slice(0, 60)))
+            ),
+            // ④ 关系图谱 — the ego graph
+            h("div", { className: "mneme-layer" },
+              h("div", { className: "mneme-layerhead" },
+                t("memory.entities.graph"),
+                h("span", { className: "mneme-layercount" },
+                  h("button", {
+                    className: depth === 2 ? "mneme-chip mneme-active" : "mneme-chip",
+                    title: t("memory.graph.depth"),
+                    onClick: () => setDepth(depth === 1 ? 2 : 1)
+                  }, `${depth} ${t("memory.graph.depth")}`)),
+                h("span", { className: "mneme-layercount" },
+                  h("button", {
+                    className: "mneme-chip",
+                    title: t("memory.graph.resetView"),
+                    onClick: resetView
+                  }, t("memory.graph.resetView")))
+              ),
+              graphStatus === "empty"
+                ? h("div", { className: "mneme-hint" }, t("memory.graph.empty"))
+                : h(react.Fragment, null,
+                    h("svg", {
+                      ref: svgRef,
+                      className: "mneme-graphsvg",
+                      viewBox: `0 0 ${VIEW_W} ${VIEW_H}`,
+                      style: { height: 320 },
+                      onMouseDown: onSurfaceMouseDown
+                    },
+                      h("g", {
+                        transform: `translate(${viewRef.current.x},${viewRef.current.y}) scale(${viewRef.current.k})`
+                      },
+                        data.edges.map((e) => {
+                          const a = nodeById.get(e.from), b = nodeById.get(e.to);
+                          if (!a || !b) return null;
+                          return h("line", {
+                            key: e.id,
+                            x1: a.x, y1: a.y, x2: b.x, y2: b.y,
+                            className: e.memory_id ? "mneme-gedge" : "mneme-gedge mneme-gedge-dashed",
+                            onClick: () => onEdgeClick(e)
+                          });
+                        }),
+                        nodes.map((n) => h("g", {
+                          key: n.id,
+                          className: n.id === data.root.id ? "mneme-gnode mneme-groot" : "mneme-gnode",
+                          transform: `translate(${n.x},${n.y})`,
+                          onMouseDown: (e) => onNodeMouseDown(e, n),
+                          onClick: () => onNodeClick(n),
+                          "data-node": n.name
+                        },
+                          h("circle", { r: nodeRadius(n), fill: typeColor(n.type) }),
+                          h("text", { className: "mneme-glabel", y: nodeRadius(n) + 13 }, n.name)
+                        ))
+                      )
+                    ),
+                    h("div", { className: "mneme-graphhint" }, t("memory.graph.hint"))
+                  ),
+              side
+            )
+          )
+        )
       );
+
+      return h("div", { className: "mneme-ent" }, rail, detail);
     }
 
-    // --- Settings view: user profile, rules, custom commands, vector, token ---
-    const styles = {
-      footerButton: { padding: "4px 10px", borderRadius: 8, border: "1px solid var(--dsw-alias-border-l2, #ddd)", background: "none", cursor: "pointer", fontSize: 12, margin: "2px 8px", color: "var(--dsw-alias-label-secondary, #666)", fontFamily: "inherit" }
-    };
 
     function SettingsContent({ t }) {
       const [profile, setProfile] = react.useState("");
@@ -1072,10 +1086,6 @@ window.__ModuleLoader__.load({
         (typeof window !== "undefined" && window.localStorage) ? window.localStorage.getItem("dsh-mneme-api-token") || "" : ""
       );
       const [apiTokenSaved, setApiTokenSaved] = react.useState(false);
-      const [autoTag, setAutoTag] = react.useState(false);
-      const [autoTagSaved, setAutoTagSaved] = react.useState(false);
-      const [showSidebarTrigger, setShowSidebarTrigger] = react.useState(true);
-      const [sidebarTriggerSaved, setSidebarTriggerSaved] = react.useState(false);
 
       const load = react.useCallback(async () => {
         try {
@@ -1089,13 +1099,6 @@ window.__ModuleLoader__.load({
           setRules(Array.isArray(r.rules) ? r.rules : []);
           setCommands(Array.isArray(c.commands) ? c.commands : []);
           setVector(v.config || { enabled: false, baseUrl: "", apiKey: "", model: "" });
-          // autoTag loads independently so a config failure can't cascade-block the rest.
-          try {
-            const g = await apiFetch("/api/dsh-mneme/config").then((res) => res.json());
-            setAutoTag(g.config?.autoTagEnabled === true);
-            // issue #38: sidebar trigger defaults to visible (true).
-            setShowSidebarTrigger(g.config?.showSidebarTrigger !== false);
-          } catch { /* keep defaults */ }
         } catch { /* ignore */ }
       }, []);
 
@@ -1192,31 +1195,8 @@ window.__ModuleLoader__.load({
         } catch { /* ignore */ }
       }
 
-      async function saveAutoTag() {
-        try {
-          await apiFetch("/api/dsh-mneme/config", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ autoTagEnabled: autoTag })
-          });
-          setAutoTagSaved(true);
-          setTimeout(() => setAutoTagSaved(false), 1500);
-        } catch { /* ignore */ }
-      }
-
-      async function saveSidebarTrigger() {
-        try {
-          await apiFetch("/api/dsh-mneme/config", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ showSidebarTrigger })
-          });
-          setSidebarTriggerSaved(true);
-          setTimeout(() => setSidebarTriggerSaved(false), 1500);
-        } catch { /* ignore */ }
-      }
-
       return h("div", null,
+        // 用户画像 — who the agent is talking to
         h("section", { className: "mneme-set-sec" },
           h("div", { className: "mneme-set-title" }, t("memory.settings.profile")),
           h("div", { className: "mneme-set-desc" }, t("memory.settings.profileHint")),
@@ -1231,6 +1211,7 @@ window.__ModuleLoader__.load({
             saved && h("span", { className: "mneme-saved" }, t("memory.settings.profileSaved"))
           )
         ),
+        // 规则 — numbered rows, hover reveals the delete affordance
         h("section", { className: "mneme-set-sec" },
           h("div", { className: "mneme-set-title" }, t("memory.settings.rules")),
           h("div", { className: "mneme-set-desc" }, t("memory.settings.rulesHint")),
@@ -1259,6 +1240,7 @@ window.__ModuleLoader__.load({
             h("button", { className: "mneme-btn", onClick: addRule }, t("memory.settings.ruleAdd"))
           )
         ),
+        // 自定义指令 — slash commands as titled rows
         h("section", { className: "mneme-set-sec" },
           h("div", { className: "mneme-set-title" }, t("memory.settings.commands")),
           h("div", { className: "mneme-set-desc" }, t("memory.settings.commandsHint")),
@@ -1289,30 +1271,7 @@ window.__ModuleLoader__.load({
             )
           )
         ),
-        h("section", { className: "mneme-set-sec" },
-          h("div", { className: "mneme-set-title" }, t("memory.settings.autoTagTitle")),
-          h("div", { className: "mneme-set-desc" }, t("memory.settings.autoTagHint")),
-          h("label", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 10, fontSize: 13, color: "var(--dsw-alias-label-primary)" } },
-            h("input", { type: "checkbox", checked: autoTag, onChange: (e) => setAutoTag(e.target.checked) }),
-            h("span", null, t("memory.settings.autoTagEnabled"))
-          ),
-          h("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
-            h("button", { className: "mneme-btn", onClick: saveAutoTag }, t("memory.settings.autoTagSave")),
-            autoTagSaved && h("span", { className: "mneme-saved" }, t("memory.settings.autoTagSaved"))
-          )
-        ),
-        h("section", { className: "mneme-set-sec" },
-          h("div", { className: "mneme-set-title" }, t("memory.settings.sidebarTriggerTitle")),
-          h("div", { className: "mneme-set-desc" }, t("memory.settings.sidebarTriggerHint")),
-          h("label", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 10, fontSize: 13, color: "var(--dsw-alias-label-primary)" } },
-            h("input", { type: "checkbox", checked: showSidebarTrigger, onChange: (e) => setShowSidebarTrigger(e.target.checked) }),
-            h("span", null, t("memory.settings.sidebarTriggerEnabled"))
-          ),
-          h("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
-            h("button", { className: "mneme-btn", onClick: saveSidebarTrigger }, t("memory.settings.sidebarTriggerSave")),
-            sidebarTriggerSaved && h("span", { className: "mneme-saved" }, t("memory.settings.sidebarTriggerSaved"))
-          )
-        ),
+        // 向量搜索 — semantic recall over an embeddings API
         h("section", { className: "mneme-set-sec" },
           h("div", { className: "mneme-set-title" }, t("memory.settings.vectorTitle")),
           h("div", { className: "mneme-set-desc" }, t("memory.settings.vectorHint")),
@@ -1330,6 +1289,7 @@ window.__ModuleLoader__.load({
             reindexMsg && h("span", { style: { fontSize: 12, color: "var(--dsw-alias-label-secondary, #666)" } }, reindexMsg)
           )
         ),
+        // API Token — advanced, last
         h("section", { className: "mneme-set-sec" },
           h("div", { className: "mneme-set-title" }, t("memory.settings.apiTokenTitle")),
           h("div", { className: "mneme-set-desc" }, t("memory.settings.apiTokenHint")),
@@ -1377,9 +1337,6 @@ window.__ModuleLoader__.load({
       return matches;
     }
 
-    // Click the memory library tab and wait (bounded, rAF-polled) until the
-    // host actually marks it selected — a silent React re-render gap must not
-    // be mistaken for success, or the fallback would never kick in.
     // Click the memory library tab and wait (bounded, rAF-polled) until the
     // host marks it selected AND our explorer actually rendered (`.mneme-x`).
     // aria-selected alone cannot tell our tab from a same-labelled tab of
@@ -1454,314 +1411,179 @@ window.__ModuleLoader__.load({
       return tree;
     }
 
-    // --- directory sub-view (v0.6.3) ---
-    // A tag folder tree over the live memory set. One-level folders keyed by
-    // tag (handled on the server, getDirectory), each with a 二级 memory
-    // entry list (title + updated time); memories without a live tag land in
-    // the "untagged" folder. Collapse state lives in MemoryExplorer (lifted via
-    // `collapsed`), so switching tabs does not drop it. Clicking an entry jumps
-    // back into the browser with that memory selected (onJump = jumpToMemory).
-    function DirectoryPanel({ t, onJump, collapsed, setCollapsed }) {
-      const [dir, setDir] = useState(null); // { groups: [...], untagged: [...] }
-      const [status, setStatus] = useState("loading"); // loading | ready | error
-      const [editMode, setEditMode] = useState(false); // manual tag/delete UI gate
-      const [confirmingId, setConfirmingId] = useState(null); // row waiting for the 2nd confirm click
-      const [delErrorId, setDelErrorId] = useState(null); // row whose delete just failed
-      const confirmTimer = useRef(null);
+    const EXPLORER_TYPES = ["preference", "project", "decision", "summary", "history"];
+    const PAGE_SIZE = 100; // browse page size — the tree grows by 100-row pages
 
-      useEffect(() => {
-        let cancelled = false;
-        setStatus("loading");
-        apiFetch("/api/dsh-mneme/directory")
-          .then((res) => (res.ok ? res.json() : null))
-          .then((d) => {
-            if (cancelled) return;
-            if (!d) { setDir(null); setStatus("error"); return; }
-            setDir({ groups: Array.isArray(d.groups) ? d.groups : [], untagged: Array.isArray(d.untagged) ? d.untagged : [] });
-            setStatus("ready");
-          })
-          .catch(() => { if (!cancelled) { setDir(null); setStatus("error"); } });
-        apiFetch("/api/dsh-mneme/config")
-          .then((res) => (res.ok ? res.json() : null))
-          .then((d) => { if (!cancelled && d?.config && typeof d.config.manualTagEnabled === "boolean") setEditMode(d.config.manualTagEnabled); })
-          .catch(() => {});
-        return () => { cancelled = true; };
-      }, []);
-
-      const toggle = (key) => setCollapsed((c) => ({ ...c, [key]: !c[key] }));
-
-      const toggleEdit = () => {
-        const next = !editMode;
-        apiFetch("/api/dsh-mneme/config", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ manualTagEnabled: next })
-        }).then((res) => { if (res.ok) setEditMode(next); }).catch(() => {});
-      };
-
-      const resetConfirm = () => {
-        clearTimeout(confirmTimer.current);
-        setConfirmingId(null);
-      };
-
-      const handleDelete = (memId, e) => {
-        e?.stopPropagation?.();
-        // 第一击进入「确认？」态，第二击才真正发 DELETE；宿主 web 环境里
-        // window.confirm 不可靠（可能被拦截或直接返回 false），点击会无反应，
-        // 所以改为面板内联两步确认，不依赖任何原生对话框。
-        if (confirmingId !== memId) {
-          setConfirmingId(memId);
-          clearTimeout(confirmTimer.current);
-          confirmTimer.current = setTimeout(() => setConfirmingId((cur) => (cur === memId ? null : cur)), 3000);
-          return;
-        }
-        clearTimeout(confirmTimer.current);
-        setConfirmingId(null);
-        apiFetch("/api/dsh-mneme/memories", {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: memId })
-        })
-          .then((res) => (res.ok ? res.json() : null))
-          .then((d) => {
-            if (!d || d.deleted !== true) {
-              // 服务端未确认删除也给出可见提示，不静默吞掉
-              setDelErrorId(memId);
-              setTimeout(() => setDelErrorId((cur) => (cur === memId ? null : cur)), 3500);
-              return;
-            }
-            setDir((prev) => ({
-              groups: prev.groups.map((g) => ({ ...g, memories: g.memories.filter((m) => m.id !== memId) })),
-              untagged: prev.untagged.filter((m) => m.id !== memId)
-            }));
-          })
-          .catch(() => {
-            // 网络失败同样给出可见提示
-            setDelErrorId(memId);
-            setTimeout(() => setDelErrorId((cur) => (cur === memId ? null : cur)), 3500);
-          });
-      };
-
-      const renderFolder = (name, memories, extraKey, emptyLabel) => {
-        const folderKey = extraKey || name;
-        const open = !collapsed[folderKey];
-        const rows = memories.map((m) => {
-          const confirming = confirmingId === m.id;
-          const err = delErrorId === m.id;
-          return h("div", {
-            key: m.id,
-            className: err ? "mneme-dir-item mneme-dir-error" : "mneme-dir-item",
-            // 点击行内其它地方取消「确认？」态
-            onClick: resetConfirm
-          },
-            h("span", { className: "mneme-tree-line" }),
-            h("button", { type: "button", className: "mneme-dir-ititle", onClick: () => onJump(m) }, m.title || m.content?.slice(0, 40)),
-            h("span", { className: "mneme-dir-itime" }, formatDate(m.updated_at || m.created_at)),
-            editMode && h("button", {
-              type: "button",
-              className: confirming ? "mneme-dir-del mneme-dir-del-confirm" : "mneme-dir-del",
-              "aria-label": "delete",
-              onClick: (e) => handleDelete(m.id, e)
-            }, confirming ? t("directory.deleteConfirmShort") : "✕"),
-            err && h("span", { className: "mneme-dir-del-err" }, t("directory.deleteError"))
-          );
-        });
-        return h("div", {
-          key: folderKey,
-          className: "mneme-dir-folder",
-          "data-expanded": String(open)
-        },
-          h("button", {
-            type: "button",
-            className: "mneme-dir-folderhead",
-            "aria-expanded": String(open),
-            onClick: () => toggle(folderKey)
-          },
-            h("span", { className: "mneme-dir-caret" }, open ? "▾" : "▸"),
-            h("span", { className: "mneme-dir-fname" }, `📁 ${name}`),
-            h("span", { className: "mneme-dir-fcount" }, String(memories.length))
-          ),
-          open && h("div", { className: "mneme-dir-fbody" },
-            rows.length > 0 ? rows : h("div", { className: "mneme-dir-empty" }, emptyLabel || t("memory.directory.empty"))
-          )
-        );
-      };
-
-      if (status === "loading") {
-        return h("div", { className: "mneme-directory" }, h("div", { className: "mneme-dir-empty" }, t("memory.directory.loading")));
-      }
-      const hasAny = dir && (dir.groups.length > 0 || dir.untagged.length > 0);
-      if (status === "error" || !hasAny) {
-        return h("div", { className: "mneme-directory" }, h("div", { className: "mneme-dir-empty" }, t("memory.directory.empty")));
-      }
-      return h("div", { className: editMode ? "mneme-directory mneme-edit-on" : "mneme-directory" },
-        h("label", { className: "mneme-edit-toggle" },
-          h("input", { type: "checkbox", checked: editMode, onChange: toggleEdit }),
-          t("directory.editToggle")
-        ),
-        dir.groups.map((g) => renderFolder(g.tag, g.memories)),
-        dir.untagged.length > 0 && renderFolder(t("memory.directory.untagged"), dir.untagged, "mneme-untagged")
+    // --- Status sub-view: a responsive grid of stat cards. Every card owns
+    // its fetch, loading ("…") and error state, so one failing endpoint
+    // never blanks or blocks the others. ---
+    function StatusCard({ t, title, loading, error, num, cap }) {
+      return h("div", { className: "mneme-statuscard" },
+        h("div", { className: "mneme-xcolhead" }, title),
+        loading
+          ? h("div", { className: "mneme-statusnum" }, "…")
+          : error
+            ? h("div", { className: "mneme-statuscap", style: { color: "var(--dsw-alias-state-error,#c33)" } }, t("memory.status.error"))
+            : h(react.Fragment, null,
+                h("div", { className: "mneme-statusnum" }, num),
+                cap ? h("div", { className: "mneme-statuscap" }, cap) : null
+              )
       );
     }
 
-    // --- Overview sub-view (layered stats dashboard) ---
-    // Card grid of every memory type (fixed display order, strays appended
-    // alphabetically), plus a user-profile card, a CSS-only type distribution
-    // bar chart and a 7-day creation trend. Data comes from /stats; each tile
-    // probes /list?type=X&limit=1 for a representative latest title (the list
-    // API sorts importance-first, so limit=1 is the type's most prominent row).
-    const OVERVIEW_TYPE_ORDER = ["preference", "project", "decision", "history", "user", "fact", "summary", "pattern"];
-    // Injection-priority tiers from service.js (summary > preference/user >
-    // importance): these layers ride into nearly every prompt.
-    const OVERVIEW_INJECT_TYPES = ["summary", "user", "preference"];
-
-    function OverviewPanel({ t, onPickType }) {
-      const [stats, setStats] = useState(null); // null = loading
-      const [profile, setProfile] = useState(null); // user-type memories (list card)
-      const [latest, setLatest] = useState({}); // type -> representative memory | null
-
+    // 记忆总数 — list total plus per-type subtotals; each subtotal request
+    // may fail independently (rendered as "—") without sinking the card.
+    function MemoriesStatusCard({ t }) {
+      const [state, setState] = useState({ loading: true, error: false, total: 0, byType: [] });
       useEffect(() => {
         let cancelled = false;
-        apiFetch("/api/dsh-mneme/stats?days=7")
-          .then((r) => (r.ok ? r.json() : null))
-          .then((d) => { if (!cancelled) setStats(d && d.byType ? d : { byType: {}, total: 0, recent: [] }); })
-          .catch(() => { if (!cancelled) setStats({ byType: {}, total: 0, recent: [] }); });
-        apiFetch("/api/dsh-mneme/list?type=user&limit=20")
-          .then((r) => (r.ok ? r.json() : { items: [] }))
-          .then((d) => { if (!cancelled) setProfile(Array.isArray(d.items) ? d.items : []); })
-          .catch(() => { if (!cancelled) setProfile([]); });
+        const one = (ty) =>
+          apiFetch(`/api/dsh-mneme/list?limit=1&order=chrono${ty ? `&type=${encodeURIComponent(ty)}` : ""}`)
+            .then((res) => { if (!res.ok) throw new Error("http"); return res.json(); });
+        one()
+          .then((all) => {
+            if (cancelled) return null;
+            const total = all.total || 0;
+            return Promise.all(EXPLORER_TYPES.map((ty) =>
+              one(ty).then((j) => [ty, j.total || 0]).catch(() => [ty, null])
+            )).then((byType) => {
+              if (!cancelled) setState({ loading: false, error: false, total, byType });
+            });
+          })
+          .catch(() => { if (!cancelled) setState({ loading: false, error: true, total: 0, byType: [] }); });
         return () => { cancelled = true; };
       }, []);
+      const cap = state.byType
+        .map(([ty, n]) => `${typeLabel(t, ty)} ${n === null ? "—" : n}`)
+        .join(" · ");
+      return h(StatusCard, {
+        t,
+        title: t("memory.status.memories"),
+        loading: state.loading,
+        error: state.error,
+        num: state.total.toLocaleString(),
+        cap
+      });
+    }
 
-      const byType = stats ? stats.byType : {};
-      const gridTypes = stats
-        ? OVERVIEW_TYPE_ORDER.filter((k) => byType[k]).concat(
-            Object.keys(byType).filter((k) => !OVERVIEW_TYPE_ORDER.includes(k)).sort())
-        : [];
-
-      // Representative-latest probe, one small request per visible layer.
-      // Derived purely from stats, so [stats] is the full dependency set.
+    // 实体 — directory snapshot grouped by entity type.
+    function EntitiesStatusCard({ t }) {
+      const [state, setState] = useState({ loading: true, error: false, total: 0, byType: [] });
       useEffect(() => {
-        if (!stats || gridTypes.length === 0) return;
         let cancelled = false;
-        Promise.all(gridTypes.map((k) =>
-          apiFetch(`/api/dsh-mneme/list?type=${encodeURIComponent(k)}&limit=1`)
-            .then((r) => (r.ok ? r.json() : { items: [] }))
-            .then((d) => [k, (Array.isArray(d.items) && d.items[0]) || null])
-            .catch(() => [k, null])
-        )).then((pairs) => { if (!cancelled) setLatest(Object.fromEntries(pairs)); });
+        const order = ["organization", "person", "project", "technology", "concept"];
+        apiFetch("/api/dsh-mneme/entities?limit=500")
+          .then((res) => { if (!res.ok) throw new Error("http"); return res.json(); })
+          .then((j) => {
+            if (cancelled) return;
+            const list = Array.isArray(j.entities) ? j.entities : [];
+            const counts = new Map();
+            for (const e of list) {
+              const key = order.includes(e.type) ? e.type : "other";
+              counts.set(key, (counts.get(key) || 0) + 1);
+            }
+            const byType = order.concat("other")
+              .filter((k) => counts.has(k))
+              .map((k) => [k, counts.get(k)]);
+            setState({ loading: false, error: false, total: list.length, byType });
+          })
+          .catch(() => { if (!cancelled) setState({ loading: false, error: true, total: 0, byType: [] }); });
         return () => { cancelled = true; };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-      }, [stats]);
+      }, []);
+      const cap = state.byType.map(([ty, n]) => `${entityTypeLabel(t, ty)} ${n}`).join(" · ");
+      return h(StatusCard, {
+        t,
+        title: t("memory.status.entities"),
+        loading: state.loading,
+        error: state.error,
+        num: state.total.toLocaleString(),
+        cap
+      });
+    }
 
-      if (!stats) return h("div", { className: "mneme-ov-wrap" }, h("div", { className: "mneme-hint" }, t("memory.directory.loading")));
-      if (stats.total === 0) return h("div", { className: "mneme-ov-wrap" }, h("div", { className: "mneme-hint" }, t("memory.overview.empty")));
+    // 向量索引 — whether semantic recall is switched on.
+    function VectorStatusCard({ t }) {
+      const [state, setState] = useState({ loading: true, error: false, enabled: false });
+      useEffect(() => {
+        let cancelled = false;
+        apiFetch("/api/dsh-mneme/vector-config")
+          .then((res) => { if (!res.ok) throw new Error("http"); return res.json(); })
+          .then((j) => { if (!cancelled) setState({ loading: false, error: false, enabled: !!j.config?.enabled }); })
+          .catch(() => { if (!cancelled) setState({ loading: false, error: true, enabled: false }); });
+        return () => { cancelled = true; };
+      }, []);
+      return h(StatusCard, {
+        t,
+        title: t("memory.status.vector"),
+        loading: state.loading,
+        error: state.error,
+        num: state.enabled ? t("memory.status.vectorOn") : t("memory.status.vectorOff"),
+        cap: ""
+      });
+    }
 
-      const distRow = (key) => {
-        const count = byType[key] || 0;
-        const pct = stats.total > 0 ? Math.round((count / stats.total) * 100) : 0;
-        return h("div", { key, className: "mneme-ov-distrow" },
-          h("span", { className: "mneme-ov-distlabel" }, typeLabel(t, key)),
-          h("span", { className: "mneme-ov-distcount" }, String(count)),
-          h("div", { className: "mneme-ov-disttrack" },
-            h("div", { className: "mneme-ov-distbar", style: { width: `${pct}%` } }))
-        );
-      };
+    // LLM 消耗 — calls + tokens over the trailing 7 days.
+    function LlmStatusCard({ t }) {
+      const [state, setState] = useState({ loading: true, error: false, calls: 0, tokens: 0 });
+      useEffect(() => {
+        let cancelled = false;
+        apiFetch("/api/dsh-mneme/semantic/llm-audit/stats?days=7")
+          .then((res) => { if (!res.ok) throw new Error("http"); return res.json(); })
+          .then((j) => {
+            if (cancelled) return;
+            const s = j && typeof j === "object" ? (j.stats || j) : {};
+            setState({ loading: false, error: false, calls: Number(s.total_calls ?? 0), tokens: Number(s.total_tokens ?? 0) });
+          })
+          .catch(() => { if (!cancelled) setState({ loading: false, error: true, calls: 0, tokens: 0 }); });
+        return () => { cancelled = true; };
+      }, []);
+      return h(StatusCard, {
+        t,
+        title: t("memory.status.llm"),
+        loading: state.loading,
+        error: state.error,
+        num: state.tokens.toLocaleString(),
+        cap: t("memory.status.llmCalls").replace("{n}", state.calls.toLocaleString())
+      });
+    }
 
-      const tile = (key) => {
-        const inject = OVERVIEW_INJECT_TYPES.includes(key);
-        const last = latest[key];
-        return h("button", {
-          key,
-          type: "button",
-          className: "mneme-card mneme-ov-tile",
-          title: t("memory.card.open"),
-          onClick: () => onPickType && onPickType(key)
-        },
-          h("div", { className: "mneme-ov-tilehead" },
-            h("span", { className: "mneme-ov-tiletitle" }, typeLabel(t, key)),
-            h("span", { className: inject ? "mneme-ov-badge" : "mneme-ov-badge mneme-ov-badge--dim" },
-              inject ? t("memory.overview.badgeInject") : t("memory.overview.badgeImportance")),
-            h("span", { className: "mneme-ov-tilecount" }, String(byType[key] || 0))
-          ),
-          h("div", { className: "mneme-ov-tilelatest" },
-            (last && (last.title || (last.content || "").slice(0, 40))) || t("memory.overview.none"))
-        );
-      };
-
-      // Trend bars scale to the busiest day; heights are fixed px so they do
-      // not depend on percentage resolution inside the flex columns.
-      const recent = Array.isArray(stats.recent) ? stats.recent : [];
-      const maxTrend = Math.max(1, ...recent.map((d) => d.count || 0));
-      const trendCol = (d) => {
-        const count = d.count || 0;
-        const px = count > 0 ? 6 + Math.round((count / maxTrend) * 90) : 0;
-        return h("div", {
-          key: d.date,
-          className: "mneme-ov-trendcol",
-          title: `${d.date} · ${t("memory.explorer.count").replace("{n}", String(count))}`
-        },
-          h("div", { className: "mneme-ov-trendbar", style: { height: `${px}px` } }),
-          h("div", { className: "mneme-ov-trenddate" }, (d.date || "").slice(5)) // MM-DD
-        );
-      };
-
-      return h("div", { className: "mneme-ov-wrap" },
-        h("div", { className: "mneme-card mneme-ov-profile", role: "region", "aria-label": t("memory.settings.profile") },
-          h("div", { className: "mneme-xcolhead" }, t("memory.settings.profile")),
-          profile === null
-            ? h("div", { className: "mneme-ov-ppreview" }, t("memory.directory.loading"))
-            : profile.length === 0
-              ? h("div", { className: "mneme-ov-ppreview" }, t("memory.overview.profileEmpty"))
-              : profile.map((m) => h("div", { key: m.id, className: "mneme-ov-prow" },
-                  h("span", { className: "mneme-ov-ptitle" }, m.title || "—"),
-                  h("span", { className: "mneme-ov-ppreview" }, (m.content_preview || m.content || "").slice(0, 100))
-                ))
-        ),
-        h("div", { className: "mneme-card", role: "region", "aria-label": t("memory.overview.distribution") },
-          h("div", { className: "mneme-xcolhead" }, t("memory.overview.distribution")),
-          h("div", { className: "mneme-ov-dist" }, gridTypes.map(distRow))
-        ),
-        h("div", { className: "mneme-xcolhead" }, t("memory.overview.layers")),
-        h("div", { className: "mneme-ov-grid" }, gridTypes.map(tile)),
-        h("div", { className: "mneme-card", role: "region", "aria-label": t("memory.overview.trend") },
-          h("div", { className: "mneme-xcolhead" }, t("memory.overview.trend")),
-          recent.length === 0
-            ? h("div", { className: "mneme-ov-tilelatest" }, t("memory.overview.none"))
-            : h("div", { className: "mneme-ov-trend" }, recent.map(trendCol))
+    function StatusPanel({ t }) {
+      return h("div", { className: "mneme-status" },
+        h("div", { className: "mneme-statusgrid" },
+          h(MemoriesStatusCard, { t }),
+          h(EntitiesStatusCard, { t }),
+          h(VectorStatusCard, { t }),
+          h(LlmStatusCard, { t })
         )
       );
     }
 
-    const EXPLORER_TYPES = ["preference", "project", "decision", "summary", "history", "user", "fact"];
 
     function MemoryExplorer({ t }) {
-      const [view, setView] = useState("memory"); // memory | overview | directory | graph | settings
-      const [items, setItems] = useState([]);
+      const [view, setView] = useState("memory"); // memory | entity | status | settings
+      const [items, setItems] = useState([]); // loaded browse pages, chrono desc
+      const [total, setTotal] = useState(0); // server count for the current type filter
       const [loading, setLoading] = useState(true);
+      const [loadingMore, setLoadingMore] = useState(false);
       const [type, setType] = useState("all");
+      const [minImp, setMinImp] = useState(0); // importance floor: 0 = all, else 3/4/5
       const [query, setQuery] = useState("");
       const [semantic, setSemantic] = useState(false);
       const [vecEnabled, setVecEnabled] = useState(false);
       const [searchTopK, setSearchTopK] = useState(20);
       const [remoteItems, setRemoteItems] = useState(null);
       const [selectedId, setSelectedId] = useState(null);
+      const [expandedMonths, setExpandedMonths] = useState(null); // null = 仅最新一个月展开
       const [collapsed, setCollapsed] = useState({});
-      // v0.6.3 directory sub-view: its own folder-collapse state, kept in
-      // MemoryExplorer so switching tabs does not lose it and jumpToMemory's
-      // time-tree reset (setCollapsed({})) cannot clobber it.
-      const [dirCollapsed, setDirCollapsed] = useState({});
       const [copied, setCopied] = useState(false);
       const [reloadKey, setReloadKey] = useState(0);
+      const [confirmDelete, setConfirmDelete] = useState(false); // two-step delete armed
+      const [deleting, setDeleting] = useState(false);
+      const [deleteError, setDeleteError] = useState(false);
+      const [deleteMsg, setDeleteMsg] = useState(false); // transient "deleted" notice
       const [graphFocus, setGraphFocus] = useState("");
-      // v0.6.2 tag editing state for the detail pane. The authoritative tag set
-      // lives server-side (entity_attrs), so it is fetched per selected memory
-      // and refreshed after every write instead of trusting the list snapshot.
-      const [tagTags, setTagTags] = useState([]);
-      const [tagManual, setTagManual] = useState(true);
-      const [tagInput, setTagInput] = useState("");
-      const [tagAdding, setTagAdding] = useState(false);
       const itemRefs = useRef(new Map());
+      const moreRef = useRef(null);
 
       useEffect(() => {
         apiFetch("/api/dsh-mneme/vector-config")
@@ -1770,60 +1592,112 @@ window.__ModuleLoader__.load({
           .catch(() => {});
       }, []);
 
+      // One query string behind every browse-list fetch (initial page,
+      // loadMore, auto-refresh): the type filter and the importance floor
+      // always travel together, so counts and pagination stay consistent.
+      const filterQS = (type === "all" ? "" : `&type=${encodeURIComponent(type)}`)
+        + (minImp ? `&minImportance=${minImp}` : "");
+      const listUrl = (offset) => `/api/dsh-mneme/list?limit=${PAGE_SIZE}&offset=${offset}${filterQS}&order=chrono`;
+
+      // Browse = paged, pure-chronological pages (order=chrono). The default
+      // importance ordering would interleave months across pages and break
+      // the month tree; type filters server-side so pages stay consistent
+      // however large the store grows.
       useEffect(() => {
         let cancelled = false;
         setLoading(true);
-        apiFetch("/api/dsh-mneme/list?limit=500")
-          .then((res) => (res.ok ? res.json() : { items: [] }))
-          .then((d) => { if (!cancelled) { setItems(d.items || []); setLoading(false); } })
-          .catch(() => { if (!cancelled) { setItems([]); setLoading(false); } });
+        apiFetch(listUrl(0))
+          .then((res) => (res.ok ? res.json() : { items: [], total: 0 }))
+          .then((d) => {
+            if (cancelled) return;
+            setItems(d.items || []);
+            setTotal(d.total || 0);
+            setExpandedMonths(null); // 新数据回到「仅最新月展开」
+            setLoading(false);
+          })
+          .catch(() => { if (!cancelled) { setItems([]); setTotal(0); setLoading(false); } });
         return () => { cancelled = true; };
-      }, [reloadKey]);
+      }, [reloadKey, filterQS]);
 
-      // Semantic search: server-side ranking replaces the client filter
-      // while enabled and a query is present (debounced). tag: queries always
-      // go server-side (searchMemories resolves them without vector support),
-      // so they bypass the semantic toggle and use the same search endpoint.
+      const canLoadMore = !query.trim() && !remoteItems && items.length < total;
+      const loadMore = useCallback(() => {
+        if (loadingMore || query.trim() || remoteItems) return;
+        if (items.length >= total) return;
+        setLoadingMore(true);
+        apiFetch(listUrl(items.length))
+          .then((res) => (res.ok ? res.json() : { items: [] }))
+          .then((d) => setItems((cur) => cur.concat(d.items || [])))
+          .catch(() => {})
+          .finally(() => setLoadingMore(false));
+      }, [items.length, total, loadingMore, query, remoteItems, filterQS]);
+
+      // Infinite scroll: a sentinel just past the loaded rows pulls the next
+      // page while browsing (search results arrive complete already).
       useEffect(() => {
-        const q = query.trim();
-        if ((!semantic && !q.startsWith("tag:")) || !q || q.startsWith("entity:")) { setRemoteItems(null); return; }
+        const el = moreRef.current;
+        if (!el || !canLoadMore) return undefined;
+        const io = new IntersectionObserver((entries) => {
+          if (entries.some((e) => e.isIntersecting)) loadMore();
+        }, { root: el.closest(".mneme-xtree"), rootMargin: "240px" });
+        io.observe(el);
+        return () => io.disconnect();
+      }, [canLoadMore, loadMore]);
+
+      // Search hits the server so matches are global — not limited to the
+      // loaded pages: keyword = literal text; vector = semantic ranking
+      // (the pipeline falls back to keyword when no embedder is available).
+      useEffect(() => {
+        const query0 = query.trim();
+        if (!query0 || query0.startsWith("entity:")) { setRemoteItems(null); return; }
         let cancelled = false;
         const timer = setTimeout(() => {
-          apiFetch(`/api/dsh-mneme/search?q=${encodeURIComponent(q)}&mode=vector&topK=${searchTopK}`)
+          const mode = semantic ? "vector" : "keyword";
+          apiFetch(`/api/dsh-mneme/search?q=${encodeURIComponent(query0)}&mode=${mode}&topK=${searchTopK}`)
             .then((res) => (res.ok ? res.json() : { items: [] }))
             .then((d) => { if (!cancelled) setRemoteItems(d.items || []); })
             .catch(() => { if (!cancelled) setRemoteItems([]); });
         }, 250);
         return () => { cancelled = true; clearTimeout(timer); };
-      }, [semantic, query, searchTopK]);
+      }, [query, semantic, searchTopK]);
+
+      // Live view: while the memory tab is open, quietly re-fetch page 1
+      // every 30s (and on every activation) so fresh memories surface
+      // without a manual refresh. Later pages stay as loaded.
+      const refreshFirstPage = useCallback(() => {
+        if (query.trim() || remoteItems) return;
+        apiFetch(listUrl(0))
+          .then((res) => (res.ok ? res.json() : null))
+          .then((d) => {
+            if (!d) return;
+            setTotal(d.total || 0);
+            setItems((cur) => {
+              const fresh = d.items || [];
+              const seen = new Set(fresh.map((m) => m.id));
+              return fresh.concat(cur.filter((m) => !seen.has(m.id)));
+            });
+          })
+          .catch(() => {});
+      }, [query, remoteItems, filterQS]);
+
+      useEffect(() => {
+        if (view !== "memory") return undefined;
+        refreshFirstPage();
+        const iv = setInterval(() => {
+          if (document.visibilityState === "visible") refreshFirstPage();
+        }, 30000);
+        return () => clearInterval(iv);
+      }, [view, refreshFirstPage]);
 
       useEffect(() => {
         if (!selectedId) return;
         itemRefs.current.get(selectedId)?.scrollIntoView({ block: "nearest" });
       }, [selectedId]);
 
-      // Load the authoritative tag set for the selected memory (entity_attrs-
-      // backed) plus the manualTagEnabled gate that hides editing when off.
-      const loadTags = (id) => {
-        if (!id) { setTagTags([]); setTagManual(true); setTagInput(""); return; }
-        apiFetch(`/api/dsh-mneme/memory/tags?id=${encodeURIComponent(id)}`)
-          .then((res) => (res.ok ? res.json() : null))
-          .then((j) => { if (j) { setTagTags(Array.isArray(j.tags) ? j.tags : []); setTagManual(j.manualTagEnabled !== false); } })
-          .catch(() => {});
-      };
+      // The two-step delete arms per selection: switching or clearing the
+      // target disarms it, so a stale confirm can never delete a new pick.
       useEffect(() => {
-        let cancelled = false;
-        if (selectedId) {
-          apiFetch(`/api/dsh-mneme/memory/tags?id=${encodeURIComponent(selectedId)}`)
-            .then((res) => (res.ok ? res.json() : null))
-            .then((j) => { if (!cancelled && j) { setTagTags(Array.isArray(j.tags) ? j.tags : []); setTagManual(j.manualTagEnabled !== false); } })
-            .catch(() => {});
-        } else {
-          setTagTags([]);
-          setTagManual(true);
-        }
-        setTagAdding(false);
-        return () => { cancelled = true; };
+        setConfirmDelete(false);
+        setDeleteError(false);
       }, [selectedId]);
 
       const q = query.trim().toLowerCase();
@@ -1833,13 +1707,12 @@ window.__ModuleLoader__.load({
       const entityQuery = query.trim().startsWith("entity:")
         ? query.trim().slice(7).trim()
         : "";
+      // Search results were filtered server-side (global); the type rail
+      // still narrows them. Browse mode serves the loaded pages as-is —
+      // type filtering happened in the query.
       const visible = remoteItems
-        ? remoteItems
-        : items.filter((m) => {
-            if (type !== "all" && m.type !== type) return false;
-            if (!q) return true;
-            return (m.title || "").toLowerCase().includes(q) || (m.content || "").toLowerCase().includes(q);
-          });
+        ? remoteItems.filter((m) => type === "all" || m.type === type)
+        : items;
 
       const counts = {};
       for (const m of items) counts[m.type] = (counts[m.type] || 0) + 1;
@@ -1874,8 +1747,9 @@ window.__ModuleLoader__.load({
         }
         curDay.items.push(m);
       }
+      for (const mo of months) mo.count = mo.days.reduce((s, d) => s + d.items.length, 0);
 
-      const selected = items.find((m) => m.id === selectedId) || null;
+      const selected = visible.find((m) => m.id === selectedId) || null;
 
       const copyContent = () => {
         if (!selected) return;
@@ -1885,80 +1759,61 @@ window.__ModuleLoader__.load({
         );
       };
 
-      // v0.6.2 tag editing: a chip click jumps to a tag:xxx search (reusing
-      // the query-driven search flow), the + entry and per-chip × post the new
-      // tag set through the tags endpoint then re-fetch. A 409 from the server
-      // means manualTagEnabled turned off — flip the gate so editing hides.
-      const submitTag = () => {
-        const tag = tagInput.trim();
-        if (!tag || !selectedId) return;
-        apiFetch("/api/dsh-mneme/memory/tags", {
+      // Two-step delete (no window.confirm): the red button arms, a second
+      // click commits POST /api/dsh-mneme/delete. On success the row leaves
+      // every local view (browse pages + search results), the selection
+      // clears and the total shrinks; failures — 404 included — surface as
+      // a transient red note next to the actions.
+      const deleteSelected = () => {
+        if (!selected || deleting) return;
+        const id = selected.id;
+        setDeleting(true);
+        setDeleteError(false);
+        apiFetch("/api/dsh-mneme/delete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: selectedId, tags: [...tagTags, tag] })
-        }).then((res) => {
-          if (res.status === 409) { setTagManual(false); setTagAdding(false); setTagInput(""); return; }
-          return res.json();
-        }).then((j) => {
-          if (j?.ok) { setTagAdding(false); setTagInput(""); loadTags(selectedId); }
-        }).catch(() => {});
-      };
-      const removeTag = (tag) => {
-        if (!selectedId) return;
-        apiFetch("/api/dsh-mneme/memory/tags", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: selectedId, tags: tagTags.filter((x) => x !== tag) })
-        }).then((res) => {
-          if (res.status === 409) { setTagManual(false); return; }
-          return res.json();
-        }).then((j) => {
-          if (j?.ok) loadTags(selectedId);
-        }).catch(() => {});
-      };
-      const onTagClick = (tag) => {
-        setType("all");
-        setQuery(`tag:${tag}`);
+          body: JSON.stringify({ id })
+        })
+          .then((res) => { if (!res.ok) throw new Error("http"); })
+          .then(() => {
+            setItems((cur) => cur.filter((m) => m.id !== id));
+            setRemoteItems((cur) => (cur ? cur.filter((m) => m.id !== id) : cur));
+            setTotal((n) => Math.max(0, n - 1));
+            setSelectedId(null);
+            setConfirmDelete(false);
+            setDeleteMsg(true);
+            setTimeout(() => setDeleteMsg(false), 2500);
+          })
+          .catch(() => {
+            setDeleteError(true);
+            setTimeout(() => setDeleteError(false), 4000);
+          })
+          .finally(() => setDeleting(false));
       };
 
       // Graph → memory jump: land on the browser tab with filters reset so
-      // the target row is visible, selected and scrolled into view.
+      // the target row is visible, selected and scrolled into view. A target
+      // beyond the loaded pages renders as a single-row result set instead
+      // of pulling page after page to find it.
       const jumpToMemory = (target) => {
         if (!target?.id) return;
         setView("memory");
         setType("all");
         setQuery("");
-        setCollapsed({});
+        setRemoteItems(items.some((m) => m.id === target.id) ? null : [target]);
+        setExpandedMonths(null);
         setSelectedId(target.id);
-      };
-
-      // [[wiki-link]] click in the detail content: resolve the title to a
-      // memory (case-insensitive exact match) then jump to it. Unresolvable
-      // titles silently no-op — the link stays as display text.
-      const onWikilinkClick = (target) => {
-        if (!target) return;
-        apiFetch(`/api/dsh-mneme/wikilinks/resolve?title=${encodeURIComponent(target)}`)
-          .then((r) => (r.ok ? r.json() : null))
-          .then((j) => { if (j?.memory?.id) jumpToMemory(j.memory); })
-          .catch(() => {});
       };
 
       const openGraphFor = (name) => {
         setGraphFocus(name || "");
-        setView("graph");
-      };
-
-      // Overview tile click: dive into the memory view filtered to that layer.
-      const pickLayerType = (key) => {
-        setType(key);
-        setView("memory");
+        setView("entity");
       };
 
       const subviews = [
         { key: "memory", label: t("memory.explorer.tabMemory") },
-        { key: "overview", label: t("memory.explorer.tabOverview") },
-        { key: "directory", label: t("memory.explorer.tabDirectory") },
-        { key: "graph", label: t("memory.explorer.tabGraph") },
+        { key: "entity", label: t("memory.explorer.tabEntities") },
+        { key: "status", label: t("memory.explorer.tabStatus") },
         { key: "settings", label: t("memory.explorer.tabSettings") }
       ];
 
@@ -1973,26 +1828,66 @@ window.__ModuleLoader__.load({
                 "aria-pressed": String(view === s.key),
                 onClick: () => setView(s.key)
               },
-                s.key === "graph"
-                  ? h(react.Fragment, null, h(GraphNodesIcon, { size: 16 }), s.label)
-                  : s.label
+                h(Icon, { name: s.key === "memory" ? "database" : s.key === "entity" ? "waypoints" : s.key === "status" ? "activity" : "settings", size: 14, className: "mneme-vtabico" }),
+                s.label
               ))
           ),
           ),
         view === "memory" && h("div", { className: "mneme-xmain" },
-          // 1. 中间分类栏
-          h("div", { className: "mneme-xfilter-bar" },
+          h("div", { className: "mneme-xside" },
+            h("div", { className: "mneme-xcolhead" }, t("memory.explorer.searchTitle")),
+            h("div", { className: "mneme-xsearchwrap" },
+              h(Icon, { name: "search", size: 14, className: "mneme-xsearchico" }),
+              h("input", {
+                className: "mneme-search mneme-xsearch",
+                placeholder: t("memory.explorer.search"),
+                value: query,
+                onChange: (e) => setQuery(e.target.value)
+              })
+            ),
+            entityQuery && h("button", {
+              className: "mneme-entitychip",
+              style: { textAlign: "left", justifyContent: "flex-start" },
+              onClick: () => openGraphFor(entityQuery)
+            }, `${t("memory.graph.viewInGraph")} “${entityQuery}”`),
+            h("div", { className: "mneme-xrow" },
+              vecEnabled && h("button", {
+                className: semantic ? "mneme-chip mneme-active" : "mneme-chip",
+                title: t("memory.settings.vectorTitle"),
+                onClick: () => setSemantic(!semantic)
+              }, t("memory.panel.semantic")),
+              h("select", {
+                className: "mneme-select mneme-xselect",
+                value: searchTopK,
+                onChange: (e) => setSearchTopK(Number(e.target.value)),
+                title: t("memory.explorer.topK")
+              }, [5, 10, 20, 50].map((n) => h("option", { key: n, value: n }, t("memory.explorer.topKOption").replace("{n}", String(n)))))
+            ),
+            h("div", { className: "mneme-xrow" },
+              h("span", { className: "mneme-xcount" }, t("memory.explorer.count").replace("{n}", String(visible.length))),
+              h("button", { className: "mneme-footbtn", onClick: () => setReloadKey((k) => k + 1) },
+                h(Icon, { name: "refresh", size: 12 }), t("memory.explorer.refresh"))
+            )
+          ),
+          h("div", { className: "mneme-xside mneme-xside--filter" },
+            h("div", { className: "mneme-xcolhead" }, t("memory.explorer.importance")),
+            h("div", { className: "mneme-xrow" },
+              [0, 3, 4, 5].map((v) =>
+                h("button", {
+                  key: v,
+                  className: minImp === v ? "mneme-chip mneme-active" : "mneme-chip",
+                  onClick: () => setMinImp(v)
+                }, v === 0 ? t("memory.tab.all") : `★${v}+`))
+            ),
             h("div", { className: "mneme-xcolhead" }, t("memory.explorer.types")),
             h("button", {
               className: type === "all" ? "mneme-xtype mneme-active" : "mneme-xtype",
-              "aria-pressed": type === "all",
               onClick: () => setType("all")
             }, h("span", { className: "mneme-xdot mneme-xdot--all", "aria-hidden": "true" }), h("span", null, t("memory.tab.all")), h("span", { className: "mneme-xcount2" }, String(items.length))),
             knownTypes.concat(extraTypes).map((key) =>
               h("button", {
                 key,
                 className: type === key ? "mneme-xtype mneme-active" : "mneme-xtype",
-                "aria-pressed": type === key,
                 onClick: () => setType(key)
               },
                 h("span", { className: "mneme-xdot", style: { color: memoryTypeColor(key) }, title: typeLabel(t, key), "aria-hidden": "true" }),
@@ -2000,66 +1895,41 @@ window.__ModuleLoader__.load({
                 h("span", { className: "mneme-xcount2" }, String(counts[key]))
               ))
           ),
-          // 2. 底部三卡片
-          h("div", { className: "mneme-xcards" },
-            // 左卡：搜索
-            h("div", { className: "mneme-card mneme-card--search", role: "region", "aria-label": t("memory.explorer.searchTitle") },
-              h("div", { className: "mneme-xcolhead" }, t("memory.explorer.searchTitle")),
-              h("input", {
-                className: "mneme-search mneme-xsearch",
-                "aria-label": t("memory.explorer.search"),
-                placeholder: t("memory.explorer.search"),
-                value: query,
-                onChange: (e) => setQuery(e.target.value)
-              }),
-              entityQuery && h("button", {
-                className: "mneme-entitychip",
-                style: { textAlign: "left", justifyContent: "flex-start" },
-                onClick: () => openGraphFor(entityQuery)
-              }, `${t("memory.graph.viewInGraph")} “${entityQuery}”`),
-              h("div", { className: "mneme-xrow" },
-                vecEnabled && h("button", {
-                  className: semantic ? "mneme-chip mneme-active" : "mneme-chip",
-                  title: t("memory.settings.vectorTitle"),
-                  onClick: () => setSemantic(!semantic)
-                }, t("memory.panel.semantic")),
-                h("select", {
-                  className: "mneme-select mneme-xselect",
-                  value: searchTopK,
-                  onChange: (e) => setSearchTopK(Number(e.target.value)),
-                  title: t("memory.explorer.topK")
-                }, [5, 10, 20, 50].map((n) => h("option", { key: n, value: n }, t("memory.explorer.topKOption").replace("{n}", String(n)))))
-              ),
-              h("div", { className: "mneme-xrow" },
-                h("span", { className: "mneme-xcount" }, t("memory.explorer.count").replace("{n}", String(visible.length))),
-                h("button", { className: "mneme-footbtn", onClick: () => setReloadKey((k) => k + 1) }, t("memory.explorer.refresh"))
-              )
-            ),
-            // 中卡：时间树
-            h("div", { className: "mneme-card mneme-card--tree", role: "region", "aria-label": t("memory.explorer.timeline") },
+          h("div", { className: "mneme-xbrowse" },
+            h("div", { className: "mneme-xtree" },
               h("div", { className: "mneme-xcolhead" }, t("memory.explorer.timeline")),
               loading
                 ? h("div", { className: "mneme-xempty" }, "…")
-                : months.length === 0
-                  ? h("div", { className: "mneme-xempty" }, t("memory.explorer.empty"))
-                  : months.map((month) =>
-                      h("div", { key: month.key },
+                : visible.length === 0
+                  ? h("div", { className: "mneme-xempty" },
+                      h(Icon, { name: "inbox", size: 20, className: "mneme-xemptyico" }),
+                      t("memory.explorer.empty"))
+                  : months.map((month, mi) => {
+                      // Only the newest month starts expanded; older months
+                      // stay a one-line header until clicked — a several-
+                      // thousand-row store renders a handful of DOM nodes.
+                      const open = expandedMonths ? !!expandedMonths[month.key] : mi === 0;
+                      return h("div", { key: month.key },
                         h("button", {
                           className: "mneme-xmonth",
-                          "aria-expanded": String(!collapsed[month.key]),
-                          onClick: () => setCollapsed((c) => ({ ...c, [month.key]: !c[month.key] }))
+                          "aria-expanded": String(open),
+                          onClick: () => setExpandedMonths((c) => {
+                            const base = c || (months.length ? { [months[0].key]: true } : {});
+                            return { ...base, [month.key]: !open };
+                          })
                         },
-                          h("span", { className: "mneme-xcaret" }, collapsed[month.key] ? "▸" : "▾"),
-                          month.label
+                          h("span", { className: "mneme-xcaret" }, h(Icon, { name: open ? "chevronDown" : "chevronRight", size: 12 })),
+                          h("span", null, month.label),
+                          h("span", { className: "mneme-xmonthcount" }, String(month.count))
                         ),
-                        !collapsed[month.key] && month.days.map((day) =>
+                        open && month.days.map((day) =>
                           h("div", { key: day.key },
                             h("button", {
                               className: "mneme-xday",
                               "aria-expanded": String(!collapsed[day.key]),
                               onClick: () => setCollapsed((c) => ({ ...c, [day.key]: !c[day.key] }))
                             },
-                              h("span", { className: "mneme-xcaret" }, collapsed[day.key] ? "▸" : "▾"),
+                              h("span", { className: "mneme-xcaret" }, h(Icon, { name: collapsed[day.key] ? "chevronRight" : "chevronDown", size: 11 })),
                               day.label
                             ),
                             !collapsed[day.key] && day.items.map((m) => {
@@ -2078,12 +1948,19 @@ window.__ModuleLoader__.load({
                                 h("span", { className: "mneme-xname" }, m.title || m.content?.slice(0, 40))
                               );
                             })
-                          )
-                      )
-                  )
-            )),
-            // 右卡：详情
-            h("div", { className: "mneme-card mneme-card--detail", role: "region", "aria-label": t("memory.explorer.detail") },
+                          ))
+                      );
+                    }),
+              h("div", { ref: moreRef, className: "mneme-xmore" },
+                canLoadMore
+                  ? h("button", { className: "mneme-footbtn", disabled: loadingMore, onClick: loadMore },
+                      loadingMore ? "…" : `${t("memory.explorer.loadMore")}（${items.length}/${total}）`)
+                  : (!loading && visible.length > 0 && !q && !remoteItems
+                      ? h("span", { className: "mneme-xcount" }, `${items.length} / ${total}`)
+                      : null)
+              )
+            ),
+            h("div", { className: "mneme-xdetail" },
               selected
                 ? h(react.Fragment, { key: selected.id },
                     h("div", { className: "mneme-xdinner" },
@@ -2099,64 +1976,46 @@ window.__ModuleLoader__.load({
                         h("span", { title: formatDate(selected.created_at) }, `${t("memory.explorer.created")}: ${formatDateShort(selected.created_at)}`),
                         h("span", { title: formatDate(selected.updated_at) }, `${t("memory.explorer.updated")}: ${formatRelativeTime(selected.updated_at, t)}`)
                       ),
-                      h("div", { className: "mneme-xdmeta" },
-                        h("span", null, t("memory.explorer.tags")),
-                        h("div", { className: "mneme-tagrow" },
-                          tagTags.length > 0
-                            ? tagTags.map((tag) =>
-                                h("span", {
-                                  key: tag,
-                                  className: "mneme-tagchip",
-                                  title: `tag:${tag}`,
-                                  onClick: () => onTagClick(tag)
-                                },
-                                  tag,
-                                  tagManual && h("button", {
-                                    type: "button",
-                                    className: "mneme-tagremove",
-                                    "aria-label": `${t("memory.explorer.tagRemove")}: ${tag}`,
-                                    onClick: (e) => { e.stopPropagation(); removeTag(tag); }
-                                  }, "×")
-                                )
-                              )
-                            : h("span", { className: "mneme-tagempty" }, t("memory.explorer.tagsEmpty")),
-                          tagManual && (tagAdding
-                            ? h("input", {
-                                key: selectedId,
-                                className: "mneme-taginput",
-                                autoFocus: true,
-                                value: tagInput,
-                                placeholder: t("memory.explorer.tagPlaceholder"),
-                                onChange: (e) => setTagInput(e.target.value),
-                                onKeyDown: (e) => { if (e.key === "Enter") submitTag(); },
-                                onBlur: () => { setTagAdding(false); setTagInput(""); }
-                              })
-                            : h("button", {
-                                type: "button",
-                                className: "mneme-tagadd",
-                                onClick: () => setTagAdding(true)
-                              }, `+ ${t("memory.explorer.tagAdd")}`))
-                        )
+                      Array.isArray(selected.tags) && selected.tags.length > 0 && h("div", { className: "mneme-xdmeta" },
+                        h("span", null, `${t("memory.explorer.tags")}: ${selected.tags.join(" · ")}`)
                       ),
-                      h("div", { className: "mneme-xdcontent" },
-                        selected.content ? wikilinkSegments(selected.content, onWikilinkClick) : selected.content
-                      ),
+                      h("div", { className: "mneme-xdcontent" }, selected.content),
                       h("div", { className: "mneme-xdactions" },
                         h("button", { className: "mneme-footbtn", onClick: copyContent },
-                          copied ? t("memory.explorer.copied") : t("memory.explorer.copy"))
-                      ),
-                      h(BacklinksPanel, { memory: selected, t, onJump: jumpToMemory })
+                          h(Icon, { name: copied ? "check" : "copy", size: 12 }),
+                          copied ? t("memory.explorer.copied") : t("memory.explorer.copy")),
+                        // two-step delete: red outline arms, solid red commits
+                        confirmDelete
+                          ? h(react.Fragment, null,
+                              h("button", {
+                                className: "mneme-btn mneme-btndangerconfirm",
+                                disabled: deleting,
+                                onClick: deleteSelected
+                              }, t("memory.explorer.confirmDelete")),
+                              h("button", {
+                                className: "mneme-btn",
+                                onClick: () => setConfirmDelete(false)
+                              }, t("memory.explorer.cancel"))
+                            )
+                          : h("button", {
+                              className: "mneme-btn mneme-btndanger",
+                              onClick: () => setConfirmDelete(true)
+                            }, t("memory.explorer.delete")),
+                        deleteError && h("span", { style: { fontSize: 12, color: "var(--dsw-alias-state-error,#c33)" } },
+                          t("memory.explorer.deleteFailed"))
+                      )
                     )
                   )
-                : h("div", { className: "mneme-xempty" }, t("memory.explorer.emptyDetail"))
+                : h("div", { className: "mneme-xempty" },
+                    deleteMsg && h("div", { className: "mneme-saved", style: { marginBottom: 6 } }, t("memory.explorer.deleted")),
+                    t("memory.explorer.emptyDetail"))
             )
           )
         ),
-        view === "overview" && h(OverviewPanel, { t, onPickType: pickLayerType }),
-        view === "directory" && h(DirectoryPanel, { t, onJump: jumpToMemory, collapsed: dirCollapsed, setCollapsed: setDirCollapsed }),
-        view === "graph" && h(GraphPanel, { t, focusEntity: graphFocus, onJumpMemory: jumpToMemory }),
-        view === "settings" && h("div", { className: "mneme-xsettings" },
-          h("div", { className: "mneme-xsettings-inner" }, h(SettingsContent, { t }))
+        view === "entity" && h(EntityPanel, { t, focusEntity: graphFocus, onJumpMemory: jumpToMemory }),
+        view === "status" && h(StatusPanel, { t }),
+        view === "settings" && h("div", { className: "mneme-set" },
+          h("div", { className: "mneme-set-inner" }, h(SettingsContent, { t }))
         )
       );
     }
@@ -2167,22 +2026,7 @@ window.__ModuleLoader__.load({
     // opens the full-viewport overlay instead — the library stays reachable
     // from every conversation state.
     function SidebarTrigger({ wide, t }) {
-      // issue #38: the entrance button is now optional (settings-over-config
-      // toggle, persisted via /api/dsh-mneme/config). While the value loads we
-      // render the button (default = visible) so it never flashes out; if the
-      // user disabled it, it drops away after the config resolves. The library
-      // itself is unaffected — the 记忆库 conversation tab stays.
-      const [visible, setVisible] = useState(true);
-      useEffect(() => {
-        let cancelled = false;
-        apiFetch("/api/dsh-mneme/config")
-          .then((res) => res.json())
-          .then((d) => { if (!cancelled) setVisible(d.config?.showSidebarTrigger !== false); })
-          .catch(() => { if (!cancelled) setVisible(true); });
-        return () => { cancelled = true; };
-      }, []);
       const [, setOpen] = useOverlayOpen();
-      if (!visible) return null;
       return h("button", {
         type: "button",
         className: wide ? "mneme-trigger" : "mneme-trigger mneme-rail",
