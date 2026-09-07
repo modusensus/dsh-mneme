@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.7.12] - 2026-09-08
+
+### 🌐 独立外部 API + CLI 工具 + 轻量模式
+
+- **独立外部 API（生态集成）**：插件可启动自己的 HTTP 服务（默认 `127.0.0.1:8790`，仅回环绑定，Bearer token 首次启用自动生成并持久化），其他插件/CLI/桌面工具直接读写记忆，不再依赖 DSH 内部端口。路由：`GET /health`（免鉴权）、`GET /status`、`GET/POST/DELETE /memories`、`GET /memories/:id`、`GET /search`；非法 type/缺字段 400、未知资源 404。配置 `externalApiEnabled/externalApiPort/externalApiHost` + 面板设置持久化（重启生效）；非回环绑定的安全责任由操作者承担。exact 路由 22 → 25。
+- **CLI 工具 `dsh-mneme`**：零依赖命令行（`bin/cli.mjs`，包新增 bin 字段）——`status` / `list` / `search` / `get` / `add` / `delete` / `config set|show|path`；配置优先级 参数 > 环境变量（`DSH_MNEME_URL`/`DSH_MNEME_TOKEN`）> `~/.dsh-mneme/cli.json`；`--json` 机器输出；token 打码显示。
+- **轻量模式（lightMode）**：面向非技术用户的简化预设——只保留核心记忆读写与自动注入（autoInject/autoSummarize/hot memory/质量过滤），关闭 autoDream、睡眠、实体抽取、rerank、bm25、选择性注入、语义去重、自动重建索引、hybrid 注入共 9 项重资源字段（`applyLightModePreset` 纯函数，light 模式下连 ONNX 嵌入模型都不加载）；`panel_mode` 持久化优先于 bundle 配置；设置面板一键切换（重启生效）。
+- **设置面板新卡片**：「运行模式」（轻量/标准）与「外部访问 API」（启停/地址端口校验/Token 只读复制），中英文案齐备。
+
+### 测试
+
+- 全套 **838 测试通过**（+12：standalone-api 10 例——401/health/CRUD 闭环/搜索/400 校验；external_api 合并与 panel_mode 往返 2 例）。`store.count` 支持 minImportance/source 后分页 total 与行一致。
+
+## [0.7.11] - 2026-09-08
+
+### 🐛 两个 issue 修复 + 面板可扩展性改版 + 实体抽取默认开
+
+- **issue #72：窗口最大化后图谱节点不可见**：力导向模拟此前以 SVG 元素的 CSS 宽度（`clientWidth`）为布局边界——最大化下元素上千 CSS px，重心与钳制区间落到 380×300 viewBox 之外，节点整体被裁出画布。现在模拟全程在 viewBox 用户单位（`VIEW_W`/`VIEW_H`）中运行，浏览器把 viewBox 等比缩放到任意元素尺寸，布局不再依赖挂载时的容器测量。
+- **issue #59：autoSummarize 在 DSH ≥0.1.2-rc 上从不执行**：`Session.events` 属性被移除，事件只能经 `snapshotEvents()` 获取。`summarize.js` 与 `inject.js` 三处统一为 `session.snapshotEvents?.() ?? session.events ?? []` 兼容垫片（远程 0.7.8/0.7.9 已修，本版本线合入同一语义）。
+- **记忆库面板改版（可扩展性 + 实时性）**：记忆浏览从一次性 `limit=500`（超限静默丢失）改为 100 条/页时间序分页（`list?order=chrono`，`store.list` 新增 `order` 参数）+ 滚动到底自动加载；月份默认折叠仅展开最新月（吸顶表头 + 月计数）；关键词/语义搜索全部走服务端命中全库；记忆子视图激活即刷新 + 30s 静默轮询；新增「状态」子页（记忆/实体/向量/LLM 消耗四张卡，分区独立加载）；记忆删除（两步确认，`POST /api/dsh-mneme/delete`）；重要性 全部/★3+/★4+/★5 服务端过滤芯片；内联 Lucide stroke 图标体系（零运行时依赖）。
+- **bundle 默认开启实体抽取**：`cordis.patch.yml` 增加 `entityExtractionEnabled: true`（此前默认 false）。
+- **双语 README**：新增 `README.en.md`，两版互挂语言切换链接。
+
+### 测试
+
+- 移植批次全套 **838 测试通过**（snapshotEvents 回归 2 例 + 面板改版新增断言并入）。
+
 ## [0.7.10] - 2026-09-07
 
 ### 🆕 Web 面板体验升级：类型色点 / 图谱平移缩放 / 设置页重排 / 侧边栏冲突修复

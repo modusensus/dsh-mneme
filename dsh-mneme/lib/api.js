@@ -1,9 +1,23 @@
 import { URL } from "node:url";
-import { timingSafeEqual } from "node:crypto";
+import { timingSafeEqual, randomBytes } from "node:crypto";
 
 function sendJson(res, status, payload) {
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(payload));
+}
+
+// Defaults for the standalone external API — keep in step with the schema
+// defaults in config.js (externalApiPort / externalApiHost).
+const EXTERNAL_API_DEFAULTS = { enabled: false, port: 8790, host: "127.0.0.1" };
+
+/** Merge persisted external-api kv over the defaults for client display. */
+function fullExternalConfig(kv = {}) {
+  return {
+    enabled: kv.enabled === true,
+    port: Number.isInteger(kv.port) && kv.port > 0 ? kv.port : EXTERNAL_API_DEFAULTS.port,
+    host: kv.host || EXTERNAL_API_DEFAULTS.host,
+    token: kv.token || ""
+  };
 }
 
 /**
@@ -88,8 +102,20 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
         const type = url.searchParams.get("type") ?? undefined;
         const limit = Number(url.searchParams.get("limit") ?? 50);
         const offset = Number(url.searchParams.get("offset") ?? 0);
-        const items = service.toApiList(service.list({ type, limit, offset }));
-        sendJson(res, 200, { items, total: service.count(type) });
+        // order=chrono: pure newest-first for paged browsing; default keeps
+        // the importance-ranked order other callers rely on.
+        const order = url.searchParams.get("order") ?? undefined;
+        // minImportance: numeric lower bound on importance (absent/NaN → no
+        // floor); source: exact match on the source column (empty → no filter).
+        const minRaw = url.searchParams.get("minImportance");
+        const minImportance = minRaw !== null && minRaw !== "" && !Number.isNaN(Number(minRaw))
+          ? Number(minRaw)
+          : undefined;
+        const source = url.searchParams.get("source") || undefined;
+        const items = service.toApiList(service.list({ type, limit, offset, order, minImportance, source }));
+        // Total honors the same filters as the rows, or the pager's
+        // has-more math breaks whenever minImportance/source is active.
+        sendJson(res, 200, { items, total: service.count(type, { minImportance, source }) });
       } catch {
         sendJson(res, 500, { error: "internal" });
       }
@@ -169,6 +195,40 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
           });
         }
         sendJson(res, 200, { profile: settings.getProfile() });
+      } catch {
+        sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
+  // --- delete one memory by id ---
+  // Mutation route: apiToken-gated like the profile/rules writes above. POST
+  // body is JSON { id }. store.remove deletes silently, so existence is checked
+  // up front to give clients a distinguishable 404 instead of a fake success.
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/delete",
+    handler(req, res) {
+      try {
+        if (req.method !== "POST") {
+          sendJson(res, 404, { error: "not-found" });
+          return;
+        }
+        if (!requireAuth(req, res, apiToken)) return;
+        return readBody(req).then((text) => {
+          const body = parseBody(text);
+          const id = typeof body.id === "string" ? body.id.trim() : "";
+          if (!id) {
+            sendJson(res, 400, { error: "missing-id" });
+            return;
+          }
+          if (!service.getById(id)) {
+            sendJson(res, 404, { error: "not-found" });
+            return;
+          }
+          service.remove(id);
+          sendJson(res, 200, { ok: true });
+        });
       } catch {
         sendJson(res, 500, { error: "internal" });
       }
@@ -704,6 +764,81 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
     }
   });
 
+  // --- panel mode (v0.7.12): light / standard -------------------------------
+  // Persists the Web panel's feature preset into the settings kv
+  // ("panel_mode"). PUT requires auth like every other settings write; the
+  // value is validated against the enum. index.js applies the light preset on
+  // the next boot (persisted mode wins over the bundle config).
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/mode",
+    handler(req, res) {
+      try {
+        if (req.method === "PUT" || req.method === "POST") {
+          if (!requireAuth(req, res, apiToken)) return;
+          return readBody(req).then((text) => {
+            const body = parseBody(text);
+            if (body.mode !== "light" && body.mode !== "standard") {
+              sendJson(res, 400, { error: "invalid-mode" });
+              return;
+            }
+            settings.setPanelMode(body.mode);
+            sendJson(res, 200, { mode: settings.getPanelMode() });
+          });
+        }
+        sendJson(res, 200, { mode: settings.getPanelMode() });
+      } catch {
+        sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
+  // --- external API settings (the standalone server's panel-facing config) ---
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/external-api",
+    handler(req, res) {
+      try {
+        if (req.method === "PUT" || req.method === "POST") {
+          if (!requireAuth(req, res, apiToken)) return;
+          return readBody(req).then((text) => {
+            const body = parseBody(text);
+            const patch = {};
+            if (body.enabled !== undefined) patch.enabled = body.enabled === true;
+            if (body.port !== undefined) {
+              const port = Number(body.port);
+              if (!Number.isInteger(port) || port < 1 || port > 65535) {
+                sendJson(res, 400, { error: "invalid-port" });
+                return;
+              }
+              patch.port = port;
+            }
+            if (body.host !== undefined) {
+              const host = String(body.host).trim();
+              if (!host || host.includes("://")) {
+                sendJson(res, 400, { error: "invalid-host" });
+                return;
+              }
+              patch.host = host;
+            }
+            sendJson(res, 200, { config: fullExternalConfig(settings.setExternalApi(patch)) });
+          });
+        }
+        // GET: always hand back a token — the standalone server generates its
+        // own on first enabled boot, but the panel displays it before that,
+        // so materialize and persist one here.
+        const kv = settings.getExternalApi() ?? {};
+        if (!kv.token) {
+          kv.token = randomBytes(24).toString("base64url");
+          settings.setExternalApi({ token: kv.token });
+        }
+        sendJson(res, 200, { config: fullExternalConfig(kv) });
+      } catch {
+        sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
   // --- custom commands ---
   register({
     kind: "exact",
@@ -818,7 +953,7 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
   });
 
   return {
-    routes: 20,
+    routes: 25,
     dispose: () => {
       for (const dispose of disposers) dispose();
     }

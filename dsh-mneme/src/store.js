@@ -243,7 +243,9 @@ CREATE TABLE IF NOT EXISTS mirror_state (
 );
 `;
 
-const TYPES = new Set(["preference", "project", "decision", "history", "summary", "pattern", "user", "fact"]);
+// Exported so the standalone API layer (api-standalone.js) can validate
+// incoming memory types against the same set the store enforces.
+export const TYPES = new Set(["preference", "project", "decision", "history", "summary", "pattern", "user", "fact"]);
 
 // Epistemic status: what kind of evidence a memory rests on. Defaults to
 // 'subjective' so legacy rows (and rows without any signal) stay compatible.
@@ -650,12 +652,21 @@ export function createStore(path) {
     return ts;
   }
 
-  function count(type, { includeForgotten = false, includeArchived = false, includeDisposed = false } = {}) {
+  function count(type, { minImportance = null, source = null, includeForgotten = false, includeArchived = false, includeDisposed = false } = {}) {
     const clauses = [];
     const params = [];
     if (type !== undefined) {
       clauses.push("type = ?");
       params.push(type);
+    }
+    // Same filters as list() so a paged caller's total matches its rows.
+    if (minImportance != null) {
+      clauses.push("importance >= ?");
+      params.push(minImportance);
+    }
+    if (source != null) {
+      clauses.push("source = ?");
+      params.push(source);
     }
     if (!includeForgotten) {
       clauses.push("forgotten = 0");
@@ -1072,12 +1083,22 @@ export function createStore(path) {
     return rows.map(toRow);
   }
 
-  function list({ type, limit = 50, offset = 0, includeForgotten = false, includeArchived = false, includeDisposed = false } = {}) {
+  function list({ type, limit = 50, offset = 0, order = "importance", includeForgotten = false, includeArchived = false, includeDisposed = false, minImportance = null, source = null } = {}) {
     const clauses = [];
     const params = [];
     if (type) {
       clauses.push("type = ?");
       params.push(type);
+    }
+    // Optional server-side filters: importance floor and exact source match.
+    // Both stay out of the query when unset so existing callers are unaffected.
+    if (minImportance != null) {
+      clauses.push("importance >= ?");
+      params.push(minImportance);
+    }
+    if (source) {
+      clauses.push("source = ?");
+      params.push(source);
     }
     if (!includeForgotten) {
       clauses.push("forgotten = 0");
@@ -1090,8 +1111,13 @@ export function createStore(path) {
     }
     const { limit: lim, offset: off } = sanitizePage(limit, offset, 50);
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    // "chrono" is pure newest-first — the stable order paged browsing (month
+    // tree, infinite scroll) needs; importance ordering would interleave
+    // months across pages. Default keeps the importance-ranked order other
+    // callers rely on.
+    const orderBy = order === "chrono" ? "updated_at DESC, id DESC" : "importance DESC, updated_at DESC, id";
     const rows = db.prepare(
-      `SELECT * FROM memories ${where} ORDER BY importance DESC, updated_at DESC, id LIMIT ? OFFSET ?`
+      `SELECT * FROM memories ${where} ORDER BY ${orderBy} LIMIT ? OFFSET ?`
     ).all(...params, lim, off);
     return rows.map(toRow);
   }

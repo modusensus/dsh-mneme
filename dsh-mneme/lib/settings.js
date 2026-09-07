@@ -207,6 +207,46 @@ export function createSettings(db) {
       else if (cur.showSidebarTrigger !== undefined) cfg.showSidebarTrigger = cur.showSidebarTrigger === true;
       setSetting("ui", JSON.stringify(cfg));
       return cfg;
+    },
+
+    /**
+     * Standalone external API settings (kv "external_api"): {enabled, port,
+     * host, token}. The Bearer token is auto-generated on first boot and
+     * persisted here. Partial writes preserve the keys they don't mention.
+     */
+    getExternalApi() {
+      const raw = getSetting("external_api");
+      if (!raw) return undefined;
+      try {
+        const cfg = JSON.parse(raw);
+        return typeof cfg === "object" && cfg !== null ? cfg : undefined;
+      } catch {
+        return undefined;
+      }
+    },
+    setExternalApi(patch = {}) {
+      const prev = this.getExternalApi() ?? {};
+      const port = Number(patch.port ?? prev.port);
+      const host = typeof patch.host === "string" && patch.host.trim() ? patch.host.trim() : (prev.host ?? "127.0.0.1");
+      const cfg = {
+        enabled: patch.enabled !== undefined ? patch.enabled === true : prev.enabled === true,
+        port: Number.isInteger(port) && port > 0 ? port : 8790,
+        host,
+        token: String(patch.token ?? prev.token ?? "")
+      };
+      setSetting("external_api", JSON.stringify(cfg));
+      return cfg;
+    },
+
+    /**
+     * Web panel mode (kv "panel_mode"): "light" (low-resource preset) or
+     * "standard" (full feature set). Unset reads as "standard".
+     */
+    getPanelMode() {
+      return getSetting("panel_mode") === "light" ? "light" : "standard";
+    },
+    setPanelMode(mode) {
+      setSetting("panel_mode", mode === "light" ? "light" : "standard");
     }
   };
 }

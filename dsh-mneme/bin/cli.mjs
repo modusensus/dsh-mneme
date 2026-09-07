@@ -1,0 +1,603 @@
+#!/usr/bin/env node
+/**
+ * dsh-mneme CLI —— @modusensus/dsh-mneme 外部 API 命令行客户端
+ *
+ * 零依赖 ESM（Node >= 20，使用全局 fetch）。
+ * 配置优先级：命令行 --url/--token > 环境变量 DSH_MNEME_URL / DSH_MNEME_TOKEN
+ *            > 配置文件 ~/.dsh-mneme/cli.json（{"url","token"}）
+ * 默认服务地址：http://127.0.0.1:8790
+ */
+
+import fs from 'node:fs';
+import fsp from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import process from 'node:process';
+import { fileURLToPath } from 'node:url';
+
+const CLI_NAME = 'dsh-mneme';
+const DEFAULT_URL = 'http://127.0.0.1:8790';
+const CONFIG_DIR = path.join(os.homedir(), '.dsh-mneme');
+const CONFIG_PATH = path.join(CONFIG_DIR, 'cli.json');
+const MEMORY_TYPES = ['preference', 'project', 'decision', 'summary', 'history'];
+const SEARCH_MODES = ['keyword', 'vector', 'auto'];
+const REQUEST_TIMEOUT_MS = 10_000;
+
+function readPkgVersion() {
+  try {
+    const pkgPath = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '..',
+      'package.json'
+    );
+    return JSON.parse(fs.readFileSync(pkgPath, 'utf8')).version ?? '?';
+  } catch {
+    return '?';
+  }
+}
+
+const PKG_VERSION = readPkgVersion();
+
+const USAGE = `${CLI_NAME} —— DSH 记忆插件（@modusensus/dsh-mneme）外部 API 命令行客户端
+
+用法：
+  ${CLI_NAME} <命令> [参数] [选项]
+
+配置（优先级从高到低）：
+  1. 命令行参数 --url <url> / --token <token>
+  2. 环境变量 DSH_MNEME_URL / DSH_MNEME_TOKEN
+  3. 配置文件 ~/.dsh-mneme/cli.json（由 \`config set\` 写入）
+  未配置时使用默认地址：${DEFAULT_URL}
+
+命令：
+  config set <url> <token>     写入配置文件（token 省略时保留原值）
+  config show                  查看当前配置（token 打码显示）
+  config path                  打印配置文件路径
+  status                       服务状态（版本 / 记忆统计 / 实体 / 运行时长）
+  list [--type t] [--min-importance n] [--source s]
+       [--limit n] [--offset n] [--json]
+                               列出记忆（type: preference | project | decision | summary | history）
+  search <query> [--mode m] [--topk n] [--json]
+                               搜索记忆（mode: keyword | vector | auto）
+  get <id> [--json]            查看单条记忆
+  add --type <t> --title <t> --content <c>
+      [--importance n] [--tags a,b] [--source s] [--json]
+                               新增记忆（type: preference | project | decision | summary | history）
+  delete <id>                  删除记忆
+
+选项：
+  --url <url>                  覆盖服务地址
+  --token <token>              覆盖访问 token
+  --json                       输出原始 JSON
+  -h, --help                   显示本帮助
+  -V, --version                显示版本号
+
+说明：
+  token 在 DSH 面板「设置 → 外部访问」或插件设置中查看；
+  除 GET /health 外，所有外部 API 路由均需 Bearer token。
+
+示例：
+  ${CLI_NAME} config set ${DEFAULT_URL} my-token
+  ${CLI_NAME} status
+  ${CLI_NAME} list --type project --limit 10
+  ${CLI_NAME} search "部署流程" --mode vector --topk 5
+  ${CLI_NAME} add --type decision --title "采用 SQLite" --content "存储层使用 node:sqlite" --importance 4 --tags 存储,决策
+  ${CLI_NAME} get 42
+  ${CLI_NAME} delete 42`;
+
+/* ---------------------------------- 参数解析 ---------------------------------- */
+
+function parseArgv(argv) {
+  const positionals = [];
+  const flags = {};
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--') {
+      positionals.push(...argv.slice(i + 1));
+      break;
+    }
+    if (arg.startsWith('--')) {
+      let key = arg.slice(2);
+      let value;
+      const eq = key.indexOf('=');
+      if (eq >= 0) {
+        value = key.slice(eq + 1);
+        key = key.slice(0, eq);
+      } else if (i + 1 < argv.length && !argv[i + 1].startsWith('--') && argv[i + 1] !== '--') {
+        value = argv[++i];
+      } else {
+        value = true;
+      }
+      flags[key.toLowerCase()] = value;
+    } else {
+      positionals.push(arg);
+    }
+  }
+  return { positionals, flags };
+}
+
+function flagValue(flags, ...names) {
+  for (const name of names) {
+    const value = flags[name.toLowerCase()];
+    if (value !== undefined && value !== true && value !== '') return value;
+  }
+  return undefined;
+}
+
+function flagBool(flags, ...names) {
+  for (const name of names) {
+    const value = flags[name.toLowerCase()];
+    if (value !== undefined) return value === true || value === 'true' || value === '';
+  }
+  return false;
+}
+
+/* ---------------------------------- 配置解析 ---------------------------------- */
+
+function readConfigFile() {
+  try {
+    const data = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+  } catch {
+    return {};
+  }
+}
+
+function firstNonEmpty(...values) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim() !== '') return value.trim();
+  }
+  return undefined;
+}
+
+function resolveConfig(flags) {
+  const file = readConfigFile();
+  const url =
+    firstNonEmpty(flagValue(flags, 'url'), process.env.DSH_MNEME_URL, file.url) ?? DEFAULT_URL;
+  const token =
+    firstNonEmpty(flagValue(flags, 'token'), process.env.DSH_MNEME_TOKEN, file.token) ?? '';
+  return { url: url.replace(/\/+$/, ''), token, jsonMode: false };
+}
+
+function maskToken(token) {
+  if (!token) return '(未设置)';
+  if (token.length <= 8) return '****';
+  return `${token.slice(0, 4)}****${token.slice(-4)}`;
+}
+
+/* ---------------------------------- 输出与错误 ---------------------------------- */
+
+function stringify(value) {
+  return JSON.stringify(value, null, 2);
+}
+
+function fail(cfg, message, { rawJson } = {}) {
+  if (cfg.jsonMode) {
+    console.error(rawJson !== undefined ? rawJson : stringify({ error: message }));
+  } else {
+    console.error(message);
+  }
+  process.exit(1);
+}
+
+function failHttp(cfg, status, pathname, data, text) {
+  const serverError =
+    data && typeof data === 'object' && data.error
+      ? String(data.error)
+      : (text || '').slice(0, 200);
+  let hint = '';
+  if (status === 401) {
+    hint =
+      `\n访问 token 缺失或无效。token 可在 DSH 面板「设置 → 外部访问」或插件设置中查看，\n` +
+      `然后用 \`${CLI_NAME} config set <url> <token>\`、环境变量 DSH_MNEME_TOKEN 或 --token 配置。`;
+  } else if (status === 404) {
+    hint = `\n资源不存在：${pathname}`;
+  }
+  fail(cfg, `请求失败（HTTP ${status}）${serverError ? `：${serverError}` : ''} [${pathname}]${hint}`, {
+    rawJson: cfg.jsonMode && text ? text : undefined,
+  });
+}
+
+function failNetwork(cfg, url, err) {
+  const timedOut = err && (err.name === 'TimeoutError' || err.name === 'AbortError');
+  const reason = timedOut
+    ? `请求超时（${REQUEST_TIMEOUT_MS / 1000} 秒）`
+    : `无法连接到服务（${err?.code ?? err?.cause?.code ?? err?.message ?? '未知错误'}）`;
+  fail(
+    cfg,
+    `${reason}：${url}\n` +
+      `请确认 DSH 已启动、插件外部 API 已开启，且地址正确（默认 ${DEFAULT_URL}）。`
+  );
+}
+
+function requireToken(cfg) {
+  if (cfg.token) return;
+  fail(
+    cfg,
+    [
+      '未配置访问 token，无法调用该命令（外部 API 需要 Bearer 鉴权）。',
+      '',
+      'token 可在 DSH 面板「设置 → 外部访问」或插件设置中查看，然后任选其一配置：',
+      `  1. ${CLI_NAME} config set <url> <token>`,
+      '  2. 环境变量 DSH_MNEME_TOKEN=<token>',
+      '  3. 命令行参数 --token <token>',
+    ].join('\n')
+  );
+}
+
+function parseIntArg(cfg, value, label) {
+  if (value === undefined || value === true || value === '') return undefined;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0) {
+    fail(cfg, `无效的 ${label}: ${value}（应为非负整数）`);
+  }
+  return n;
+}
+
+/* ---------------------------------- HTTP 请求 ---------------------------------- */
+
+async function apiRequest(cfg, method, pathname, { query, body } = {}) {
+  let url = cfg.url + pathname;
+  if (query) {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined && value !== null && value !== '') {
+        params.set(key, String(value));
+      }
+    }
+    const qs = params.toString();
+    if (qs) url += `?${qs}`;
+  }
+
+  const headers = { Accept: 'application/json' };
+  if (cfg.token) headers.Authorization = `Bearer ${cfg.token}`;
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+
+  let res;
+  try {
+    res = await fetch(url, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch (err) {
+    failNetwork(cfg, url, err);
+  }
+
+  const text = await res.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    // 非 JSON 响应体，保留原始文本用于报错展示
+  }
+
+  if (!res.ok) {
+    failHttp(cfg, res.status, pathname, data, text);
+  }
+  return data;
+}
+
+/* ---------------------------------- 结果格式化 ---------------------------------- */
+
+function formatTimestamp(value) {
+  if (!value) return '';
+  const s = String(value);
+  return s.length >= 10 ? s.slice(0, 10) : s;
+}
+
+function formatMemoryLine(item) {
+  const id = item?.id ?? '?';
+  const type = item?.type ?? '?';
+  const importance = item?.importance != null ? ` ★${item.importance}` : '';
+  const title = item?.title ? ` ${item.title}` : '';
+  const tags =
+    Array.isArray(item?.tags) && item.tags.length ? ` [${item.tags.join(',')}]` : '';
+  const date = formatTimestamp(item?.created_at ?? item?.createdAt);
+  return `  #${id}  [${type}]${importance}${title}${tags}${date ? ` (${date})` : ''}`;
+}
+
+function printMemoryItems(payload, { withMode = false } = {}) {
+  const items = Array.isArray(payload?.items) ? payload.items : [];
+  const total = payload?.total ?? items.length;
+  if (withMode && payload?.mode) console.log(`搜索模式: ${payload.mode}`);
+  console.log(`共 ${total} 条，本次显示 ${items.length} 条`);
+  if (!items.length) return;
+  console.log('');
+  for (const item of items) {
+    const score = item?.score ?? item?.similarity;
+    const scoreText =
+      typeof score === 'number' && Number.isFinite(score) ? ` (score ${score.toFixed(3)})` : '';
+    console.log(formatMemoryLine(item) + scoreText);
+    const content =
+      typeof item?.content === 'string' ? item.content.replace(/\s+/g, ' ').trim() : '';
+    if (content) {
+      console.log(`      ${content.length > 80 ? `${content.slice(0, 80)}…` : content}`);
+    }
+  }
+}
+
+function printMemoryDetail(item) {
+  if (!item || typeof item !== 'object') {
+    console.log(stringify(item ?? null));
+    return;
+  }
+  const fields = [];
+  if (item.id !== undefined) fields.push(`id: ${item.id}`);
+  if (item.type !== undefined) fields.push(`类型: ${item.type}`);
+  if (item.importance !== undefined) fields.push(`重要性: ${item.importance}`);
+  if (item.title !== undefined) fields.push(`标题: ${item.title}`);
+  if (item.tags !== undefined) {
+    fields.push(`标签: ${Array.isArray(item.tags) ? item.tags.join(', ') : item.tags}`);
+  }
+  if (item.source !== undefined) fields.push(`来源: ${item.source}`);
+  const created = item.created_at ?? item.createdAt;
+  if (created) fields.push(`创建时间: ${created}`);
+  for (const line of fields) console.log(line);
+  if (item.content !== undefined) console.log(`\n${item.content}`);
+}
+
+function printStatus(data) {
+  console.log(`服务版本: ${data?.version ?? '?'}`);
+  console.log(`运行时长: ${data?.uptime_s ?? data?.uptimeS ?? '?'} 秒`);
+  const memories = data?.memories ?? {};
+  console.log(`记忆总数: ${memories.total ?? '?'}`);
+  const byType = memories.byType;
+  if (Array.isArray(byType)) {
+    for (const row of byType) {
+      console.log(`  - ${row?.type ?? row?.name ?? '?'}: ${row?.count ?? row?.total ?? '?'}`);
+    }
+  } else if (byType && typeof byType === 'object') {
+    for (const [type, count] of Object.entries(byType)) {
+      console.log(`  - ${type}: ${count}`);
+    }
+  }
+  const entities = data?.entities;
+  if (entities != null) {
+    const total =
+      typeof entities === 'object' && !Array.isArray(entities)
+        ? entities.total
+        : entities;
+    console.log(`实体数量: ${total ?? '?'}`);
+  }
+}
+
+/* ---------------------------------- 子命令 ---------------------------------- */
+
+async function cmdConfig(cfg, sub, rest) {
+  const subCmd = sub || 'show';
+
+  if (subCmd === 'set') {
+    const [url, tokenArg] = rest;
+    if (!url) {
+      fail(
+        cfg,
+        `用法: ${CLI_NAME} config set <url> <token>\n示例: ${CLI_NAME} config set ${DEFAULT_URL} my-token`
+      );
+    }
+    if (!/^https?:\/\//i.test(url)) {
+      fail(cfg, `无效的服务地址: ${url}（应以 http:// 或 https:// 开头）`);
+    }
+    const existing = readConfigFile();
+    const token = tokenArg ?? existing.token ?? '';
+    await fsp.mkdir(CONFIG_DIR, { recursive: true });
+    await fsp.writeFile(CONFIG_PATH, `${JSON.stringify({ url, token }, null, 2)}\n`, 'utf8');
+    if (cfg.jsonMode) {
+      console.log(stringify({ configPath: CONFIG_PATH, url, tokenConfigured: Boolean(token) }));
+    } else {
+      console.log(`已写入配置文件: ${CONFIG_PATH}`);
+      console.log(`  url: ${url}`);
+      console.log(`  token: ${maskToken(token)}`);
+    }
+    return;
+  }
+
+  if (subCmd === 'show') {
+    const hasFile = fs.existsSync(CONFIG_PATH);
+    const file = readConfigFile();
+    if (cfg.jsonMode) {
+      console.log(
+        stringify({
+          configPath: CONFIG_PATH,
+          configExists: hasFile,
+          url: file.url ?? DEFAULT_URL,
+          token: maskToken(file.token),
+        })
+      );
+      return;
+    }
+    if (!hasFile) {
+      console.log(`尚未创建配置文件（未配置）: ${CONFIG_PATH}`);
+      console.log('');
+      console.log(`可运行 \`${CLI_NAME} config set <url> <token>\` 创建配置；`);
+      console.log('token 可在 DSH 面板「设置 → 外部访问」或插件设置中查看。');
+      console.log(
+        `未配置时使用默认地址 ${DEFAULT_URL}，也可用环境变量 DSH_MNEME_URL / DSH_MNEME_TOKEN。`
+      );
+      return;
+    }
+    console.log(`配置文件: ${CONFIG_PATH}`);
+    console.log(`  url: ${file.url ?? `(未设置，默认 ${DEFAULT_URL})`}`);
+    console.log(`  token: ${maskToken(file.token)}`);
+    console.log('');
+    console.log('配置优先级: --url/--token > 环境变量 DSH_MNEME_URL / DSH_MNEME_TOKEN > 配置文件');
+    return;
+  }
+
+  if (subCmd === 'path') {
+    console.log(CONFIG_PATH);
+    return;
+  }
+
+  fail(cfg, `未知的 config 子命令: ${subCmd}\n可用子命令: set / show / path`);
+}
+
+async function cmdStatus(cfg) {
+  requireToken(cfg);
+  const data = await apiRequest(cfg, 'GET', '/status');
+  if (cfg.jsonMode) {
+    console.log(stringify(data));
+  } else {
+    printStatus(data);
+  }
+}
+
+async function cmdList(cfg, flags) {
+  requireToken(cfg);
+  const query = {
+    type: flagValue(flags, 'type'),
+    minImportance: parseIntArg(cfg, flagValue(flags, 'min-importance', 'minImportance'), '--min-importance'),
+    source: flagValue(flags, 'source'),
+    limit: parseIntArg(cfg, flagValue(flags, 'limit'), '--limit'),
+    offset: parseIntArg(cfg, flagValue(flags, 'offset'), '--offset'),
+  };
+  const data = await apiRequest(cfg, 'GET', '/memories', { query });
+  if (cfg.jsonMode) {
+    console.log(stringify(data));
+  } else {
+    printMemoryItems(data);
+  }
+}
+
+async function cmdSearch(cfg, rest, flags) {
+  requireToken(cfg);
+  const q = rest[0];
+  if (!q) {
+    fail(
+      cfg,
+      `用法: ${CLI_NAME} search <query> [--mode m] [--topk n]\n` +
+        `示例: ${CLI_NAME} search "部署流程" --mode vector --topk 5`
+    );
+  }
+  const mode = flagValue(flags, 'mode');
+  if (mode !== undefined && !SEARCH_MODES.includes(mode)) {
+    fail(cfg, `无效的 --mode: ${mode}（可选: ${SEARCH_MODES.join(' | ')}）`);
+  }
+  const topK = parseIntArg(cfg, flagValue(flags, 'topk', 'top-k', 'topK'), '--topk');
+  const data = await apiRequest(cfg, 'GET', '/search', { query: { q, mode, topK } });
+  if (cfg.jsonMode) {
+    console.log(stringify(data));
+  } else {
+    printMemoryItems(data, { withMode: true });
+  }
+}
+
+async function cmdGet(cfg, rest) {
+  requireToken(cfg);
+  const id = rest[0];
+  if (!id) {
+    fail(cfg, `用法: ${CLI_NAME} get <id> [--json]`);
+  }
+  const data = await apiRequest(cfg, 'GET', `/memories/${encodeURIComponent(id)}`);
+  if (cfg.jsonMode) {
+    console.log(stringify(data));
+  } else {
+    printMemoryDetail(data);
+  }
+}
+
+async function cmdAdd(cfg, flags) {
+  requireToken(cfg);
+  const type = flagValue(flags, 'type');
+  const title = flagValue(flags, 'title');
+  const content = flagValue(flags, 'content');
+  if (!type || !title || !content) {
+    fail(
+      cfg,
+      `用法: ${CLI_NAME} add --type <${MEMORY_TYPES.join('|')}> --title <标题> --content <内容>\n` +
+        `      [--importance n] [--tags a,b] [--source s]\n\n` +
+        `示例: ${CLI_NAME} add --type decision --title "采用 SQLite" --content "存储层使用 node:sqlite"`
+    );
+  }
+  if (!MEMORY_TYPES.includes(type)) {
+    fail(cfg, `无效的 --type: ${type}（可选: ${MEMORY_TYPES.join(' | ')}）`);
+  }
+  const importanceRaw = flagValue(flags, 'importance');
+  let importance;
+  if (importanceRaw !== undefined) {
+    importance = Number(importanceRaw);
+    if (!Number.isInteger(importance) || importance < 1 || importance > 5) {
+      fail(cfg, `无效的 --importance: ${importanceRaw}（应为 1-5 的整数）`);
+    }
+  }
+  const tagsRaw = flagValue(flags, 'tags');
+  const tags =
+    tagsRaw !== undefined
+      ? tagsRaw.split(',').map((t) => t.trim()).filter(Boolean)
+      : undefined;
+  const source = flagValue(flags, 'source');
+
+  const body = { type, title, content };
+  if (importance !== undefined) body.importance = importance;
+  if (tags) body.tags = tags;
+  if (source) body.source = source;
+
+  const data = await apiRequest(cfg, 'POST', '/memories', { body });
+  if (cfg.jsonMode) {
+    console.log(stringify(data));
+  } else {
+    console.log('已添加记忆:');
+    printMemoryDetail(data);
+  }
+}
+
+async function cmdDelete(cfg, rest) {
+  requireToken(cfg);
+  const id = rest[0];
+  if (!id) {
+    fail(cfg, `用法: ${CLI_NAME} delete <id>`);
+  }
+  const data = await apiRequest(cfg, 'DELETE', `/memories/${encodeURIComponent(id)}`);
+  if (cfg.jsonMode) {
+    console.log(stringify(data));
+  } else {
+    console.log(`已删除记忆 ${id}`);
+  }
+}
+
+/* ---------------------------------- 入口 ---------------------------------- */
+
+async function main(argv) {
+  const { positionals, flags } = parseArgv(argv);
+  const cmd = positionals[0];
+  const rest = positionals.slice(1);
+
+  if (!cmd || cmd === '-h' || cmd === '--help' || cmd === 'help') {
+    console.log(USAGE);
+    return;
+  }
+  if (cmd === '-V' || cmd === '--version' || cmd === 'version') {
+    console.log(PKG_VERSION);
+    return;
+  }
+
+  const cfg = resolveConfig(flags);
+  cfg.jsonMode = flagBool(flags, 'json');
+
+  switch (cmd) {
+    case 'config':
+      return cmdConfig(cfg, rest[0], rest.slice(1));
+    case 'status':
+      return cmdStatus(cfg);
+    case 'list':
+    case 'ls':
+      return cmdList(cfg, flags);
+    case 'search':
+      return cmdSearch(cfg, rest, flags);
+    case 'get':
+      return cmdGet(cfg, rest);
+    case 'add':
+      return cmdAdd(cfg, flags);
+    case 'delete':
+    case 'rm':
+      return cmdDelete(cfg, rest);
+    default:
+      fail(cfg, `未知命令: ${cmd}\n运行 \`${CLI_NAME} --help\` 查看帮助。`);
+  }
+}
+
+main(process.argv.slice(2)).catch((err) => {
+  console.error(err?.stack ?? String(err));
+  process.exit(1);
+});

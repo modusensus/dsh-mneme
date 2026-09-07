@@ -39,6 +39,41 @@ window.__ModuleLoader__.load({
       h("circle", { cx: 12.4, cy: 12, r: 1.8, fill: "currentColor" })
     );
 
+    // Stroke icons, Lucide path data (ISC license) inlined as [tag, attrs]
+    // tuples — the plugin runtime cannot require third-party libraries, so
+    // the data ships with the bundle (the morphicons/lucide pairing the
+    // data package documents, minus the runtime dependency). Stroke picks
+    // up currentColor, so icons follow the host theme tokens.
+    const ICON_PATHS = {
+      database: [["ellipse", { cx: "12", cy: "5", rx: "9", ry: "3" }], ["path", { d: "M3 5V19A9 3 0 0 0 21 19V5" }], ["path", { d: "M3 12A9 3 0 0 0 21 12" }]],
+      waypoints: [["path", { d: "m10.586 5.414-5.172 5.172" }], ["path", { d: "m18.586 13.414-5.172 5.172" }], ["path", { d: "M6 12h12" }], ["circle", { cx: "12", cy: "20", r: "2" }], ["circle", { cx: "12", cy: "4", r: "2" }], ["circle", { cx: "20", cy: "12", r: "2" }], ["circle", { cx: "4", cy: "12", r: "2" }]],
+      settings: [["path", { d: "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" }], ["circle", { cx: "12", cy: "12", r: "3" }]],
+      search: [["path", { d: "m21 21-4.34-4.34" }], ["circle", { cx: "11", cy: "11", r: "8" }]],
+      refresh: [["path", { d: "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" }], ["path", { d: "M21 3v5h-5" }], ["path", { d: "M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" }], ["path", { d: "M8 16H3v5" }]],
+      chevronDown: [["path", { d: "m6 9 6 6 6-6" }]],
+      chevronRight: [["path", { d: "m9 18 6-6-6-6" }]],
+      copy: [["rect", { width: "14", height: "14", x: "8", y: "8", rx: "2", ry: "2" }], ["path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" }]],
+      check: [["path", { d: "M20 6 9 17l-5-5" }]],
+      inbox: [["polyline", { points: "22 12 16 12 14 15 10 15 8 12 2 12" }], ["path", { d: "M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" }]],
+      activity: [["path", { d: "M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" }]]
+    };
+    const Icon = ({ name, size = 16, className }) => {
+      const parts = ICON_PATHS[name];
+      if (!parts) return null;
+      return h("svg", {
+        width: size,
+        height: size,
+        viewBox: "0 0 24 24",
+        fill: "none",
+        stroke: "currentColor",
+        strokeWidth: 2,
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        className,
+        "aria-hidden": "true"
+      }, parts.map(([tag, attrs], i) => h(tag, { key: i, ...attrs })));
+    };
+
     // Unified API fetcher: attaches the optional apiToken (set in the settings
     // view, persisted in localStorage) as a Bearer header. When no token has
     // been configured the header is omitted and the API stays open (default).
@@ -181,7 +216,45 @@ window.__ModuleLoader__.load({
         "memory.wikilink.forward": "此记忆链接到",
         "memory.wikilink.empty": "暂无关联记忆",
         "memory.wikilink.loading": "加载中…",
-        "memory.wikilink.unresolved": "目标记忆不存在"
+        "memory.wikilink.unresolved": "目标记忆不存在",
+        "memory.entity.person": "人物",
+        "memory.entity.project": "项目",
+        "memory.entity.concept": "概念",
+        "memory.entity.technology": "技术",
+        "memory.entity.organization": "组织",
+        "memory.entity.other": "其他",
+        "memory.explorer.tabStatus": "状态",
+        "memory.explorer.loadMore": "加载更多",
+        "memory.explorer.delete": "删除",
+        "memory.explorer.confirmDelete": "确认删除?",
+        "memory.explorer.cancel": "取消",
+        "memory.explorer.deleted": "已删除",
+        "memory.explorer.deleteFailed": "删除失败",
+        "memory.status.memories": "记忆总数",
+        "memory.status.entities": "实体",
+        "memory.status.vector": "向量索引",
+        "memory.status.vectorOn": "已启用",
+        "memory.status.vectorOff": "未启用",
+        "memory.status.llm": "LLM 消耗",
+        "memory.status.llmCalls": "近 7 天 · {n} 次调用",
+        "memory.status.error": "加载失败",
+        "memory.settings.mode.title": "运行模式",
+        "memory.settings.mode.desc": "轻量模式只保留核心的记忆读写与自动注入（关闭 autoDream 巩固、实体抽取、语义搜索等高级功能），适合只想「记住偏好」的轻量使用；标准模式开启全部功能。",
+        "memory.settings.mode.light": "轻量",
+        "memory.settings.mode.standard": "标准",
+        "memory.settings.mode.savedHint": "已保存，重启 DSH 后生效",
+        "memory.settings.mode.offList": "已关闭：巩固（autoDream）· 实体抽取 · 语义搜索",
+        "memory.settings.extapi.title": "外部访问 API",
+        "memory.settings.extapi.desc": "独立 HTTP 服务，供其他插件 / CLI / 桌面工具读写记忆，默认绑定 127.0.0.1。重启 DSH 后生效。",
+        "memory.settings.extapi.enabled": "启用",
+        "memory.settings.extapi.disabled": "停用",
+        "memory.settings.extapi.address": "地址",
+        "memory.settings.extapi.port": "端口",
+        "memory.settings.extapi.token": "Token",
+        "memory.settings.extapi.copy": "复制",
+        "memory.settings.extapi.copied": "已复制",
+        "memory.settings.extapi.savedHint": "已保存，重启 DSH 后生效",
+        "memory.settings.extapi.invalidPort": "端口需为 1-65535 的数字"
       },
       en: {
         "memory.panel.empty": "No memories yet",
@@ -307,7 +380,45 @@ window.__ModuleLoader__.load({
         "memory.wikilink.forward": "This memory links to",
         "memory.wikilink.empty": "No linked memories",
         "memory.wikilink.loading": "Loading…",
-        "memory.wikilink.unresolved": "Target memory not found"
+        "memory.wikilink.unresolved": "Target memory not found",
+        "memory.entity.person": "People",
+        "memory.entity.project": "Projects",
+        "memory.entity.concept": "Concepts",
+        "memory.entity.technology": "Technologies",
+        "memory.entity.organization": "Organizations",
+        "memory.entity.other": "Others",
+        "memory.explorer.tabStatus": "Status",
+        "memory.explorer.loadMore": "Load more",
+        "memory.explorer.delete": "Delete",
+        "memory.explorer.confirmDelete": "Confirm delete?",
+        "memory.explorer.cancel": "Cancel",
+        "memory.explorer.deleted": "Deleted",
+        "memory.explorer.deleteFailed": "Delete failed",
+        "memory.status.memories": "Total memories",
+        "memory.status.entities": "Entities",
+        "memory.status.vector": "Vector index",
+        "memory.status.vectorOn": "Enabled",
+        "memory.status.vectorOff": "Disabled",
+        "memory.status.llm": "LLM Usage",
+        "memory.status.llmCalls": "Last 7 days · {n} calls",
+        "memory.status.error": "Failed to load",
+        "memory.settings.mode.title": "Runtime mode",
+        "memory.settings.mode.desc": "Light mode keeps only the core memory read/write and auto-injection (autoDream consolidation, entity extraction and semantic search are off) — for light use where you just want preferences remembered. Standard mode enables everything.",
+        "memory.settings.mode.light": "Light",
+        "memory.settings.mode.standard": "Standard",
+        "memory.settings.mode.savedHint": "Saved. Takes effect after restarting DSH",
+        "memory.settings.mode.offList": "Off: consolidation (autoDream) · entity extraction · semantic search",
+        "memory.settings.extapi.title": "External API",
+        "memory.settings.extapi.desc": "A standalone HTTP service for other plugins / CLIs / desktop tools to read and write memories, bound to 127.0.0.1 by default. Takes effect after restarting DSH.",
+        "memory.settings.extapi.enabled": "Enable",
+        "memory.settings.extapi.disabled": "Disable",
+        "memory.settings.extapi.address": "Address",
+        "memory.settings.extapi.port": "Port",
+        "memory.settings.extapi.token": "Token",
+        "memory.settings.extapi.copy": "Copy",
+        "memory.settings.extapi.copied": "Copied",
+        "memory.settings.extapi.savedHint": "Saved. Takes effect after restarting DSH",
+        "memory.settings.extapi.invalidPort": "Port must be a number between 1 and 65535"
       }
     };
 
@@ -563,7 +674,35 @@ window.__ModuleLoader__.load({
       ".mneme-overlaybar{flex:none;display:flex;align-items:center;justify-content:flex-start;gap:12px;height:44px;padding:0 12px 0 16px;border-bottom:1px solid var(--dsw-alias-border-l2)}",
       ".mneme-overlaytitle{font-size:14px;font-weight:600;color:var(--dsw-alias-label-primary)}",
       ".mneme-overlaybody{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}",
-      "@keyframes mneme-fadein{from{opacity:0}to{opacity:1}}"
+      "@keyframes mneme-fadein{from{opacity:0}to{opacity:1}}",
+      // --- explorer refresh: paged month tree, sticky headers, inline icons ---
+      ".mneme-vtabico{flex:none;opacity:.85}",
+      ".mneme-xsearchwrap{position:relative;flex:none}",
+      ".mneme-xsearchico{position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--dsw-alias-label-tertiary);pointer-events:none}",
+      ".mneme-xsearchwrap .mneme-xsearch{padding-left:27px}",
+      ".mneme-footbtn{display:inline-flex;align-items:center;gap:4px}",
+      ".mneme-xmonth{position:sticky;top:0;z-index:2;background:var(--dsw-alias-bg-layer-1);display:flex;align-items:center;gap:6px}",
+      ".mneme-xmonthcount{margin-left:auto;color:var(--dsw-alias-label-tertiary);font-weight:400;font-variant-numeric:tabular-nums}",
+      ".mneme-xcaret{display:inline-flex;align-items:center;justify-content:center;color:var(--dsw-alias-label-tertiary)}",
+      ".mneme-xmore{display:flex;justify-content:center;align-items:center;padding:10px 0 24px;min-height:20px}",
+      ".mneme-xemptyico{display:block;margin:0 auto 6px;opacity:.7}",
+      // --- status sub-view: responsive stat-card grid (auto-fill, ~220px min) ---
+      ".mneme-status{flex:1;min-height:0;overflow-y:auto;padding:16px 20px 32px;box-sizing:border-box}",
+      ".mneme-statusgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;max-width:960px}",
+      ".mneme-statuscard{min-width:0;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:14px}",
+      ".mneme-statusnum{font-size:24px;font-weight:600;line-height:32px;color:var(--dsw-alias-label-primary);font-variant-numeric:tabular-nums}",
+      ".mneme-statuscap{margin-top:4px;font-size:13px;line-height:19px;color:var(--dsw-alias-label-tertiary);word-break:break-word}",
+      // --- destructive actions: red outline = delete, solid red = confirm ---
+      ".mneme-btndanger{color:var(--dsw-alias-state-error,#c33);border-color:var(--dsw-alias-state-error,#c33)}",
+      ".mneme-btndanger:hover{background:color-mix(in srgb,var(--dsw-alias-state-error,#c33) 12%,transparent)}",
+      ".mneme-btndangerconfirm{background:var(--dsw-alias-state-error,#c33);border-color:var(--dsw-alias-state-error,#c33);color:#fff}",
+      ".mneme-btndangerconfirm:hover{filter:brightness(.9)}",
+      // --- settings cards: boxed cards for the runtime-mode and external-API
+      // sections — each card owns its fetch/PUT state, so it renders as a
+      // self-contained unit inside the stacked settings view ---
+      ".mneme-set-card{border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:14px;margin-bottom:12px}",
+      ".mneme-set-token{font-family:monospace;font-size:12px;padding:7px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-base,transparent);color:var(--dsw-alias-label-primary);word-break:break-all;user-select:all}",
+      ".mneme-set-hint{font-size:12px;color:var(--dsw-alias-label-tertiary)}"
     ].join("\n");
     if (typeof document !== "undefined" && document.querySelector(`style[data-plugin-css="${CSS_TAG}"]`) === null) {
       const tag = document.createElement("style");
@@ -1076,6 +1215,21 @@ window.__ModuleLoader__.load({
       const [autoTagSaved, setAutoTagSaved] = react.useState(false);
       const [showSidebarTrigger, setShowSidebarTrigger] = react.useState(true);
       const [sidebarTriggerSaved, setSidebarTriggerSaved] = react.useState(false);
+      // 运行模式 — light vs standard; null = still loading. The card keeps
+      // its own busy/saved/error state so it never blocks the others.
+      const [mode, setMode] = react.useState(null);
+      const [modeBusy, setModeBusy] = react.useState(false);
+      const [modeSaved, setModeSaved] = react.useState(false);
+      const [modeError, setModeError] = react.useState("");
+      // 外部访问 API — config fetched from the backend (the token is generated
+      // and kept server-side); host/port inputs are drafts, PUT only on save.
+      const [extapi, setExtapi] = react.useState(null);
+      const [extapiHost, setExtapiHost] = react.useState("127.0.0.1");
+      const [extapiPort, setExtapiPort] = react.useState("");
+      const [extapiBusy, setExtapiBusy] = react.useState(false);
+      const [extapiSaved, setExtapiSaved] = react.useState(false);
+      const [extapiCopied, setExtapiCopied] = react.useState(false);
+      const [extapiError, setExtapiError] = react.useState("");
 
       const load = react.useCallback(async () => {
         try {
@@ -1100,6 +1254,34 @@ window.__ModuleLoader__.load({
       }, []);
 
       react.useEffect(() => { load(); }, [load]);
+
+      // Runtime mode + external API — two independent fetches: one failing
+      // endpoint only errors its own card, never the other one.
+      react.useEffect(() => {
+        let cancelled = false;
+        const toErr = (err) => (err && err.message) || "failed";
+        apiFetch("/api/dsh-mneme/mode")
+          .then((res) => { if (!res.ok) throw new Error("HTTP " + res.status); return res.json(); })
+          .then((j) => { if (!cancelled) setMode(j.mode === "light" ? "light" : "standard"); })
+          .catch((err) => { if (!cancelled) setModeError(toErr(err)); });
+        apiFetch("/api/dsh-mneme/external-api")
+          .then((res) => { if (!res.ok) throw new Error("HTTP " + res.status); return res.json(); })
+          .then((j) => {
+            if (cancelled) return;
+            const cfg = (j && j.config) || {};
+            const next = {
+              enabled: !!cfg.enabled,
+              host: cfg.host || "127.0.0.1",
+              port: Number(cfg.port) || 0,
+              token: cfg.token || ""
+            };
+            setExtapi(next);
+            setExtapiHost(next.host);
+            setExtapiPort(next.port ? String(next.port) : "");
+          })
+          .catch((err) => { if (!cancelled) setExtapiError(toErr(err)); });
+        return () => { cancelled = true; };
+      }, []);
 
       async function saveProfile() {
         try {
@@ -1216,6 +1398,85 @@ window.__ModuleLoader__.load({
         } catch { /* ignore */ }
       }
 
+      // Runtime mode: optimistic chip flip, rolled back on failure. Both
+      // changes only take effect after a DSH restart — the saved hint says so.
+      async function saveMode(next) {
+        if (modeBusy) return;
+        const prev = mode;
+        setModeBusy(true);
+        setModeError("");
+        setMode(next);
+        try {
+          const res = await apiFetch("/api/dsh-mneme/mode", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mode: next })
+          });
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          setModeSaved(true);
+          setTimeout(() => setModeSaved(false), 2500);
+        } catch (err) {
+          setMode(prev);
+          setModeError((err && err.message) || "failed");
+        }
+        setModeBusy(false);
+      }
+
+      // External API: the backend owns the token and returns the full config,
+      // so every PUT response refreshes host/port/token from the server.
+      async function putExtapi(body) {
+        setExtapiBusy(true);
+        setExtapiError("");
+        try {
+          const res = await apiFetch("/api/dsh-mneme/external-api", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body)
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
+          const cfg = data.config || {};
+          const next = {
+            enabled: !!cfg.enabled,
+            host: cfg.host || "127.0.0.1",
+            port: Number(cfg.port) || 0,
+            token: cfg.token || ""
+          };
+          setExtapi(next);
+          setExtapiHost(next.host);
+          setExtapiPort(next.port ? String(next.port) : "");
+          setExtapiSaved(true);
+          setTimeout(() => setExtapiSaved(false), 2500);
+        } catch (err) {
+          setExtapiError((err && err.message) || "failed");
+        }
+        setExtapiBusy(false);
+      }
+
+      function saveExtapiEnabled(enabled) {
+        if (extapiBusy) return;
+        putExtapi({ enabled });
+      }
+
+      function saveExtapiAddress() {
+        if (extapiBusy) return;
+        const raw = String(extapiPort).trim();
+        const port = Number(raw);
+        if (!/^\d+$/.test(raw) || port < 1 || port > 65535) {
+          setExtapiError(t("memory.settings.extapi.invalidPort"));
+          return;
+        }
+        putExtapi({ port, host: extapiHost.trim() || "127.0.0.1" });
+      }
+
+      function copyExtapiToken() {
+        const token = extapi ? extapi.token || "" : "";
+        navigator.clipboard?.writeText(token).then(
+          () => { setExtapiCopied(true); setTimeout(() => setExtapiCopied(false), 1500); },
+          () => {}
+        );
+      }
+
       return h("div", null,
         h("section", { className: "mneme-set-sec" },
           h("div", { className: "mneme-set-title" }, t("memory.settings.profile")),
@@ -1288,6 +1549,86 @@ window.__ModuleLoader__.load({
               cmdError && h("span", { style: { fontSize: 12, color: "var(--dsw-alias-state-error, #c33)" } }, cmdError)
             )
           )
+        ),
+        // 运行模式 — light vs standard chip radios; each click PUTs and the
+        // change only lands after a DSH restart (green saved hint says so).
+        h("section", { className: "mneme-set-card" },
+          h("div", { className: "mneme-set-title" }, t("memory.settings.mode.title")),
+          h("div", { className: "mneme-set-desc" }, t("memory.settings.mode.desc")),
+          modeError && h("div", { style: { fontSize: 12, color: "var(--dsw-alias-state-error,#c33)", marginBottom: 8 } }, modeError),
+          mode === null && !modeError
+            ? h("div", { className: "mneme-set-hint" }, "…")
+            : h(react.Fragment, null,
+                h("div", { style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" } },
+                  h("button", {
+                    className: mode === "light" ? "mneme-chip mneme-active" : "mneme-chip",
+                    disabled: modeBusy,
+                    onClick: () => saveMode("light")
+                  }, t("memory.settings.mode.light")),
+                  h("button", {
+                    className: mode === "standard" ? "mneme-chip mneme-active" : "mneme-chip",
+                    disabled: modeBusy,
+                    onClick: () => saveMode("standard")
+                  }, t("memory.settings.mode.standard")),
+                  modeSaved && h("span", { className: "mneme-saved" }, t("memory.settings.mode.savedHint"))
+                ),
+                mode === "light" && h("div", { className: "mneme-set-hint", style: { marginTop: 8 } },
+                  t("memory.settings.mode.offList"))
+              )
+        ),
+        // 外部访问 API — standalone HTTP service for plugins/CLI/desktop tools;
+        // the token is generated and kept by the backend, so it is read-only
+        // here with a copy affordance. Changes need a DSH restart.
+        h("section", { className: "mneme-set-card" },
+          h("div", { className: "mneme-set-title" }, t("memory.settings.extapi.title")),
+          h("div", { className: "mneme-set-desc" }, t("memory.settings.extapi.desc")),
+          extapiError && h("div", { style: { fontSize: 12, color: "var(--dsw-alias-state-error,#c33)", marginBottom: 8 } }, extapiError),
+          extapi === null && !extapiError
+            ? h("div", { className: "mneme-set-hint" }, "…")
+            : h(react.Fragment, null,
+                h("div", { style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" } },
+                  h("button", {
+                    className: extapi && extapi.enabled ? "mneme-chip mneme-active" : "mneme-chip",
+                    disabled: extapiBusy,
+                    onClick: () => saveExtapiEnabled(true)
+                  }, t("memory.settings.extapi.enabled")),
+                  h("button", {
+                    className: extapi && !extapi.enabled ? "mneme-chip mneme-active" : "mneme-chip",
+                    disabled: extapiBusy,
+                    onClick: () => saveExtapiEnabled(false)
+                  }, t("memory.settings.extapi.disabled")),
+                  extapiSaved && h("span", { className: "mneme-saved" }, t("memory.settings.extapi.savedHint"))
+                ),
+                extapi && extapi.enabled && h(react.Fragment, null,
+                  h("div", { className: "mneme-set-hint", style: { marginTop: 10 } },
+                    `${t("memory.settings.extapi.address")}: http://${extapi.host}:${extapi.port}`),
+                  h("div", { style: { display: "flex", gap: 8, marginTop: 8 } },
+                    h("input", {
+                      className: "mneme-set-input",
+                      style: { marginBottom: 0, flex: 2, minWidth: 0, width: "auto" },
+                      value: extapiHost,
+                      placeholder: "127.0.0.1",
+                      onChange: (e) => setExtapiHost(e.target.value)
+                    }),
+                    h("input", {
+                      className: "mneme-set-input",
+                      style: { marginBottom: 0, flex: 1, minWidth: 0, width: "auto" },
+                      value: extapiPort,
+                      placeholder: t("memory.settings.extapi.port"),
+                      inputMode: "numeric",
+                      onChange: (e) => setExtapiPort(e.target.value)
+                    }),
+                    h("button", { className: "mneme-btn", disabled: extapiBusy, onClick: saveExtapiAddress },
+                      t("memory.settings.vectorSave"))
+                  ),
+                  h("div", { style: { display: "flex", alignItems: "center", gap: 8, marginTop: 10 } },
+                    h("div", { className: "mneme-set-token", style: { flex: 1, minWidth: 0 } }, extapi.token || "—"),
+                    h("button", { className: "mneme-btn", onClick: copyExtapiToken },
+                      t("memory.settings.extapi.copy")),
+                    extapiCopied && h("span", { className: "mneme-saved" }, t("memory.settings.extapi.copied"))
+                  )
+                )
+              )
         ),
         h("section", { className: "mneme-set-sec" },
           h("div", { className: "mneme-set-title" }, t("memory.settings.autoTagTitle")),
@@ -1734,12 +2075,160 @@ window.__ModuleLoader__.load({
     }
 
     const EXPLORER_TYPES = ["preference", "project", "decision", "summary", "history", "user", "fact"];
+    const PAGE_SIZE = 100; // browse page size — the tree grows by 100-row pages
+
+    // --- Status sub-view: a responsive grid of stat cards. Every card owns
+    // its fetch, loading ("…") and error state, so one failing endpoint
+    // never blanks or blocks the others. ---
+    function StatusCard({ t, title, loading, error, num, cap }) {
+      return h("div", { className: "mneme-statuscard" },
+        h("div", { className: "mneme-xcolhead" }, title),
+        loading
+          ? h("div", { className: "mneme-statusnum" }, "…")
+          : error
+            ? h("div", { className: "mneme-statuscap", style: { color: "var(--dsw-alias-state-error,#c33)" } }, t("memory.status.error"))
+            : h(react.Fragment, null,
+                h("div", { className: "mneme-statusnum" }, num),
+                cap ? h("div", { className: "mneme-statuscap" }, cap) : null
+              )
+      );
+    }
+
+    // 记忆总数 — list total plus per-type subtotals; each subtotal request
+    // may fail independently (rendered as "—") without sinking the card.
+    function MemoriesStatusCard({ t }) {
+      const [state, setState] = useState({ loading: true, error: false, total: 0, byType: [] });
+      useEffect(() => {
+        let cancelled = false;
+        const one = (ty) =>
+          apiFetch(`/api/dsh-mneme/list?limit=1&order=chrono${ty ? `&type=${encodeURIComponent(ty)}` : ""}`)
+            .then((res) => { if (!res.ok) throw new Error("http"); return res.json(); });
+        one()
+          .then((all) => {
+            if (cancelled) return null;
+            const total = all.total || 0;
+            return Promise.all(EXPLORER_TYPES.map((ty) =>
+              one(ty).then((j) => [ty, j.total || 0]).catch(() => [ty, null])
+            )).then((byType) => {
+              if (!cancelled) setState({ loading: false, error: false, total, byType });
+            });
+          })
+          .catch(() => { if (!cancelled) setState({ loading: false, error: true, total: 0, byType: [] }); });
+        return () => { cancelled = true; };
+      }, []);
+      const cap = state.byType
+        .map(([ty, n]) => `${typeLabel(t, ty)} ${n === null ? "—" : n}`)
+        .join(" · ");
+      return h(StatusCard, {
+        t,
+        title: t("memory.status.memories"),
+        loading: state.loading,
+        error: state.error,
+        num: state.total.toLocaleString(),
+        cap
+      });
+    }
+
+    // 实体 — directory snapshot grouped by entity type.
+    function EntitiesStatusCard({ t }) {
+      const [state, setState] = useState({ loading: true, error: false, total: 0, byType: [] });
+      useEffect(() => {
+        let cancelled = false;
+        const order = ["organization", "person", "project", "technology", "concept"];
+        apiFetch("/api/dsh-mneme/entities?limit=500")
+          .then((res) => { if (!res.ok) throw new Error("http"); return res.json(); })
+          .then((j) => {
+            if (cancelled) return;
+            const list = Array.isArray(j.entities) ? j.entities : [];
+            const counts = new Map();
+            for (const e of list) {
+              const key = order.includes(e.type) ? e.type : "other";
+              counts.set(key, (counts.get(key) || 0) + 1);
+            }
+            const byType = order.concat("other")
+              .filter((k) => counts.has(k))
+              .map((k) => [k, counts.get(k)]);
+            setState({ loading: false, error: false, total: list.length, byType });
+          })
+          .catch(() => { if (!cancelled) setState({ loading: false, error: true, total: 0, byType: [] }); });
+        return () => { cancelled = true; };
+      }, []);
+      const cap = state.byType.map(([ty, n]) => `${entityTypeLabel(t, ty)} ${n}`).join(" · ");
+      return h(StatusCard, {
+        t,
+        title: t("memory.status.entities"),
+        loading: state.loading,
+        error: state.error,
+        num: state.total.toLocaleString(),
+        cap
+      });
+    }
+
+    // 向量索引 — whether semantic recall is switched on.
+    function VectorStatusCard({ t }) {
+      const [state, setState] = useState({ loading: true, error: false, enabled: false });
+      useEffect(() => {
+        let cancelled = false;
+        apiFetch("/api/dsh-mneme/vector-config")
+          .then((res) => { if (!res.ok) throw new Error("http"); return res.json(); })
+          .then((j) => { if (!cancelled) setState({ loading: false, error: false, enabled: !!j.config?.enabled }); })
+          .catch(() => { if (!cancelled) setState({ loading: false, error: true, enabled: false }); });
+        return () => { cancelled = true; };
+      }, []);
+      return h(StatusCard, {
+        t,
+        title: t("memory.status.vector"),
+        loading: state.loading,
+        error: state.error,
+        num: state.enabled ? t("memory.status.vectorOn") : t("memory.status.vectorOff"),
+        cap: ""
+      });
+    }
+
+    // LLM 消耗 — calls + tokens over the trailing 7 days.
+    function LlmStatusCard({ t }) {
+      const [state, setState] = useState({ loading: true, error: false, calls: 0, tokens: 0 });
+      useEffect(() => {
+        let cancelled = false;
+        apiFetch("/api/dsh-mneme/semantic/llm-audit/stats?days=7")
+          .then((res) => { if (!res.ok) throw new Error("http"); return res.json(); })
+          .then((j) => {
+            if (cancelled) return;
+            const s = j && typeof j === "object" ? (j.stats || j) : {};
+            setState({ loading: false, error: false, calls: Number(s.total_calls ?? 0), tokens: Number(s.total_tokens ?? 0) });
+          })
+          .catch(() => { if (!cancelled) setState({ loading: false, error: true, calls: 0, tokens: 0 }); });
+        return () => { cancelled = true; };
+      }, []);
+      return h(StatusCard, {
+        t,
+        title: t("memory.status.llm"),
+        loading: state.loading,
+        error: state.error,
+        num: state.tokens.toLocaleString(),
+        cap: t("memory.status.llmCalls").replace("{n}", state.calls.toLocaleString())
+      });
+    }
+
+    function StatusPanel({ t }) {
+      return h("div", { className: "mneme-status" },
+        h("div", { className: "mneme-statusgrid" },
+          h(MemoriesStatusCard, { t }),
+          h(EntitiesStatusCard, { t }),
+          h(VectorStatusCard, { t }),
+          h(LlmStatusCard, { t })
+        )
+      );
+    }
 
     function MemoryExplorer({ t }) {
-      const [view, setView] = useState("memory"); // memory | overview | directory | graph | settings
-      const [items, setItems] = useState([]);
+      const [view, setView] = useState("memory"); // memory | overview | directory | status | graph | settings
+      const [items, setItems] = useState([]); // loaded browse pages, chrono desc
+      const [total, setTotal] = useState(0); // server count for the current type filter
       const [loading, setLoading] = useState(true);
+      const [loadingMore, setLoadingMore] = useState(false);
       const [type, setType] = useState("all");
+      const [minImp, setMinImp] = useState(0); // importance floor: 0 = all, else 3/4/5
       const [query, setQuery] = useState("");
       const [semantic, setSemantic] = useState(false);
       const [vecEnabled, setVecEnabled] = useState(false);
@@ -1747,12 +2236,18 @@ window.__ModuleLoader__.load({
       const [remoteItems, setRemoteItems] = useState(null);
       const [selectedId, setSelectedId] = useState(null);
       const [collapsed, setCollapsed] = useState({});
+      // paged month tree: null = 仅最新一个月展开, else a per-month override map
+      const [expandedMonths, setExpandedMonths] = useState(null);
       // v0.6.3 directory sub-view: its own folder-collapse state, kept in
       // MemoryExplorer so switching tabs does not lose it and jumpToMemory's
       // time-tree reset (setCollapsed({})) cannot clobber it.
       const [dirCollapsed, setDirCollapsed] = useState({});
       const [copied, setCopied] = useState(false);
       const [reloadKey, setReloadKey] = useState(0);
+      const [confirmDelete, setConfirmDelete] = useState(false); // two-step delete armed
+      const [deleting, setDeleting] = useState(false);
+      const [deleteError, setDeleteError] = useState(false);
+      const [deleteMsg, setDeleteMsg] = useState(false); // transient "deleted" notice
       const [graphFocus, setGraphFocus] = useState("");
       // v0.6.2 tag editing state for the detail pane. The authoritative tag set
       // lives server-side (entity_attrs), so it is fetched per selected memory
@@ -1762,6 +2257,7 @@ window.__ModuleLoader__.load({
       const [tagInput, setTagInput] = useState("");
       const [tagAdding, setTagAdding] = useState(false);
       const itemRefs = useRef(new Map());
+      const moreRef = useRef(null);
 
       useEffect(() => {
         apiFetch("/api/dsh-mneme/vector-config")
@@ -1770,36 +2266,116 @@ window.__ModuleLoader__.load({
           .catch(() => {});
       }, []);
 
+      // One query string behind every browse-list fetch (initial page,
+      // loadMore, auto-refresh): the type filter and the importance floor
+      // always travel together, so counts and pagination stay consistent.
+      const filterQS = (type === "all" ? "" : `&type=${encodeURIComponent(type)}`)
+        + (minImp ? `&minImportance=${minImp}` : "");
+      const listUrl = (offset) => `/api/dsh-mneme/list?limit=${PAGE_SIZE}&offset=${offset}${filterQS}&order=chrono`;
+
+      // Browse = paged, pure-chronological pages (order=chrono). The default
+      // importance ordering would interleave months across pages and break
+      // the month tree; type/importance filters run server-side so pages
+      // stay consistent however large the store grows.
       useEffect(() => {
         let cancelled = false;
         setLoading(true);
-        apiFetch("/api/dsh-mneme/list?limit=500")
-          .then((res) => (res.ok ? res.json() : { items: [] }))
-          .then((d) => { if (!cancelled) { setItems(d.items || []); setLoading(false); } })
-          .catch(() => { if (!cancelled) { setItems([]); setLoading(false); } });
+        apiFetch(listUrl(0))
+          .then((res) => (res.ok ? res.json() : { items: [], total: 0 }))
+          .then((d) => {
+            if (cancelled) return;
+            setItems(d.items || []);
+            setTotal(d.total || 0);
+            setExpandedMonths(null); // 新数据回到「仅最新月展开」
+            setLoading(false);
+          })
+          .catch(() => { if (!cancelled) { setItems([]); setTotal(0); setLoading(false); } });
         return () => { cancelled = true; };
-      }, [reloadKey]);
+      }, [reloadKey, filterQS]);
 
-      // Semantic search: server-side ranking replaces the client filter
-      // while enabled and a query is present (debounced). tag: queries always
-      // go server-side (searchMemories resolves them without vector support),
-      // so they bypass the semantic toggle and use the same search endpoint.
+      const canLoadMore = !query.trim() && !remoteItems && items.length < total;
+      const loadMore = useCallback(() => {
+        if (loadingMore || query.trim() || remoteItems) return;
+        if (items.length >= total) return;
+        setLoadingMore(true);
+        apiFetch(listUrl(items.length))
+          .then((res) => (res.ok ? res.json() : { items: [] }))
+          .then((d) => setItems((cur) => cur.concat(d.items || [])))
+          .catch(() => {})
+          .finally(() => setLoadingMore(false));
+      }, [items.length, total, loadingMore, query, remoteItems, filterQS]);
+
+      // Infinite scroll: a sentinel just past the loaded rows pulls the next
+      // page while browsing (search results arrive complete already). The
+      // scroll container is the timeline card.
       useEffect(() => {
-        const q = query.trim();
-        if ((!semantic && !q.startsWith("tag:")) || !q || q.startsWith("entity:")) { setRemoteItems(null); return; }
+        const el = moreRef.current;
+        if (!el || !canLoadMore) return undefined;
+        const io = new IntersectionObserver((entries) => {
+          if (entries.some((e) => e.isIntersecting)) loadMore();
+        }, { root: el.closest(".mneme-card--tree"), rootMargin: "240px" });
+        io.observe(el);
+        return () => io.disconnect();
+      }, [canLoadMore, loadMore]);
+
+      // Search hits the server so matches are global — not limited to the
+      // loaded pages: keyword = literal text; vector = semantic ranking
+      // (the pipeline falls back to keyword when no embedder is available).
+      // tag: queries ride the same endpoint (the server resolves them
+      // without vector support); entity: is the graph grammar and just
+      // clears the list.
+      useEffect(() => {
+        const query0 = query.trim();
+        if (!query0 || query0.startsWith("entity:")) { setRemoteItems(null); return; }
         let cancelled = false;
         const timer = setTimeout(() => {
-          apiFetch(`/api/dsh-mneme/search?q=${encodeURIComponent(q)}&mode=vector&topK=${searchTopK}`)
+          const mode = semantic ? "vector" : "keyword";
+          apiFetch(`/api/dsh-mneme/search?q=${encodeURIComponent(query0)}&mode=${mode}&topK=${searchTopK}`)
             .then((res) => (res.ok ? res.json() : { items: [] }))
             .then((d) => { if (!cancelled) setRemoteItems(d.items || []); })
             .catch(() => { if (!cancelled) setRemoteItems([]); });
         }, 250);
         return () => { cancelled = true; clearTimeout(timer); };
-      }, [semantic, query, searchTopK]);
+      }, [query, semantic, searchTopK]);
+
+      // Live view: while the memory tab is open, quietly re-fetch page 1
+      // every 30s (and on every activation) so fresh memories surface
+      // without a manual refresh. Later pages stay as loaded.
+      const refreshFirstPage = useCallback(() => {
+        if (query.trim() || remoteItems) return;
+        apiFetch(listUrl(0))
+          .then((res) => (res.ok ? res.json() : null))
+          .then((d) => {
+            if (!d) return;
+            setTotal(d.total || 0);
+            setItems((cur) => {
+              const fresh = d.items || [];
+              const seen = new Set(fresh.map((m) => m.id));
+              return fresh.concat(cur.filter((m) => !seen.has(m.id)));
+            });
+          })
+          .catch(() => {});
+      }, [query, remoteItems, filterQS]);
+
+      useEffect(() => {
+        if (view !== "memory") return undefined;
+        refreshFirstPage();
+        const iv = setInterval(() => {
+          if (document.visibilityState === "visible") refreshFirstPage();
+        }, 30000);
+        return () => clearInterval(iv);
+      }, [view, refreshFirstPage]);
 
       useEffect(() => {
         if (!selectedId) return;
         itemRefs.current.get(selectedId)?.scrollIntoView({ block: "nearest" });
+      }, [selectedId]);
+
+      // The two-step delete arms per selection: switching or clearing the
+      // target disarms it, so a stale confirm can never delete a new pick.
+      useEffect(() => {
+        setConfirmDelete(false);
+        setDeleteError(false);
       }, [selectedId]);
 
       // Load the authoritative tag set for the selected memory (entity_attrs-
@@ -1833,13 +2409,12 @@ window.__ModuleLoader__.load({
       const entityQuery = query.trim().startsWith("entity:")
         ? query.trim().slice(7).trim()
         : "";
+      // Search results were filtered server-side (global); the type filter
+      // still narrows them. Browse mode serves the loaded pages as-is —
+      // type/importance filtering happened in the query.
       const visible = remoteItems
-        ? remoteItems
-        : items.filter((m) => {
-            if (type !== "all" && m.type !== type) return false;
-            if (!q) return true;
-            return (m.title || "").toLowerCase().includes(q) || (m.content || "").toLowerCase().includes(q);
-          });
+        ? remoteItems.filter((m) => type === "all" || m.type === type)
+        : items;
 
       const counts = {};
       for (const m of items) counts[m.type] = (counts[m.type] || 0) + 1;
@@ -1874,8 +2449,9 @@ window.__ModuleLoader__.load({
         }
         curDay.items.push(m);
       }
+      for (const mo of months) mo.count = mo.days.reduce((s, d) => s + d.items.length, 0);
 
-      const selected = items.find((m) => m.id === selectedId) || null;
+      const selected = visible.find((m) => m.id === selectedId) || null;
 
       const copyContent = () => {
         if (!selected) return;
@@ -1921,14 +2497,49 @@ window.__ModuleLoader__.load({
         setQuery(`tag:${tag}`);
       };
 
+      // Two-step delete (no window.confirm): the red button arms, a second
+      // click commits POST /api/dsh-mneme/delete. On success the row leaves
+      // every local view (browse pages + search results), the selection
+      // clears and the total shrinks; failures — 404 included — surface as
+      // a transient red note next to the actions.
+      const deleteSelected = () => {
+        if (!selected || deleting) return;
+        const id = selected.id;
+        setDeleting(true);
+        setDeleteError(false);
+        apiFetch("/api/dsh-mneme/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id })
+        })
+          .then((res) => { if (!res.ok) throw new Error("http"); })
+          .then(() => {
+            setItems((cur) => cur.filter((m) => m.id !== id));
+            setRemoteItems((cur) => (cur ? cur.filter((m) => m.id !== id) : cur));
+            setTotal((n) => Math.max(0, n - 1));
+            setSelectedId(null);
+            setConfirmDelete(false);
+            setDeleteMsg(true);
+            setTimeout(() => setDeleteMsg(false), 2500);
+          })
+          .catch(() => {
+            setDeleteError(true);
+            setTimeout(() => setDeleteError(false), 4000);
+          })
+          .finally(() => setDeleting(false));
+      };
+
       // Graph → memory jump: land on the browser tab with filters reset so
-      // the target row is visible, selected and scrolled into view.
+      // the target row is visible, selected and scrolled into view. A target
+      // beyond the loaded pages renders as a single-row result set instead
+      // of pulling page after page to find it.
       const jumpToMemory = (target) => {
         if (!target?.id) return;
         setView("memory");
         setType("all");
         setQuery("");
-        setCollapsed({});
+        setRemoteItems(items.some((m) => m.id === target.id) ? null : [target]);
+        setExpandedMonths(null);
         setSelectedId(target.id);
       };
 
@@ -1958,6 +2569,7 @@ window.__ModuleLoader__.load({
         { key: "memory", label: t("memory.explorer.tabMemory") },
         { key: "overview", label: t("memory.explorer.tabOverview") },
         { key: "directory", label: t("memory.explorer.tabDirectory") },
+        { key: "status", label: t("memory.explorer.tabStatus") },
         { key: "graph", label: t("memory.explorer.tabGraph") },
         { key: "settings", label: t("memory.explorer.tabSettings") }
       ];
@@ -1975,7 +2587,11 @@ window.__ModuleLoader__.load({
               },
                 s.key === "graph"
                   ? h(react.Fragment, null, h(GraphNodesIcon, { size: 16 }), s.label)
-                  : s.label
+                  : s.key === "memory" || s.key === "status" || s.key === "settings"
+                    ? h(react.Fragment, null,
+                        h(Icon, { name: s.key === "memory" ? "database" : s.key === "status" ? "activity" : "settings", size: 14, className: "mneme-vtabico" }),
+                        s.label)
+                    : s.label
               ))
           ),
           ),
@@ -1998,20 +2614,33 @@ window.__ModuleLoader__.load({
                 h("span", { className: "mneme-xdot", style: { color: memoryTypeColor(key) }, title: typeLabel(t, key), "aria-hidden": "true" }),
                 h("span", null, typeLabel(t, key)),
                 h("span", { className: "mneme-xcount2" }, String(counts[key]))
-              ))
+              )),
+            h("div", { className: "mneme-xcolhead", style: { marginLeft: 8 } }, t("memory.explorer.importance")),
+            // importance floor chips: filtering happens server-side so the
+            // paged chronological stream and its totals stay consistent
+            [0, 3, 4, 5].map((v) =>
+              h("button", {
+                key: v,
+                className: minImp === v ? "mneme-chip mneme-active" : "mneme-chip",
+                "aria-pressed": String(minImp === v),
+                onClick: () => setMinImp(v)
+              }, v === 0 ? t("memory.tab.all") : `★${v}+`))
           ),
           // 2. 底部三卡片
           h("div", { className: "mneme-xcards" },
             // 左卡：搜索
             h("div", { className: "mneme-card mneme-card--search", role: "region", "aria-label": t("memory.explorer.searchTitle") },
               h("div", { className: "mneme-xcolhead" }, t("memory.explorer.searchTitle")),
-              h("input", {
-                className: "mneme-search mneme-xsearch",
-                "aria-label": t("memory.explorer.search"),
-                placeholder: t("memory.explorer.search"),
-                value: query,
-                onChange: (e) => setQuery(e.target.value)
-              }),
+              h("div", { className: "mneme-xsearchwrap" },
+                h(Icon, { name: "search", size: 14, className: "mneme-xsearchico" }),
+                h("input", {
+                  className: "mneme-search mneme-xsearch",
+                  "aria-label": t("memory.explorer.search"),
+                  placeholder: t("memory.explorer.search"),
+                  value: query,
+                  onChange: (e) => setQuery(e.target.value)
+                })
+              ),
               entityQuery && h("button", {
                 className: "mneme-entitychip",
                 style: { textAlign: "left", justifyContent: "flex-start" },
@@ -2032,7 +2661,8 @@ window.__ModuleLoader__.load({
               ),
               h("div", { className: "mneme-xrow" },
                 h("span", { className: "mneme-xcount" }, t("memory.explorer.count").replace("{n}", String(visible.length))),
-                h("button", { className: "mneme-footbtn", onClick: () => setReloadKey((k) => k + 1) }, t("memory.explorer.refresh"))
+                h("button", { className: "mneme-footbtn", onClick: () => setReloadKey((k) => k + 1) },
+                  h(Icon, { name: "refresh", size: 12 }), t("memory.explorer.refresh"))
               )
             ),
             // 中卡：时间树
@@ -2040,26 +2670,36 @@ window.__ModuleLoader__.load({
               h("div", { className: "mneme-xcolhead" }, t("memory.explorer.timeline")),
               loading
                 ? h("div", { className: "mneme-xempty" }, "…")
-                : months.length === 0
-                  ? h("div", { className: "mneme-xempty" }, t("memory.explorer.empty"))
-                  : months.map((month) =>
-                      h("div", { key: month.key },
+                : visible.length === 0
+                  ? h("div", { className: "mneme-xempty" },
+                      h(Icon, { name: "inbox", size: 20, className: "mneme-xemptyico" }),
+                      t("memory.explorer.empty"))
+                  : months.map((month, mi) => {
+                      // Only the newest month starts expanded; older months
+                      // stay a one-line header until clicked — a several-
+                      // thousand-row store renders a handful of DOM nodes.
+                      const open = expandedMonths ? !!expandedMonths[month.key] : mi === 0;
+                      return h("div", { key: month.key },
                         h("button", {
                           className: "mneme-xmonth",
-                          "aria-expanded": String(!collapsed[month.key]),
-                          onClick: () => setCollapsed((c) => ({ ...c, [month.key]: !c[month.key] }))
+                          "aria-expanded": String(open),
+                          onClick: () => setExpandedMonths((c) => {
+                            const base = c || (months.length ? { [months[0].key]: true } : {});
+                            return { ...base, [month.key]: !open };
+                          })
                         },
-                          h("span", { className: "mneme-xcaret" }, collapsed[month.key] ? "▸" : "▾"),
-                          month.label
+                          h("span", { className: "mneme-xcaret" }, h(Icon, { name: open ? "chevronDown" : "chevronRight", size: 12 })),
+                          h("span", null, month.label),
+                          h("span", { className: "mneme-xmonthcount" }, String(month.count))
                         ),
-                        !collapsed[month.key] && month.days.map((day) =>
+                        open && month.days.map((day) =>
                           h("div", { key: day.key },
                             h("button", {
                               className: "mneme-xday",
                               "aria-expanded": String(!collapsed[day.key]),
                               onClick: () => setCollapsed((c) => ({ ...c, [day.key]: !c[day.key] }))
                             },
-                              h("span", { className: "mneme-xcaret" }, collapsed[day.key] ? "▸" : "▾"),
+                              h("span", { className: "mneme-xcaret" }, h(Icon, { name: collapsed[day.key] ? "chevronRight" : "chevronDown", size: 11 })),
                               day.label
                             ),
                             !collapsed[day.key] && day.items.map((m) => {
@@ -2078,10 +2718,20 @@ window.__ModuleLoader__.load({
                                 h("span", { className: "mneme-xname" }, m.title || m.content?.slice(0, 40))
                               );
                             })
-                          )
-                      )
-                  )
-            )),
+                          ))
+                      );
+                    }),
+              // load-more sentinel: the next 100-row page arrives when this
+              // row scrolls near (or the button is clicked)
+              h("div", { ref: moreRef, className: "mneme-xmore" },
+                canLoadMore
+                  ? h("button", { className: "mneme-footbtn", disabled: loadingMore, onClick: loadMore },
+                      loadingMore ? "…" : `${t("memory.explorer.loadMore")}（${items.length}/${total}）`)
+                  : (!loading && visible.length > 0 && !q && !remoteItems
+                      ? h("span", { className: "mneme-xcount" }, `${items.length} / ${total}`)
+                      : null)
+              )
+            ),
             // 右卡：详情
             h("div", { className: "mneme-card mneme-card--detail", role: "region", "aria-label": t("memory.explorer.detail") },
               selected
@@ -2143,17 +2793,40 @@ window.__ModuleLoader__.load({
                       ),
                       h("div", { className: "mneme-xdactions" },
                         h("button", { className: "mneme-footbtn", onClick: copyContent },
-                          copied ? t("memory.explorer.copied") : t("memory.explorer.copy"))
+                          h(Icon, { name: copied ? "check" : "copy", size: 12 }),
+                          copied ? t("memory.explorer.copied") : t("memory.explorer.copy")),
+                        // two-step delete: red outline arms, solid red commits
+                        confirmDelete
+                          ? h(react.Fragment, null,
+                              h("button", {
+                                className: "mneme-btn mneme-btndangerconfirm",
+                                disabled: deleting,
+                                onClick: deleteSelected
+                              }, t("memory.explorer.confirmDelete")),
+                              h("button", {
+                                className: "mneme-btn",
+                                onClick: () => setConfirmDelete(false)
+                              }, t("memory.explorer.cancel"))
+                            )
+                          : h("button", {
+                              className: "mneme-btn mneme-btndanger",
+                              onClick: () => setConfirmDelete(true)
+                            }, t("memory.explorer.delete")),
+                        deleteError && h("span", { style: { fontSize: 12, color: "var(--dsw-alias-state-error,#c33)" } },
+                          t("memory.explorer.deleteFailed"))
                       ),
                       h(BacklinksPanel, { memory: selected, t, onJump: jumpToMemory })
                     )
                   )
-                : h("div", { className: "mneme-xempty" }, t("memory.explorer.emptyDetail"))
+                : h("div", { className: "mneme-xempty" },
+                    deleteMsg && h("div", { className: "mneme-saved", style: { marginBottom: 6 } }, t("memory.explorer.deleted")),
+                    t("memory.explorer.emptyDetail"))
             )
           )
         ),
         view === "overview" && h(OverviewPanel, { t, onPickType: pickLayerType }),
         view === "directory" && h(DirectoryPanel, { t, onJump: jumpToMemory, collapsed: dirCollapsed, setCollapsed: setDirCollapsed }),
+        view === "status" && h(StatusPanel, { t }),
         view === "graph" && h(GraphPanel, { t, focusEntity: graphFocus, onJumpMemory: jumpToMemory }),
         view === "settings" && h("div", { className: "mneme-xsettings" },
           h("div", { className: "mneme-xsettings-inner" }, h(SettingsContent, { t }))

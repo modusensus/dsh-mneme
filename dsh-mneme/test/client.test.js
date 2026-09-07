@@ -155,10 +155,10 @@ test("graph toggle uses a node-graph glyph, not the share icon", () => {
 });
 
 // Every memory feature lives in the main-area library now: the explorer
-// hosts three sub-views (browse / graph / settings) switched by tabs whose
-// labels come from dedicated dictionary keys.
-test("explorer hosts browse, graph and settings sub-views", () => {
-  for (const key of ["tabMemory", "tabGraph", "tabSettings"]) {
+// hosts six sub-views (browse / overview / directory / status / graph /
+// settings) switched by tabs whose labels come from dedicated dictionary keys.
+test("explorer hosts browse, overview, directory, status, graph and settings sub-views", () => {
+  for (const key of ["tabMemory", "tabOverview", "tabDirectory", "tabStatus", "tabGraph", "tabSettings"]) {
     assert.ok(
       clientSource.includes(`"memory.explorer.${key}"`),
       `sub-view labels must come from memory.explorer.${key}`
@@ -167,6 +167,10 @@ test("explorer hosts browse, graph and settings sub-views", () => {
   assert.ok(
     clientSource.includes('h(GraphPanel, { t, focusEntity: graphFocus, onJumpMemory: jumpToMemory })'),
     "the graph panel must be embedded as a sub-view"
+  );
+  assert.ok(
+    clientSource.includes('h(StatusPanel, { t })'),
+    "the status panel must be embedded as a sub-view"
   );
   assert.ok(
     clientSource.includes('h(SettingsContent, { t })'),
@@ -306,10 +310,18 @@ test("detail pane renders editable tag chips backed by the tags endpoint", () =>
   );
 });
 
-test("tag: queries run server-side regardless of the semantic toggle", () => {
+// The browse search is fully server-side now: every query rides the search
+// endpoint — keyword = literal text (default), vector = semantic ranking via
+// the semantic toggle — so matches are global, not limited to loaded pages.
+// tag: chips still set a tag:<tag> query which rides the same endpoint.
+test("search runs server-side for every query (keyword default, vector via the semantic toggle)", () => {
   assert.ok(
-    clientSource.includes('(!semantic && !q.startsWith("tag:"))'),
-    "tag: must bypass the semantic toggle and use the search endpoint"
+    clientSource.includes('const mode = semantic ? "vector" : "keyword";'),
+    "the search mode must flip between keyword and vector with the semantic toggle"
+  );
+  assert.ok(
+    clientSource.includes("&mode=${mode}"),
+    "the search endpoint must receive the selected mode"
   );
   assert.ok(
     clientSource.includes('setQuery(`tag:${tag}`)'),
@@ -438,4 +450,231 @@ test("sidebar trigger is hidden when showSidebarTrigger is false (issue #38)", (
     clientSource.includes('"memory.settings.sidebarTriggerTitle"'),
     "settings panel must expose a sidebar-trigger toggle"
   );
+});
+
+// --- 0.7.11/0.7.12 panel port: paged chrono browse + month collapse, server
+// search, status sub-view, two-step delete + importance filter, runtime-mode /
+// external-API setting cards and the inline stroke icon system ---
+
+// Browse streams 100-row pure-chronological pages (order=chrono): the default
+// importance ordering would interleave months across pages and break the
+// month tree. A sentinel auto-pulls the next page; a button does it manually.
+test("browse loads 100-row chronological pages with a load-more sentinel", () => {
+  assert.ok(
+    clientSource.includes("const PAGE_SIZE = 100;"),
+    "the browse page size must be 100 rows"
+  );
+  assert.ok(
+    clientSource.includes("&order=chrono"),
+    "browse pages must stream in pure chronological order"
+  );
+  assert.ok(
+    /apiFetch\(listUrl\(items\.length\)\)/.test(clientSource),
+    "loadMore must fetch the next offset page"
+  );
+  assert.ok(
+    clientSource.includes("new IntersectionObserver"),
+    "a sentinel must auto-pull the next page on scroll"
+  );
+  assert.ok(
+    clientSource.includes('"memory.explorer.loadMore"'),
+    "the load-more affordance must be localized"
+  );
+});
+
+// Only the newest month starts expanded; older months stay one-line sticky
+// headers (with a per-month count) until clicked.
+test("month tree collapses to the newest month with sticky headers and counts", () => {
+  assert.ok(
+    clientSource.includes("const [expandedMonths, setExpandedMonths] = useState(null);"),
+    "null expandedMonths must mean only the newest month is open"
+  );
+  assert.ok(
+    clientSource.includes("const open = expandedMonths ? !!expandedMonths[month.key] : mi === 0;"),
+    "the newest month (mi === 0) must start open, older ones closed"
+  );
+  assert.ok(
+    clientSource.includes(".mneme-xmonth{position:sticky"),
+    "month headers must stick to the top of the timeline card"
+  );
+  assert.ok(
+    clientSource.includes('"mneme-xmonthcount"'),
+    "each month header must carry its entry count"
+  );
+});
+
+// The memory sub-view refreshes on activation and quietly re-fetches page 1
+// every 30s while visible; hidden pages must not trigger fetches.
+test("memory sub-view refreshes on activation and polls quietly every 30s", () => {
+  assert.ok(
+    clientSource.includes('if (document.visibilityState === "visible") refreshFirstPage();'),
+    "the 30s poll must pause while the page is hidden"
+  );
+  assert.ok(
+    clientSource.includes("}, 30000);"),
+    "the live-view poll interval is 30 seconds"
+  );
+  assert.ok(
+    clientSource.includes("if (view !== \"memory\") return undefined;"),
+    "the live-view polling must only run while the browse tab is open"
+  );
+});
+
+// Importance floor chips (全部/★3+/★4+/★5) filter server-side together with
+// the type filter so pagination and totals stay consistent.
+test("importance filter chips travel server-side with the type filter", () => {
+  assert.ok(
+    clientSource.includes("&minImportance=${minImp}"),
+    "the importance floor must be a server-side query parameter"
+  );
+  assert.ok(
+    /\[0, 3, 4, 5\]\.map/.test(clientSource),
+    "the filter bar must offer the all/★3+/★4+/★5 chips"
+  );
+  assert.ok(
+    clientSource.includes('t("memory.explorer.importance")'),
+    "the chip group must be labeled with the localized importance heading"
+  );
+});
+
+// The detail pane delete is a two-step confirm (red outline arms, solid red
+// commits) posting to /delete; success removes the row locally and shrinks
+// the total, failure surfaces a transient error note.
+test("detail delete is a two-step confirm posting /delete", () => {
+  assert.ok(
+    clientSource.includes('apiFetch("/api/dsh-mneme/delete"'),
+    "the detail pane must POST to the delete endpoint"
+  );
+  assert.ok(
+    clientSource.includes('"memory.explorer.confirmDelete"') &&
+      clientSource.includes('"memory.explorer.cancel"'),
+    "the confirm/cancel step must be localized"
+  );
+  assert.ok(
+    clientSource.includes("setTotal((n) => Math.max(0, n - 1))"),
+    "a successful delete must shrink the server total locally"
+  );
+  assert.ok(
+    clientSource.includes(".mneme-btndanger{"),
+    "the delete affordance must use the red outline/solid danger styles"
+  );
+  assert.ok(
+    !/window\.confirm\(/.test(clientSource.slice(clientSource.indexOf("const deleteSelected"))),
+    "the detail delete path must not rely on window.confirm"
+  );
+});
+
+// The status sub-view is a grid of four stat cards, each with its own
+// fetch/loading/error state so one failing endpoint never blocks the others.
+test("status sub-view renders four independent stat cards", () => {
+  for (const ep of [
+    "/api/dsh-mneme/list?limit=1&order=chrono",
+    "/api/dsh-mneme/entities?limit=500",
+    "/api/dsh-mneme/vector-config",
+    "/api/dsh-mneme/semantic/llm-audit/stats?days=7"
+  ]) {
+    assert.ok(
+      clientSource.includes(ep),
+      `status cards must fetch ${ep}`
+    );
+  }
+  assert.ok(
+    clientSource.includes("function StatusCard({ t, title, loading, error, num, cap })"),
+    "every status card must own its loading/error state"
+  );
+});
+
+// Two boxed settings cards: runtime mode (light/standard chips, PUT /mode,
+// restart hint, light-mode off-list) and the external access API (enable
+// chips, host/port with validation, server-owned read-only token with copy).
+test("settings ship runtime-mode and external-API cards", () => {
+  assert.ok(
+    clientSource.includes('apiFetch("/api/dsh-mneme/mode"'),
+    "the mode card must read /mode"
+  );
+  assert.ok(
+    clientSource.includes("body: JSON.stringify({ mode: next })"),
+    "the mode card must PUT the selected mode"
+  );
+  assert.ok(
+    clientSource.includes('"memory.settings.mode.offList"'),
+    "light mode must show the disabled-features hint"
+  );
+  assert.ok(
+    clientSource.includes('apiFetch("/api/dsh-mneme/external-api"'),
+    "the external-API card must read /external-api"
+  );
+  assert.ok(
+    clientSource.includes('t("memory.settings.extapi.invalidPort")'),
+    "the port input must be validated (1-65535)"
+  );
+  assert.ok(
+    clientSource.includes("mneme-set-token"),
+    "the server-owned token must render read-only with a copy affordance"
+  );
+  assert.ok(
+    clientSource.includes(".mneme-set-card{"),
+    "the two cards must use the boxed card style"
+  );
+});
+
+// The explorer ships an inline Lucide stroke icon system (no runtime
+// dependency): path data tuples rendered by the Icon component, replacing
+// text arrows and ad-hoc glyphs across the panel.
+test("the explorer ships an inline stroke icon system", () => {
+  assert.ok(
+    clientSource.includes("const ICON_PATHS = {"),
+    "stroke icon path data must ship inline"
+  );
+  for (const name of ["database", "waypoints", "settings", "search", "refresh", "chevronDown", "chevronRight", "copy", "check", "inbox", "activity"]) {
+    assert.ok(
+      clientSource.includes(`${name}: [["`),
+      `the ${name} icon must be defined`
+    );
+  }
+  assert.ok(
+    clientSource.includes("h(Icon, { name: open ? \"chevronDown\" : \"chevronRight\""),
+    "month carets must render through the Icon component"
+  );
+});
+
+// Every ported label ships in both dictionaries.
+test("ported features ship localized labels in both dictionaries", () => {
+  for (const key of [
+    "memory.explorer.tabStatus",
+    "memory.explorer.loadMore",
+    "memory.explorer.delete",
+    "memory.explorer.confirmDelete",
+    "memory.explorer.cancel",
+    "memory.explorer.deleted",
+    "memory.explorer.deleteFailed",
+    "memory.status.memories",
+    "memory.status.entities",
+    "memory.status.vector",
+    "memory.status.vectorOn",
+    "memory.status.vectorOff",
+    "memory.status.llm",
+    "memory.status.llmCalls",
+    "memory.status.error",
+    "memory.settings.mode.title",
+    "memory.settings.mode.light",
+    "memory.settings.mode.standard",
+    "memory.settings.mode.savedHint",
+    "memory.settings.mode.offList",
+    "memory.settings.extapi.title",
+    "memory.settings.extapi.enabled",
+    "memory.settings.extapi.disabled",
+    "memory.settings.extapi.address",
+    "memory.settings.extapi.port",
+    "memory.settings.extapi.token",
+    "memory.settings.extapi.copy",
+    "memory.settings.extapi.copied",
+    "memory.settings.extapi.savedHint",
+    "memory.settings.extapi.invalidPort"
+  ]) {
+    assert.ok(
+      clientSource.includes(`"${key}"`),
+      `${key} key must exist`
+    );
+  }
 });
