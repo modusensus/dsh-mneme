@@ -100,7 +100,12 @@ function toProtocolChunk(chunk) {
 //
 // Privacy: assistant `reasoning` (private thought) blocks are deliberately NOT
 // collected — distilled memories must never sink private reasoning chains.
-// Only public text blocks (type "text") reach the summarizer.
+/**
+ * Collects a filtered transcript from a session for summarization.
+ * @param {object} session - The session containing conversation events.
+ * @param {number} [maxChars=8000] - The maximum length of the combined transcript.
+ * @return {Array} A user message containing the transcript, or an empty array when no usable content exists.
+ */
 function collectMessages(session, maxChars = 8000) {
   // DSH 0.1.2-rc.1 起 Session 改用 snapshotEvents()，兼容旧版 .events
   const events = session.snapshotEvents?.() ?? session.events ?? [];
