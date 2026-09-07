@@ -4,7 +4,21 @@ import { evaluateMemoryQuality } from "./quality-filter.js";
 import { createBM25Index } from "./search/bm25.js";
 import { adaptiveThreshold } from "./search/adaptive.js";
 
-const INJECT_TYPES = new Set(["preference", "project", "decision", "summary"]);
+const INJECT_TYPES = new Set(["preference", "project", "decision", "summary", "rejected_solution", "pitfall", "constraint"]);
+
+// 编码记忆类型（codingRetrospect）：rejected_solution / pitfall / constraint
+// 只在编码任务时注入（防噪声污染其他业务），且编码场景下按 codingBoostFactor
+// 加权排序提前。
+const CODING_MEMORY_TYPES = new Set(["rejected_solution", "pitfall", "constraint"]);
+
+/**
+ * 判断一段文本是否编码类任务（关键词匹配，codingRetrospect 读取侧门控）。
+ * 纯函数，无副作用，便于单测。
+ */
+export function isCodingTask(text, keywords = []) {
+  const t = String(text ?? "").toLowerCase();
+  return keywords.some((kw) => t.includes(String(kw).toLowerCase()));
+}
 
 // Epistemic trust weights (v0.4.5): when config.trustEpistemicWeighting is on,
 // each recall candidate's existing score is multiplied by the weight of its
@@ -863,17 +877,35 @@ export function createService({ store, mirror, config, onWrite, logger }) {
    */
   function injectCandidates({ query = "", maxItems = 5, threshold = 3, queryVector } = {}) {
     const q = String(query ?? "").trim();
+    // codingRetrospect 读取侧门控：编码记忆（rejected_solution / pitfall /
+    // constraint）只在编码任务时注入，防噪声污染其他业务；编码任务时按
+    // codingBoostFactor 加权，让编码记忆在编码场景更靠前。
+    const isCoding = isCodingTask(q, config.codingKeywords ?? []);
+    const codingGate = (m) => isCoding || !CODING_MEMORY_TYPES.has(m.type);
     // Bug7: quality-weighted importance in the rule-based tier. Unassessed rows
     // (quality_score null) count as 100 (weight 1), so legacy stores keep their
     // exact summary>preference>importance ordering.
     const qualityWeight = (m) => (m.quality_score != null ? m.quality_score / 100 : 1);
     const items = store.list({ limit: 200, includeForgotten: false })
       .filter((m) => !m.archived && INJECT_TYPES.has(m.type) && !m.forgotten &&
+        codingGate(m) &&
         (m.type === "summary" || m.type === "preference" || m.importance >= threshold))
       .sort((a, b) => {
-        const pa = a.type === "summary" ? 0 : a.type === "preference" ? 1 : 2;
-        const pb = b.type === "summary" ? 0 : b.type === "preference" ? 1 : 2;
-        return pa - pb || (b.importance * qualityWeight(b)) - (a.importance * qualityWeight(a));
+        // 编码记忆在编码任务时优先于普通 decision（与 preference 同级），
+        // importance 乘 codingBoostFactor 加权（封顶 5，保持 importance 语义）。
+        const priority = (m) => {
+          if (m.type === "summary") return 0;
+          if (m.type === "preference") return 1;
+          if (isCoding && CODING_MEMORY_TYPES.has(m.type)) return 1;
+          return 2;
+        };
+        const effImportance = (m) =>
+          (isCoding && CODING_MEMORY_TYPES.has(m.type))
+            ? Math.min(5, m.importance * (config.codingBoostFactor ?? 2))
+            : m.importance;
+        const pa = priority(a);
+        const pb = priority(b);
+        return pa - pb || (effImportance(b) * qualityWeight(b)) - (effImportance(a) * qualityWeight(a));
       });
     let candidates = items;
     if (config.hybridInject !== false && q) {
@@ -888,6 +920,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
           const hits = vectorIndex.search(queryVector, { limit: maxItems * 2, threshold: 0 });
           for (const m of hits) {
             if (m && !m.archived && INJECT_TYPES.has(m.type) && !m.forgotten &&
+              codingGate(m) &&
               (m.type === "summary" || m.type === "preference" || m.importance >= threshold)) {
               semanticItems.push(m);
             }
@@ -896,7 +929,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       }
       if (!semanticItems.length && lastSemanticRecall?.query === q && lastSemanticRecall.items?.length) {
         for (const m of lastSemanticRecall.items) {
-          if (m && !m.archived && INJECT_TYPES.has(m.type) && !m.forgotten) semanticItems.push(m);
+          if (m && !m.archived && INJECT_TYPES.has(m.type) && !m.forgotten && codingGate(m)) semanticItems.push(m);
         }
       }
       if (semanticItems.length) {

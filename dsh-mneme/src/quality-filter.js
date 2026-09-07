@@ -34,7 +34,10 @@ const TYPE_LABELS = {
   decision: ["decision", "决策", "决定"],
   history: ["history", "历史", "事件"],
   summary: ["summary", "总结", "摘要", "总览"],
-  pattern: ["pattern", "模式", "规律"]
+  pattern: ["pattern", "模式", "规律"],
+  rejected_solution: ["rejected_solution", "被否决", "废弃方案"],
+  pitfall: ["pitfall", "踩坑"],
+  constraint: ["constraint", "约束"]
 };
 
 /** Normalized bigram-overlap similarity in [0,1]; 0 for tiny/empty inputs. */

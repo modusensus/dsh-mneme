@@ -1,8 +1,21 @@
 import { BlockAssembler, createUserMessage } from "@deepseek-ai/dsh-llm";
 
-const SUMMARY_PROMPT = `你是记忆库提炼助手。根据下面的会话内容，提炼 2-3 条值得跨会话记住的记忆。
-只输出 JSON 数组，每项形如 {"type":"preference|project|decision|history","title":"简短标题","content":"一句话内容","importance":1-5}。
+const SUMMARY_PROMPT = `你是记忆库提炼助手。根据下面的会话内容，提炼值得跨会话记住的原子记忆。
+原子记忆原则：每条记忆只装一个独立事实/偏好/决策，短小、自带完整上下文（把数字、名字、路径、结论等原始细节保留在 content 里，不要抽象概括）；宁可拆成多条也绝不合并丢细节。信息量一般提 2-4 条，信息密集的对话可提 4-8 条。
+只输出 JSON 数组，每项形如 {"type":"preference|project|decision|history","title":"简短标题","content":"保留原始细节的一句话","importance":1-5}。
 不要输出任何其他文字。`;
+
+// 编码记忆蒸馏 prompt（codingRetrospect 开启时启用）：在通用记忆之外，额外提取
+// 三类编码专属记忆，专治重复踩坑 / 遗忘被否决方案 / 丢失工程约束。字段仍沿用
+// title/content 单列结构（store 无结构化字段），信息浓缩进 content。
+const CODING_SUMMARY_PROMPT = `你是记忆库提炼助手。根据下面的会话内容（含用户输入、助手思考/回答、工具调用与结果），提炼值得跨会话记住的原子记忆。
+原子记忆原则：每条记忆只装一个独立事实/偏好/决策，短小、自带完整上下文（把数字、报错信息、命令、路径、结论等原始细节保留在 content 里，不要抽象概括）；宁可拆成多条也绝不合并丢细节。信息量一般提 2-4 条，信息密集的对话可提 4-8 条。
+只输出 JSON 数组，每项形如 {"type":"preference|project|decision|history|rejected_solution|pitfall|constraint","title":"简短标题","content":"保留原始细节的一句话","importance":1-5}。
+若对话涉及编码/调试，可额外提取编码类记忆：
+- rejected_solution：被否决/废弃的实现方案（content 含方案简述 + 被否决原因 + 最终采用方案）
+- pitfall：调试踩坑记录（content 含现象/报错 + 根因 + 解决/规避方法）
+- constraint：项目工程约束（content 含约束描述 + 来源）
+普通闲聊、临时无关对话一律不提取编码类记忆。不要输出任何其他文字。`;
 
 /** Extract a JSON array from LLM output that may contain prose around it. */
 export function parseSummaryJson(raw) {
@@ -17,7 +30,7 @@ export function parseSummaryJson(raw) {
     return [];
   }
   if (!Array.isArray(arr)) return [];
-  const VALID = new Set(["preference", "project", "decision", "history"]);
+  const VALID = new Set(["preference", "project", "decision", "history", "rejected_solution", "pitfall", "constraint"]);
   return arr.filter(
     (item) =>
       item &&
@@ -76,22 +89,108 @@ function toProtocolChunk(chunk) {
 // events must not leak into the memory store. Events without a data payload
 // (minimal test doubles) pass the kind check and are handled by the content
 // check below.
-// DSH ≥0.1.2-rc removed the Session.events property; events are only reachable
-// via snapshotEvents(). Older DSH builds still expose .events, so fall back.
-function getSessionEvents(session) {
-  return session?.snapshotEvents?.() ?? session?.events ?? [];
+//
+// codingRetrospect: the distill context is the FULL turn transcript —
+// user prompts plus assistant thinking/replies, tool calls + results and code
+// dispatch output — so the summarizer can see tool errors and extract pitfall
+// root causes, not just what the user typed. The same filtering stays: only
+// source.kind === "user" prompts enter (plugin/machine content is excluded).
+// The result is a single text transcript passed to the LLM as one user message
+// (SUMMARY_PROMPT already says "根据下面的会话内容").
+function collectMessages(session, maxChars = 8000) {
+  // DSH 0.1.2-rc.1 起 Session 改用 snapshotEvents()，兼容旧版 .events
+  const events = session.snapshotEvents?.() ?? session.events ?? [];
+  const lines = [];
+  // 兼容严格形状 [{type:"text",text}] 与宽松形状 ["字符串", ...]（lib-smoke 用例
+  // 直接传字符串数组）。text 之外按需抽 thinking/reasoning 块。
+  const textOf = (content) => {
+    if (typeof content === "string") return content;
+    if (!Array.isArray(content)) return "";
+    return content
+      .map((block) => (typeof block === "string" ? block : (block && block.type === "text" && typeof block.text === "string" ? block.text : "")))
+      .filter((s) => s)
+      .join("\n");
+  };
+  const trim = (s, n) => (typeof s === "string" && s.length > n ? `${s.slice(0, n)}…` : s);
+  for (const event of events) {
+    const data = event?.data ?? {};
+    const kind = data?.source?.kind;
+    switch (event.type) {
+      case "user/message": {
+        if (kind !== undefined && kind !== "user") break;
+        const text = textOf(data?.content);
+        if (text.trim()) lines.push(`用户：${text}`);
+        break;
+      }
+      case "assistant/message": {
+        const msg = data?.message;
+        const blocks = Array.isArray(msg?.content) ? msg.content : [];
+        const text = textOf(blocks);
+        if (text.trim()) lines.push(`助手：${text}`);
+        const thinking = blocks
+          .map((b) => (typeof b === "string" ? "" : (b && b.type === "reasoning" && typeof b.text === "string" ? b.text : "")))
+          .filter((s) => s)
+          .join("\n");
+        if (thinking.trim()) lines.push(`助手思考：${thinking}`);
+        break;
+      }
+      case "tool/call": {
+        const args = typeof data.arguments === "string"
+          ? data.arguments
+          : data.arguments ? JSON.stringify(data.arguments) : "";
+        lines.push(`工具调用：${data.name ?? "?"}(${trim(args, 300)})`);
+        break;
+      }
+      case "tool/result": {
+        const out = typeof data.output === "string" ? data.output : data.output ? JSON.stringify(data.output) : "";
+        const status = data.ok === false ? "失败" : "成功";
+        lines.push(`工具结果（${status}）：${trim(out, 500)}`);
+        break;
+      }
+      case "tool/code-dispatch": {
+        const out = typeof data.output === "string" ? data.output : data.output ? JSON.stringify(data.output) : "";
+        const status = data.ok === false ? "失败" : "成功";
+        lines.push(`代码执行（${status}）：${trim(out, 500)}`);
+        break;
+      }
+      default:
+        break;
+    }
+  }
+  return lines.length ? [createUserMessage({ content: [{ type: "text", text: trim(lines.join("\n"), maxChars) }] })] : [];
 }
 
-function collectMessages(session) {
-  const messages = [];
-  for (const event of getSessionEvents(session)) {
-    const kind = event.data?.source?.kind;
-    if (event.type !== "user/message") continue;
-    if (kind !== undefined && kind !== "user") continue;
-    if (!event.data?.content?.length) continue; // nothing to summarize
-    messages.push(createUserMessage({ content: event.data.content }));
-  }
-  return messages.slice(-20);
+// ── 智能调速器（429 保护）─────────────────────────────────────────────
+// 对话一多时 turn/end 会批量触发蒸馏，多个 LLM 请求"一拥而上"正是 429 的
+// 来源。这里借鉴机场安检的思路：所有蒸馏调用进同一个全局串行队列，按间隔
+// distillRateLimitIntervalMs 分批放行；命中 429 时按 distillRateLimitBaseDelayMs
+// 指数退避（1s→2s→4s…）自动重试 distillRateLimitRetries 次，全程对用户透明，
+// 不把 429 错误码直接抛出去。
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function isRateLimited(error) {
+  const status = error?.status ?? error?.statusCode ?? error?.response?.status;
+  if (status === 429) return true;
+  const msg = String(error?.message ?? error ?? "");
+  return /429|rate.?limit|too many requests|请求过于频繁/i.test(msg);
+}
+
+// 全局串行链：每个蒸馏任务在前一个结束后才开始，单次失败不阻塞后续。
+// 相邻请求间隔按"距上一个结束不足 intervalMs 就补齐等待"实现——单次蒸馏
+// 零延迟（上次结束距今已超过间隔，直接放行），只有连续批量蒸馏才触发限速。
+let distillQueue = Promise.resolve();
+let lastDistillEnd = 0;
+function enqueueDistill(task, intervalMs = 0) {
+  const run = distillQueue.then(async () => {
+    if (intervalMs > 0) {
+      const wait = Math.max(0, intervalMs - (Date.now() - lastDistillEnd));
+      if (wait > 0) await sleep(wait);
+    }
+    lastDistillEnd = Date.now();
+    return task();
+  });
+  distillQueue = run.catch(() => {});
+  return run;
 }
 
 export function createSummarizer(ctx, service, config) {
@@ -104,7 +203,7 @@ export function createSummarizer(ctx, service, config) {
     if (disposed || inFlight.has(session.id)) return;
     const controller = new AbortController();
     inFlight.set(session.id, controller);
-    // Bug8: audit state for the compression call. null = no audit for this run
+    // audit state for the compression call. null = no audit for this run
     // (disabled, or no LLM call was actually made). The audit row is written in
     // the finally below — once, regardless of which exit path the call took —
     // so a failed/aborted stream still leaves a status='error' trail without
@@ -119,7 +218,9 @@ export function createSummarizer(ctx, service, config) {
           ? { provider: header.provider, model: header.model }
           : undefined;
       if (!route) return;
-      const messages = collectMessages(session);
+      // 完整转录（Codex 式）：蒸馏把整轮对话交给 LLM 提炼原子记忆，不再硬裁
+      // 8000 字截断语义；上限由 distillMaxChars 控制（默认 24000，可调大）。
+      const messages = collectMessages(session, config.distillMaxChars ?? 24000);
       if (!messages.length) return;
 
       if (config?.llmAudit?.enabled !== false && typeof service.saveLlmAudit === "function") {
@@ -134,61 +235,98 @@ export function createSummarizer(ctx, service, config) {
         };
       }
 
-      const assembler = new BlockAssembler();
-      let text = "";
       const options = {
         provider: route.provider,
         model: route.model,
         purpose: "summarization",
         messages: [
-          { role: "system", content: [{ type: "text", text: SUMMARY_PROMPT }] },
+          { role: "system", content: [{ type: "text", text: config.codingRetrospect ? CODING_SUMMARY_PROMPT : SUMMARY_PROMPT }] },
           ...messages
         ],
         signal: controller.signal
       };
-      try {
-        for await (const chunk of ctx.llm.stream(options)) {
-          if (STREAM_CHUNK_TYPES.has(chunk.type)) assembler.push(toProtocolChunk(chunk));
-          if (chunk.type === "text-delta") {
-            text += chunk.text ?? chunk.delta ?? "";
-          }
-          if (chunk.type === "usage" && audit) {
-            const i = chunk.input_tokens ?? chunk.inputTokens ?? chunk.prompt_tokens ?? chunk.promptTokens;
-            const o = chunk.output_tokens ?? chunk.outputTokens ?? chunk.completion_tokens ?? chunk.completionTokens;
-            if (Number.isFinite(i)) audit.inputTokens = i;
-            if (Number.isFinite(o)) audit.outputTokens = o;
-          }
-          if (chunk.type === "finish") {
-            const reasonKind = chunk.reason?.kind ?? chunk.kind;
-            if (reasonKind === "error" || reasonKind === "aborted") {
-              if (audit) {
-                audit.status = "error";
-                audit.errorMessage = `llm stream ${reasonKind}`;
+      // 智能调速器：整段蒸馏 LLM 调用进全局串行队列，按间隔分批放行；429 时
+      // 指数退避自动重试，全程对用户透明，不把 429 错误码直接抛出去。
+      const intervalMs = config.distillRateLimitIntervalMs ?? 1000;
+      const { text, assembledText, aborted } = await enqueueDistill(async () => {
+        const retries = config.distillRateLimitRetries ?? 3;
+        const baseDelayMs = config.distillRateLimitBaseDelayMs ?? 1000;
+        for (let attempt = 0; ; attempt++) {
+          const assembler = new BlockAssembler();
+          let text = "";
+          let aborted = false;
+          try {
+            for await (const chunk of ctx.llm.stream(options)) {
+              if (STREAM_CHUNK_TYPES.has(chunk.type)) assembler.push(toProtocolChunk(chunk));
+              if (chunk.type === "text-delta") {
+                text += chunk.text ?? chunk.delta ?? "";
               }
-              return;
+              if (chunk.type === "usage" && audit) {
+                const i = chunk.input_tokens ?? chunk.inputTokens ?? chunk.prompt_tokens ?? chunk.promptTokens;
+                const o = chunk.output_tokens ?? chunk.outputTokens ?? chunk.completion_tokens ?? chunk.completionTokens;
+                if (Number.isFinite(i)) audit.inputTokens = i;
+                if (Number.isFinite(o)) audit.outputTokens = o;
+              }
+              if (chunk.type === "finish") {
+                const reasonKind = chunk.reason?.kind ?? chunk.kind;
+                if (reasonKind === "error" || reasonKind === "aborted") {
+                  // 429 也可能以 finish reason error 携带 rate-limit 信息，统一
+                  // 转抛错走指数退避重试。
+                  if (isRateLimited(chunk.reason ?? chunk)) {
+                    throw Object.assign(new Error("rate limited"), { status: 429 });
+                  }
+                  if (audit) {
+                    audit.status = "error";
+                    audit.errorMessage = `llm stream ${reasonKind}`;
+                  }
+                  aborted = true;
+                  break;
+                }
+              }
             }
+            // Direct delta accumulation is the primary extraction path (it works
+            // for real protocol chunks {index,text} and looser {delta} shapes
+            // alike); the assembler blocks are a fallback for streams that only
+            // deliver text inside block-end. This dsh-llm exposes no public
+            // no-arg assemble() — blocks() is the message-level API.
+            const blocks = assembler.blocks();
+            const assembledText = blocks
+              .filter((b) => b.type === "text")
+              .map((b) => b.text ?? "")
+              .join("");
+            return { text, assembledText, aborted };
+          } catch (error) {
+            if (error?.name === "AbortError" || controller.signal.aborted) throw error; // dispose 中止直接放行
+            if (isRateLimited(error) && attempt < retries) {
+              const delay = baseDelayMs * 2 ** attempt;
+              ctx.logger?.warn?.(
+                `dsh-mneme: 蒸馏请求过于频繁(429)，为避免限流等待 ${delay}ms 后自动重试（第 ${attempt + 1}/${retries} 次）`
+              );
+              await sleep(delay);
+              continue;
+            }
+            // 429 重试耗尽或非 429 错误：记 audit 后抛出，保持原失败路径。
+            if (audit) {
+              audit.status = "error";
+              audit.errorMessage = String(error?.message ?? error);
+            }
+            throw error;
           }
         }
-      } catch (error) {
-        if (audit) {
-          audit.status = "error";
-          audit.errorMessage = String(error?.message ?? error);
-        }
-        throw error; // caller's catch handles the failure; audit already staged
-      }
-      // Direct delta accumulation is the primary extraction path (it works
-      // for real protocol chunks {index,text} and looser {delta} shapes
-      // alike); the assembler blocks are a fallback for streams that only
-      // deliver text inside block-end. This dsh-llm exposes no public
-      // no-arg assemble() — blocks() is the message-level API.
-      const blocks = assembler.blocks();
-      const assembledText = blocks
-        .filter((b) => b.type === "text")
-        .map((b) => b.text ?? "")
-        .join("");
+      }, intervalMs);
+      if (aborted) return;
       const entries = parseSummaryJson(text || assembledText);
       for (const entry of entries) {
-        service.saveWithDedupe({ ...entry, source: `session:${session.id}` });
+        // Provenance: the summarizer runs on a real session (turn/end hook), so
+        // session.id is always available here — it rides the human-readable
+        // source label.
+        // 编码记忆类型（codingRetrospect）不带 tag：读取侧门控/加权靠 m.type
+        // （rejected_solution/pitfall/constraint）区分即可，tag 体系
+        // sanitizeTags 不认 `type:` 前缀反而会清空 tags 列（额外一次 UPDATE）。
+        service.saveWithDedupe({
+          ...entry,
+          source: `session:${session.id}`
+        });
       }
     } finally {
       if (audit) {

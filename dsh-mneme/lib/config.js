@@ -9,8 +9,39 @@ export const Config = z.object({
   // active provider/model (same as before).
   summarizeProvider: z.string().default(""),
   summarizeModel: z.string().default(""),
+  // 蒸馏转录上限（字符）。借鉴 Codex「保留原始、替代压缩摘要」的思路：
+  // 蒸馏把完整对话上下文交给 LLM 提炼，不硬裁到 8000 字就截断语义；默认
+  // 24000 字符（约覆盖一整轮中等对话），需要更完整可调大。
+  distillMaxChars: z.natural().min(1000).max(200000).default(24000),
+  // 智能调速器（429 保护，默认开）：蒸馏 LLM 调用全局串行排队，相邻请求
+  // 间隔 distillRateLimitIntervalMs（默认 1s 一次）；命中 429 限流时按
+  // distillRateLimitBaseDelayMs 指数退避（1s→2s→4s…）自动重试
+  // distillRateLimitRetries 次，全程对用户透明，不把 429 错误码抛给用户。
+  distillRateLimitIntervalMs: z.natural().min(0).max(60000).default(1000),
+  distillRateLimitRetries: z.natural().min(0).max(10).default(3),
+  distillRateLimitBaseDelayMs: z.natural().min(100).max(60000).default(1000),
   maxInjectedItems: z.natural().min(1).max(20).default(5),
   importanceThreshold: z.natural().min(1).max(5).default(3),
+  // 编码记忆蒸馏（codingRetrospect，opt-in，默认关）。开启时，turn/end 蒸馏
+  // 额外提取三类编码专属记忆：rejected_solution（被否决方案）/ pitfall（踩坑）/
+  // constraint（工程约束）。蒸馏上下文为整轮完整对话（用户输入 → 助手思考/回答
+  // → 工具调用与结果 → 代码执行），不再只看用户消息，便于提炼踩坑根因。
+  // 关闭时行为与之前完全一致。
+  codingRetrospect: z.boolean().default(false),
+  // 编码任务识别词表（读取侧门控用）：命中即视为编码类任务，编码记忆才注入。
+  codingKeywords: z.array(z.string()).default([
+    "代码", "编码", "写一个", "写个", "实现", "函数", "方法", "类",
+    "接口", "bug", "调试", "报错", "错误", "异常", "堆栈", "脚本",
+    "python", "javascript", "typescript", "node", "js", "ts",
+    "sql", "sqlite", "数据库", "算法", "重构", "优化", "性能",
+    "测试", "单测", "修复", "补丁", "依赖", "npm", "pip",
+    "命令行", "shell", "配置", "配置文件", "yaml", "json",
+    "插件", "开发", "编译", "构建", "部署", "git", "commit",
+    "review", "前端", "后端", "页面", "组件", "dsh", "memos"
+  ]),
+  // 编码记忆注入加权系数：编码任务时对 rejected_solution/pitfall/constraint
+  // 记忆的 importance 乘以该系数排序，让编码记忆在编码场景更靠前。
+  codingBoostFactor: z.number().min(1).max(5).default(2),
   autoDream: z.boolean().default(true),
   dreamThresholdCount: z.natural().min(1).max(1000).default(10),
   dreamThresholdChars: z.natural().min(100).max(100000).default(5000),
