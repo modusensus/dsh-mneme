@@ -78,6 +78,11 @@
     "reporter": [
       "text",
       "lcov"
+    ],
+    "exclude": [
+      "lib/**",
+      "test/**",
+      "**/*.test.js"
     ]
   }
 }
