@@ -68,8 +68,8 @@
   "scripts": {
     "sync": "node scripts/sync-lib.js",
     "prepack": "npm run sync",
-    "test": "node --test test/*.test.js",
-    "test:coverage": "c8 node --test test/*.test.js",
+    "test": "node --test test/",
+    "test:coverage": "c8 node --test test/",
     "e2e": "node scripts/e2e-dsh.js",
     "stress": "node scripts/stress-dsh.js"
   },

@@ -1,0 +1,208 @@
+name: Release
+
+# 优化版（对比原 publish.yml）：原流程只做「同步 root 版本 → npm publish」，测试要靠
+# test.yml 恰好绿着。本流程把一次 v* tag 推送变成完整发布流水线：
+#
+#   verify（版本号管理）→ test（双平台全量测试，矩阵同 CI）→ publish（npm）→ release（GitHub Release）→ notify（结果摘要）
+#
+# 沿用 publish.yml 的两条血泪教训，并固化成步骤：
+#   1. root package.json 在 git 里是编排壳（版本停在 0.7.2），真实版本在
+#      dsh-mneme/package.json —— npm publish 前必须显式同步 root 版本。
+#   2. 「skip if exists」幂等守卫：同一版本重复推 tag 不会重复发布。
+#
+# 新增的版本号管理规则：
+#   - tag 必须与 dsh-mneme/package.json version 完全一致（vX.Y.Z ↔ X.Y.Z），否则直接失败；
+#   - tag 对应版本必须在 dsh-mneme/CHANGELOG.md 里有小节（文档先行，发布时自动抽取作 Release 说明）。
+#
+# 手动触发（workflow_dispatch）支持 dry_run：只跑 verify + test，不发布不建 Release。
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '只验证 + 测试，不发布（dry run）'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  # ── 1. 版本号管理：tag ↔ package.json ↔ CHANGELOG 三方一致 ──────────────
+  verify:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Resolve version (tag push or package.json)
+        id: ver
+        run: |
+          PKG_V="$(node -p "require('./dsh-mneme/package.json').version")"
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            TAG_V="${GITHUB_REF_NAME#v}"
+            echo "tag=v$TAG_V, package.json=$PKG_V"
+            if [ "$TAG_V" != "$PKG_V" ]; then
+              echo "::error::tag v$TAG_V 与 dsh-mneme/package.json 版本 $PKG_V 不一致"
+              exit 1
+            fi
+            echo "version=$PKG_V" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=$PKG_V" >> "$GITHUB_OUTPUT"
+          fi
+
+      # 文档更新守门：CHANGELOG 缺该版本小节 → 说明发布说明没写，阻断并提示
+      - name: CHANGELOG has a section for this version
+        run: |
+          V="${{ steps.ver.outputs.version }}"
+          if ! grep -qE "^## \[${V}\]" dsh-mneme/CHANGELOG.md; then
+            echo "::error::dsh-mneme/CHANGELOG.md 缺少 ## [${V}] 小节——请先补发布说明"
+            exit 1
+          fi
+          echo "CHANGELOG section found for ${V}"
+
+  # ── 2. 双平台全量测试（Windows + Linux × Node 22/24，与 CI 同矩阵）────────
+  test:
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node-version: [22, 24]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: dsh-mneme
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: dsh-mneme/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Sync check (src ↔ lib)
+        run: node scripts/check-sync.js
+
+      - name: Full test suite
+        run: npm test
+
+  # ── 3. 发布到 npm（沿用原 publish.yml 的同步与幂等守卫）──────────────────
+  publish:
+    needs: [verify, test]
+    if: github.event_name == 'push' || inputs.dry_run != true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org/
+
+      - name: Registry current state (diagnostic)
+        run: |
+          npm view @modusensus/dsh-mneme versions --json || true
+          npm view @modusensus/dsh-mneme time --json || true
+
+      # 血泪教训：npm 在跑 prepublishOnly 前已加载 manifest，必须显式同步 root 版本
+      - name: Sync root version from dsh-mneme
+        run: |
+          V="${{ needs.verify.outputs.version }}"
+          echo "Syncing root package.json to v${V}"
+          node -e "const fs=require('fs');const v=process.argv[1];const p=JSON.parse(fs.readFileSync('./package.json','utf8'));p.version=v;fs.writeFileSync('./package.json',JSON.stringify(p,null,2)+'\n')" "$V"
+          node -p "console.log('root now:', require('./package.json').version)"
+
+      - name: Publish @modusensus/dsh-mneme (skip if exists)
+        run: |
+          V="${{ needs.verify.outputs.version }}"
+          if npm view "@modusensus/dsh-mneme@${V}" version >/dev/null 2>&1; then
+            echo "v${V} already published on registry — skipping"
+          else
+            npm publish --access public
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Verify published version
+        run: |
+          V="${{ needs.verify.outputs.version }}"
+          echo "Published: $(npm view "@modusensus/dsh-mneme@${V}" version)"
+
+  # ── 4. GitHub Release（按 v0.7.9 / v0.7.10 的既定格式，说明自动取自 CHANGELOG）──
+  release:
+    needs: [verify, test]
+    if: github.event_name == 'push' || inputs.dry_run != true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 从 dsh-mneme/CHANGELOG.md 抽取本版本小节作为 Release 说明（verify 已保证存在）
+      - name: Extract release notes from CHANGELOG
+        run: |
+          V="${{ needs.verify.outputs.version }}"
+          node -e '
+            const fs = require("fs");
+            const v = process.argv[1];
+            const md = fs.readFileSync("dsh-mneme/CHANGELOG.md", "utf8");
+            const re = new RegExp("^## \\[" + v.replace(/\./g, "\\.") + "\\][^\\n]*\\n", "m");
+            const start = md.search(re);
+            if (start === -1) { console.error("changelog section not found: " + v); process.exit(1); }
+            const rest = md.slice(start + md.slice(start).indexOf("\n") + 1);
+            const next = rest.search(/^## \[/m);
+            const body = (next === -1 ? rest : rest.slice(0, next)).trim();
+            fs.mkdirSync("notes", { recursive: true });
+            fs.writeFileSync("notes/body.md", body + "\n");
+            console.log("--- extracted notes ---\n" + body.slice(0, 400));
+          ' "$V"
+
+      - name: Create / update GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          TITLE="$(head -1 notes/body.md | sed -E 's/^#+ *//; s/^\*\*//; s/\*\*$//')"
+          if [ -z "$TITLE" ]; then TITLE="v${VERSION}"; fi
+          if gh release view "v${VERSION}" >/dev/null 2>&1; then
+            gh release edit "v${VERSION}" --title "v${VERSION} · ${TITLE}" --notes-file notes/body.md
+          else
+            gh release create "v${VERSION}" --title "v${VERSION} · ${TITLE}" --notes-file notes/body.md
+          fi
+
+  # ── 5. 通知与运行摘要（接入外部通知时往这里加一步 webhook 即可）────────────
+  notify:
+    needs: [verify, test, publish, release]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Job summary
+        run: |
+          {
+            echo "## Release pipeline — ${{ needs.verify.outputs.version }}"
+            echo ""
+            echo "| job | result |"
+            echo "|-----|--------|"
+            echo "| verify | ${{ needs.verify.result }} |"
+            echo "| test (win/linux × node 22/24) | ${{ needs.test.result }} |"
+            echo "| publish (npm) | ${{ needs.publish.result }} |"
+            echo "| release (GitHub) | ${{ needs.release.result }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+      # 可选：企业微信/Telegram/邮件 webhook。配置 secret（如 NOTIFY_WEBHOOK）后取消注释：
+      # - name: Notify webhook
+      #   if: needs.publish.result == 'success'
+      #   run: |
+      #     curl -sf -X POST "${{ secrets.NOTIFY_WEBHOOK }}" \
+      #       -H 'Content-Type: application/json' \
+      #       -d '{"msgtype":"text","text":{"content":"dsh-mneme ${{ needs.verify.outputs.version }} 已发布"}}'

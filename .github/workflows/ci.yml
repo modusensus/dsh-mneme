@@ -1,0 +1,65 @@
+name: CI
+
+# 优化版（对比原 test.yml）：
+# 1. 测试矩阵扩展为 OS（ubuntu/windows）× Node（22/24）——插件用 node:sqlite（≥22），
+#    且 npm publish 前要求双平台全量通过；fail-fast: false 保证一个平台的失败不掩盖另一个。
+# 2. 新增 src/↔lib/ 一致性守门（scripts/check-sync.js，v0.7.9 引入的发布前校验前置到 CI）。
+# 3. Codecov 只在 ubuntu+node24 一个分片跑一次（覆盖率无需每个组合都传）。
+# 4. node_modules 缓存（cache-dependency-path 指向子目录的 lockfile）。
+# ⚠️ 需要 package.json 配合一处小改（跨平台通配符）：
+#    dsh-mneme/package.json 的 "test": "node --test test/*.test.js" 在 Windows 的 cmd 下
+#    不展开 glob。建议改为 "test": "node --test test/"（目录模式，全平台等价），
+#    "test:coverage" 同理（c8 node --test test/）。改动只影响脚本调用方式，用例不变。
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node-version: [22, 24]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: dsh-mneme
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: dsh-mneme/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # 发布守门前置：src/↔lib/ 漂移直接红（原来只在 prepack 时校验，PR 阶段发现不了）
+      - name: Sync check (src ↔ lib)
+        run: node scripts/check-sync.js
+
+      - name: Run full tests
+        run: npm test
+
+      # 覆盖率与 Codecov 只跑一个代表分片，避免四份重复上报
+      - name: Coverage (ubuntu + node 24 shard only)
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 24
+        run: npm run test:coverage
+
+      - name: Upload coverage to Codecov
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 24
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: dsh-mneme/coverage/lcov.info
+          fail_ci_if_error: false
