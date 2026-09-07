@@ -115,8 +115,14 @@ test("peer-C: 多进程并发原子递增——8 进程×10 次 incrementGenerat
     }
   } finally {
     // Windows：8 个 SQLite 子进程退出后 -shm/-wal 句柄延迟释放，删目录偶发 EPERM；
-    // maxRetries 让 rm 自动重试（Node 文档：EBUSY/EPERM 等会重试），不影响并发逻辑。
-    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    // rm 带 maxRetries 自动重试（30×100ms 共 3s），仍失败则放行——清理只是收尾，
+    // 并发断言正确性由上方 generation 断言保证，残留临时目录交给 OS/CI 回收，
+    // 绝不让句柄释放慢把 flaky 标红。
+    try {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 30, retryDelay: 100 });
+    } catch (err) {
+      if (!["EPERM", "EBUSY", "EACCES"].includes(err.code)) throw err;
+    }
   }
 });
 
