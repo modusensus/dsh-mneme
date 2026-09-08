@@ -52,6 +52,16 @@ export const Config = z.object({
   // 起算，失败/degraded 的 run 也占用间隔；间隔内的触发请求静默跳过，下一次
   // 写入事件会重新评估。
   dreamMinIntervalMinutes: z.natural().min(0).max(10080).default(0),
+  // 巩固模型路由（settings panel「巩固模型」/ dreamProvider+dreamModel）：
+  // dream 的记忆沉淀专用 LLM 路由，显式配置优先于 agent 默认模型（config-first，
+  // Issue #25）。模型分类声明：
+  //   - 非思考模型（推荐，如 glm-5-2 类）：无 reasoning 声明，effort 请求被 harness
+  //     拒绝后 withEffortFallback 去掉字段重试即成功；空体/no json array 风险最低。
+  //   - 思考模型（如 deepseek-v4-flash-ga 等 v4-flash-ga 系）：默认开推理，可能烧光
+  //     token 预算返回空体；且部分（如 v4-flash-ga）在 harness 侧被声明为不接受任何
+  //     reasoning effort —— 即使去掉 effort 重试，harness 的 defaultEffort 也会顶上来
+  //     再次拒绝（UNSUPPORTED_REASONING_EFFORT），插件 fallback 无法绕开。
+  //     选用时建议配 dreamReasoningEffort 并实测；不行就换非思考模型。
   dreamProvider: z.string(),
   dreamModel: z.string(),
   dreamMaxTokens: z.natural().min(256).max(131072).default(32768),
@@ -60,6 +70,9 @@ export const Config = z.object({
   // are forwarded verbatim. Useful to cap reasoning spend on thinking-type
   // models that would otherwise drain the whole token budget and return an
   // empty body ("no json array in llm output").
+  // Caveat: on some thinking models (e.g. v4-flash-ga) the harness declares NO
+  // supported effort, so even the fallback retry (field stripped) is rejected
+  // again via its defaultEffort — prefer a non-reasoning dreamProvider/dreamModel.
   dreamReasoningEffort: z.union([
     z.const("low"),
     z.const("medium"),
