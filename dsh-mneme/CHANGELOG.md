@@ -19,9 +19,13 @@
 - **sleep 降级审计暴露**：`/api/dsh-mneme/dream-status` 返回 `run_type` + `demotion {demoted, archived}` 计数（数据来自 runSleep 已写入 dream_runs 的 `decisions.demotion`）——状态页工作动态可展示「降级 N 条 / 归档 M 条」，自动改记忆留痕。
 - **updated_at ⊥ last_accessed_at 契约**：heat/sleep ref 永不 fallback 到 `updated_at`（只用 `last_accessed_at ?? created_at`）；heat 是运行时投影不写盘；heat 加权不进入 `order=chrono`（记忆库分页/月份树/无限滚动稳定序不受影响）。
 
+## 🐛 修复
+
+- **better-sidebar 软集成无 bs 环境启动失败（issue #88，用户打不开文件）**：根因是模块级/manifest 的 `inject: ['betterSidebar']` 声明被 loader 硬等待——未安装 `dsh-better-sidebar` 的环境整个 entry pending（`'1 entry did not activate'` → Failed to load plugins）。改为 dsh-server-deck 同款双模式：外层入口零 inject 立即激活（独立模式保底），tab 注册挪进 `ctx.plugin({ inject: ['betterSidebar'] })` 内层动态子插件由 cordis 原生等待——bs 未装时内层 fiber 永远 INACTIVE，静默无害；模块与 manifest（`package.json dsh.client.inject`）同步移除。
+
 ## 🏗️ 工程
 
-- 683 测试全绿（+15：heat 6 测 / sleep-heat 6 测（含 heatEnabled=false 纯时间分层回归）/ updated-at-semantics 3 测回归；sleep.test.js demotionConfig 适配热闸、recall-layer 适配 recordRecall 默认开）
+- 685 测试全绿（heat 后端 +15、阶段二前端 +2：/list heat 投影契约 + client HeatBadge/分布卡结构断言；better-sidebar 修复改结构断言锁定内层子插件模式）
 
 ## 📝 历史补记与勘误（issue #87 全仓审计）
 
