@@ -55,7 +55,8 @@ window.__ModuleLoader__.load({
       copy: [["rect", { width: "14", height: "14", x: "8", y: "8", rx: "2", ry: "2" }], ["path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" }]],
       check: [["path", { d: "M20 6 9 17l-5-5" }]],
       inbox: [["polyline", { points: "22 12 16 12 14 15 10 15 8 12 2 12" }], ["path", { d: "M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" }]],
-      activity: [["path", { d: "M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" }]]
+      activity: [["path", { d: "M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" }]],
+      flame: [["path", { d: "M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" }]]
     };
     const Icon = ({ name, size = 16, className }) => {
       const parts = ICON_PATHS[name];
@@ -90,6 +91,18 @@ window.__ModuleLoader__.load({
             strokeLinejoin: "round",
             opacity: i < filled ? 1 : 0.35
           }))));
+    };
+
+    // 热度徽章（阶段二）：flame 图标 + 整数百分比，三档配色（热/温/冷）。
+    // /list 仅在 heatEnabled=true 时下发 heat 字段——缺省即不渲染，开关关闭
+    // 时徽章全站自动消失，前端无需感知开关状态。
+    const HeatBadge = ({ value, size = 12 }) => {
+      if (typeof value !== "number" || !Number.isFinite(value)) return null;
+      const pct = Math.round(Math.min(1, Math.max(0, value)) * 100);
+      const tier = pct >= 66 ? "hot" : pct >= 33 ? "warm" : "cold";
+      return h("span", { className: `mneme-heat mneme-heat--${tier}`, title: `${pct}%` },
+        h(Icon, { name: "flame", size, className: "mneme-heatico" }),
+        h("span", { className: "mneme-heatpct" }, `${pct}%`));
     };
 
     // Unified API fetcher: attaches the optional apiToken (set in the settings
@@ -174,6 +187,7 @@ window.__ModuleLoader__.load({
         "memory.explorer.updated": "更新",
         "memory.explorer.tags": "标签",
         "memory.explorer.importance": "重要性",
+        "memory.explorer.heat": "热度",
         "memory.explorer.sourceFilter": "来源",
         "memory.explorer.filterDeposited": "沉淀",
         "memory.explorer.filterDepositedHint": "只看 autoDream 巩固/更新过的记忆",
@@ -362,6 +376,8 @@ window.__ModuleLoader__.load({
         "memory.status.consolidated": "沉淀的记忆",
         "memory.status.consolidatedEmpty": "autoDream / autoSummarize 沉淀的记忆会出现在这里",
         "memory.status.archivedMemories": "已归档的记忆",
+        "memory.status.heatDistribution": "热度分布",
+        "memory.status.heatHint": "热门（≥66%）{hot} · 温热（33–66%）{warm} · 冷却（<33%）{cold}，样本为最近 {sample} 条",
         "memory.status.viewAll": "查看全部",
         "memory.status.depositedCount": "沉淀的记忆（{n}）",
         "memory.status.archivedCount": "已归档的记忆（{n}）",
@@ -448,6 +464,7 @@ window.__ModuleLoader__.load({
         "memory.explorer.updated": "Updated",
         "memory.explorer.tags": "Tags",
         "memory.explorer.importance": "Importance",
+        "memory.explorer.heat": "Heat",
         "memory.explorer.sourceFilter": "Source",
         "memory.explorer.filterDeposited": "Deposited",
         "memory.explorer.filterDepositedHint": "Only memories autoDream consolidated or updated",
@@ -636,6 +653,8 @@ window.__ModuleLoader__.load({
         "memory.status.consolidated": "Deposited memories",
         "memory.status.consolidatedEmpty": "Memories deposited by autoDream / autoSummarize appear here",
         "memory.status.archivedMemories": "Archived memories",
+        "memory.status.heatDistribution": "Heat distribution",
+        "memory.status.heatHint": "hot (≥66%) {hot} · warm (33–66%) {warm} · cooled (<33%) {cold}, sampled from the latest {sample}",
         "memory.status.viewAll": "View all",
         "memory.status.depositedCount": "Deposited memories ({n})",
         "memory.status.archivedCount": "Archived memories ({n})",
@@ -871,6 +890,12 @@ window.__ModuleLoader__.load({
       // wrapper display:contents 隐身，按钮成为侧边栏弹性布局的直接子元素；
       // 盒模型/间距/收起态 rail 几何全部继承宿主，我们只覆盖配色为次级观感。
       ".mneme-stars{display:inline-flex;align-items:center;gap:2px}",
+      // 热度徽章三档：热（橙）/温（次级文字）/冷（弱化文字），冷档藏百分比只留图标。
+      ".mneme-heat{display:inline-flex;align-items:center;gap:2px;font-size:11px;line-height:14px;font-variant-numeric:tabular-nums}",
+      ".mneme-heat--hot{color:var(--dsw-alias-state-warning,#d97706)}",
+      ".mneme-heat--warm{color:var(--dsw-alias-label-secondary)}",
+      ".mneme-heat--cold{color:var(--dsw-alias-label-tertiary)}",
+      ".mneme-heat--cold .mneme-heatpct{display:none}",
       // width:100% 与「新会话」同宽（同一弹性父容器）；文案对齐交给复制来的
       // 原生类，不再用 flex:1/text-align:left 覆盖成左对齐。
       ".mneme-topentry{display:contents}",
@@ -2542,6 +2567,45 @@ window.__ModuleLoader__.load({
       );
     }
 
+    // 热度分布卡（阶段二）：采样最近 200 条的 heat 值做三档分布。自门控——
+    // /list 不下发 heat（heatEnabled=false）时整卡不渲染，前端不感知开关。
+    function HeatStatusCard({ t }) {
+      const [state, setState] = useState({ loading: true, off: false, hot: 0, warm: 0, cold: 0, sample: 0 });
+      useEffect(() => {
+        let cancelled = false;
+        apiFetch("/api/dsh-mneme/list?limit=200&order=chrono")
+          .then((res) => { if (!res.ok) throw new Error("http"); return res.json(); })
+          .then((d) => {
+            if (cancelled) return;
+            const items = d.items || [];
+            if (!items.length || typeof items[0].heat !== "number") {
+              setState({ loading: false, off: true, hot: 0, warm: 0, cold: 0, sample: 0 });
+              return;
+            }
+            let hot = 0, warm = 0, cold = 0;
+            for (const m of items) {
+              if (m.heat >= 0.66) hot++; else if (m.heat >= 0.33) warm++; else cold++;
+            }
+            setState({ loading: false, off: false, hot, warm, cold, sample: items.length });
+          })
+          .catch(() => { if (!cancelled) setState({ loading: false, off: true, hot: 0, warm: 0, cold: 0, sample: 0 }); });
+        return () => { cancelled = true; };
+      }, []);
+      if (state.off) return null;
+      return h(StatusCard, {
+        t,
+        title: t("memory.status.heatDistribution"),
+        loading: state.loading,
+        error: false,
+        num: `${state.hot}`,
+        cap: t("memory.status.heatHint")
+          .replace("{hot}", String(state.hot))
+          .replace("{warm}", String(state.warm))
+          .replace("{cold}", String(state.cold))
+          .replace("{sample}", String(state.sample))
+      });
+    }
+
     function StatusPanel({ t, onBrowse }) {
       return h("div", { className: "mneme-status" },
         h("div", { className: "mneme-statusgrid" },
@@ -2549,7 +2613,8 @@ window.__ModuleLoader__.load({
           h(EntitiesStatusCard, { t }),
           h(VectorStatusCard, { t }),
           h(LlmStatusCard, { t }),
-          h(DreamStatusCards, { t })
+          h(DreamStatusCards, { t }),
+          h(HeatStatusCard, { t })
         ),
         h(WorkbenchSection, { t, onBrowse })
       );
@@ -2638,6 +2703,9 @@ window.__ModuleLoader__.load({
                   onChange: (e) => setImportance(Number(e.target.value))
                 }, [1, 2, 3, 4, 5].map((n) => h("option", { key: n, value: n }, "★".repeat(n))))
               : h(ImportanceStars, { className: "mneme-dmetaval", value: memory.importance || 0 }),
+            memory.heat != null && h(react.Fragment, null,
+              h("span", { className: "mneme-dmetakey" }, t("memory.explorer.heat")),
+              h("span", { className: "mneme-dmetaval" }, h(HeatBadge, { value: memory.heat, size: 13 }))),
             memory.source && h(react.Fragment, null,
               h("span", { className: "mneme-dmetakey" }, t("memory.explorer.source")),
               h("span", { className: "mneme-dmetaval", title: memory.source }, memory.source)),
@@ -3280,6 +3348,7 @@ window.__ModuleLoader__.load({
                         h("div", { className: "mneme-cardexcerpt" }, m.content || ""),
                         h("div", { className: "mneme-cardfoot" },
                           h(ImportanceStars, { value: m.importance || 0, size: 12 }),
+                          h(HeatBadge, { value: m.heat }),
                           m.source && h("span", { className: "mneme-cardsrc", title: m.source }, m.source)
                         )
                       )),

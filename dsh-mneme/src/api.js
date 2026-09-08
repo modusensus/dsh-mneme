@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { timingSafeEqual, randomBytes } from "node:crypto";
 import { FEATURE_FLAG_SPEC } from "./settings.js";
 import { TYPE_FILE, renderMirrorText, parseHumanEdits } from "./mirror.js";
+import { computeHeat } from "./heat.js";
 
 // headers：少数端点（/export 附件下载）需要追加 Content-Disposition 等响应头。
 function sendJson(res, status, payload, headers = {}) {
@@ -185,10 +186,14 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
         const rows = service.list({ type, limit, offset, order, minImportance, source, updatedFrom, updatedTo, onlyArchived, depositedOnly });
         // 面板行在 wire DTO 之上补 archived/quality_score——模型工具的输出
         // schema 严格复用 toApiList，扩展只发生在 HTTP 层。
+        // heat 投影（阶段二前端数据源）：仅 heatEnabled=true 时下发逐条热度
+        // （heat.js 纯函数，λ=0 免疫类型恒 1.0）；字段缺省时前端徽章自动隐藏。
+        const heatOn = config?.heatEnabled === true;
         const items = service.toApiList(rows).map((m, i) => ({
           ...m,
           archived: rows[i].archived === true || rows[i].archived === 1,
-          quality_score: rows[i].quality_score ?? null
+          quality_score: rows[i].quality_score ?? null,
+          ...(heatOn ? { heat: computeHeat(rows[i], Date.now(), config ?? {}) } : {})
         }));
         // Total honors the same filters as the rows, or the pager's
         // has-more math breaks whenever minImportance/source/updated-at

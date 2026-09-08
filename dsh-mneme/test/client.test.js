@@ -409,3 +409,37 @@ test("explorer chrome aligns with the host design system", () => {
     "pill chips belong to the drawer era and must stay gone"
   );
 });
+
+// heat 阶段二：/list 仅在 heatEnabled=true 时下发逐条 heat，前端徽章三档
+// 配色且自门控（字段缺省自动隐藏）——卡片页脚、抽屉 meta、状态分布卡共用
+// 同一数据源，前端不感知开关状态。
+test("heat badges render from the /list projection and self-hide when off", () => {
+  assert.ok(
+    /const HeatBadge = \(\{ value, size = 12 \}\) =>/.test(clientSource),
+    "the heat badge component must exist"
+  );
+  assert.ok(
+    clientSource.includes("flame:"),
+    "the Lucide flame glyph must back the badge"
+  );
+  assert.ok(
+    /h\(HeatBadge, \{ value: m\.heat \}\)/.test(clientSource),
+    "the card foot must render the heat badge"
+  );
+  assert.ok(
+    clientSource.includes('t("memory.explorer.heat")'),
+    "the drawer must show a localized heat meta row"
+  );
+  assert.ok(
+    clientSource.includes("function HeatStatusCard"),
+    "the status grid must include the heat distribution card"
+  );
+  assert.ok(
+    clientSource.includes('typeof items[0].heat !== "number"'),
+    "the distribution card must self-hide when /list omits heat"
+  );
+  assert.ok(
+    /\.mneme-heat--hot\{/.test(clientSource),
+    "the three-tier heat colors must be styled"
+  );
+});

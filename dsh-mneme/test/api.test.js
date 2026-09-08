@@ -1051,3 +1051,29 @@ test("GET /api/dsh-mneme/list?deposited=only lists dream-touched memories (recei
   assert.deepEqual(bothData.items.map((m) => m.title), ["被巩固"]);
   assert.equal(bothData.total, 1);
 });
+
+test("GET /api/dsh-mneme/list projects per-memory heat only when heatEnabled=true", async () => {
+  // 默认（heatEnabled=false）：heat 字段整体缺省——前端徽章据此自动隐藏
+  const off = setup();
+  off.service.saveWithDedupe({ type: "preference", title: "免疫型", content: "immune" });
+  const r0 = new FakeRes();
+  await off.routes.find((r) => r.path === "/api/dsh-mneme/list").handler(req("/api/dsh-mneme/list"), r0);
+  const d0 = JSON.parse(r0.body);
+  assert.equal(d0.total, 1);
+  assert.equal("heat" in d0.items[0], false, "heat must be absent from the wire DTO when the flag is off");
+
+  // heatEnabled=true：逐条投影。λ=0 免疫类型（preference）恒 1.0；其余落在
+  // [0,1] 区间（新建记忆 Δt≈0 接近满格，衰减数学由 heat.test.js 看门）。
+  const on = setup(null, "", { heatEnabled: true });
+  on.service.saveWithDedupe({ type: "preference", title: "免疫型", content: "immune" });
+  on.service.saveWithDedupe({ type: "history", title: "会话历史", content: "recent" });
+  const r1 = new FakeRes();
+  await on.routes.find((r) => r.path === "/api/dsh-mneme/list").handler(req("/api/dsh-mneme/list"), r1);
+  const d1 = JSON.parse(r1.body);
+  assert.equal(d1.total, 2);
+  const byTitle = Object.fromEntries(d1.items.map((m) => [m.title, m.heat]));
+  assert.equal(byTitle["免疫型"], 1, "λ=0 immune types stay at full heat");
+  for (const v of Object.values(byTitle)) {
+    assert.ok(typeof v === "number" && v >= 0 && v <= 1, "heat values stay within [0,1]");
+  }
+});
