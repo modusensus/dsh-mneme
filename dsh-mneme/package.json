@@ -39,8 +39,7 @@
         "slots",
         "locale",
         "layout",
-        "connection",
-        "betterSidebar"
+        "connection"
       ],
       "platform": "web"
     },

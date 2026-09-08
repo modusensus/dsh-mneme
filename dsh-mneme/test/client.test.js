@@ -223,18 +223,16 @@ test("importance renders as star glyphs, not raw text stars", () => {
 // external-plugin-guide §2.2): 'betterSidebar' IS declared in inject (DSH's
 // runtime gates ctx property access on the inject declaration — probing
 // without declaring fails the whole loader entry, verified in the field) and
-// marked as an optional peer dependency, so when it is absent the service
-// resolves to undefined and registration skips gracefully. Registration
-// probes at runtime inside a named ctx.effect (scope cleanup on HMR/disable)
-// with a bounded retry for service-provision ordering.
-test("better-sidebar tab declares optional inject, probes, and skips gracefully", () => {
+// better-sidebar 软集成（issue #88 修正）：模块级 inject 声明 betterSidebar
+// 是硬等待——未安装 bs 的环境整个 entry pending（"1 entry did not activate"，
+// Failed to load plugins）。正确模式（dsh-server-deck 同款）：外层入口零
+// inject 立即激活（独立模式保底），tab 注册挂在内层动态子插件
+// ctx.plugin({ inject: ['betterSidebar'] }) 由 cordis 原生等待服务——bs 未装
+// 时该内层 fiber 永远 INACTIVE，静默无害。
+test("better-sidebar tab mounts via an inner sub-plugin, standalone mode intact", () => {
   assert.ok(
-    /const inject = \["slots", "locale", "betterSidebar"\];/.test(clientSource),
-    "module inject must declare betterSidebar — DSH gates ctx property access on it"
-  );
-  assert.ok(
-    /const bs = ctx\.betterSidebar;[\s\S]{0,60}typeof bs\.registerTab === "function"/.test(clientSource),
-    "the tab registration must still probe ctx.betterSidebar at runtime (undefined when absent)"
+    /const reg = bsCtx\.betterSidebar;[\s\S]{0,60}typeof reg\.registerTab !== "function"/.test(clientSource),
+    "the inner apply must still guard the service shape before registering"
   );
   assert.ok(
     /id: "dsh-mneme:memory"/.test(clientSource),
@@ -252,9 +250,20 @@ test("better-sidebar tab declares optional inject, probes, and skips gracefully"
     clientSource.includes('"dsh-mneme: better-sidebar tab"'),
     "the registration effect must carry a named label for scope cleanup"
   );
+  // issue #88：模块级 inject 声明 betterSidebar 是硬等待——未安装 bs 的环境
+  // 整个 entry pending（"1 entry did not activate"）。tab 注册必须挂在内层
+  // 动态子插件（dsh-server-deck 同款模式），外层入口零 inject 立即激活。
   assert.ok(
-    /if \(\+\+tries <= 10\) timer = setTimeout\(attempt, 1000\);/.test(clientSource),
-    "the service probe must retry with a bound (10 × 1s), not loop forever"
+    /const inject = \["slots", "locale"\]/.test(clientSource),
+    "the module inject must not declare betterSidebar (hard-wait regression)"
+  );
+  assert.ok(
+    /ctx\.plugin\?\.\(\{[\s\S]*?inject: \["betterSidebar"\][\s\S]*?apply: \(bsCtx\) =>/.test(clientSource),
+    "the tab registration must live in an inner dynamic sub-plugin waiting on cordis"
+  );
+  assert.ok(
+    /if \(\+\+tries <= 10\) timer = setTimeout\(attempt, 1000\);/.test(clientSource) === false,
+    "the old 10×1s probe must go — cordis waits for the inner inject natively"
   );
 });
 

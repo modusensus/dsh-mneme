@@ -118,7 +118,11 @@ window.__ModuleLoader__.load({
       return fetch(path, { ...opts, headers });
     }
 
-    const inject = ["slots", "locale", "betterSidebar"];
+    // ⚠️ 'betterSidebar' 绝不能进模块级 inject（issue #88 实锤）：loader 对
+    // inject 声明的服务是硬等待——未安装 better-sidebar 的环境里整个 entry
+    // 永远 pending（"1 entry did not activate" → Failed to load plugins）。
+    // 软依赖靠内层动态子插件探测（见 apply 内 better-sidebar 挂载块）。
+    const inject = ["slots", "locale"];
 
     const NS = "memory";
 
@@ -3558,39 +3562,47 @@ window.__ModuleLoader__.load({
         ));
       });
 
-      // --- better-sidebar 生态 tab（可选软依赖，官方指南 §2.2 契约）---
-      // 'betterSidebar' 声明进 inject + package.json optional peer：未安装
-      // better-sidebar 时服务解析为 undefined，探测条件不成立即静默跳过，
-      // 现有 footer 锚点 + 顶部入口 + sheet 完全不受影响（实测：DSH 运行时
-      // 对 ctx 属性访问有 inject 闸门，未声明就取值会直接 fail 整个 loader
-      // entry，§15 的「不声明纯探测」模式在 DSH 上不可用）。
-      // 服务提供时序仍无保证（better-sidebar 可能晚于本插件加载），短重试
-      // 兜底；注册包在 ctx.effect 里，HMR/禁用时随作用域自动清理。
+      // --- better-sidebar 生态 tab（可选软依赖）---
+      // ⚠️ 平台事实（issue #88 实测 + dsh-server-deck 同款方案）：模块级
+      // inject 声明 betterSidebar 是硬等待——未安装 bs 的环境整个 entry
+      // pending（"1 entry did not activate" → Failed to load plugins），
+      // v0.7.18 即因此对无 bs 用户启动失败。正确双模式（server-deck 验证
+      // 过）：外层入口零 inject 立即激活（独立模式保底）；tab 注册挂在内层
+      // 动态子插件 `ctx.plugin({ inject: ['betterSidebar'] })`，由 cordis
+      // 原生等待服务——bs 未装时该内层 fiber 永远 INACTIVE，静默无害。
+      // 兄弟上下文取未声明属性会直接抛错（"cannot get property without
+      // inject"），轮询探测方案不可用。
       ctx.effect(() => {
-        let tries = 0, timer = null;
-        const attempt = () => {
-          const bs = ctx.betterSidebar;
-          if (bs && typeof bs.registerTab === "function") {
-            try {
-              bs.registerTab({
-                id: "dsh-mneme:memory",
-                title: () => t("memory.view.label"),
-                icon: (size) => h(IconArchiveOutline20, { size }),
-                order: 60,
-                component: () => h(MemoryExplorer, { t })
-              });
-              return;
-            } catch (err) {
-              // id 重复等注册失败不应拖垮其余功能，留一条线索即可
-              console.error("[dsh-mneme] better-sidebar registerTab failed:", err);
-              return;
+        let dead = false;
+        try {
+          ctx.plugin?.({
+            name: "dsh-mneme:bs-tab",
+            inject: ["betterSidebar"],
+            apply: (bsCtx) => {
+              bsCtx.effect(() => {
+                if (dead) return;
+                const reg = bsCtx.betterSidebar;
+                if (!reg || typeof reg.registerTab !== "function") return;
+                try {
+                  reg.registerTab({
+                    id: "dsh-mneme:memory",
+                    title: () => t("memory.view.label"),
+                    icon: (size) => h(IconArchiveOutline20, { size }),
+                    order: 60,
+                    component: () => h(MemoryExplorer, { t })
+                  });
+                } catch (err) {
+                  // id 重复等注册失败不应拖垮其余功能，留一条线索即可
+                  console.error("[dsh-mneme] better-sidebar registerTab failed:", err);
+                }
+              }, "dsh-mneme: better-sidebar tab");
             }
-          }
-          if (++tries <= 10) timer = setTimeout(attempt, 1000);
-        };
-        attempt();
-        return () => clearTimeout(timer);
-      }, "dsh-mneme: better-sidebar tab");
+          });
+        } catch (err) {
+          console.error("[dsh-mneme] better-sidebar mount failed:", err);
+        }
+        return () => { dead = true; };
+      }, "dsh-mneme: better-sidebar mount");
     }
 
     exports.apply = apply;
