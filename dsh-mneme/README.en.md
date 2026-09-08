@@ -7,7 +7,7 @@ English | [简体中文](README.md)
 [![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Awesome](https://awesome-dsh-plugin.com/badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
-[![tests](https://img.shields.io/badge/tests-712%20passed-success)](https://github.com/modusensus/dsh-mneme)
+[![tests](https://img.shields.io/badge/tests-714%20passed-success)](https://github.com/modusensus/dsh-mneme)
 
 > A cross-session memory plugin for DeepSeek Harness: it lets the Agent remember you, remember your projects, and organize memories automatically. **Mneme** (Μνήμη) — named after Mnemosyne, the Greek goddess of memory who presides over memory and dreams, just as autoDream consolidates memories in the background.
 
@@ -166,6 +166,7 @@ Every **background LLM call** (autoDream consolidation + summary, autoSummarize 
 
 | Version | Highlights |
 |------|------|
+| **v0.7.24** | Fixed DSH Desktop plugin-tree load crash (v0.7.23 regression): cordis 4's ctx is a Proxy — accessing a property not declared in `inject` throws `cannot get property "webServer" without inject` (not `undefined`), and removing webServer from inject meant cordis no longer waited for the host service, so Desktop crashed on restart; fix: restored webServer to inject (cordis applies the plugin only after the host service is ready) + apply/register guard switched to `ctx.reflect.get` (inject-free read, returns `undefined` when absent, never throws); verified with a real cordis + dsh-host-webserver plugin (API routes 200, unknown path 404, headless silently inactive); 714 tests green |
 | **v0.7.23** | Root-caused "memory consolidation keeps failing": a legal empty decision array `[]` from consolidation is no longer treated as a failure (CONSOLIDATION_PROMPT explicitly allows "no output when nothing needs changing", so a model with a healthy, non-redundant memory legitimately returns `[]` — yet `validateDecisions` hard-rejected it as `decision list must be a non-empty array`, failing the whole run and flooding the audit with failures; **model-agnostic** — ChatGPT/Claude hit the same trap; fix: empty array short-circuits to `ok:true` no-op instead of tripping the implicit-keep coverage check). Plus: empty-body fix part 2 (`dreamMaxTokens` default 8192→32768 so thinking models don't burn the whole budget on reasoning) + skipInvalid splice residue bug (length equality ≠ content equality, skipped decisions leaked into apply/audit); 712 tests green |
 | **v0.7.22** | Restored the v0.6.9 skipInvalid tolerant-validation path (issue #89 regression, lost in the v0.7.11 rewrite): `dreamSkipInvalid` (default true) skips individual invalid decisions, applies the valid subset, and marks the run degraded; `allowCrossTypeMerge` (default false) explicitly relaxes cross-type merging — weak models (e.g. qwen3.8-flash) with jittery schema compliance no longer fail the whole batch and burn LLM calls. Strict mode and the sleep path behave unchanged; global caps/coverage floors still reject the whole run (running over cap = broken model, not minor schema drift). New `dreamMinIntervalMinutes` (0–10080, default 0 = unlimited) minimum autoDream trigger interval — failed/degraded runs also consume the interval (throttling exists to stop back-to-back failing calls); feature_flags whitelist now 34 keys; 696 tests green |
 | **v0.7.21** | Fixed autoDream/sleep effort fallback being dead code on the stream path (the catch-based retry from v0.7.16 never fired): dsh-llm rc.1 turns adapter-stage failures (incl. `UNSUPPORTED_REASONING_EFFORT`) into a terminal error finish chunk instead of a throw; `streamText` now captures the finish-chunk failure cause (`describeStreamFailure` normalizes `{code,message}`) + `withEffortFallback` gains a `getStreamError` accessor (retries without effort when rejected) + `runAuditedLlm` supports `spec.streamError` (audit `error_message` carries the real cause; `run.error` stays a stable `"llm failed"`); 688 tests green |
@@ -441,7 +442,7 @@ src/
 lib/
 ├── client.js         # Web 面板（手写 ModuleLoader bundle）
 └── *.js              # src 的同步分发产物
-test/                 # 712 node:test tests (audit + three-axis stress invariants)
+test/                 # 714 node:test tests (audit + three-axis stress invariants)
 scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压测 · sync-lib.js 同步
 ```
 
@@ -450,7 +451,7 @@ scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压
 ```bash
 cd dsh-mneme
 npm install        # 安装 peer 依赖（以 devDependencies 形式，用于本地测试）
-npm test           # 运行 712 个测试
+npm test           # 运行 714 个测试
 npm run stress     # 三轴线压测：长会话检索 / 冲突仲裁 / 多 Agent 并发（离线 mock LLM）
 npm run sync       # 把 src/ 同步到 lib/（发布时由 prepack 钩子自动执行）
 ```

@@ -21,10 +21,13 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 
 export const name = "dsh-mneme";
-// webServer 为可选依赖（headless/无 UI 宿主兼容）：从 inject 声明中去掉，cordis
-// 不再等待它激活；运行时 ctx.webServer 为空则跳过 API 注册（下方 if 守卫），
-// 记忆工具/注入/dream 全部照常工作。
-export const inject = ["tools", "systemPrompt", "llm", "agentDefaultModel", "commands"];
+// webServer 在 inject 声明中：cordis 会等宿主 webServer 服务激活后才 apply 本
+// 插件，保证 apply 时路由注册不落时序（v0.7.23 曾移出 inject 想支持 headless，
+// 结果 cordis 不再等待，apply 时宿主 webServer 未就绪 → 桌面端 "cannot get
+// property without inject" 崩溃）。守卫用 ctx.reflect.get（免 inject 读取，
+// 未提供返回 undefined）而非 if (ctx.webServer)：直接访问未注入属性在 cordis
+// Proxy 下会抛错而非返回 undefined。
+export const inject = ["tools", "systemPrompt", "llm", "agentDefaultModel", "commands", "webServer"];
 export { Config };
 
 // Arrow (not function declaration): cordis 4 treats any apply with a
@@ -362,7 +365,14 @@ export const apply = (ctx, config) => {
   const summarizer = createSummarizer(ctx, service, cfg);
   disposers.push(summarizer.dispose);
 
-  if (ctx.webServer) {
+  // webServer 可选依赖：cordis 4 的 ctx 是 Proxy，直接访问未在 inject 声明的
+  // 属性会抛 "cannot get property without inject"（不会返回 undefined），所以
+  // 不能用 if (ctx.webServer) 守卫。ctx.reflect.get 是 cordis 提供的免 inject
+  // 读取（未提供时返回 undefined）；对象字面量 mock ctx（测试）没有 reflect，
+  // 退回直接属性访问。headless/无 UI 宿主无 webServer 时跳过 API 注册，其余
+  // 功能（工具/注入/dream）照常。
+  const webServer = typeof ctx.reflect?.get === "function" ? ctx.reflect.get("webServer") : ctx.webServer;
+  if (webServer) {
     const api = createApi(ctx, service, settings, commands ?? {
       add: () => { throw new Error("commands unavailable"); },
       remove: () => false,
