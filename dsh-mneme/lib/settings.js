@@ -74,7 +74,8 @@ const FEATURE_FLAG_INT_RANGES = {
   distillRateLimitBaseDelayMs: [100, 60000],
   distillMaxChars: [1000, 200000],
   codingBoostFactor: [1, 5],
-  dreamMinIntervalMinutes: [0, 10080]
+  dreamMinIntervalMinutes: [0, 10080],
+  dreamMaxTokens: [256, 131072]
 };
 // 自由字符串开关（与 config.js 的 z.string() 同名同型）：trim 后 ≤200 字符，
 // 空串合法（= 跟随主对话模型/默认路径，面板显示 placeholder）。
