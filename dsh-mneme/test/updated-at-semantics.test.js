@@ -45,7 +45,7 @@ test("store.update bumps updated_at but never last_accessed_at", () => {
 });
 
 test("search bumps last_accessed_at with heatEnabled on, and is gated off by heatEnabled=false", async () => {
-  // 显式开启 heat（v0.7.19 起默认关）：last_accessed_at 被采集（与 sleep 开关解耦）。
+  // 显式开启 heat（v0.7.20 起默认关）：last_accessed_at 被采集（与 sleep 开关解耦）。
   const a = setup({ heatEnabled: true });
   saveMemory(a.service, "量子计算", "入门");
   await a.service.searchMemories("量子", { mode: "keyword" });
