@@ -16,6 +16,46 @@ const DEFAULT_HOST = "127.0.0.1";
 // Hardcoded release version (package.json is bumped at publish time and may
 // lag the code that ships in between).
 const VERSION = "0.7.12";
+const MAX_PORT_ATTEMPTS = 20;
+
+/**
+ * Listen with automatic EADDRINUSE recovery. Tries the configured port, then
+ * the next MAX_PORT_ATTEMPTS-1 ports, and finally falls back to port 0 so the
+ * OS assigns a free port. Multiple DSH profiles/instances sharing the default
+ * port no longer leave the standalone API permanently unavailable.
+ */
+function listenWithRetry(server, startPort, host, logger) {
+  return new Promise((resolve, reject) => {
+    let attempt = 0;
+    const tryListen = (port) => {
+      const onListening = () => {
+        server.off("error", onError);
+        const address = server.address();
+        resolve(address && typeof address === "object" ? address.port : port);
+      };
+      const onError = (error) => {
+        server.off("listening", onListening);
+        if (error?.code === "EADDRINUSE" && attempt < MAX_PORT_ATTEMPTS - 1) {
+          attempt++;
+          const next = startPort + attempt;
+          logger?.warn?.(`[dsh-mneme] standalone API port ${port} in use, retrying ${next}`);
+          tryListen(next);
+          return;
+        }
+        if (error?.code === "EADDRINUSE") {
+          logger?.warn?.(`[dsh-mneme] standalone API port ${port} still in use, falling back to OS-assigned port`);
+          tryListen(0);
+          return;
+        }
+        reject(error);
+      };
+      server.once("listening", onListening);
+      server.once("error", onError);
+      server.listen(port, host);
+    };
+    tryListen(startPort);
+  });
+}
 
 function sendJson(res, status, payload) {
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
@@ -243,10 +283,10 @@ export function createStandaloneApi({ service, store, config = {}, logger, setti
     logger?.warn?.(`[dsh-mneme] standalone API error: ${String(error)}`);
   });
   const ready = new Promise((resolve, reject) => {
-    server.once("listening", resolve);
-    server.once("error", reject);
+    // listening handled by listenWithRetry
+    listenWithRetry(server, boundPort, boundHost, logger).then(resolve, reject);
   });
-  server.listen(boundPort, boundHost);
+  // server.listen is called inside listenWithRetry
   ready.then(() => {
     const address = server.address();
     if (address && typeof address === "object") {
