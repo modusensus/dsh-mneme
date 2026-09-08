@@ -6,7 +6,7 @@
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Awesome](https://awesome-dsh-plugin.com/badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
 [![tests](https://img.shields.io/badge/tests-617%20passed-success)](https://github.com/modusensus/dsh-mneme)
-[![CI](https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/test.yml)](https://github.com/modusensus/dsh-mneme/actions)
+[![CI](https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/ci.yml)](https://github.com/modusensus/dsh-mneme/actions)
 [![node](https://img.shields.io/badge/node-24%2B-blue)](https://nodejs.org)
 [![npm downloads](https://img.shields.io/npm/dm/@modusensus/dsh-mneme?color=blue&label=downloads)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 [![coverage](https://img.shields.io/codecov/c/github/modusensus/dsh-mneme/main)](https://codecov.io/gh/modusensus/dsh-mneme)
