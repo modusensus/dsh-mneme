@@ -451,4 +451,18 @@ test("heat badges render from the /list projection and self-hide when off", () =
     /\.mneme-heat--hot\{/.test(clientSource),
     "the three-tier heat colors must be styled"
   );
+  // order=heat 的前端补口：热度是运行时投影无存储序，SQL 排不了——页内
+  // 对已加载条目降序，时间树保持 chrono；chip 自门控（heat 缺省不出现）。
+  assert.ok(
+    /const heatAvailable = visible\.some\(\(m\) => typeof m\.heat === "number"\);/.test(clientSource),
+    "the heat-sort chip must self-gate on the /list heat field"
+  );
+  assert.ok(
+    /const gridItems = heatSort[\s\S]{0,80}\(b\.heat \?\? 0\) - \(a\.heat \?\? 0\)/.test(clientSource),
+    "the cards grid must sort loaded items by heat in-page"
+  );
+  assert.ok(
+    clientSource.includes("if (!heatSort) switchViewMode(\"cards\")"),
+    "toggling heat sort must land on the cards view (sort does not apply to the month tree)"
+  );
 });
