@@ -7,7 +7,7 @@ English | [简体中文](README.md)
 [![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Awesome](https://awesome-dsh-plugin.com/badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
-[![tests](https://img.shields.io/badge/tests-664%20passed-success)](https://github.com/modusensus/dsh-mneme)
+[![tests](https://img.shields.io/badge/tests-667%20passed-success)](https://github.com/modusensus/dsh-mneme)
 
 > A cross-session memory plugin for DeepSeek Harness: it lets the Agent remember you, remember your projects, and organize memories automatically. **Mneme** (Μνήμη) — named after Mnemosyne, the Greek goddess of memory who presides over memory and dreams, just as autoDream consolidates memories in the background.
 
@@ -166,6 +166,7 @@ Every **background LLM call** (autoDream consolidation + summary, autoSummarize 
 
 | Version | Highlights |
 |------|------|
+| **v0.7.18** | Ecosystem step one + query convergence: better-sidebar soft integration (inject declaration + optional peer `dsh-better-sidebar` + registerTab reusing the four views, safe skip when absent; narrow-container `@container` adaptation) + `/list?deposited=only` view (receipt_chain ∪ source=dream) + deposited/archived filter chips in the library + status-page dashboard (server totals + view-all jumps) + drawer restore for archived memories; 667 tests green |
 | **v0.7.17** | Panel polish: sidebar entry continuously aligned with the host (MutationObserver syncs the New-Session class + `width:100%` + native centering restored, resilient to async skin rewrites) + importance rendered as Lucide star glyphs (`ImportanceStars` filled/hollow component replacing text ★) + toolbar dropdown stacking fix (z-index moved to the container; export/import menu no longer painted under the sticky month header); 664 tests green |
 | **v0.7.16** | Fixed autoDream empty-body failures on thinking models (`no json array in llm output`): restored config-first routing (settings "consolidation model" wins, Issue #25) + reasoningEffort auto-retry without effort on rejection + honest `llm_audit` error on parse failure; backfilled API-route tests (/delete, /entities, /external-api) + lib runtime smoke; 662 tests green |
 | **v0.7.15** | Desktop adaptation: library panel redesign + 30-key feature-flag UI (features API) + status dashboard + import/export (mirror-isomorphic md golden loop) + token masking by default; 645 tests green |
@@ -210,7 +211,7 @@ Every **background LLM call** (autoDream consolidation + summary, autoSummarize 
 | v0.7.1–0.7.8 | ✅ Done | Issue fixes + graph backfill | tags↔entity_attrs bridge, inline-confirm delete, sidebar trigger toggle, brace escaping, user/fact layered types + stats endpoint (later removed), prefix-id resolution (later removed), sleep batch entity extraction, snapshotEvents() DSH compat; 764→812 tests green |
 | v0.7.9 | ✅ Done | lib-sync gate | Issue #65: src-only shim silently killed the shipped lib — synced lib + pre-publish src↔lib consistency check + lib smoke tests; 815 tests green |
 | v0.7.10–0.7.12 | ✅ Done | Panel redesign + near-rewrite | UX upgrades (color dots, pan/zoom, pagination, global search), then near-rewrite: inlined panel → pure HTTP API + standalone CLI + lightMode; TYPES narrowed 8→6 |
-| v0.7.13–0.7.17 | ✅ Done | Distillation, security, desktop, dream fix, panel polish | codingRetrospect + 429 governor; private reasoning blocks dropped (CWE-200); desktop panel redesign + feature flags; autoDream thinking-model empty-body fix + backfilled tests; sidebar entry alignment + star glyphs + menu stacking polish; 664 tests green |
+| v0.7.13–0.7.18 | ✅ Done | Distillation, security, desktop, dream fix, panel polish, ecosystem | codingRetrospect + 429 governor; private reasoning blocks dropped (CWE-200); desktop panel redesign + feature flags; autoDream thinking-model empty-body fix + backfilled tests; sidebar entry alignment + star glyphs + menu stacking polish; better-sidebar soft integration + deposited/archived library views; 667 tests green |
 | **v0.8.0** | 🚧 Planned (late Sep) | Graph enhancement | Interest-drift visualization + scope isolation (issue #17) + cross-workspace sharing |
 
 > All new capabilities ship as **toggleable features** (enabled/disabled via configuration), conservatively on by default and never breaking existing behavior. The `failure_memories` table and the autoDream decision engine have already paved the way for future reflective growth.

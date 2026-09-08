@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.7.18] - 2026-09-08
+
+## 🆕 新功能
+
+- **better-sidebar 软集成（生态第一步）**：声明 `betterSidebar` inject + optional peer `dsh-better-sidebar`，运行时软探测注册「记忆库」tab（id `dsh-mneme:memory`，复用记忆库/实体/状态/设置四视图，10×1s 重试兜服务时序）；未安装时安全跳过，独立入口（侧边栏 sheet）完整保留。`.mneme-x` 加 container-type:inline-size，`@container ≤640px` 隐藏卡片/时间线 seg 防窄容器重叠。双模式真机实测：无 bs 环境回退完好，有 bs 环境经「+」菜单进入四视图正常。
+- **记忆库沉淀/归档筛选**：新增 `GET /list?deposited=only`——沉淀视图 = receipt_chain 的 merge/update live verdict（record_id 即保留/更新目标）∪ source="dream" 直写，total 同过滤，conflict 不算沉淀；筛选栏「来源」分组新增「沉淀」「已归档」chip，可与类型/重要性/时间筛选叠加（deposited ∩ archived 组合有效）。
+
+## ✨ 优化
+
+- **状态页仪表盘化**：沉淀/归档长列表收敛为「小页预览 + 服务端 total + 查看全部」，点击跳转记忆库并预置对应筛选——查询收敛到有搜索与分页的浏览视图，状态页保持轻量。
+- **详情抽屉「恢复」**：归档记忆在抽屉内一键回主列表，与「归档」操作对称。
+
+## 🧪 测试
+
+- deposited 视图组合过滤（∪ source=dream、∩ archived=only、默认列表不受影响）+ client 结构断言（chip/跳转/恢复/服务端 total）；667 测试全绿。
+
 ## [0.7.17] - 2026-09-08
 
 ## ✨ 优化
