@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Awesome](https://awesome-dsh-plugin.com/badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
-[![tests](https://img.shields.io/badge/tests-662%20passed-success)](https://github.com/modusensus/dsh-mneme)
+[![tests](https://img.shields.io/badge/tests-664%20passed-success)](https://github.com/modusensus/dsh-mneme)
 [![CI](https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/ci.yml)](https://github.com/modusensus/dsh-mneme/actions)
 [![node](https://img.shields.io/badge/node-24%2B-blue)](https://nodejs.org)
 [![npm downloads](https://img.shields.io/npm/dm/@modusensus/dsh-mneme?color=blue&label=downloads)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
@@ -216,6 +216,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 
 | 版本 | 亮点 |
 |------|------|
+| **v0.7.17** | 面板体验细化：侧边栏入口持续对齐宿主（MutationObserver 同步「新会话」类名 + `width:100%` + 交还原生居中，皮肤异步改写不再失配）+ 重要性星级换 Lucide 星形（`ImportanceStars` 实心/空心组件，替换文本 ★）+ 工具栏下拉层级修复（z-index 提到容器，导出/导入菜单不再被吸顶月份头遮挡）；664 测试全绿 |
 | **v0.7.16** | 修复 autoDream 在 thinking 模型上空体 failed（`no json array in llm output`）：恢复 config-first 路由（设置面板「巩固模型」生效，Issue #25）+ reasoningEffort 被拒自动去掉重试一次 + 解析失败如实记 llm_audit error 并带原始输出头日志；补测 API 路由空白（/delete、/entities、/external-api）+ lib 运行时冒烟（src↔lib 一致性）；662 测试全绿 |
 | **v0.7.15** | 桌面端适配：记忆库面板重设计（撤对话 tab → 居中非全屏 sheet、卡片网格/时间线双视图、右侧详情抽屉、编辑/归档/关联实体）+ 侧边栏入口上移工作区上方（借用宿主原生类名对齐、收起态零位移）+ 功能开关 30 键上 UI（features API，巩固模型与 embedding 提供方可配）+ 状态页工作台（巩固卡/工作动态流/沉淀记忆/归档恢复）+ 导入导出（镜像同构 md 黄金闭环）+ Token 面板默认遮蔽；645 测试全绿 |
 | **v0.7.14** | 安全修复（CWE-200）：蒸馏不再把助手 `reasoning` 私有推理块送进蒸馏上下文（只采公开 `text`，防止记忆沉淀私有思考链）；617 测试全绿 |
