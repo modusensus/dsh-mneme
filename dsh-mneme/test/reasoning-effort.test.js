@@ -8,7 +8,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { Config } from "../src/config.js";
-import { createDreamScheduler } from "../src/dream.js";
+import { createDreamScheduler, parseReceipt } from "../src/dream.js";
 import { runSleep } from "../src/dream/sleep.js";
 import { createStore } from "../src/store.js";
 import { createService } from "../src/service.js";
@@ -24,10 +24,18 @@ const embedder = {
 
 // ---------------------------------------------------------------- config schema
 
-test("issue#9: dreamMaxTokens accepts the widened 131072 cap and defaults to 4096", () => {
-  assert.equal(Config({}).dreamMaxTokens, 32768, "default unchanged");
+test("issue#9: dreamMaxTokens defaults to 32768 and accepts values up to 131072", () => {
+  assert.equal(Config({}).dreamMaxTokens, 32768, "default raised for thinking-model headroom");
   assert.equal(Config({ dreamMaxTokens: 131072 }).dreamMaxTokens, 131072, "new upper bound accepted");
   assert.equal(Config({ dreamMaxTokens: 65536 }).dreamMaxTokens, 65536, "intermediate value accepted");
+});
+
+test("issue#9: dreamMaxTokens clamps to [256, 131072], out-of-range values are rejected", () => {
+  assert.equal(Config({ dreamMaxTokens: 256 }).dreamMaxTokens, 256, "lower bound accepted");
+  assert.equal(Config({ dreamMaxTokens: 100000 }).dreamMaxTokens, 100000, "raised default tier accepted");
+  assert.throws(() => Config({ dreamMaxTokens: 255 }), "below min rejected");
+  assert.throws(() => Config({ dreamMaxTokens: 131073 }), "above max rejected");
+  assert.throws(() => Config({ dreamMaxTokens: 0 }), "zero rejected");
 });
 
 test("issue#9: reasoningEffort config defaults to none and rejects unknown values", () => {
@@ -104,6 +112,63 @@ test("issue#9: dream forwards dreamReasoningEffort on both LLM calls", async () 
   for (const options of captured) {
     assert.equal(options.reasoningEffort, "high", `reasoningEffort forwarded on ${options.purpose}`);
   }
+  store.close();
+});
+
+test("issue#9: dreamMaxTokens is forwarded as maxTokens on consolidation and summary calls", async () => {
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config: {} });
+  const dream = createDreamScheduler({ onRun: () => Promise.resolve({ ok: true, skipped: true }) });
+  const { memory: a } = service.saveWithDedupe({ type: "project", title: "插件", content: "旧", importance: 3 });
+  const { memory: b } = service.saveWithDedupe({ type: "project", title: "插件2", content: "新细节", importance: 4 });
+  const captured = [];
+  const ctx = dreamCtx({
+    captured,
+    onConsolidation: () => JSON.stringify([
+      { action: "merge", ids: [a.id, b.id], keepSource: b.id, title: "插件总览", content: "合并内容", importance: 4 }
+    ])
+  });
+  const result = await dream.runDream(ctx, service, { dreamMaxTokens: 100000 });
+  assert.equal(result.ok, true);
+  assert.equal(captured.length, 2, "consolidation + summary both hit the LLM");
+  for (const options of captured) {
+    assert.equal(options.maxTokens, 100000, `raised budget forwarded on ${options.purpose}`);
+  }
+  store.close();
+});
+
+test("issue#9: thinking-model empty body (no text emitted, budget burnt on reasoning) fails as no json array", async () => {
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config: {} });
+  service.saveWithDedupe({ type: "preference", title: "语言", content: "中文" });
+  const dream = createDreamScheduler({ thresholdCount: 1, thresholdChars: 0, delayMs: 0 });
+  const ctx = dreamCtx({ onConsolidation: () => "" }); // 思考型模型把预算烧光 → 无正文
+  const result = await dream.runDream(ctx, service, { dreamMaxTokens: 32768 });
+  assert.equal(result.ok, false, "empty body is a hard failure, never faked ok");
+  assert.match(result.error, /no json array/);
+  const run = store.listDreamRuns()[0];
+  assert.equal(run.status, "failed", "audit row records failed");
+  assert.match(run.error, /no json array/, "audit error_message carries the empty-body cause");
+  assert.equal(parseReceipt(run.receipt).status, "failed", "receipt records failed");
+  store.close();
+});
+
+test("legal empty decision list [] is a no-op success, not a failure", async () => {
+  // 真实模型在记忆无冗余时合法输出 []（CONSOLIDATION_PROMPT 允许"无问题无需输出"），
+  // 此前被 validateDecisions 判 failed → 审计表反复失败。现在应 ok:true、applied 0、
+  // 审计记 ok，且 summary 照常产出。
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config: {} });
+  service.saveWithDedupe({ type: "project", title: "插件", content: "内容", importance: 3 });
+  const dream = createDreamScheduler({ thresholdCount: 1, thresholdChars: 0, delayMs: 0 });
+  const ctx = dreamCtx({ onConsolidation: () => "[]" }); // 模型：无需合并
+  const result = await dream.runDream(ctx, service, { dreamMaxTokens: 32768 });
+  assert.equal(result.ok, true, "empty [] is a valid no-op, never failed");
+  assert.equal(result.applied, 0, "no decisions to apply");
+  assert.equal(result.summary, true, "summary still produced");
+  const run = store.listDreamRuns()[0];
+  assert.equal(run.status, "ok", "audit row records ok, not failed");
+  assert.equal(parseReceipt(run.receipt).status, "ok", "receipt records ok");
   store.close();
 });
 

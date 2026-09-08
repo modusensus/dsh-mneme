@@ -62,10 +62,13 @@ test("archived or summary entries cannot be decision targets", () => {
   assert.equal(ok, false);
 });
 
-test("empty decision list rejects", () => {
-  const { ok, errors } = validateDecisions([], snapshot(["a"]));
-  assert.equal(ok, false);
-  assert.ok(errors.some((e) => e.includes("non-empty array")));
+test("empty decision list is a no-op success (model: nothing to consolidate)", () => {
+  // 合法 JSON [] 是模型完整评估后确认无需操作（CONSOLIDATION_PROMPT 允许空输出），
+  // 不是空体/截断——显式短路 ok，避免隐式 keep 的覆盖率检查误判 0% 为失败。
+  const { ok, errors, skipped } = validateDecisions([], snapshot(["a"]));
+  assert.equal(ok, true);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(skipped, []);
 });
 
 test("empty ids rejects", () => {
@@ -825,7 +828,9 @@ test("consolidation prompt pins the decision schema (action field, single-string
     logger: { warn: () => {} },
     llm: {
       async *stream(options) {
-        systemText = options.messages.find((m) => m.role === "system")?.content?.[0]?.text ?? "";
+        // 只捕获第一次调用（consolidation）的 system 文本：空数组现在走 no-op 成功、
+        // summary 会照常跑并覆盖 systemText，所以最后一次调用捕获到的是 SUMMARY_PROMPT。
+        if (!systemText) systemText = options.messages.find((m) => m.role === "system")?.content?.[0]?.text ?? "";
         yield { type: "text-delta", text: "[]" };
         yield { type: "finish", reason: { kind: "ok" } };
       }

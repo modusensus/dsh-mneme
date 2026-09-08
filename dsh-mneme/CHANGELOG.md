@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.7.23] - 2026-09-09
+
+## 🐛 修复
+
+- **记忆沉淀「反复失败」根治：consolidation 合法空数组 `[]` 不再误判失败**：CONSOLIDATION_PROMPT 明确允许「无问题的条目无需输出」，模型在记忆库无冗余时输出合法 JSON `[]`（**不是**空体/截断）——`validateDecisions` 却硬判 `decision list must be a non-empty array` → runDream 整单 failed、审计表反复记失败，**记忆越健康越容易「失败」**。与 sleep 空模式（skipped no-op）语义不一致，且**与模型无关**（任何遵守 prompt 的模型都会踩中，ChatGPT/Claude 同样）。修复：对空数组显式短路 `{ok:true, applied:0}` no-op（不可简单放行——隐式 keep 的覆盖率检查 0%<50% 会拦截）。Linux 本地真实 LLM（火山 coding OpenAI 端点）实测验证：无冗余场景 `ok:true applied:0 summary:true`，审计记 ok。
+- **空体修复第二段：`dreamMaxTokens` 默认 8192→32768**：思考型模型（v4 系）默认推理全开，8192 预算被 reasoning 烧光正文为空 → 默认预算翻四倍给推理留余量；上限 131072 不变，非思考模型实际用量远低无成本影响；设置面板可调。
+- **skipInvalid 恢复代码 splice 残留 bug（v0.6.9 原版就带，issue #89 回归路径）**：`decisions.splice` 守卫用长度相等代理「内容一致」——当「被跳非法决策数 == 隐式补齐 keep 数」时长度回等但内容已变，被跳决策残留进 apply/audit（重复 claim 的 merge 会被照样应用）→ 改无条件 splice。由本次新增的 skipInvalid 全量测试揪出。
+
+## 🏗️ 工程
+
+- **skipInvalid 恢复路径全量测试补全**（12 条：逐原因跳过 + 全局闸门交互 + runDream e2e）。
+- **合法空数组 e2e**：consolidation 返回 `[]` → run ok / applied 0 / summary 照跑 / audit+receipt 记 ok。
+- **webServer 可选化**：inject 声明去掉必填 webServer（headless/无 UI 宿主兼容），API 注册改运行时守卫。
+- **712 测试全绿**。
+
 ## [0.7.22] - 2026-09-09
 
 ## 🐛 修复

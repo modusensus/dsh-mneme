@@ -21,7 +21,10 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 
 export const name = "dsh-mneme";
-export const inject = ["tools", "systemPrompt", "webServer", "llm", "agentDefaultModel", "commands"];
+// webServer 为可选依赖（headless/无 UI 宿主兼容）：从 inject 声明中去掉，cordis
+// 不再等待它激活；运行时 ctx.webServer 为空则跳过 API 注册（下方 if 守卫），
+// 记忆工具/注入/dream 全部照常工作。
+export const inject = ["tools", "systemPrompt", "llm", "agentDefaultModel", "commands"];
 export { Config };
 
 // Arrow (not function declaration): cordis 4 treats any apply with a
