@@ -10,6 +10,7 @@
   - **sleep 降级热联合双保护**：phaseDemotion 需「时间窗冷 + heat<阈值 + importance<5」才降级，免疫类型永不因 sleep 降级；ref 语义恢复 `last_accessed_at ?? created_at`（updated_at 不算访问）
   - **touchRecalled 门控**由 `heatEnabled` 接管；**实体热投影**回归（ego 图谱节点 heat 字段 + 前端 nodeRadius/fillOpacity 随热度缩放）
   - **recall_runs 默认记录**恢复（`recallRecordDefault: true`）
+- **阶段二前端（验收清单完成）**：/list 在 `heatEnabled=true` 时逐条下发 heat 投影（`heat.js` 纯函数，λ=0 免疫类型恒 1.0；字段缺省前端自动隐藏）；HeatBadge 三档徽章（Lucide flame + 整数百分比：热≥66% 橙 / 温 33-66% / 冷<33% 弱化藏百分比，卡片页脚与详情抽屉共用）；状态页热度分布卡（采样最近 200 条三档统计，自门控）；**order=heat 页内排序**——热度是运行时投影无存储序、SQL 排不了且分页切片后页内非全局序，走前端页内排：卡片网格对已加载条目按 heat 降序、时间树保持 chrono 不受影响；「热度优先」chip 自门控，时间线视图开启时自动切卡片视图
 
 ## ⚠️ 行为变更（验收清单落地）
 
