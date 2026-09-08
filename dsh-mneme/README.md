@@ -81,15 +81,15 @@ dsh web
 
 #### dreamMaxTokens 调优指南
 
-默认 `8192` 已覆盖常规记忆库。当**记忆量大**（数万字符以上）时，决策清单与摘要可能超过默认预算，建议按规模调大：
+默认 `32768` 已为思考型模型预留推理+正文的双重预算（部分思考型模型仅推理就可能消耗 8k+ token）。当**记忆量大**（数万字符以上）时按规模继续调大：
 
 | 记忆库规模 | 建议 `dreamMaxTokens` |
 |-----------|----------------------|
-| 常规（<1 万字） | `8192`（默认） |
+| 常规（<1 万字） | `32768`（默认） |
 | 中等（1 万-5 万字） | `65536` |
 | 大型（5 万字以上） | `131072`（上限） |
 
-> 若使用**思考型模型**（如 deepseek-v4-flash / DeepSeek-R1 类），模型可能把全部预算花在 reasoning 上导致正文为空（日志出现 `no json array in llm output`，v0.7.16 已修复）。此时把 `dreamReasoningEffort` 设为 `low` 显式压低思考（`none` 默认不传该字段，完全沿用模型自身默认，行为与旧版本一致）；即使被方舟拒绝该参数，v0.7.16 起也会自动去掉重试一次。sleep 侧对应 `sleepReasoningEffort`。
+> 若使用**思考型模型**（如 deepseek-v4-flash / DeepSeek-R1 类），模型可能把全部预算花在 reasoning 上导致正文为空（日志出现 `no json array in llm output`）。处理顺序：① 把 `dreamReasoningEffort` 设为 `low` 显式压低思考（被方舟拒绝该参数时自动去掉重试一次，拒绝原因会记入 llm_audit——部分模型如 v4-flash-ga 不支持任何 effort 档位）；② 重试走模型默认思考行为后正文仍为空的，调大 `dreamMaxTokens`（reasoning 与正文共享该预算）或配置 `dreamProvider`/`dreamModel` 指向非思考模型。sleep 侧对应 `sleepReasoningEffort`。
 
 ### Sleep Mode 系统级睡眠 💤（v0.4.0，opt-in）
 
@@ -363,7 +363,7 @@ dsh web
 | `dreamThresholdChars` | `5000` | 触发整理的总字符阈值 |
 | `dreamDelayMs` | `2000` | 整理异步延迟（去抖） |
 | `dreamProvider` / `dreamModel` | 空 | dream 的 LLM 路由覆盖（显式配置优先于 agent 默认模型；留空则回退到 agent 默认模型） |
-| `dreamMaxTokens` | `8192` | dream LLM 调用最大 token 数（上限 131072；大记忆量建议调大，见下方调优指南） |
+| `dreamMaxTokens` | `32768` | dream LLM 调用最大 token 数（上限 131072；思考型模型的 reasoning 与正文共享该预算，正文为空时优先调大，见下方调优指南） |
 | `dreamReasoningEffort` | `none` | dream LLM 推理强度透传：`low` / `medium` / `high` / `none`（`none`=不传该字段，沿用模型默认；思考型模型（如 deepseek-v4-flash）想压低思考可设 `low`；被方舟拒绝该参数时 v0.7.16 起自动去掉重试一次） |
 | `apiToken` | 空 | 可选 API 鉴权 token；设置后写操作与密钥接口要求 `Authorization: Bearer <apiToken>` |
 | `embedProvider` | `openai` | 语义后端：`openai`（默认，兼容 v0.1）/ `local`（ONNX 离线）/ `ollama` |

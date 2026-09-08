@@ -58,15 +58,15 @@ English | [简体中文](README.md)
 
 #### dreamMaxTokens Tuning Guide
 
-The default `8192` covers ordinary memory stores. When the **memory volume is large** (tens of thousands of characters or more), the decision list and summary may exceed the default budget; scale it up by size:
+The default `32768` reserves headroom for reasoning models, where reasoning alone may consume 8k+ tokens before any body output. For **larger memory stores** scale it up by size:
 
 | Memory store size | Recommended `dreamMaxTokens` |
 |-----------|----------------------|
-| Ordinary (<10k chars) | `8192` (default) |
+| Ordinary (<10k chars) | `32768` (default) |
 | Medium (10k–50k chars) | `65536` |
 | Large (>50k chars) | `131072` (cap) |
 
-> With **reasoning models** (e.g. DeepSeek-R1-like), the model may spend the entire budget on reasoning and return an empty body (the log shows `no json array in llm output`). In that case, setting `dreamReasoningEffort` to `low` suppresses reasoning overhead and leaves the budget for the body output; the sleep side has the corresponding `sleepReasoningEffort`. The default `none` omits the field entirely, fully honoring the model's own default — behavior identical to earlier versions.
+> With **reasoning models** (e.g. DeepSeek-R1-like), the model may spend the entire budget on reasoning and return an empty body (the log shows `no json array in llm output`). Resolution order: ① set `dreamReasoningEffort` to `low` to suppress reasoning overhead (when the provider rejects the parameter it is stripped automatically and retried once — the rejection reason lands in `llm_audit`; some models, e.g. v4-flash-ga, reject every effort tier); ② if the retry still returns an empty body under the model's default reasoning behavior, raise `dreamMaxTokens` (reasoning and body share this budget) or route `dreamProvider`/`dreamModel` to a non-reasoning model. The sleep side has the corresponding `sleepReasoningEffort`.
 
 ### Sleep Mode: System-Level Sleep 💤 (v0.4.0, opt-in)
 
@@ -291,7 +291,7 @@ It works out of the box with the defaults. To adjust, override in `~/.dsh/profil
 | `dreamThresholdChars` | `5000` | Total character threshold that triggers consolidation |
 | `dreamDelayMs` | `2000` | Asynchronous consolidation delay (debounce) |
 | `dreamProvider` / `dreamModel` | empty | Explicit dream LLM route — config wins over the agent's default model (config-first, v0.7.16); left empty, the agent's default model is used |
-| `dreamMaxTokens` | `8192` | Maximum tokens per dream LLM call (cap 131072; increase for large memory stores — see the tuning guide below) |
+| `dreamMaxTokens` | `32768` | Maximum tokens per dream LLM call (cap 131072; reasoning and body share this budget on reasoning models — raise it when the body comes back empty, see the tuning guide below) |
 | `dreamReasoningEffort` | `none` | Reasoning-effort passthrough for the dream LLM: `low` / `medium` / `high` / `none` (`none` = omit the field and use the model default; set `low` when a reasoning model exhausts its budget on reasoning and produces an empty body) |
 | `apiToken` | empty | Optional API auth token; once set, write operations and key endpoints require `Authorization: Bearer <apiToken>` |
 | `embedProvider` | `openai` | Semantic backend: `openai` (default, v0.1-compatible) / `local` (ONNX offline) / `ollama` |

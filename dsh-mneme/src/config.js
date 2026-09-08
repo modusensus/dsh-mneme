@@ -54,7 +54,7 @@ export const Config = z.object({
   dreamMinIntervalMinutes: z.natural().min(0).max(10080).default(0),
   dreamProvider: z.string(),
   dreamModel: z.string(),
-  dreamMaxTokens: z.natural().min(256).max(131072).default(8192),
+  dreamMaxTokens: z.natural().min(256).max(131072).default(32768),
   // Pass-through reasoning effort for dream's LLM calls. 'none' (default)
   // omits the field so the provider's own default applies; low/medium/high
   // are forwarded verbatim. Useful to cap reasoning spend on thinking-type
