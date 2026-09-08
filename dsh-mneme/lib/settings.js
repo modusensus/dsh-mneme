@@ -58,6 +58,9 @@ const FEATURE_FLAG_BOOLEANS = [
   "bm25SearchEnabled",
   "conflictFreezeEnabled",
   "trustEpistemicWeighting",
+  // Issue #89：宽容校验回归（默认开）+ 跨类型合并显式放宽（默认关）。
+  "dreamSkipInvalid",
+  "allowCrossTypeMerge",
   // 嵌套对象开关：config.js 里是 memoryQualityFilter / llmAudit 对象的 enabled
   // 子字段。kv 按点号键平铺存（"memoryQualityFilter.enabled": false），index.js
   // 合并时展开回嵌套对象，api.js 的 effective 从对象子字段取值。
@@ -70,7 +73,8 @@ const FEATURE_FLAG_INT_RANGES = {
   distillRateLimitRetries: [0, 10],
   distillRateLimitBaseDelayMs: [100, 60000],
   distillMaxChars: [1000, 200000],
-  codingBoostFactor: [1, 5]
+  codingBoostFactor: [1, 5],
+  dreamMinIntervalMinutes: [0, 10080]
 };
 // 自由字符串开关（与 config.js 的 z.string() 同名同型）：trim 后 ≤200 字符，
 // 空串合法（= 跟随主对话模型/默认路径，面板显示 placeholder）。
