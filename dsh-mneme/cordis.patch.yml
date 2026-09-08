@@ -13,4 +13,9 @@
         dreamThresholdCount: 10
         dreamThresholdChars: 5000
         dreamDelayMs: 2000
+        # 巩固默认压低推理：思考型模型（如方舟 v4 系）会把 dreamMaxTokens
+        # 预算花在推理上、正文空体 → "no json array in llm output"。low 让
+        # provider 封顶推理；拒绝 effort 字段的 provider 由 runAuditedLlm
+        # 自动去掉重试，行为安全（v0.7.16 机制）。
+        dreamReasoningEffort: low
         entityExtractionEnabled: true
