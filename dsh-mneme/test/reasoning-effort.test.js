@@ -234,3 +234,117 @@ test("issue#9: sleep forwards sleepReasoningEffort on its LLM passes", async () 
   }
   store.close();
 });
+
+// ------------------------------------------------------------------ stream-level rejection
+// dsh-llm rc.1 converts adapter-stage failures (including the provider's
+// UNSUPPORTED_REASONING_EFFORT throw from resolveCallWithInfo) into a terminal
+// error finish chunk inside adapterStream — the rejection NEVER reaches our
+// catch. The v0.7.16 throw-based fallback was therefore dead code for the
+// stream path; these tests pin the finish-chunk-based fallback.
+
+test("rc.1 stream-level effort rejection (error finish chunk) also triggers the no-effort retry", async () => {
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config: {} });
+  const dream = createDreamScheduler({ onRun: () => Promise.resolve({ ok: true, skipped: true }) });
+  const { memory: a } = service.saveWithDedupe({ type: "project", title: "插件", content: "旧", importance: 3 });
+  const { memory: b } = service.saveWithDedupe({ type: "project", title: "插件2", content: "新细节", importance: 4 });
+  const calls = [];
+  const warnings = [];
+  const ctx = {
+    logger: { warn: (m) => warnings.push(String(m)) },
+    agentDefaultModel: { currentSelection: () => ({ provider: "mock", model: "mock-model" }) },
+    llm: {
+      async *stream(options) {
+        calls.push(options);
+        if (options.reasoningEffort) {
+          yield {
+            type: "finish",
+            reason: {
+              kind: "error",
+              failure: {
+                code: "UNSUPPORTED_REASONING_EFFORT",
+                message: 'provider "mock" model "mock-model" does not support reasoning effort "low"'
+              }
+            }
+          };
+          return;
+        }
+        const userText = options.messages.find((m) => m.role === "user")?.content?.[0]?.text ?? "";
+        if (userText.startsWith("id=")) {
+          yield { type: "text-delta", index: 0, text: JSON.stringify([
+            { action: "merge", ids: [a.id, b.id], keepSource: b.id, title: "合并标题", content: "合并内容", importance: 4 }
+          ]) };
+        } else {
+          yield { type: "text-delta", index: 0, text: "记忆库总览：用户偏好中文。" };
+        }
+        yield { type: "finish", reason: { kind: "stop" } };
+      }
+    }
+  };
+  const result = await dream.runDream(ctx, service, { dreamReasoningEffort: "low" });
+  assert.equal(result.ok, true, "run survives the stream-level effort rejection");
+  assert.ok(result.applied > 0, "consolidation still lands changes");
+  assert.equal(calls[0].reasoningEffort, "low", "first attempt forwards the effort");
+  assert.equal("reasoningEffort" in calls[1], false, "retry omits the rejected effort field");
+  assert.ok(warnings.some((w) => w.includes("rejected via stream")), "the stream-level rejection is logged");
+  store.close();
+});
+
+test("non-effort stream failures are not retried and the finish-chunk cause reaches the audit row", async () => {
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config: {} });
+  service.saveWithDedupe({ type: "project", title: "主题", content: "内容" });
+  const calls = [];
+  const ctx = {
+    logger: { warn: () => {} },
+    agentDefaultModel: { currentSelection: () => ({ provider: "mock", model: "mock-model" }) },
+    llm: {
+      async *stream(options) {
+        calls.push(options);
+        yield { type: "finish", reason: { kind: "error", failure: { code: "PROVIDER_GONE", message: "provider mock is not registered" } } };
+      }
+    }
+  };
+  const dream = createDreamScheduler({ thresholdCount: 1, thresholdChars: 0, delayMs: 0 });
+  const result = await dream.runDream(ctx, service, { dreamReasoningEffort: "low" });
+  assert.equal(result.ok, false);
+  assert.equal(result.error, "llm failed", "the run error stays the stable short string");
+  assert.equal(calls.length, 1, "no blind retry when the stream failure is not an effort rejection");
+  const row = service.listLlmAudits().find((r) => r.operation_type === "dream_consolidate");
+  assert.ok(row && row.status === "error", "failed consolidation still audited");
+  assert.ok(
+    String(row.error_message).includes("PROVIDER_GONE") && String(row.error_message).includes("provider mock is not registered"),
+    "audit error_message carries the finish-chunk cause"
+  );
+  store.close();
+});
+
+test("sleep passes the stream failure accessor so a stream-level effort rejection retries", async () => {
+  const { store, service, vectorIndex } = sleepSetup();
+  const a = service.saveWithDedupe({ type: "project", title: "主题X", content: "内容A 关于主题X", importance: 3 }).memory;
+  const b = service.saveWithDedupe({ type: "project", title: "主题X副本", content: "内容B 关于主题X", importance: 3 }).memory;
+  vectorIndex.saveEmbedding(a.id, [1, 0, 0]);
+  vectorIndex.saveEmbedding(b.id, [1, 0, 0]);
+  const captured = [];
+  const ctx = sleepCtx(null, { provider: "mock", model: "sleep-model" }, captured);
+  ctx.llm.stream = async function* (options) {
+    captured.push(options);
+    if (options.reasoningEffort) {
+      yield {
+        type: "finish",
+        reason: { kind: "error", failure: { code: "UNSUPPORTED_REASONING_EFFORT", message: 'provider "mock" model "sleep-model" does not support reasoning effort "low"' } }
+      };
+      return;
+    }
+    const userText = options.messages.find((m) => m.role === "user")?.content?.[0]?.text ?? "";
+    yield { type: "text-delta", index: 0, text: userText.startsWith("候选冲突")
+      ? JSON.stringify([{ action: "conflict", winner: a.id, loser: b.id, reason: "重复覆盖" }])
+      : "[]" };
+    yield { type: "finish", reason: { kind: "stop" } };
+  };
+  const result = await runSleep(ctx, service, baseConfig({ sleepReasoningEffort: "low" }), ctx.logger, { embedder, vectorIndex }, null);
+  assert.equal(result.status, "ok", "sleep survives the stream-level effort rejection");
+  assert.equal(captured[0].reasoningEffort, "low", "first conflict attempt forwards the effort");
+  assert.equal("reasoningEffort" in captured[1], false, "conflict retry omits the rejected effort field");
+  store.close();
+});

@@ -17,7 +17,7 @@
 import { randomUUID, createHash } from "node:crypto";
 import { validateDecisions, applyDecisions } from "./decisions.js";
 import { findPotentialConflicts } from "./clustering.js";
-import { buildReceipt, withEffortFallback } from "../dream.js";
+import { buildReceipt, describeStreamFailure, withEffortFallback } from "../dream.js";
 import { computeHeat } from "../heat.js";
 
 const SUMMARY_MAX = 120;
@@ -61,12 +61,17 @@ function parseJsonArray(text) {
 }
 
 /** Same stream consumption contract as dream.js. */
-async function streamText(ctx, options) {
+async function streamText(ctx, options, onStreamError) {
   if (!ctx?.llm?.stream) return undefined;
   let text = "";
   for await (const chunk of ctx.llm.stream(options)) {
     if (chunk.type === "text-delta" && typeof chunk.text === "string") text += chunk.text;
     if (chunk.type === "finish" && (chunk.reason?.kind === "error" || chunk.reason?.kind === "aborted")) {
+      // Same rc.1 error-as-finish-chunk behavior as dream.js — surface the
+      // cause instead of discarding it.
+      if (typeof onStreamError === "function") {
+        try { onStreamError(chunk.reason); } catch { /* diagnostics only */ }
+      }
       return undefined;
     }
   }
@@ -186,7 +191,10 @@ async function phaseConflicts(ctx, service, config, logger, runId, semantic = nu
     `候选冲突：\nid=${p.a.id} | type=${p.a.type} | title=${p.a.title}\n${p.a.content}\n---\nid=${p.b.id} | type=${p.b.type} | title=${p.b.title}\n${p.b.content}\n（相似度 ${p.similarity.toFixed(2)}）`
   ).join("\n\n");
   const sleepEffort = config.sleepReasoningEffort && config.sleepReasoningEffort !== "none" ? config.sleepReasoningEffort : null;
-  const runConflict = (withEffort) => streamText(ctx, {
+  let conflictStreamFailure = "";
+  const runConflict = (withEffort) => {
+    conflictStreamFailure = "";
+    return streamText(ctx, {
     provider: route.provider,
     model: route.model,
     purpose: "sleep-conflict",
@@ -196,9 +204,13 @@ async function phaseConflicts(ctx, service, config, logger, runId, semantic = nu
       { role: "system", content: [{ type: "text", text: CONFLICT_PROMPT }] },
       { role: "user", content: [{ type: "text", text: listText }] }
     ]
-  });
-  const text = await withEffortFallback(ctx, sleepEffort, () => runConflict(true), () => runConflict(false));
-  if (text === undefined) return { status: "failed", error: "llm failed" };
+  }, (reason) => { conflictStreamFailure = describeStreamFailure(reason); });
+  };
+  const text = await withEffortFallback(ctx, sleepEffort, () => runConflict(true), () => runConflict(false), () => conflictStreamFailure);
+  if (text === undefined) {
+    if (conflictStreamFailure) ctx.logger?.warn?.(`dsh-mneme sleep: conflict stream aborted or errored (${conflictStreamFailure})`);
+    return { status: "failed", error: "llm failed" };
+  }
   const decisions = parseJsonArray(text);
   if (!decisions) return { status: "failed", error: "invalid decisions json" };
   // validateDecisions 要求每个 snapshot id 恰好被 claim 一次。v0.4.4 起它本身
@@ -298,7 +310,10 @@ async function phasePatterns(ctx, service, config, logger, runId, signal = null)
     .join("\n");
   const maxPatterns = config.sleepMaxPatternPerRun ?? 3;
   const sleepEffort = config.sleepReasoningEffort && config.sleepReasoningEffort !== "none" ? config.sleepReasoningEffort : null;
-  const runPattern = (withEffort) => streamText(ctx, {
+  let patternStreamFailure = "";
+  const runPattern = (withEffort) => {
+    patternStreamFailure = "";
+    return streamText(ctx, {
     provider: route.provider,
     model: route.model,
     purpose: "sleep-pattern",
@@ -308,9 +323,13 @@ async function phasePatterns(ctx, service, config, logger, runId, signal = null)
       { role: "system", content: [{ type: "text", text: PATTERN_PROMPT.replace("N", String(maxPatterns)) }] },
       { role: "user", content: [{ type: "text", text: listText }] }
     ]
-  });
-  const text = await withEffortFallback(ctx, sleepEffort, () => runPattern(true), () => runPattern(false));
-  if (text === undefined) return { status: "failed", error: "llm failed" };
+  }, (reason) => { patternStreamFailure = describeStreamFailure(reason); });
+  };
+  const text = await withEffortFallback(ctx, sleepEffort, () => runPattern(true), () => runPattern(false), () => patternStreamFailure);
+  if (text === undefined) {
+    if (patternStreamFailure) ctx.logger?.warn?.(`dsh-mneme sleep: pattern stream aborted or errored (${patternStreamFailure})`);
+    return { status: "failed", error: "llm failed" };
+  }
   const decisions = parseJsonArray(text);
   if (!decisions || decisions.length === 0) return { status: "skipped", reason: "no patterns found" };
   // Evidence ids are provenance refs; an LLM-fabricated id would mint a dead

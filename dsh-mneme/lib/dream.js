@@ -1,7 +1,7 @@
 import { validateDecisions, applyDecisions } from "./dream/decisions.js";
 import { clusterMemories, findPotentialConflicts } from "./dream/clustering.js";
 import { createHash, randomUUID } from "node:crypto";
-export { validateDecisions, applyDecisions, withEffortFallback };
+export { validateDecisions, applyDecisions, withEffortFallback, describeStreamFailure };
 
 
 // Extract the first JSON array from LLM output, tolerating markdown fences,
@@ -238,16 +238,32 @@ function buildRecordReceipts({ runId, committed, snapshot, policyEpoch }) {
  * surfaces as undefined. The caller decides how to treat an empty result.
  * `onUsage` (optional, Bug8) receives any usage chunk for token accounting.
  */
-async function streamText(ctx, options, onUsage) {
+async function streamText(ctx, options, onUsage, onStreamError) {
   let text = "";
   for await (const chunk of ctx.llm.stream(options)) {
     if (chunk.type === "text-delta" && typeof chunk.text === "string") text += chunk.text;
     if (chunk.type === "usage" && typeof onUsage === "function") onUsage(chunk);
     if (chunk.type === "finish" && (chunk.reason?.kind === "error" || chunk.reason?.kind === "aborted")) {
+      // dsh-llm rc.1 turns adapter-stage failures (unknown provider route,
+      // UNSUPPORTED_REASONING_EFFORT from resolveCallWithInfo, …) into a
+      // terminal finish chunk instead of a throw — the cause rides in
+      // chunk.reason.failure {message, code}. Surface it, never swallow it.
+      if (typeof onStreamError === "function") {
+        try { onStreamError(chunk.reason); } catch { /* diagnostics only */ }
+      }
       return undefined;
     }
   }
   return text;
+}
+
+/** One-line human-readable cause from a finish-chunk failure reason. */
+function describeStreamFailure(reason) {
+  const failure = reason?.failure ?? reason ?? {};
+  const code = failure.code ? String(failure.code) : "";
+  const message = String(failure.message ?? failure.error ?? "");
+  if (code && message) return message.includes(code) ? message : `${code}: ${message}`;
+  return code || message;
 }
 
 /**
@@ -279,9 +295,12 @@ async function runAuditedLlm(ctx, service, config, spec, body) {
     });
     if (result === undefined) {
       // stream aborted/errored: the caller treats undefined as a failed run;
-      // record it as error here so the audit shows the truth.
+      // record it as error here so the audit shows the truth. spec.streamError
+      // (a getter) lets the caller attach the finish-chunk cause so the audit
+      // row names it instead of a bare "aborted".
       status = "error";
-      errorMessage = errorMessage ?? "llm stream aborted or errored";
+      const streamErr = typeof spec.streamError === "function" ? String(spec.streamError() ?? "") : "";
+      errorMessage = errorMessage ?? (streamErr ? `llm stream aborted or errored (${streamErr})` : "llm stream aborted or errored");
     } else if (typeof spec.auditError === "function") {
       // A stream that returned text but yields nothing usable is still a
       // failed call — record it as error, not the default success, so the
@@ -328,10 +347,22 @@ async function runAuditedLlm(ctx, service, config, spec, body) {
  * accepted → reasoning capped; rejected → provider default (old behavior),
  * logged so the rejection is observable.
  */
-async function withEffortFallback(ctx, effort, attempt, fallback) {
+async function withEffortFallback(ctx, effort, attempt, fallback, getStreamError) {
   if (!effort || effort === "none") return attempt();
   try {
-    return await attempt();
+    const result = await attempt();
+    if (result === undefined) {
+      // dsh-llm rc.1 streams a provider effort-rejection as a terminal error
+      // finish chunk (adapterStream catches everything, never throws) — match
+      // on the chunk's failure reason here or the retry below is dead code
+      // for the stream path.
+      const reason = String(getStreamError?.() ?? "");
+      if (/reasoning[\s_]*effort|UNSUPPORTED_REASONING_EFFORT/i.test(reason)) {
+        ctx.logger?.warn?.(`dsh-mneme dream: reasoningEffort "${effort}" rejected via stream (${reason}); retrying without it`);
+        return fallback();
+      }
+    }
+    return result;
   } catch (error) {
     const message = String(error?.message ?? error);
     // matches both "reasoning effort" (natural language) and the bare
@@ -630,11 +661,15 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     // 记 audit error 并在日志带原始输出前 300 字节，便于定位"推理吞预算返回空体"。
     const effort = config.dreamReasoningEffort && config.dreamReasoningEffort !== "none" ? config.dreamReasoningEffort : null;
     let decisions = null;
-    const runConsolidation = (withEffort) => runAuditedLlm(ctx, service, config, {
+    let streamFailure = "";
+    const runConsolidation = (withEffort) => {
+      streamFailure = "";
+      return runAuditedLlm(ctx, service, config, {
       triggerSource: "autoDream",
       operationType: "dream_consolidate",
       modelId: `${route.provider}:${route.model}`,
       relatedMemoryIds: [...snapshot.keys()],
+      streamError: () => streamFailure,
       auditError: (text) => {
         decisions = extractJsonArray(text);
         return Array.isArray(decisions) ? null : "no json array in llm output";
@@ -649,18 +684,19 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
         { role: "system", content: [{ type: "text", text: consolidationPrompt }] },
         { role: "user", content: [{ type: "text", text: listText }] }
       ]
-    }, reportUsage));
+    }, reportUsage, (reason) => { streamFailure = describeStreamFailure(reason); }));
+    };
     try {
       // Bug8: the consolidation call is audited (tokens/time/status). A throw
       // re-propagates to the catch below; an aborted stream returns undefined
       // and is treated as a failed run after the check below.
-      decisionText = await withEffortFallback(ctx, effort, () => runConsolidation(true), () => runConsolidation(false));
+      decisionText = await withEffortFallback(ctx, effort, () => runConsolidation(true), () => runConsolidation(false), () => streamFailure);
     } catch (error) {
       logger?.warn?.(`dsh-mneme dream: consolidation llm call failed: ${String(error)}`);
       return finish({ ok: false, error: "llm failed", summary: false });
     }
     if (decisionText === undefined) {
-      logger?.warn?.("dsh-mneme dream: consolidation llm stream aborted or errored");
+      logger?.warn?.(`dsh-mneme dream: consolidation llm stream aborted or errored${streamFailure ? ` (${streamFailure})` : ""}`);
       return finish({ ok: false, error: "llm failed", summary: false });
     }
     if (!Array.isArray(decisions)) {
@@ -782,11 +818,15 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     // Summary generation (second LLM call). A throwing stream is reported as
     // a failed run; summary:false marks a run that produced no summary.
     let summaryText;
-    const runSummary = (withEffort) => runAuditedLlm(ctx, service, config, {
+    let summaryStreamFailure = "";
+    const runSummary = (withEffort) => {
+      summaryStreamFailure = "";
+      return runAuditedLlm(ctx, service, config, {
       triggerSource: "autoDream",
       operationType: "dream_summarize",
       modelId: `${route.provider}:${route.model}`,
-      relatedMemoryIds: []
+      relatedMemoryIds: [],
+      streamError: () => summaryStreamFailure
     }, (reportUsage) => streamText(ctx, {
       provider: route.provider,
       model: route.model,
@@ -797,10 +837,11 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
         { role: "system", content: [{ type: "text", text: SUMMARY_PROMPT }] },
         { role: "user", content: [{ type: "text", text: service.all().filter((m) => !m.archived && m.type !== "summary").map((m) => `- ${m.title}: ${m.content}`).join("\n") }] }
       ]
-    }, reportUsage));
+    }, reportUsage, (reason) => { summaryStreamFailure = describeStreamFailure(reason); }));
+    };
     try {
       // Bug8: the summary call is audited too (operation dream_summarize).
-      summaryText = await withEffortFallback(ctx, effort, () => runSummary(true), () => runSummary(false));
+      summaryText = await withEffortFallback(ctx, effort, () => runSummary(true), () => runSummary(false), () => summaryStreamFailure);
     } catch (error) {
       logger?.warn?.(`dsh-mneme dream: summary llm call failed: ${String(error)}`);
       return finish({ ok: false, error: "llm failed", applied, decisions: auditDecisions, outcome, frozen: frozenCount, summary: false });
