@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.7.21] - 2026-09-08
+
+## 🐛 修复
+
+- **autoDream/sleep 的 effort 回退在流式路径上是死代码（v0.7.16 补的 catch 式回退不生效）**：dsh-llm rc.1 的 `adapterStream` 把 adapter 阶段异常（含 `resolveCallWithInfo` 抛出的 `UNSUPPORTED_REASONING_EFFORT`）转成终态 error finish chunk，不再向上抛出；`streamText` 丢弃 `chunk.reason.failure`，导致配置 `dreamReasoningEffort`/`sleepReasoningEffort` 后巩固/睡眠请求被 provider 即时拒绝（tok=0、duration≈0）时，catch 式回退永远不触发，`llm_audit` 只记笼统的 `llm stream aborted or errored`。修复三处：
+  - **`streamText`（dream.js 与 sleep.js 两份）捕获 finish-chunk 失败原因**：新增 `describeStreamFailure` 把 `chunk.reason.failure` 归一化为 `{code, message}` 并导出。
+  - **`withEffortFallback` 增加 `getStreamError` 访问器**：结果为 `undefined` 且原因匹配 `reasoning effort` / `UNSUPPORTED_REASONING_EFFORT` 时去掉 effort 重试一次（流式路径与 catch 路径同等对待）。
+  - **`runAuditedLlm` 支持 `spec.streamError`**：audit 行 `error_message` 携带真实原因（如 `llm stream aborted or errored (UNSUPPORTED_REASONING_EFFORT: ...)`）；`run.error` 保持稳定的 `"llm failed"` 不变（对外契约不动）。
+
+## 🏗️ 工程
+
+- 688 测试全绿（+3：dream/sleep 流级 effort 拒绝触发去 effort 重试；非 effort 流失败不盲目重试且真实原因进审计行）。
+
 ## [0.7.20] - 2026-09-08
 
 ## 🆕 新功能

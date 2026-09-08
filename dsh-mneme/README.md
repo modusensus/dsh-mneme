@@ -207,6 +207,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 
 | 版本 | 亮点 |
 |------|------|
+| **v0.7.21** | 修复 autoDream/sleep 的 effort 回退在流式路径失效（v0.7.16 的 catch 式回退是死代码）：dsh-llm rc.1 把 adapter 阶段异常（含 `UNSUPPORTED_REASONING_EFFORT`）转成终态 error finish chunk 不再抛出；`streamText` 现捕获 finish-chunk 失败原因（新增 `describeStreamFailure` 归一化 `{code,message}`）+ `withEffortFallback` 增加 `getStreamError` 访问器（effort 被拒时去掉重试一次）+ `runAuditedLlm` 支持 `spec.streamError`（audit 行 `error_message` 携带真实原因，`run.error` 稳定 `"llm failed"` 不变）；688 测试全绿 |
 | **v0.7.20** | heat 热度模型回归（issue #87）：找回 v0.7.0 自进化记忆（`src/heat.js` 幂律衰减 `H=1/(1+λΔt)^α` + per-type 差异化半衰期）、sleep 降级热联合双保护（时间窗冷 + heat<0.05 + importance<5）、touchRecalled 门控改回 `heatEnabled`、实体热投影（ego 节点 heat → 前端大小/明暗）、recall_runs 默认记录；**默认关**（默认=与 v0.7.12 行为一致）+ feature_flags 白名单回滚开关 + lightMode 联动 + sleep 降级审计计数暴露（工作动态可展示"降级 N 条"）+ 阶段二前端（/list heat 投影、HeatBadge 三档徽章、状态页热度分布卡、order=heat 页内排序，全部自门控）；better-sidebar 修复（issue #88：软集成改内层动态子插件，无 bs 环境不再启动失败）；685 测试全绿 |
 | **v0.7.18** | 生态第一步 + 查询收敛：better-sidebar 软集成（inject 声明 + optional peer `dsh-better-sidebar` + registerTab 复用四视图，未装安全跳过；窄容器 `@container` 适配）+ `/list?deposited=only` 沉淀视图（receipt_chain ∪ source=dream）+ 记忆库沉淀/已归档筛选 chip + 状态页仪表盘化（统计 + 查看全部跳转预置筛选）+ 抽屉归档记忆「恢复」；667 测试全绿 |
 | **v0.7.17** | 面板体验细化：侧边栏入口持续对齐宿主（MutationObserver 同步「新会话」类名 + `width:100%` + 交还原生居中，皮肤异步改写不再失配）+ 重要性星级换 Lucide 星形（`ImportanceStars` 实心/空心组件，替换文本 ★）+ 工具栏下拉层级修复（z-index 提到容器，导出/导入菜单不再被吸顶月份头遮挡）；664 测试全绿 |
@@ -286,6 +287,10 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 | **v0.7.14** | ✅ 完成 | 安全修复（CWE-200） | 蒸馏不再采集私有推理块：`collectMessages` 只采公开 text，防止记忆库沉淀模型私有思考链；617 测试全绿 |
 | **v0.7.15** | ✅ 完成 | 桌面端适配 | 记忆库面板重设计 + 功能开关 30 键 UI（features API）+ 状态页工作台 + 导入导出（镜像同构 md 黄金闭环）+ Token 面板默认遮蔽；645 测试全绿 |
 | **v0.7.16** | ✅ 完成 | autoDream thinking 模型空体修复 + 补测 | 恢复 config-first 路由（设置面板「巩固模型」生效，Issue #25）+ reasoningEffort 被拒自动去掉重试 + 解析失败如实记 llm_audit error；补测 API 路由空白（/delete、/entities、/external-api）+ lib 运行时冒烟；662 测试全绿 |
+| **v0.7.17** | ✅ 完成 | 面板体验细化 | 侧边栏入口持续对齐宿主（MutationObserver 同步「新会话」类名 + `width:100%` + 交还原生居中，皮肤异步改写不再失配）+ 重要性星级换 Lucide 星形（`ImportanceStars` 实心/空心组件，替换文本 ★）+ 工具栏下拉层级修复（z-index 提到容器，导出/导入菜单不再被吸顶月份头遮挡）；664 测试全绿 |
+| **v0.7.18** | ✅ 完成 | 生态第一步 + 查询收敛 | better-sidebar 软集成（inject 声明 + optional peer `dsh-better-sidebar` + registerTab 复用四视图，未装安全跳过；窄容器 `@container` 适配）+ `/list?deposited=only` 沉淀视图（receipt_chain ∪ source=dream）+ 记忆库沉淀/已归档筛选 chip + 状态页仪表盘化（统计 + 查看全部跳转预置筛选）+ 抽屉归档记忆「恢复」；667 测试全绿 |
+| **v0.7.20** | ✅ 完成 | heat 回归 + 阶段二前端 + better-sidebar 修复 | heat 热度模型完整找回（issue #87，v0.7.10 移植：幂律衰减 + TYPE_DECAY + sleep 热联合双保护 + 实体热投影）+ 验收清单落地（heatEnabled 默认关 / feature_flags 31 键 / lightMode 联动 / sleep 降级审计暴露 / updated_at⊥last_accessed_at 契约）+ 阶段二前端（/list heat 投影、HeatBadge 三档、order=heat 页内排序）+ better-sidebar 修复（issue #88：内层动态子插件）；685 测试全绿 |
+| **v0.7.21** | ✅ 完成 | effort 回退流式修复 | autoDream/sleep 的 catch 式 effort 回退在流式路径是死代码（dsh-llm rc.1 把 adapter 异常转成终态 error finish chunk 不再抛出）→ `streamText` 捕获 finish-chunk 失败原因（`describeStreamFailure` 归一化）+ `withEffortFallback` 增加 `getStreamError` 访问器（effort 被拒去重试）+ `runAuditedLlm` 支持 `spec.streamError`（audit 记真实原因）；688 测试全绿 |
 | **v0.8.0** | 🚧 计划中（9 月末） | 图谱增强 | 兴趣漂移可视化 + scope 隔离（issue #17）+ 跨 workspace 记忆共享 |
 
 > 新能力一律做成**可开关的功能**（配置启用/关闭），默认保守开启、不破坏现有行为。`failure_memories` 表与 autoDream 决策引擎已为后续反思性成长铺好路。

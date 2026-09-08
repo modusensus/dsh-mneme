@@ -103,23 +103,10 @@ dsh web
 | **v0.5.0** | 召回融合与记忆可视化：BM25 + 图谱 + 热记忆 | ✅ |
 | **v0.6.0** | 会话生命周期：删会话 ≠ 删记忆 | ✅ |
 | **v0.7.0** | 自进化记忆：heat 幂律衰减 + sleep 双保护 + 实体热投影 | ✅ |
-| **v0.7.1** | issue #31 修复：tags 桥接 entity_attrs + autoTag 面板开关生效 | ✅ |
-| **v0.7.2** | issue #35 删除按钮内联确认修复 + issue #34 对话开始注入当前时间（opt-in） | ✅ |
-| **v0.7.3** | issue #38 左下角入口按钮可选开关 `showSidebarTrigger` | ✅ |
-| **v0.7.4** | issue #40 记忆花括号转义 + issue #41 记忆窗口关闭按钮重叠修复 | ✅ |
-| **v0.7.5** | 分层记忆类型 user/fact + Web 总览视图 + stats 端点 | ✅ |
-| **v0.7.6** | issue #48 修复：截断/前缀 id 也能精确操作（统一 resolveMemoryId）+ client.js 改 src 正源 | ✅ |
-| **v0.7.7** | issue #23 图谱回填：sleep 批量实体抽取 phase + node:sqlite 兼容修复 | ✅ |
-| **v0.7.8** | issues #58 #59 修复：DSH 0.1.2-rc.1 兼容——Session.events 改为 snapshotEvents() 垫片，autoSummarize 与 hot-context 注入恢复 | ✅ |
-| **v0.7.9** | issue #65 修复：v0.7.8 的 snapshotEvents 适配只改了 src/ 未同步 npm 实际加载的 lib/——补齐 lib 并加发布前 src/lib 一致性校验（check-sync.js 闸门）+ lib 冒烟测试 | ✅ |
-| **v0.7.10** | Web 面板体验升级：记忆类型色点体系 + 图谱画布平移/缩放 + 设置页分区重排 + 侧边栏同标签冲突修复 + 只读端点 /entities | ✅ |
-| **v0.7.11** | 记忆库面板改版：按月分页无限滚动 + 搜索全局化 + 30s 静默刷新 + 删除两步确认 + issue #72/#59 修复 | ✅ |
-| **v0.7.12** | 近重写：内置面板改纯 HTTP API（Bearer 鉴权）+ 独立 CLI dsh-mneme + 轻量模式 lightMode；记忆类型收窄（删 user/fact） | ✅ |
-| **v0.7.13** | 编码记忆蒸馏 codingRetrospect（新增 rejected_solution/pitfall/constraint 三类型）+ 蒸馏 429 调速器（指数退避重试） | ✅ |
-| **v0.7.14** | 安全修复（CWE-200）：蒸馏不再采集私有 reasoning 块，只采公开 text | ✅ |
-| **v0.7.15** | 桌面端适配：记忆库面板重设计 + 功能开关 30 键 UI + 状态页工作台 + 导入导出 | ✅ |
-| **v0.7.16** | 修复 autoDream 在 thinking 模型上空体 failed：恢复 config-first 路由 + reasoningEffort 被拒自动回退 + 解析失败如实记账；补测 API 路由空白与 lib 运行时冒烟 | ✅ |
+| **v0.7.21** | 修复 autoDream/sleep 的 effort 回退在流式路径失效（catch 式回退死代码→流级捕获失败原因 + 去 effort 重试 + audit 记真实原因） | ✅ |
 | **v0.8.0** | 图谱增强：兴趣漂移可视化 + scope 隔离（issue #17）+ 跨 workspace 共享 | 🚧 计划中（9 月末） |
+
+> 完整逐小版本路线图见 [dsh-mneme/README.md](dsh-mneme/README.md#-进化路线图)（中）/ [dsh-mneme/README.en.md](dsh-mneme/README.en.md#-evolution-roadmap)（英）。
 
 ## 🧪 本地开发
 
@@ -220,23 +207,10 @@ Works out of the box. Enable these as needed:
 | **v0.5.0** | Recall fusion & visualization: BM25 + graph + hot memory | ✅ |
 | **v0.6.0** | Session lifecycle: delete session ≠ delete memories | ✅ |
 | **v0.7.0** | Self-evolving memory: heat decay + sleep dual-protection + entity heat projection | ✅ |
-| **v0.7.1** | Issue #31 fix: tags bridged to entity_attrs + autoTag panel toggle takes effect | ✅ |
-| **v0.7.2** | Issue #35 delete button inline-confirm fix + Issue #34 inject current time at conversation start (opt-in) | ✅ |
-| **v0.7.3** | Issue #38 optional sidebar trigger `showSidebarTrigger` | ✅ |
-| **v0.7.4** | Issue #40 prompt-brace escaping + Issue #41 overlay close-button overlap fix | ✅ |
-| **v0.7.5** | Layered memory types (user/fact) + Overview view + stats endpoint | ✅ |
-| **v0.7.6** | Issue #48 fix: truncated/prefix ids resolve for exact ops (unified resolveMemoryId) + client.js now src-authored | ✅ |
-| **v0.7.7** | Issue #23 graph backfill: sleep batch entity extraction phase + node:sqlite compat fix | ✅ |
-| **v0.7.8** | Issues #58 #59 fix: DSH 0.1.2-rc.1 compat — Session.events moved to snapshotEvents() shim; autoSummarize & hot-context injection restored | ✅ |
-| **v0.7.9** | Issue #65 fix: v0.7.8's snapshotEvents shim only landed in src/, never in the npm-loaded lib/ — synced lib + added a pre-publish src↔lib consistency gate (check-sync.js) + lib smoke tests | ✅ |
-| **v0.7.10** | Web panel UX: memory-type color dots + graph canvas pan/zoom + settings re-grouping + sidebar tab-conflict fix + read-only /entities endpoint | ✅ |
-| **v0.7.11** | Library panel redesign: monthly pagination + infinite scroll + global search + 30s silent refresh + two-step delete + issues #72/#59 fixes | ✅ |
-| **v0.7.12** | Near-rewrite: inlined panel replaced by a pure HTTP API (Bearer auth) + standalone CLI + lightMode; memory types narrowed (user/fact dropped) | ✅ |
-| **v0.7.13** | Coding-memory distillation `codingRetrospect` (+ rejected_solution/pitfall/constraint types) + 429 governor (exponential backoff) | ✅ |
-| **v0.7.14** | Security fix (CWE-200): distillation no longer collects private `reasoning` blocks, only public `text` | ✅ |
-| **v0.7.15** | Desktop adaptation: library panel redesign + 30-key feature-flag UI + status dashboard + import/export | ✅ |
-| **v0.7.16** | Fix autoDream empty-body failures on thinking models: restore config-first routing + reasoningEffort auto-fallback + honest audit on parse failure; backfill API-route & lib smoke tests | ✅ |
+| **v0.7.21** | Fix autoDream/sleep effort fallback dead on the stream path (catch-based retry → stream-level failure capture + effortless retry + real cause in audit) | ✅ |
 | **v0.8.0** | Graph enhancement: interest-drift visualization + scope isolation (issue #17) + cross-workspace sharing | 🚧 Planned (late Sep) |
+
+> Full per-minor-version roadmap: [dsh-mneme/README.md](dsh-mneme/README.md#-进化路线图) (zh) / [dsh-mneme/README.en.md](dsh-mneme/README.en.md#-evolution-roadmap) (en).
 
 ## 🧪 Local Development
 
