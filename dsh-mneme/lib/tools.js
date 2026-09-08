@@ -190,12 +190,12 @@ export function createTools(ctx, service, config, embedder) {
         render: (_args, value) => {
           const m = value.memory;
           return TEXT_OUTPUT(`${m.title}\nID: ${m.id} | type: ${m.type} | importance: ${m.importance}\n\n${m.content}`);
-        },
-        async execute(args) {
-          const memory = service.getById(args.id);
-          if (memory === undefined) throw new Error("memory not found");
-          return { memory: service.toApiList([memory])[0] };
         }
+      },
+      async execute(args) {
+        const memory = service.getById(args.id);
+        if (memory === undefined) throw new Error("memory not found");
+        return { memory: service.toApiList([memory])[0] };
       }
     }),
 

@@ -91,6 +91,57 @@ test("memory_search finds by CJK substring", async () => {
   assert.equal(result.items[0].title, "记忆插件");
 });
 
+// Regression: memory_get.execute must live on the defineTool options (top
+// level), NOT nested inside output — a misplaced execute silently becomes
+// options.execute === undefined and every call throws "userExecute is not a
+// function" while tests that only count tool names still pass.
+test("memory_get returns the full body via execute and render", async () => {
+  const { registered, service } = setup();
+  const { memory } = service.saveWithDedupe({ type: "decision", title: "t", content: "完整正文内容" });
+  const get = registered.find((t) => t.name === "memory_get");
+  const res = await get.execute({ id: memory.id });
+  assert.equal(res.memory.id, memory.id);
+  assert.equal(res.memory.content, "完整正文内容");
+  assert.deepEqual(validateJsonSchemaValue(get.output.schema, res), []);
+  const text = get.output.render({}, res)[0].text;
+  assert.ok(text.includes("完整正文内容"), "full body in render");
+  assert.ok(text.includes(memory.id) && text.includes("t"), "id + title in render");
+});
+
+test("memory_get on missing id rejects", async () => {
+  const { registered } = setup();
+  const get = registered.find((t) => t.name === "memory_get");
+  await assert.rejects(() => get.execute({ id: "missing" }), /memory not found/);
+});
+
+// Render output is what hosts surface to the model (not the structured JSON),
+// so it must embed titles + body previews, not just a hit count.
+test("memory_search render embeds titles and body previews, not just a count", async () => {
+  const { registered, service } = setup();
+  service.saveWithDedupe({ type: "history", title: "旅行计划", content: "用户当前最苦恼时间安排与伦敦行程" });
+  service.saveWithDedupe({ type: "project", title: "插件定位", content: "dsh-mneme 插件做记忆沉淀" });
+  const search = registered.find((t) => t.name === "memory_search");
+  const res = await search.execute({ query: "时间" });
+  assert.ok(res.items.length >= 1, "search hit exists");
+  const text = search.output.render({}, res)[0].text;
+  assert.match(text, /Found \d+ memory entr/);
+  assert.ok(text.includes("旅行计划"), "title embedded in render");
+  assert.ok(text.includes("伦敦行程"), "body preview embedded in render");
+  assert.ok(text.includes("ID: "), "id embedded");
+});
+
+test("memory_list render embeds titles and ids, not just counts", async () => {
+  const { registered, service } = setup();
+  service.saveWithDedupe({ type: "preference", title: "昵称", content: "桉桉" });
+  service.saveWithDedupe({ type: "project", title: "博客", content: "modusensus" });
+  const list = registered.find((t) => t.name === "memory_list");
+  const res = await list.execute({});
+  const text = list.output.render({}, res)[0].text;
+  assert.match(text, /\d+ memory entries \(of \d+\):/);
+  assert.ok(text.includes("昵称") && text.includes("博客"), "titles embedded");
+  assert.ok(text.includes("ID: "), "ids embedded");
+});
+
 test("memory_list filters by type", async () => {
   const { registered, service } = setup();
   service.saveWithDedupe({ type: "preference", title: "a", content: "x" });
