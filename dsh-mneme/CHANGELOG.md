@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.7.19] - 2026-09-08
+
+## 🆕 新功能
+
+- **heat 热度模型回归（issue #87 社区反馈）**：v0.7.12 近重写时与 Wiki-Link/tag 等一并被移除的 v0.7.0「自进化记忆 heat 热度模型」完整找回：
+  - `src/heat.js` 纯函数模块恢复：幂律衰减 `H=1/(1+λΔt)^α` + per-type 差异化半衰期（`TYPE_DECAY`，preference/pattern/summary 免疫 λ=0）
+  - 配置恢复：`heatEnabled` / `heatGlobalAlpha` / `heatTypeDecay` / `sleepHeatThreshold` / `recallRecordDefault` / `recallRetentionDays`
+  - **sleep 降级热联合双保护**：phaseDemotion 需「时间窗冷 + heat<阈值 + importance<5」才降级，免疫类型永不因 sleep 降级；ref 语义恢复 `last_accessed_at ?? created_at`（updated_at 不算访问）
+  - **touchRecalled 门控**由 `heatEnabled` 接管；**实体热投影**回归（ego 图谱节点 heat 字段 + 前端 nodeRadius/fillOpacity 随热度缩放）
+  - **recall_runs 默认记录**恢复（`recallRecordDefault: true`）
+
+## 🏗️ 工程
+
+- 682 测试全绿（+14：heat 6 测 / sleep-heat 5 测 / updated-at-semantics 3 测回归；sleep.test.js demotionConfig 适配热闸、recall-layer 适配 recordRecall 默认开）
+
 ## [0.7.18] - 2026-09-08
 
 ## 🆕 新功能

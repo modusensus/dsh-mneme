@@ -1049,7 +1049,16 @@ window.__ModuleLoader__.load({
 
     function nodeRadius(n) {
       // mention_count → area-ish growth, clamped so hubs stay legible.
-      return 7 + Math.min(20, Math.max(1, n.mention_count ?? 1)) * 0.55;
+      const base = 7 + Math.min(20, Math.max(1, n.mention_count ?? 1)) * 0.55;
+      // heat projection (0-1 or null): hot entities render slightly larger.
+      if (n.heat == null) return base;
+      return base + (Math.max(0, Math.min(1, n.heat)) - 0.5) * 4;
+    }
+
+    function nodeOpacity(n) {
+      // heat projection: hot entities are bright (opacity 1), cold fade to 0.4.
+      if (n.heat == null) return 1;
+      return 0.4 + 0.6 * Math.max(0, Math.min(1, n.heat));
     }
 
     // Deterministic golden-angle spiral: no two nodes start overlapping, and
@@ -1498,7 +1507,7 @@ window.__ModuleLoader__.load({
                           onClick: () => onNodeClick(n),
                           "data-node": n.name
                         },
-                          h("circle", { r: nodeRadius(n), fill: typeColor(n.type) }),
+                          h("circle", { r: nodeRadius(n), fill: typeColor(n.type), fillOpacity: nodeOpacity(n) }),
                           h("text", { className: "mneme-glabel", y: nodeRadius(n) + 13 }, n.name)
                         ))
                       )

@@ -212,10 +212,11 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 
 ## 🆕 最近版本亮点
 
-> ⚠️ **历史存档提示**：下方及路线图表中 v0.7.12 之前的早期条目记录的实验功能（heat 热度模型、Wiki-Link、tag 系统/目录/tag 加权、user/fact 分层类型、前缀 id 解析、/stats 与 /directory 端点等）已在 v0.7.12 近重写时移除，仅作版本历史存档，**不代表当前能力**。当前特性以本 README 正文与 [配置表](#-配置) 为准。
+> ⚠️ **历史存档提示**：下方及路线图表中 v0.7.12 之前的早期条目记录的实验功能（Wiki-Link、tag 系统/目录/tag 加权、user/fact 分层类型、前缀 id 解析、/stats 与 /directory 端点等）已在 v0.7.12 近重写时移除，仅作版本历史存档，**不代表当前能力**。（heat 热度模型已于 v0.7.19 从 v0.7.10 完整找回回归，见下方 [v0.7.19](#recent-version-highlights)。）当前特性以本 README 正文与 [配置表](#-配置) 为准。
 
 | 版本 | 亮点 |
 |------|------|
+| **v0.7.19** | heat 热度模型回归（issue #87）：找回 v0.7.0 自进化记忆（`src/heat.js` 幂律衰减 `H=1/(1+λΔt)^α` + per-type 差异化半衰期）、sleep 降级热联合双保护（时间窗冷 + heat<0.05 + importance<5）、touchRecalled 门控改回 `heatEnabled`、实体热投影（ego 节点 heat → 前端大小/明暗）、recall_runs 默认记录；682 测试全绿 |
 | **v0.7.18** | 生态第一步 + 查询收敛：better-sidebar 软集成（inject 声明 + optional peer `dsh-better-sidebar` + registerTab 复用四视图，未装安全跳过；窄容器 `@container` 适配）+ `/list?deposited=only` 沉淀视图（receipt_chain ∪ source=dream）+ 记忆库沉淀/已归档筛选 chip + 状态页仪表盘化（统计 + 查看全部跳转预置筛选）+ 抽屉归档记忆「恢复」；667 测试全绿 |
 | **v0.7.17** | 面板体验细化：侧边栏入口持续对齐宿主（MutationObserver 同步「新会话」类名 + `width:100%` + 交还原生居中，皮肤异步改写不再失配）+ 重要性星级换 Lucide 星形（`ImportanceStars` 实心/空心组件，替换文本 ★）+ 工具栏下拉层级修复（z-index 提到容器，导出/导入菜单不再被吸顶月份头遮挡）；664 测试全绿 |
 | **v0.7.16** | 修复 autoDream 在 thinking 模型上空体 failed（`no json array in llm output`）：恢复 config-first 路由（设置面板「巩固模型」生效，Issue #25）+ reasoningEffort 被拒自动去掉重试一次 + 解析失败如实记 llm_audit error 并带原始输出头日志；补测 API 路由空白（/delete、/entities、/external-api）+ lib 运行时冒烟（src↔lib 一致性）；662 测试全绿 |
@@ -404,6 +405,12 @@ dsh web
 | `bm25SearchEnabled` | `true` | BM25 稀疏第三路召回（v0.5.0）：ASCII 词元 + CJK bigram，IDF 加权，散词/ID/代码片段查询不再依赖子串命中 |
 | `adaptiveThresholdEnabled` | `true` | 自适应相似度阈值（v0.5.0）：按查询形态动态截断（前缀 0.5 / 短查询 0.7 / 长查询 0.6 / 头部分差大放宽 0.5），显式传 `threshold` 走旧行为 |
 | `hotMemoryEnabled` | `true` | 会话级短期热记忆总开关（v0.5.0）：关闭后热记忆块不再注入（长期召回不受影响） |
+| `heatEnabled` | `true` | 热度模型总开关（v0.7.0 / v0.7.19 回归）：关闭后跳过 heat 计算与热度触达（touch 门控），仅作热度字段 / sleep 保护 / 前端投影的数据源 |
+| `heatGlobalAlpha` | `1.2` | 幂律形状参数 α（`H=1/(1+λΔt)^α`），越大衰减越快 |
+| `heatTypeDecay` | 内置 TYPE_DECAY | per-type 衰减因子 λ；λ=0 的类型免疫（preference/pattern/summary 热度恒 1.0，sleep 永不降级） |
+| `sleepHeatThreshold` | `0.05` | sleep 降级联合判定热度下限：heat<该值 **且** importance<5 才允许降级 |
+| `recallRecordDefault` | `true` | recall_runs 记录默认开（显式传 `recordRecall:false` 的调用方不受影响） |
+| `recallRetentionDays` | `90` | recall_runs 滚动清理保留天数 |
 | `hotMemoryRounds` | `5` | 会话级短期热记忆轮次（v0.5.0）：最近 N 轮对话滚动注入，从会话事件日志无状态重建、不落库 |
 | `hotMemoryMaxTokens` | `2000` | 热记忆 token 预算（v0.5.0，200-32000），超出滚动截断 |
 | `selectiveInjectEnabled` | `true` | 选择性注入（v0.5.0）：query 向量可用时注入候选按主题相似度重排，替代固定规则序 |

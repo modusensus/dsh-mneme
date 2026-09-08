@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { TYPE_FILE } from "./mirror.js";
+import { computeHeat } from "./heat.js";
 import { evaluateMemoryQuality } from "./quality-filter.js";
 import { createBM25Index } from "./search/bm25.js";
 import { adaptiveThreshold } from "./search/adaptive.js";
@@ -398,14 +399,15 @@ export function createService({ store, mirror, config, onWrite, logger }) {
   }
 
   /**
-   * Sleep touch (v0.4.0): when sleep is enabled, any memory surfaced by recall
-   * or auto-injection gets its last_accessed_at bumped, so the "unrecalled N
-   * days → demote/archive" tiering counts real access. Best-effort and gated on
-   * config.sleepModeEnabled — when sleep is off this is a complete no-op (no
-   * writes on the hot recall path). A touch failure must never break search/inject.
+   * Recall touch (v0.4.0 sleep; v0.7.0 heat gating): any memory surfaced by
+   * recall or auto-injection gets its last_accessed_at bumped, so the "unrecalled
+   * N days → demote/archive" tiering counts real access — and the heat clock
+   * resets (heat ref = last_accessed_at). Best-effort and gated on
+   * config.heatEnabled — when heat is off this is a complete no-op (no writes
+   * on the hot recall path). A touch failure must never break search/inject.
    */
   function touchRecalled(memories) {
-    if (config?.sleepModeEnabled !== true || !Array.isArray(memories) || memories.length === 0) return;
+    if (config?.heatEnabled === false || !Array.isArray(memories) || memories.length === 0) return;
     for (const m of memories) {
       if (!m?.id) continue;
       try {
@@ -415,7 +417,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
   }
 
   async function searchMemories(query, options = {}) {
-    const { mode = "auto", topK = 20, threshold, useRerank = true, recordRecall = false } = options;
+    const { mode = "auto", topK = 20, threshold, useRerank = true, recordRecall = options.recordRecall ?? (config?.recallRecordDefault ?? true) } = options;
     const q = String(query ?? "").trim();
     if (!q) return [];
 
@@ -1506,6 +1508,21 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     saveRelation: (r) => store.saveRelation(r),
     listEntities: (o) => store.listEntities(o),
     getRelations: (id) => store.getRelations(id),
+    // v0.7.0 实体热投影：实体热 = 关联记忆 heat 聚合（取 max）。无关联记忆
+    // 或 heatEnabled=false 时返回 null；前端据此决定图谱节点大小/明暗。
+    entityHeat: (entityId) => {
+      if (config.heatEnabled === false) return null;
+      const rels = store.getRelations(entityId) ?? [];
+      let max = -Infinity;
+      for (const rel of rels) {
+        if (!rel.memory_id) continue;
+        const mem = store.getById(rel.memory_id);
+        if (!mem) continue;
+        const h = computeHeat(mem, Date.now(), config);
+        if (h > max) max = h;
+      }
+      return max === -Infinity ? null : max;
+    },
     saveAttr: (r) => store.saveAttr(r),
     createEntity: (r) => store.createEntity(r),
     findEntityByName: (n) => store.findEntityByName(n),
