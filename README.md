@@ -104,6 +104,7 @@ dsh web
 | **v0.6.0** | 会话生命周期：删会话 ≠ 删记忆 | ✅ |
 | **v0.7.0** | 自进化记忆：heat 幂律衰减 + sleep 双保护 + 实体热投影 | ✅ |
 | **v0.7.21** | 修复 autoDream/sleep 的 effort 回退在流式路径失效（catch 式回退死代码→流级捕获失败原因 + 去 effort 重试 + audit 记真实原因） | ✅ |
+| **v0.7.22** | 恢复 skipInvalid 宽容校验（issue #89：弱模型整单拒绝→单条跳过 + 合法子集应用 + run 记 degraded）+ autoDream 最小触发间隔 | ✅ |
 | **v0.8.0** | 图谱增强：兴趣漂移可视化 + scope 隔离（issue #17）+ 跨 workspace 共享 | 🚧 计划中（9 月末） |
 
 > 完整逐小版本路线图见 [dsh-mneme/README.md](dsh-mneme/README.md#-进化路线图)（中）/ [dsh-mneme/README.en.md](dsh-mneme/README.en.md#-evolution-roadmap)（英）。
@@ -208,6 +209,7 @@ Works out of the box. Enable these as needed:
 | **v0.6.0** | Session lifecycle: delete session ≠ delete memories | ✅ |
 | **v0.7.0** | Self-evolving memory: heat decay + sleep dual-protection + entity heat projection | ✅ |
 | **v0.7.21** | Fix autoDream/sleep effort fallback dead on the stream path (catch-based retry → stream-level failure capture + effortless retry + real cause in audit) | ✅ |
+| **v0.7.22** | Restore skipInvalid tolerant validation (issue #89: weak-model whole-batch rejection → per-item skip + valid-subset apply + run marked degraded) + autoDream min trigger interval | ✅ |
 | **v0.8.0** | Graph enhancement: interest-drift visualization + scope isolation (issue #17) + cross-workspace sharing | 🚧 Planned (late Sep) |
 
 > Full per-minor-version roadmap: [dsh-mneme/README.md](dsh-mneme/README.md#-进化路线图) (zh) / [dsh-mneme/README.en.md](dsh-mneme/README.en.md#-evolution-roadmap) (en).
