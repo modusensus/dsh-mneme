@@ -7,7 +7,7 @@ English | [简体中文](README.md)
 [![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Awesome](https://awesome-dsh-plugin.com/badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
-[![tests](https://img.shields.io/badge/tests-645%20passed-success)](https://github.com/modusensus/dsh-mneme)
+[![tests](https://img.shields.io/badge/tests-648%20passed-success)](https://github.com/modusensus/dsh-mneme)
 
 > A cross-session memory plugin for DeepSeek Harness: it lets the Agent remember you, remember your projects, and organize memories automatically. **Mneme** (Μνήμη) — named after Mnemosyne, the Greek goddess of memory who presides over memory and dreams, just as autoDream consolidates memories in the background.
 
@@ -405,7 +405,7 @@ src/
 lib/
 ├── client.js         # Web 面板（手写 ModuleLoader bundle）
 └── *.js              # src 的同步分发产物
-test/                 # 645 个 node:test 测试（含审计与三轴线压测不变量）
+test/                 # 648 个 node:test 测试（含审计与三轴线压测不变量）
 scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压测 · sync-lib.js 同步
 ```
 
