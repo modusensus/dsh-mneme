@@ -193,6 +193,9 @@ window.__ModuleLoader__.load({
         "memory.explorer.importance": "重要性",
         "memory.explorer.heat": "热度",
         "memory.explorer.sourceFilter": "来源",
+        "memory.explorer.sort": "排序",
+        "memory.explorer.heatSort": "热度优先",
+        "memory.explorer.heatSortHint": "对已加载条目按热度降序（页内排序，非全局序；时间树保持时间序）",
         "memory.explorer.filterDeposited": "沉淀",
         "memory.explorer.filterDepositedHint": "只看 autoDream 巩固/更新过的记忆",
         "memory.explorer.filterArchived": "已归档",
@@ -470,6 +473,9 @@ window.__ModuleLoader__.load({
         "memory.explorer.importance": "Importance",
         "memory.explorer.heat": "Heat",
         "memory.explorer.sourceFilter": "Source",
+        "memory.explorer.sort": "Sort",
+        "memory.explorer.heatSort": "By heat",
+        "memory.explorer.heatSortHint": "Sort loaded items by heat, in-page (not global; the month tree keeps chronological order)",
         "memory.explorer.filterDeposited": "Deposited",
         "memory.explorer.filterDepositedHint": "Only memories autoDream consolidated or updated",
         "memory.explorer.filterArchived": "Archived",
@@ -2879,6 +2885,7 @@ window.__ModuleLoader__.load({
       // 方案 A：沉淀/归档筛选 chip——状态页「查看全部」也会带着它们跳转过来。
       const [depositedOnly, setDepositedOnly] = useState(false); // 只看 autoDream 巩固
       const [archivedOnly, setArchivedOnly] = useState(false); // 只看已归档
+      const [heatSort, setHeatSort] = useState(false); // 卡片页内热度降序（阶段二补口）
       const [pendingIds, setPendingIds] = useState(() => new Set());
       const [menuOpen, setMenuOpen] = useState(false);
       const [importOpen, setImportOpen] = useState(false);
@@ -3048,6 +3055,13 @@ window.__ModuleLoader__.load({
       // the grouping follows the sort order instead of re-sorting buckets.
       const sorted = [...visible].sort((a, b) =>
         new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0));
+      // heatSort（阶段二补口，order=heat 的前端实现）：热度是运行时投影、
+      // 无存储序，SQL 排不了；页内对已加载条目降序（非全局序），时间树
+      // 仍走 chrono 不受影响。开关仅在 heat 字段在场上时出现（自门控）。
+      const heatAvailable = visible.some((m) => typeof m.heat === "number");
+      const gridItems = heatSort
+        ? [...sorted].sort((a, b) => (b.heat ?? 0) - (a.heat ?? 0))
+        : sorted;
       const months = [];
       let curMonth = null, curDay = null;
       for (const m of sorted) {
@@ -3312,6 +3326,19 @@ window.__ModuleLoader__.load({
                 onClick: () => setArchivedOnly(!archivedOnly)
               }, t("memory.explorer.filterArchived"))
             ),
+            heatAvailable && h(react.Fragment, null,
+              h("div", { className: "mneme-xcolhead" }, t("memory.explorer.sort")),
+              h("div", { className: "mneme-xrow" },
+                h("button", {
+                  className: heatSort ? "mneme-chip mneme-active" : "mneme-chip",
+                  title: t("memory.explorer.heatSortHint"),
+                  onClick: () => {
+                    setHeatSort(!heatSort);
+                    if (!heatSort) switchViewMode("cards"); // 排序只作用于卡片网格
+                  }
+                }, t("memory.explorer.heatSort"))
+              )
+            ),
             h("div", { className: "mneme-xcolhead" }, t("memory.explorer.types")),
             h("button", {
               className: type === "all" ? "mneme-xtype mneme-active" : "mneme-xtype",
@@ -3336,7 +3363,7 @@ window.__ModuleLoader__.load({
                     ? h("div", { className: "mneme-xempty", style: { gridColumn: "1 / -1" } },
                         h(Icon, { name: "inbox", size: 20, className: "mneme-xemptyico" }),
                         t("memory.explorer.empty"))
-                    : sorted.map((m) => h("button", {
+                    : gridItems.map((m) => h("button", {
                         key: m.id,
                         type: "button",
                         className: m.id === selectedId ? "mneme-card mneme-active" : "mneme-card",
