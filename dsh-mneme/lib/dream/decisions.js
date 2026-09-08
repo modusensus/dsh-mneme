@@ -7,12 +7,22 @@ const EPISTEMIC_PRIORITY = { observation: 3, inferred: 2, subjective: 1 };
 
 /**
  * Validate a dream decision list against a snapshot of eligible memories.
- * @param decisions - LLM-produced decision list.
+ * @param decisions - LLM-produced decision list. In skipInvalid mode, invalid
+ *   entries are spliced out of this array in place (the caller reuses the same
+ *   reference downstream for apply/audit); implicit keeps are appended here too.
  * @param snapshot - Map<id, memory> of eligible (non-archived, non-summary) entries.
- * @returns {{ok: boolean, errors: string[]}}
+ * @returns {{ok: boolean, errors: string[], skipped?: Array<{index, action, ids, error}>}}
  */
 export function validateDecisions(decisions, snapshot, options = {}) {
   const errors = [];
+  // Issue #89 回归修复（v0.6.9 / Issue #26 的 skipInvalid 路径原样移植，该路径
+  // 在 v0.7.11 重写中丢失）：skipInvalid 开启时，单条非法决策只跳过该条（记录
+  // 到 skipped、不 claim 任何 id），合法子集照常应用，调用方据此把 run 记为
+  // degraded。全局信号（update/create 上限、显式覆盖率下限）依旧整单拒绝——
+  // 刷爆上限或覆盖率不达标的输出是模型坏了，不是轻微 schema 漂移。
+  const skipped = [];
+  const survivors = [];
+  const skipInvalid = options.skipInvalid === true;
   const maxUpdatePerRun = options.maxUpdatePerRun ?? 2;
   const minAgeHours = options.minAgeHours ?? 24;
   if (!Array.isArray(decisions) || decisions.length === 0) {
@@ -21,106 +31,122 @@ export function validateDecisions(decisions, snapshot, options = {}) {
   const claimed = new Set();
   for (const [index, d] of decisions.entries()) {
     const at = `decision[${index}]`;
+    // 单条校验错误先进 local：skipInvalid 模式下整条跳过，严格模式下才并入
+    // 全局 errors（沿用 v0.6.9 的双轨结构）。
+    const local = [];
+    const ids = d && d.action === "conflict" ? [d.winner, d.loser] : (d?.ids ?? []);
     if (!d || typeof d !== "object" || !ACTIONS.has(d.action)) {
-      errors.push(`${at}: invalid action ${JSON.stringify(d?.action)}`);
-      continue;
-    }
-    const ids = d.action === "conflict" ? [d.winner, d.loser] : (d.ids ?? []);
-    if (d.action === "conflict") {
+      local.push(`${at}: invalid action ${JSON.stringify(d?.action)}`);
+    } else if (d.action === "conflict") {
       if (!d.winner || !d.loser || d.winner === d.loser) {
-        errors.push(`${at}: conflict needs distinct winner and loser`);
-        continue;
+        local.push(`${at}: conflict needs distinct winner and loser`);
       }
     } else if (d.action === "create") {
       // Mint a fresh memory (sleep pattern discovery). Claims no existing id,
       // so it skips the claiming loop below; evidence is optional provenance
       // (already filtered to real ids by the caller) and is stored in content.
       if (typeof d.title !== "string" || !d.title.trim()) {
-        errors.push(`${at}: create needs non-empty title`);
-        continue;
+        local.push(`${at}: create needs non-empty title`);
       }
       if (typeof d.content !== "string" || !d.content.trim()) {
-        errors.push(`${at}: create needs non-empty content`);
-        continue;
+        local.push(`${at}: create needs non-empty content`);
       }
       if (d.importance !== undefined && (!Number.isInteger(d.importance) || d.importance < 1 || d.importance > 5)) {
-        errors.push(`${at}: create importance must be an integer 1-5 when provided`);
+        local.push(`${at}: create importance must be an integer 1-5 when provided`);
       }
       if (typeof d.type !== "string" || !d.type.trim()) {
-        errors.push(`${at}: create needs non-empty type`);
+        local.push(`${at}: create needs non-empty type`);
       }
-      continue;
     } else if (!Array.isArray(d.ids) || d.ids.length === 0) {
-      errors.push(`${at}: ${d.action} needs non-empty ids`);
-      continue;
+      local.push(`${at}: ${d.action} needs non-empty ids`);
     }
     // update-specific field validation runs BEFORE claiming ids, so a failing
     // update never pollutes the claimed set (which drives the "every id must
     // appear in a decision" check below).
-    if (d.action === "update") {
+    if (local.length === 0 && d?.action === "update") {
       // 只能更新单条
       if (!Array.isArray(d.ids) || d.ids.length !== 1) {
-        errors.push(`${at}: update must target exactly one id`);
-        continue;
-      }
-      // 必须产生实际变化
-      const mem = snapshot.get(d.ids[0]);
-      const hasChange = (d.title !== undefined && d.title !== mem?.title)
-        || (d.content !== undefined && d.content !== mem?.content)
-        || (d.importance !== undefined && d.importance !== mem?.importance);
-      if (!hasChange) {
-        errors.push(`${at}: update must change at least one field`);
-        continue;
-      }
-      // 不能更新 summary
-      if (mem?.type === "summary") {
-        errors.push(`${at}: cannot update summary via update action`);
-        continue;
-      }
-      // 保护期：新建记忆不可立即被 update（可配置）
-      const ageHours = (Date.now() - new Date(mem?.created_at).getTime()) / 3600000;
-      if (ageHours < minAgeHours) {
-        errors.push(`${at}: memory too young (< ${minAgeHours}h)`);
-        continue;
+        local.push(`${at}: update must target exactly one id`);
+      } else {
+        // 必须产生实际变化
+        const mem = snapshot.get(d.ids[0]);
+        const hasChange = (d.title !== undefined && d.title !== mem?.title)
+          || (d.content !== undefined && d.content !== mem?.content)
+          || (d.importance !== undefined && d.importance !== mem?.importance);
+        if (!hasChange) {
+          local.push(`${at}: update must change at least one field`);
+        } else if (mem?.type === "summary") {
+          // 不能更新 summary
+          local.push(`${at}: cannot update summary via update action`);
+        } else {
+          // 保护期：新建记忆不可立即被 update（可配置）
+          const ageHours = (Date.now() - new Date(mem?.created_at).getTime()) / 3600000;
+          if (ageHours < minAgeHours) {
+            local.push(`${at}: memory too young (< ${minAgeHours}h)`);
+          }
+        }
       }
     }
-    for (const id of ids) {
-      const mem = snapshot.get(id);
-      if (!mem) {
-        errors.push(`${at}: unknown id ${JSON.stringify(id)}`);
-      } else if (mem.archived || mem.type === "summary") {
-        errors.push(`${at}: id ${JSON.stringify(id)} is archived or summary (not eligible)`);
+    if (local.length === 0 && d && d.action !== "create") {
+      // seen 捕获同一条决策内的重复 id；claimed 只含先前存活决策的 id
+      // （被跳过的决策不 claim，其目标留给其它合法决策/隐式 keep）。
+      const seen = new Set();
+      for (const id of ids) {
+        const mem = snapshot.get(id);
+        if (!mem) {
+          local.push(`${at}: unknown id ${JSON.stringify(id)}`);
+        } else if (mem.archived || mem.type === "summary") {
+          local.push(`${at}: id ${JSON.stringify(id)} is archived or summary (not eligible)`);
+        }
+        if (claimed.has(id) || seen.has(id)) {
+          local.push(`${at}: id ${JSON.stringify(id)} claimed by multiple decisions`);
+        }
+        seen.add(id);
       }
-      if (claimed.has(id)) {
-        errors.push(`${at}: id ${JSON.stringify(id)} claimed by multiple decisions`);
+      if (local.length === 0 && d.action === "merge") {
+        if (!d.keepSource || !d.ids.includes(d.keepSource)) {
+          local.push(`${at}: merge keepSource must be one of ids`);
+        }
+        if (typeof d.title !== "string" || !d.title.trim() || typeof d.content !== "string" || !d.content.trim()) {
+          local.push(`${at}: merge needs non-empty title and content`);
+        }
+        if (d.importance !== undefined && (!Number.isInteger(d.importance) || d.importance < 1 || d.importance > 5)) {
+          local.push(`${at}: merge importance must be an integer 1-5 when provided`);
+        }
+        // Merging across types would blur preference/project/decision boundaries
+        // in the injected context; the snapshot carries each entry's type.
+        // Issue #26 (P1)：默认禁止跨类型合并。用户显式开启 allowCrossTypeMerge
+        // 后放宽该检查，类型边界由用户自行承担。
+        const mergeTypes = new Set(d.ids.map((id) => snapshot.get(id)?.type));
+        if (mergeTypes.size > 1 && options.allowCrossTypeMerge !== true) {
+          local.push(`${at}: merge ids span multiple types (${[...mergeTypes].join(", ")})`);
+        }
       }
-      claimed.add(id);
     }
-    if (d.action === "merge") {
-      if (!d.keepSource || !d.ids.includes(d.keepSource)) {
-        errors.push(`${at}: merge keepSource must be one of ids`);
+    if (local.length > 0) {
+      if (skipInvalid) {
+        // 单条非法 → 跳过该决策，不 claim id（其目标记忆留给其它合法决策/隐式
+        // keep），并记录到 skipped 供调用方日志/审计。信息性跳过绝不写入全局
+        // errors，否则会误触发下方的整单拒绝。
+        skipped.push({ index, action: d?.action, ids, error: local.join("; ") });
+      } else {
+        errors.push(...local);
       }
-      if (typeof d.title !== "string" || !d.title.trim() || typeof d.content !== "string" || !d.content.trim()) {
-        errors.push(`${at}: merge needs non-empty title and content`);
-      }
-      if (d.importance !== undefined && (!Number.isInteger(d.importance) || d.importance < 1 || d.importance > 5)) {
-        errors.push(`${at}: merge importance must be an integer 1-5 when provided`);
-      }
-      // Merging across types would blur preference/project/decision boundaries
-      // in the injected context; the snapshot carries each entry's type.
-      const mergeTypes = new Set(d.ids.map((id) => snapshot.get(id)?.type));
-      if (mergeTypes.size > 1) {
-        errors.push(`${at}: merge ids span multiple types (${[...mergeTypes].join(", ")})`);
-      }
+      continue;
     }
+    if (d.action !== "create") {
+      for (const id of ids) claimed.add(id);
+    }
+    survivors.push(d);
   }
-  // Cap update churn: too many edits in one cycle signals a runaway model
-  const updateCount = decisions.filter((d) => d.action === "update").length;
+  // Cap update churn: too many edits in one cycle signals a runaway model.
+  // 全局信号——skipInvalid 模式下依旧整单拒绝（见函数头注释）。
+  const updateCount = survivors.filter((d) => d.action === "update").length;
   if (updateCount > maxUpdatePerRun) {
     errors.push(`too many update decisions: ${updateCount} > ${maxUpdatePerRun}`);
   }
   // Cap pattern minting per run (sleepMaxPatternPerRun passes through here).
-  const createCount = decisions.filter((d) => d.action === "create").length;
+  const createCount = survivors.filter((d) => d.action === "create").length;
   const maxCreatePerRun = options.maxCreatePerRun ?? 5;
   if (createCount > maxCreatePerRun) {
     errors.push(`too many create decisions: ${createCount} > ${maxCreatePerRun}`);
@@ -137,25 +163,31 @@ export function validateDecisions(decisions, snapshot, options = {}) {
   // snapshot（claimed.size / snapshot.size < dreamMinExplicitCoverage）时整单拒绝，
   // 而不是用 keep 把绝大部分 snapshot 全部"通过"。
   if (errors.length > 0) {
-    return { ok: false, errors };
+    return { ok: false, errors, skipped };
   }
   const minCoverage = options.dreamMinExplicitCoverage ?? 0.5;
   if (options.dreamImplicitKeep !== false) {
     const coverage = snapshot.size > 0 ? claimed.size / snapshot.size : 1;
     if (coverage < minCoverage) {
       errors.push(`explicit decision coverage ${Math.round(coverage * 100)}% < minimum ${Math.round(minCoverage * 100)}%`);
-      return { ok: false, errors };
+      return { ok: false, errors, skipped };
     }
     for (const id of snapshot.keys()) {
-      if (!claimed.has(id)) decisions.push({ action: "keep", ids: [id] });
+      if (!claimed.has(id)) survivors.push({ action: "keep", ids: [id] });
     }
   } else {
     for (const id of snapshot.keys()) {
       if (!claimed.has(id)) errors.push(`memory ${JSON.stringify(id)} missing from decisions`);
     }
-    if (errors.length > 0) return { ok: false, errors };
+    if (errors.length > 0) return { ok: false, errors, skipped };
   }
-  return { ok: true, errors };
+  // 调用方下游（apply/audit）复用同一 decisions 引用：就地同步为 survivors——
+  // 在 skipInvalid 模式下去掉被跳过的非法决策；在隐式 keep 下追加补齐的 keep。
+  // 内容一致时（无跳过、无补齐）为 no-op。
+  if (survivors.length !== decisions.length) {
+    decisions.splice(0, decisions.length, ...survivors);
+  }
+  return { ok: true, errors, skipped };
 }
 
 /** Marker thrown when a decision target changed since the run snapshot. */

@@ -468,12 +468,15 @@ async function maintainIndexAfterDream(decisions, service, semantic) {
   if (embedder.modelHash) vectorIndex.markModel?.(embedder.modelHash, embedder.dimension);
 }
 
-export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChars = 5000, delayMs = 2000, logger, semantic = null }) {
+export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChars = 5000, delayMs = 2000, minIntervalMs = 0, logger, semantic = null }) {
   let pendingTimer = null;
   let running = false;
   let disposed = false;
   let baseline = { count: 0, chars: 0 };
   let inFlight = null;
+  // Issue #89（请求 2）：上一次实际开跑时刻。失败/degraded 的 run 也占用
+  // 最小间隔——节流的目的正是防止失败调用连发；间隔内的触发静默跳过。
+  let lastRunAt = 0;
 
   function shouldTrigger(service) {
     const memories = service.all().filter((m) => !m.archived && m.type !== "summary");
@@ -486,11 +489,14 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
 
   function maybeSchedule(service) {
     if (disposed || running || pendingTimer) return false;
+    // Issue #89（请求 2）：最小触发间隔闸门。
+    if (minIntervalMs > 0 && Date.now() - lastRunAt < minIntervalMs) return false;
     const { trigger, count, chars } = shouldTrigger(service);
     if (!trigger) return false;
     pendingTimer = setTimeout(() => {
       pendingTimer = null;
       running = true;
+      lastRunAt = Date.now();
       // Defer the onRun invocation so a synchronous throw cannot escape the
       // timer callback (which would crash the process) and skip the teardown.
       // Errors are logged, never swallowed silently. inFlight lets dispose()
@@ -704,17 +710,25 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       logger?.warn?.(`dsh-mneme dream: no json array in llm output (raw length ${decisionText?.length ?? 0}; head: ${head})`);
       return finish({ ok: false, error: "no json array in llm output", summary: false });
     }
-    const { ok, errors } = validateDecisions(decisions, snapshot, {
+    const { ok, errors, skipped } = validateDecisions(decisions, snapshot, {
       maxUpdatePerRun: config.reflectionUpdateMaxPerRun,
       minAgeHours: config.reflectionUpdateMinAgeHours,
       // v0.4.4 fix：显式透传，用户配 dreamImplicitKeep:false 时严格模式必须
       // 真正生效，dreamMinExplicitCoverage 决定隐式 keep 下的覆盖率下限。
       dreamImplicitKeep: config.dreamImplicitKeep,
-      dreamMinExplicitCoverage: config.dreamMinExplicitCoverage
+      dreamMinExplicitCoverage: config.dreamMinExplicitCoverage,
+      // Issue #89：v0.6.9（Issue #26）的宽容路径在 v0.7.11 重写中丢失——单条
+      // 非法决策重新只跳过该条、合法子集照常应用（run 记为 degraded）。
+      skipInvalid: config.dreamSkipInvalid !== false,
+      allowCrossTypeMerge: config.allowCrossTypeMerge === true
     });
     if (!ok) {
       logger?.warn?.(`dsh-mneme dream: invalid decisions: ${errors.join("; ")}`);
       return finish({ ok: false, error: `invalid decisions: ${errors.length} errors`, summary: false });
+    }
+    const skippedInvalid = skipped.length > 0;
+    if (skippedInvalid) {
+      logger?.warn?.(`dsh-mneme dream: ${skipped.length} invalid decision(s) skipped (run degrades): ${skipped.map((s) => s.error).join("; ")}`);
     }
 
     // Capture pre-update snapshots so the audit records what each update changed.
@@ -872,9 +886,11 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     //               run. ok:false keeps the scheduler from moving the baseline.
     //   ok        — either real changes landed, or a fresh summary was stored
     //               (all-keep + summary is a substantive summary refresh).
-    //   degraded  — real consolidation landed but the summary came back empty/
-    //               missing: the store was absorbed (ok for the baseline) but
-    //               the run did not produce its full output (marked, not faked).
+    //   degraded  — real consolidation landed but the run did not produce its
+    //               full output: the summary came back empty/missing, or
+    //               skipInvalid dropped individually-invalid decisions
+    //               (Issue #89 — marked, not faked). The valid subset was
+    //               absorbed (ok for the baseline).
     let status;
     let okResult;
     if (partial) {
@@ -884,7 +900,7 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       status = summaryStored ? "ok" : "noop";
       okResult = summaryStored;
     } else {
-      status = summaryStored ? "ok" : "degraded";
+      status = summaryStored && !skippedInvalid ? "ok" : "degraded";
       okResult = true;
     }
     return finish({

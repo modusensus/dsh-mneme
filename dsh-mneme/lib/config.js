@@ -47,6 +47,11 @@ export const Config = z.object({
   dreamThresholdCount: z.natural().min(1).max(1000).default(10),
   dreamThresholdChars: z.natural().min(100).max(100000).default(5000),
   dreamDelayMs: z.natural().min(0).max(60000).default(2000),
+  // autoDream 触发最小间隔（分钟，0 = 不限制，Issue #89 请求 2）：高频写入
+  // 场景下防止巩固调用（含失败重试）连发刷爆配额。间隔从每次实际开跑时刻
+  // 起算，失败/degraded 的 run 也占用间隔；间隔内的触发请求静默跳过，下一次
+  // 写入事件会重新评估。
+  dreamMinIntervalMinutes: z.natural().min(0).max(10080).default(0),
   dreamProvider: z.string(),
   dreamModel: z.string(),
   dreamMaxTokens: z.natural().min(256).max(131072).default(8192),
@@ -74,6 +79,13 @@ export const Config = z.object({
   // → 整单拒绝，防止残缺输出被隐式 keep 洗白成 ok 后再被真实 apply。0-1，
   // 默认 0.5（至少显式覆盖一半 snapshot）。
   dreamMinExplicitCoverage: z.number().min(0).max(1).default(0.5),
+  // Issue #89：v0.6.9（Issue #26）的宽容路径回归。默认跳过单条非法决策
+  // （未知 id / 跨类型合并等）、应用合法子集、run 记 degraded；设 false 恢复
+  // 整单拒绝的严格模式。全局上限与覆盖率下限不受此开关影响、始终整单拒绝。
+  dreamSkipInvalid: z.boolean().default(true),
+  // 显式开启后放宽跨类型合并检查（类型边界由用户自行承担）；配合
+  // dreamSkipInvalid 理解：关闭 skipInvalid 时跨类型 merge 直接整单拒绝。
+  allowCrossTypeMerge: z.boolean().default(false),
   // Rule version for dream adjudication: when this bumps, older dream_runs
   // degrade to historical evidence (their receipts no longer drive live
   // decisions). Default 0 = no versioning in use yet.

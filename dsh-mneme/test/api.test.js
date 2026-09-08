@@ -527,10 +527,14 @@ test("GET /api/dsh-mneme/features returns empty overrides and effective config d
   assert.equal(res.statusCode, 200);
   const data = JSON.parse(res.body);
   assert.deepEqual(data.overrides, {});
-  // effective 覆盖全部 31 个白名单键（含 v0.7.20 新增的 heatEnabled），未覆盖时
-  // 取 bundle 配置的解析默认值；dreamProvider/dreamModel 无 schema 默认值
-  // （Config({}) 解析为 undefined），不编造给前端 → 31 - 2 = 29
-  assert.equal(Object.keys(data.effective).length, 29);
+  // effective 覆盖全部 34 个白名单键（含 v0.7.20 heatEnabled 与 Issue #89 回归
+  // 修复新增的 dreamSkipInvalid/allowCrossTypeMerge/dreamMinIntervalMinutes），
+  // 未覆盖时取 bundle 配置的解析默认值；dreamProvider/dreamModel 无 schema
+  // 默认值（Config({}) 解析为 undefined），不编造给前端 → 34 - 2 = 32
+  assert.equal(Object.keys(data.effective).length, 32);
+  assert.equal(data.effective.dreamSkipInvalid, true);
+  assert.equal(data.effective.allowCrossTypeMerge, false);
+  assert.equal(data.effective.dreamMinIntervalMinutes, 0);
   assert.equal(data.effective.autoInject, true);
   assert.equal(data.effective.codingRetrospect, false);
   assert.equal(data.effective.distillMaxChars, 24000);

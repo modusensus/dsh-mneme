@@ -283,6 +283,7 @@ export const apply = (ctx, config) => {
       thresholdCount: cfg.dreamThresholdCount,
       thresholdChars: cfg.dreamThresholdChars,
       delayMs: cfg.dreamDelayMs,
+      minIntervalMs: (cfg.dreamMinIntervalMinutes ?? 0) * 60000,
       logger: ctx.logger,
       semantic: { embedder, vectorIndex },
       onRun: () => (dream ? dream.runDream(ctx, service, cfg) : Promise.resolve({ ok: true, skipped: true }))
