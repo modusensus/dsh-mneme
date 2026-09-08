@@ -160,6 +160,65 @@ test("sidebar entry portals above the workspaces region with footer fallback", (
   );
 });
 
+// Three alignment/softness guarantees born from field feedback: (a) the
+// portalled entry keeps tracking the live New-Session class (host and skin
+// rewrite it asynchronously, so a mount-time snapshot goes stale), (b) it
+// fills the same width as that button and inherits its native centering,
+// (c) the toolbar dropdown escapes the transform stacking trap — the
+// container needs the z-index because transform creates the context.
+test("entry tracks native class, fills native width, and lifts the toolbar dropdown", () => {
+  assert.ok(
+    clientSource.includes("new MutationObserver"),
+    "the entry must re-sync the copied class via MutationObserver"
+  );
+  assert.ok(
+    clientSource.includes('attributeFilter: ["class"]'),
+    "the observer must watch class attribute changes"
+  );
+  assert.ok(
+    /\.mneme-topentry-native\{width:100%;/.test(clientSource),
+    "the entry button must fill the same width as the New-Session row"
+  );
+  assert.equal(
+    clientSource.includes(".mneme-topentry-native .mneme-topentry-label{flex:1;min-width:0;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}"),
+    false,
+    "the old left-aligned label override must go; native centering applies"
+  );
+  assert.ok(
+    /\.mneme-xtools\{[^}]*z-index:3\}/.test(clientSource),
+    "the toolbar container must carry z-index:3 (sticky month header is 2, drawer 6)"
+  );
+});
+
+// Importance renders as Lucide star glyphs (the morphicons-paired data set;
+// the runtime cannot require the ESM-only morphicons engine, so the path
+// ships inline like the other stroke icons), not raw ★ text. Only the
+// drawer's edit-mode <option> labels keep the text form — SVG cannot render
+// inside <option>.
+test("importance renders as star glyphs, not raw text stars", () => {
+  assert.ok(
+    clientSource.includes("STAR_PATH_D"),
+    "the Lucide star path data must be inlined"
+  );
+  assert.ok(
+    clientSource.includes("const ImportanceStars"),
+    "the star-row component must exist"
+  );
+  assert.equal(
+    (clientSource.match(/"★"\.repeat/g) || []).length,
+    1,
+    "only the drawer edit <option> labels may keep the ★ text form"
+  );
+  assert.ok(
+    /h\(ImportanceStars, \{ className: "mneme-dmetaval"/.test(clientSource),
+    "the drawer detail must render the star row"
+  );
+  assert.ok(
+    /h\(ImportanceStars, \{ value: m\.importance/.test(clientSource),
+    "the card foot must render the star row"
+  );
+});
+
 // The graph toggle must not read as "share": the primitives share icon is
 // banned and a custom node-graph glyph takes its place.
 test("graph toggle uses a node-graph glyph, not the share icon", () => {

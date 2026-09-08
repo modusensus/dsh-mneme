@@ -74,6 +74,24 @@ window.__ModuleLoader__.load({
       }, parts.map(([tag, attrs], i) => h(tag, { key: i, ...attrs })));
     };
 
+    // Lucide v1.42 star path（morphicons 官方配套的数据包）。morphicons 本体
+    // 是 ESM-only 的变形动画引擎、插件运行时不允许 require 第三方库，故按
+    // 既有惯例内联图标数据静态渲染；实心/空心由 fill 区分，空心降透明度。
+    const STAR_PATH_D = "M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z";
+    const ImportanceStars = ({ value = 0, size = 13, className }) => {
+      const filled = Math.min(5, Math.max(0, Math.round(value || 0)));
+      return h("span", { className: `mneme-stars${className ? ` ${className}` : ""}`, role: "img", "aria-label": `${filled}/5` },
+        [0, 1, 2, 3, 4].map((i) => h("svg", { key: i, width: size, height: size, viewBox: "0 0 24 24", "aria-hidden": "true" },
+          h("path", {
+            d: STAR_PATH_D,
+            fill: i < filled ? "currentColor" : "none",
+            stroke: "currentColor",
+            strokeWidth: 1.6,
+            strokeLinejoin: "round",
+            opacity: i < filled ? 1 : 0.35
+          }))));
+    };
+
     // Unified API fetcher: attaches the optional apiToken (set in the settings
     // view, persisted in localStorage) as a Bearer header. When no token has
     // been configured the header is omitted and the API stays open (default).
@@ -695,7 +713,9 @@ window.__ModuleLoader__.load({
       ".mneme-vtab:hover{color:var(--dsw-alias-label-primary)}",
       ".mneme-vtab.mneme-active{color:var(--dsw-alias-state-business-primary)}",
       ".mneme-vtab.mneme-active::after{content:\"\";position:absolute;left:10px;right:10px;bottom:-1px;height:2.5px;border-radius:2px;background:var(--dsw-alias-state-business-primary)}",
-      ".mneme-xtools{position:absolute;right:14px;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:8px;padding:0}",
+      // transform 会自建层叠上下文：层级必须给在容器上——3 高于吸顶月份头(2)、
+      // 低于详情抽屉(6)，下拉菜单/导入对话框随容器整体上浮。
+      ".mneme-xtools{position:absolute;right:14px;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:8px;padding:0;z-index:3}",
       ".mneme-xcount{flex:none;font-size:12px;line-height:16px;color:var(--dsw-alias-label-tertiary);white-space:nowrap}",
       // --- three-column browse layout: hairline separators, no outer box ---
       ".mneme-xmain{flex:1;min-height:0;display:flex;flex-direction:row;overflow:hidden}",
@@ -824,10 +844,13 @@ window.__ModuleLoader__.load({
       // --- 侧边栏顶部入口：借宿主「新会话」按钮的原生类名对齐 ---
       // wrapper display:contents 隐身，按钮成为侧边栏弹性布局的直接子元素；
       // 盒模型/间距/收起态 rail 几何全部继承宿主，我们只覆盖配色为次级观感。
+      ".mneme-stars{display:inline-flex;align-items:center;gap:2px}",
+      // width:100% 与「新会话」同宽（同一弹性父容器）；文案对齐交给复制来的
+      // 原生类，不再用 flex:1/text-align:left 覆盖成左对齐。
       ".mneme-topentry{display:contents}",
-      ".mneme-topentry-native{background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary)}",
+      ".mneme-topentry-native{width:100%;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary)}",
       ".mneme-topentry-native:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}",
-      ".mneme-topentry-native .mneme-topentry-label{flex:1;min-width:0;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+      ".mneme-topentry-native .mneme-topentry-label{white-space:nowrap}",
       // --- 功能开关：一行一开关，Claude 式安静排版 ---
       ".mneme-featgroup{flex:none;font-size:12px;font-weight:600;letter-spacing:.02em;color:var(--dsw-alias-label-tertiary);margin:16px 0 2px}",
       ".mneme-featrow{display:flex;align-items:center;gap:14px;padding:11px 2px;border-bottom:1px solid var(--dsw-alias-border-l1)}",
@@ -2560,7 +2583,7 @@ window.__ModuleLoader__.load({
                   value: importance,
                   onChange: (e) => setImportance(Number(e.target.value))
                 }, [1, 2, 3, 4, 5].map((n) => h("option", { key: n, value: n }, "★".repeat(n))))
-              : h("span", { className: "mneme-dmetaval" }, "★".repeat(Math.min(5, Math.max(0, memory.importance || 0)))),
+              : h(ImportanceStars, { className: "mneme-dmetaval", value: memory.importance || 0 }),
             memory.source && h(react.Fragment, null,
               h("span", { className: "mneme-dmetakey" }, t("memory.explorer.source")),
               h("span", { className: "mneme-dmetaval", title: memory.source }, memory.source)),
@@ -3160,7 +3183,7 @@ window.__ModuleLoader__.load({
                         h("div", { className: "mneme-cardtitle" }, m.title || (m.content || "").slice(0, 60)),
                         h("div", { className: "mneme-cardexcerpt" }, m.content || ""),
                         h("div", { className: "mneme-cardfoot" },
-                          h("span", null, "★".repeat(Math.min(5, Math.max(0, m.importance || 0)))),
+                          h(ImportanceStars, { value: m.importance || 0, size: 12 }),
                           m.source && h("span", { className: "mneme-cardsrc", title: m.source }, m.source)
                         )
                       )),
@@ -3287,19 +3310,34 @@ window.__ModuleLoader__.load({
       const [nativeCls, setNativeCls] = useState("");
       useEffect(() => {
         if (!reactDom || typeof document === "undefined") return undefined;
-        let tries = 0, timer = null, created = null;
+        let tries = 0, timer = null, created = null, mo = null;
+        const findNative = (region) =>
+          region.parentElement.querySelector('[class*="newSession"]')
+          || region.previousElementSibling;
         const attempt = () => {
           const region = document.querySelector('[class*="regionArea"]');
           if (region && region.parentElement) {
             // 「新会话」按钮与 regionArea 同级且紧邻其前，借它的类名获得
             // 与原生侧边栏项完全一致的盒模型（含收起态 rail 几何）。
-            const ns = region.parentElement.querySelector('[class*="newSession"]')
-              || region.previousElementSibling;
+            // 宿主/皮肤会异步改写按钮类名，用 MutationObserver 持续同步，
+            // 否则 portal 按钮会停留在捕获时刻的旧类上（宽度/对齐失配）。
             created = document.createElement("div");
             created.dataset.pluginEntry = "@modusensus/dsh-mneme";
             region.parentElement.insertBefore(created, region);
             setHost(created);
-            setNativeCls(ns?.className || "");
+            setNativeCls(findNative(region)?.className || "");
+            mo = new MutationObserver(() => {
+              const cur = document.querySelector('[class*="regionArea"]');
+              if (!cur || !cur.parentElement) return;
+              const cls = findNative(cur)?.className || "";
+              setNativeCls((prev) => (prev === cls ? prev : cls));
+            });
+            mo.observe(region.parentElement, {
+              attributes: true,
+              attributeFilter: ["class"],
+              childList: true,
+              subtree: true
+            });
             return;
           }
           if (++tries > 40) return; // 放弃 portal，footer 回退保持可用
@@ -3308,6 +3346,7 @@ window.__ModuleLoader__.load({
         attempt();
         return () => {
           clearTimeout(timer);
+          if (mo) mo.disconnect();
           if (created && created.parentElement) created.parentElement.removeChild(created);
         };
       }, []);
