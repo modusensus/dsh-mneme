@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Awesome](https://awesome-dsh-plugin.com/badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
-[![tests](https://img.shields.io/badge/tests-685%20passed-success)](https://github.com/modusensus/dsh-mneme)
+[![tests](https://img.shields.io/badge/tests-712%20passed-success)](https://github.com/modusensus/dsh-mneme)
 [![CI](https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/ci.yml)](https://github.com/modusensus/dsh-mneme/actions)
 [![node](https://img.shields.io/badge/node-24%2B-blue)](https://nodejs.org)
 [![npm downloads](https://img.shields.io/npm/dm/@modusensus/dsh-mneme?color=blue&label=downloads)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
@@ -207,6 +207,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 
 | 版本 | 亮点 |
 |------|------|
+| **v0.7.23** | 记忆沉淀「反复失败」根治：consolidation 合法空数组 `[]` 不再误判 failed（CONSOLIDATION_PROMPT 允许「无问题无需输出」，模型无冗余时合法返回 `[]`——此前 `validateDecisions` 硬判 non-empty → 整单 failed、审计反复失败，且与模型无关，ChatGPT/Claude 同样踩中；修复：空数组显式短路 `ok:true` no-op）+ 空体修复第二段（`dreamMaxTokens` 默认 8192→32768，思考模型推理烧光预算的根治余量，设置面板可调）+ skipInvalid splice 残留 bug（长度相等≠内容一致，被跳决策残留）；712 测试全绿 |
 | **v0.7.22** | 恢复 v0.6.9 的 skipInvalid 宽容校验路径（issue #89 回归，v0.7.11 重写丢失）：`dreamSkipInvalid`（默认 true）单条非法决策跳过 + 合法子集应用 + run 记 degraded，`allowCrossTypeMerge`（默认 false）显式放宽跨类型合并——弱模型（如 qwen3.8-flash）决策合规抖动不再整单拒绝白烧 LLM 调用；严格模式/sleep 路径行为不变，全局上限/覆盖率下限仍整单拒绝（刷爆上限=模型坏了，非轻微 schema 漂移）；新增 `dreamMinIntervalMinutes`（0-10080，默认 0=不限）autoDream 最小触发间隔，失败/degraded run 也占用间隔（节流防失败调用连发）；feature_flags 白名单 34 键；696 测试全绿 |
 | **v0.7.21** | 修复 autoDream/sleep 的 effort 回退在流式路径失效（v0.7.16 的 catch 式回退是死代码）：dsh-llm rc.1 把 adapter 阶段异常（含 `UNSUPPORTED_REASONING_EFFORT`）转成终态 error finish chunk 不再抛出；`streamText` 现捕获 finish-chunk 失败原因（新增 `describeStreamFailure` 归一化 `{code,message}`）+ `withEffortFallback` 增加 `getStreamError` 访问器（effort 被拒时去掉重试一次）+ `runAuditedLlm` 支持 `spec.streamError`（audit 行 `error_message` 携带真实原因，`run.error` 稳定 `"llm failed"` 不变）；688 测试全绿 |
 | **v0.7.20** | heat 热度模型回归（issue #87）：找回 v0.7.0 自进化记忆（`src/heat.js` 幂律衰减 `H=1/(1+λΔt)^α` + per-type 差异化半衰期）、sleep 降级热联合双保护（时间窗冷 + heat<0.05 + importance<5）、touchRecalled 门控改回 `heatEnabled`、实体热投影（ego 节点 heat → 前端大小/明暗）、recall_runs 默认记录；**默认关**（默认=与 v0.7.12 行为一致）+ feature_flags 白名单回滚开关 + lightMode 联动 + sleep 降级审计计数暴露（工作动态可展示"降级 N 条"）+ 阶段二前端（/list heat 投影、HeatBadge 三档徽章、状态页热度分布卡、order=heat 页内排序，全部自门控）；better-sidebar 修复（issue #88：软集成改内层动态子插件，无 bs 环境不再启动失败）；685 测试全绿 |
@@ -292,6 +293,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 | **v0.7.18** | ✅ 完成 | 生态第一步 + 查询收敛 | better-sidebar 软集成（inject 声明 + optional peer `dsh-better-sidebar` + registerTab 复用四视图，未装安全跳过；窄容器 `@container` 适配）+ `/list?deposited=only` 沉淀视图（receipt_chain ∪ source=dream）+ 记忆库沉淀/已归档筛选 chip + 状态页仪表盘化（统计 + 查看全部跳转预置筛选）+ 抽屉归档记忆「恢复」；667 测试全绿 |
 | **v0.7.20** | ✅ 完成 | heat 回归 + 阶段二前端 + better-sidebar 修复 | heat 热度模型完整找回（issue #87，v0.7.10 移植：幂律衰减 + TYPE_DECAY + sleep 热联合双保护 + 实体热投影）+ 验收清单落地（heatEnabled 默认关 / feature_flags 31 键 / lightMode 联动 / sleep 降级审计暴露 / updated_at⊥last_accessed_at 契约）+ 阶段二前端（/list heat 投影、HeatBadge 三档、order=heat 页内排序）+ better-sidebar 修复（issue #88：内层动态子插件）；685 测试全绿 |
 | **v0.7.21** | ✅ 完成 | effort 回退流式修复 | autoDream/sleep 的 catch 式 effort 回退在流式路径是死代码（dsh-llm rc.1 把 adapter 异常转成终态 error finish chunk 不再抛出）→ `streamText` 捕获 finish-chunk 失败原因（`describeStreamFailure` 归一化）+ `withEffortFallback` 增加 `getStreamError` 访问器（effort 被拒去重试）+ `runAuditedLlm` 支持 `spec.streamError`（audit 记真实原因）；688 测试全绿 |
+| **v0.7.23** | ✅ 完成 | 记忆沉淀「反复失败」根治 + 空体第二段 + skipInvalid splice 修复 | consolidation 合法空数组 `[]` no-op（CONSOLIDATION_PROMPT 允许无问题无需输出；此前 validateDecisions 硬判 non-empty → 整单 failed，模型无关、ChatGPT/Claude 同样踩中；修复：空数组显式短路 ok，不再触发隐式 keep 覆盖率误判）；`dreamMaxTokens` 默认 8192→32768（思考模型推理烧光预算根治余量）；skipInvalid splice 残留 bug（长度相等≠内容一致，被跳决策残留进 apply）；712 测试全绿 |
 | **v0.7.22** | ✅ 完成 | skipInvalid 宽容校验回归（issue #89）+ autoDream 节流 | 恢复 v0.6.9 的 skipInvalid 双轨结构（v0.7.11 重写丢失）：`dreamSkipInvalid` 单条非法决策跳过 + 合法子集应用 + run 记 degraded，`allowCrossTypeMerge` 显式放宽跨类型合并；弱模型（qwen3.8-flash）决策合规抖动不再整单拒绝；新增 `dreamMinIntervalMinutes`（0-10080，默认 0=不限）最小触发间隔，失败/degraded run 也占用间隔；严格模式/sleep 路径行为不变；feature_flags 白名单 34 键；696 测试全绿 |
 | **v0.8.0** | 🚧 计划中（9 月末） | 图谱增强 | 兴趣漂移可视化 + scope 隔离（issue #17）+ 跨 workspace 记忆共享 |
 
@@ -527,7 +529,7 @@ src/
 ├── api.js            # HTTP 路由（Web 面板数据通道）
 └── index.js          # 插件接线
 lib/                  # src 的同步分发产物（npm run sync；发布前由 root prepack 的 check-sync.js 校验一致性；唯一手写例外 lib/client.js——Web 面板 bundle，sync 不覆盖）
-test/                 # 662 个 node:test 测试（审计与三轴线压测不变量；src↔lib 一致性由 scripts/check-sync.js 发布闸门校验）
+test/                 # 712 个 node:test 测试（审计与三轴线压测不变量；src↔lib 一致性由 scripts/check-sync.js 发布闸门校验）
 scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压测 · sync-lib.js 同步 · check-sync.js 发布闸门 · benchmark-recall.js 召回基准
 ```
 
@@ -536,7 +538,7 @@ scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压
 ```bash
 cd dsh-mneme
 npm install        # 安装 peer 依赖（以 devDependencies 形式，用于本地测试）
-npm test           # 运行 662 个测试
+npm test           # 运行 712 个测试
 npm run stress     # 三轴线压测：长会话检索 / 冲突仲裁 / 多 Agent 并发（离线 mock LLM）
 npm run sync       # 把 src/ 同步到 lib/（发布时由 prepack 钩子自动执行）
 ```

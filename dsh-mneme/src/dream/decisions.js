@@ -25,8 +25,15 @@ export function validateDecisions(decisions, snapshot, options = {}) {
   const skipInvalid = options.skipInvalid === true;
   const maxUpdatePerRun = options.maxUpdatePerRun ?? 2;
   const minAgeHours = options.minAgeHours ?? 24;
-  if (!Array.isArray(decisions) || decisions.length === 0) {
-    return { ok: false, errors: ["decision list must be a non-empty array"] };
+  if (!Array.isArray(decisions)) {
+    return { ok: false, errors: ["decision list must be an array"] };
+  }
+  // 空决策 = 模型完整评估后确认无需操作（CONSOLIDATION_PROMPT 明确允许"无问题的
+  // 条目无需输出"）。合法 JSON [] 不是空体（那是无输出/截断），也不是"残缺输出"
+  // ——显式短路直接 ok，避免隐式 keep 的覆盖率检查把 0% 误判为模型坏了。与
+  // sleep 的空模式（skipped no-op）语义对齐：下游 applied=0、audit 记 ok。
+  if (decisions.length === 0) {
+    return { ok: true, errors: [], skipped: [] };
   }
   const claimed = new Set();
   for (const [index, d] of decisions.entries()) {
@@ -183,10 +190,10 @@ export function validateDecisions(decisions, snapshot, options = {}) {
   }
   // 调用方下游（apply/audit）复用同一 decisions 引用：就地同步为 survivors——
   // 在 skipInvalid 模式下去掉被跳过的非法决策；在隐式 keep 下追加补齐的 keep。
-  // 内容一致时（无跳过、无补齐）为 no-op。
-  if (survivors.length !== decisions.length) {
-    decisions.splice(0, decisions.length, ...survivors);
-  }
+  // 不能以 survivors.length !== decisions.length 作为是否 splice 的判据：
+  // 当"被跳过的非法决策数 == 隐式补齐的 keep 数"时长度回到相等但内容已变，
+  // 被跳过的决策会残留进 apply/audit。一律无条件 splice 最安全。
+  decisions.splice(0, decisions.length, ...survivors);
   return { ok: true, errors, skipped };
 }
 

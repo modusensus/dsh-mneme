@@ -10,7 +10,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-3E63DD?style=flat-square" alt="license"></a>
   <a href="https://github.com/modusensus/dsh-mneme/actions"><img src="https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/ci.yml?style=flat-square&label=CI" alt="CI"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-24%2B-3E63DD?style=flat-square&logo=nodedotjs&logoColor=white" alt="node"></a>
-  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-662%20passed-3E63DD?style=flat-square" alt="tests"></a>
+  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-712%20passed-3E63DD?style=flat-square" alt="tests"></a>
   <a href="https://codecov.io/gh/modusensus/dsh-mneme"><img src="https://img.shields.io/codecov/c/github/modusensus/dsh-mneme/main?style=flat-square" alt="coverage"></a>
   <a href="https://github.com/awesome-dsh-plugin/awesome-dsh-plugin"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="Awesome"></a>
 </p>
@@ -105,6 +105,7 @@ dsh web
 | **v0.7.0** | 自进化记忆：heat 幂律衰减 + sleep 双保护 + 实体热投影 | ✅ |
 | **v0.7.21** | 修复 autoDream/sleep 的 effort 回退在流式路径失效（catch 式回退死代码→流级捕获失败原因 + 去 effort 重试 + audit 记真实原因） | ✅ |
 | **v0.7.22** | 恢复 skipInvalid 宽容校验（issue #89：弱模型整单拒绝→单条跳过 + 合法子集应用 + run 记 degraded）+ autoDream 最小触发间隔 | ✅ |
+| **v0.7.23** | 记忆沉淀「反复失败」根治（consolidation 合法空数组 [] → no-op）+ 空体修复第二段（dreamMaxTokens 默认 8192→32768）+ skipInvalid splice 残留 bug | ✅ |
 | **v0.8.0** | 图谱增强：兴趣漂移可视化 + scope 隔离（issue #17）+ 跨 workspace 共享 | 🚧 计划中（9 月末） |
 
 > 完整逐小版本路线图见 [dsh-mneme/README.md](dsh-mneme/README.md#-进化路线图)（中）/ [dsh-mneme/README.en.md](dsh-mneme/README.en.md#-evolution-roadmap)（英）。
@@ -114,7 +115,7 @@ dsh web
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 662 个测试
+npm test          # 712 个测试
 npm run stress    # 三轴线压测
 npm run sync      # src → lib 同步
 ```
@@ -219,7 +220,7 @@ Works out of the box. Enable these as needed:
 ```bash
 cd dsh-mneme
 npm install
-npm test          # 662 tests
+npm test          # 712 tests
 npm run stress    # three-axis stress test
 npm run sync      # src → lib sync
 ```
