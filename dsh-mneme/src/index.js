@@ -66,7 +66,30 @@ export const apply = (ctx, config) => {
   // semantic feature off and keeps the core loop (autoInject, autoSummarize,
   // hot memory, quality filter).
   const lightMode = rawCfg.lightMode === true || settings.getPanelMode() === "light";
-  const cfg = applyLightModePreset({ ...rawCfg, lightMode });
+  // 功能开关合并顺序即优先级：用户显式开关（feature_flags kv，面板写入）>
+  // 轻量预设（applyLightModePreset 批量置关的重型能力）> bundle 配置。预设必须
+  // 先应用、用户开关后展开，否则 LIGHT_MODE_OFF 会把用户显式打开的开关再次
+  // 压掉。合并结果只作用于本次启动：面板改开关后与 panel_mode 一样在下次
+  // 启动生效。
+  // 嵌套对象开关按首个点号拆开（kv 里平铺存的 "memoryQualityFilter.enabled" →
+  // cfg.memoryQualityFilter.enabled），点号键不原样留在 cfg 顶层属性里。
+  const flags = settings.getFeatureFlags();
+  const flatFlags = {};
+  const nestedFlags = {};
+  for (const [key, value] of Object.entries(flags)) {
+    const dot = key.indexOf(".");
+    if (dot > 0) {
+      const objKey = key.slice(0, dot);
+      const subKey = key.slice(dot + 1);
+      nestedFlags[objKey] = { ...(nestedFlags[objKey] ?? {}), [subKey]: value };
+    } else {
+      flatFlags[key] = value;
+    }
+  }
+  const cfg = { ...applyLightModePreset({ ...rawCfg, lightMode }), ...flatFlags };
+  for (const [objKey, sub] of Object.entries(nestedFlags)) {
+    cfg[objKey] = { ...(cfg[objKey] ?? {}), ...sub };
+  }
 
   const mirror = createMirror(memoryDir);
   const service = createService({ store, mirror, config: cfg, logger: ctx.logger });
@@ -340,7 +363,7 @@ export const apply = (ctx, config) => {
       add: () => { throw new Error("commands unavailable"); },
       remove: () => false,
       list: () => []
-    }, embedder, { vectorIndex, reranker }, cfg.apiToken);
+    }, embedder, { vectorIndex, reranker }, cfg.apiToken, cfg);
     disposers.push(api.dispose);
   }
 
