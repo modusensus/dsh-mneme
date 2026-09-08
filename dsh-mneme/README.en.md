@@ -66,7 +66,14 @@ The default `32768` reserves headroom for reasoning models, where reasoning alon
 | Medium (10k–50k chars) | `65536` |
 | Large (>50k chars) | `131072` (cap) |
 
-> With **reasoning models** (e.g. DeepSeek-R1-like), the model may spend the entire budget on reasoning and return an empty body (the log shows `no json array in llm output`). Resolution order: ① set `dreamReasoningEffort` to `low` to suppress reasoning overhead (when the provider rejects the parameter it is stripped automatically and retried once — the rejection reason lands in `llm_audit`; some models, e.g. v4-flash-ga, reject every effort tier); ② if the retry still returns an empty body under the model's default reasoning behavior, raise `dreamMaxTokens` (reasoning and body share this budget) or route `dreamProvider`/`dreamModel` to a non-reasoning model. The sleep side has the corresponding `sleepReasoningEffort`.
+> With **reasoning models** (e.g. DeepSeek-R1-like), the model may spend the entire budget on reasoning and return an empty body (the log shows `no json array in llm output`). Resolution order: ① set `dreamReasoningEffort` to `low` to suppress reasoning overhead (when the provider rejects the parameter it is stripped automatically and retried once — the rejection reason lands in `llm_audit`); ② if the retry still returns an empty body under the model's default reasoning behavior, raise `dreamMaxTokens` (reasoning and body share this budget) or route `dreamProvider`/`dreamModel` to a non-reasoning model. The sleep side has the corresponding `sleepReasoningEffort`.
+
+**Consolidation model classification** (settings panel "consolidation model" = `dreamProvider`/`dreamModel`; sleep side: `sleepProvider`/`sleepModel`):
+
+| Model kind | Examples | Notes |
+|-----------|----------|-------|
+| **Non-reasoning (recommended)** | glm-5-2-class | No reasoning declaration; even if an effort is configured and the harness rejects it, the fallback strips the field and the retry succeeds. Lowest risk of empty-body runs |
+| **Reasoning (test first)** | deepseek-v4-flash-ga and other v4-flash-ga family | Reasons by default and may burn the whole token budget on an empty body; some SKUs (e.g. v4-flash-ga) are additionally declared by the harness as accepting **no reasoning effort at all** — the no-effort retry still gets rejected through the harness `defaultEffort` (`UNSUPPORTED_REASONING_EFFORT`), which the plugin fallback cannot bypass. If you use one, set `dreamReasoningEffort` and test; switch to a non-reasoning model otherwise |
 
 ### Sleep Mode: System-Level Sleep 💤 (v0.4.0, opt-in)
 

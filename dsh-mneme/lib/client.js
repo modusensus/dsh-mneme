@@ -3610,9 +3610,14 @@ window.__ModuleLoader__.load({
                 if (dead) return;
                 const reg = bsCtx.betterSidebar;
                 if (!reg || typeof reg.registerTab !== "function") return;
+                  const TAB_ID = "dsh-mneme:memory";
+                  if (typeof reg.getTab === "function" && reg.getTab(TAB_ID)) {
+                    console.warn(`[dsh-mneme] better-sidebar tab "${TAB_ID}" already registered, skipping duplicate`);
+                    return;
+                  }
                 try {
                   reg.registerTab({
-                    id: "dsh-mneme:memory",
+                    id: TAB_ID,
                     title: () => t("memory.view.label"),
                     icon: (size) => h(IconArchiveOutline20, { size }),
                     order: 60,
@@ -3620,7 +3625,7 @@ window.__ModuleLoader__.load({
                   });
                 } catch (err) {
                   // id 重复等注册失败不应拖垮其余功能，留一条线索即可
-                  console.error("[dsh-mneme] better-sidebar registerTab failed:", err);
+                  console.warn("[dsh-mneme] better-sidebar registerTab failed, falling back to native sidebar entry:", err);
                 }
               }, "dsh-mneme: better-sidebar tab");
             }

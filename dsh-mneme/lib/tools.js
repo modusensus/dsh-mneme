@@ -1,6 +1,10 @@
 import { defineTool } from "@deepseek-ai/dsh-tools";
 
 const TEXT_OUTPUT = (text) => [{ type: "text", text }];
+// Per-registry tool-name registry: guards against duplicate registration on
+// live patch reload (DSH Desktop `patchReload: "live"`) where a plugin may be
+// re-applied on the same tools registry without an intervening unregister.
+const REGISTERED_TOOLS = new WeakMap();
 
 // Wire shape emitted by service.toApiList: shared by memory_search and
 // memory_list so their output schemas always declare every key the runtime
@@ -22,6 +26,12 @@ const MEMORY_ITEM_SCHEMA = {
 };
 
 export function createTools(ctx, service, config, embedder) {
+  const toolsRegistry = ctx.tools;
+  let registeredTools = REGISTERED_TOOLS.get(toolsRegistry);
+  if (!registeredTools) {
+    registeredTools = new Set();
+    REGISTERED_TOOLS.set(toolsRegistry, registeredTools);
+  }
   const tools = [
     defineTool({
       name: "memory_save",
@@ -82,7 +92,18 @@ export function createTools(ctx, service, config, embedder) {
             }
           }
         },
-        render: (_args, value) => TEXT_OUTPUT(`Found ${value.items.length} memory entr${value.items.length === 1 ? "y" : "ies"}.`)
+        render: (_args, value) => {
+          const items = value.items ?? [];
+          if (items.length === 0) return TEXT_OUTPUT("No memory entries found.");
+          const body = items
+            .map((m, i) => {
+              const preview = (m.content ?? "").replace(/\s+/g, " ").trim();
+              const cut = preview.length > 200 ? `${preview.slice(0, 200)}…` : preview;
+              return `[${i + 1}] ${m.title}\n    ID: ${m.id} | type: ${m.type} | importance: ${m.importance} | updated: ${m.updated_at}\n    ${cut}`;
+            })
+            .join("\n\n");
+          return TEXT_OUTPUT(`Found ${items.length} memory entr${items.length === 1 ? "y" : "ies"}:\n\n${body}`);
+        }
       },
       async execute(args) {
         const limit = args.limit ?? 20;
@@ -117,7 +138,14 @@ export function createTools(ctx, service, config, embedder) {
             total: { type: "integer", required: true }
           }
         },
-        render: (_args, value) => TEXT_OUTPUT(`${value.items.length} memory entries (of ${value.total}).`)
+        render: (_args, value) => {
+          const items = value.items ?? [];
+          if (items.length === 0) return TEXT_OUTPUT(`0 memory entries (of ${value.total}).`);
+          const body = items
+            .map((m, i) => `[${i + 1}] ${m.title} (type=${m.type}, importance=${m.importance})\n    ID: ${m.id} | updated: ${m.updated_at}`)
+            .join("\n\n");
+          return TEXT_OUTPUT(`${items.length} memory entries (of ${value.total}):\n\n${body}`);
+        }
       },
       async execute(args) {
         const includeArchived = args.include_archived === true;
@@ -128,6 +156,46 @@ export function createTools(ctx, service, config, embedder) {
           includeArchived
         }));
         return { items: rows, total: service.count(args.type, { includeArchived }) };
+      }
+    }),
+
+    defineTool({
+      name: "memory_get",
+      description: "Fetch one memory entry by ID and return its full content as text. Use after memory_list to read a specific entry.",
+      parameters: {
+        id: { type: "string", required: true, description: "Memory id" }
+      },
+      output: {
+        schema: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            memory: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                id: { type: "string", required: true },
+                title: { type: "string", required: true },
+                type: { type: "string", required: true },
+                importance: { type: "integer", required: true },
+                tags: { type: "array", items: { type: "string" } },
+                content: { type: "string", required: true },
+                source: { type: "string" },
+                created_at: { type: "string" },
+                updated_at: { type: "string" }
+              }
+            }
+          }
+        },
+        render: (_args, value) => {
+          const m = value.memory;
+          return TEXT_OUTPUT(`${m.title}\nID: ${m.id} | type: ${m.type} | importance: ${m.importance}\n\n${m.content}`);
+        }
+      },
+      async execute(args) {
+        const memory = service.getById(args.id);
+        if (memory === undefined) throw new Error("memory not found");
+        return { memory: service.toApiList([memory])[0] };
       }
     }),
 
@@ -267,7 +335,12 @@ export function createTools(ctx, service, config, embedder) {
   ];
 
   for (const tool of tools) {
-    ctx.tools.register(tool);
+          if (registeredTools.has(tool.name)) {
+        ctx.logger?.warn?.(`[dsh-mneme] tool "${tool.name}" already registered, skipping duplicate`);
+        continue;
+      }
+      registeredTools.add(tool.name);
+      ctx.tools.register(tool);
   }
 
   return tools;
