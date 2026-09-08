@@ -98,6 +98,14 @@ function parseBody(text) {
 export function createApi(ctx, service, settings, commands, embedder, semantic = null, apiToken = "", config = null) {
   const disposers = [];
 
+  // webServer 在 index.js 的 inject 声明中（cordis 等宿主服务就绪后 apply），
+  // 这里做防御性读取：cordis ctx 的 Proxy 不允许直接访问未 inject 的属性
+  // （会抛 "cannot get property without inject"），用 ctx.reflect.get 免
+  // inject 读取（未提供返回 undefined）；对象字面量 mock ctx（测试）没有
+  // reflect，退回直接属性访问。createApi 只在有 webServer 时被调用（index.js
+  // 守卫 + 测试 mock），故下方 register 用之非空。
+  const webServer = typeof ctx.reflect?.get === "function" ? ctx.reflect.get("webServer") : ctx.webServer;
+
   // feature flags 快照（GET/PUT 共用）：overrides 是持久化的用户显式覆盖；
   // effective 是启动配置在白名单键上被 overrides 覆盖后的最终值。config 缺席
   // （旧调用方直连、未传 cfg）时只报被覆盖的键，不把不存在的默认值编造给前端。
@@ -140,7 +148,7 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
   }
 
   const register = (route) => {
-    disposers.push(ctx.webServer.register(route));
+    disposers.push(webServer.register(route));
   };
 
   // /api/dsh-mneme prefix fallback → 404 JSON for unknown sub-paths

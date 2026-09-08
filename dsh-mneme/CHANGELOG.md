@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.7.24] - 2026-09-09
+
+## 🐛 修复
+
+- **DSH Desktop 插件树加载崩溃（v0.7.23 回归）：`cannot get property "webServer" without inject`**：v0.7.23 把 webServer 从 inject 声明中去掉想支持 headless，但 cordis 4 的 ctx 是 Proxy——**直接访问未在 inject 声明的属性会抛错而非返回 undefined**，`if (ctx.webServer)` 守卫因此失效；且去掉 inject 后 cordis 不再等待宿主 webServer 服务就绪，Windows 桌面端重启即插件树加载失败。修复两处：
+  - **恢复 webServer 到 inject 声明**：cordis 等宿主服务激活后再 apply，路由注册不落时序（回退到 v0.7.22 已知正确行为）。
+  - **apply/register 守卫改 `ctx.reflect.get`**（cordis 免 inject 读取，未提供返回 undefined 不抛错）：即使未来把 webServer 移出 inject 支持 headless，apply 也安全跳过 API 注册而不崩。
+  - **真实 cordis + dsh-host-webserver 插件本地实测**：API 路由真实注册（GET /api/dsh-mneme/list → 200 JSON）、未知路径 404 JSON、headless 无 webServer 时静默不激活。
+- **回归测试（真实 cordis Context 两种宿主形态）**：有 webServer 时插件 boot 且注册 exact 路由 / 无 webServer 时不抛错——直接覆盖本次崩溃根因，防止再犯。
+
+## 🏗️ 工程
+
+- 714 测试全绿（+2 回归测试）。
+
 ## [0.7.23] - 2026-09-09
 
 ## 🐛 修复
@@ -12,7 +26,7 @@
 
 - **skipInvalid 恢复路径全量测试补全**（12 条：逐原因跳过 + 全局闸门交互 + runDream e2e）。
 - **合法空数组 e2e**：consolidation 返回 `[]` → run ok / applied 0 / summary 照跑 / audit+receipt 记 ok。
-- **webServer 可选化**：inject 声明去掉必填 webServer（headless/无 UI 宿主兼容），API 注册改运行时守卫。
+- ~~**webServer 可选化**：inject 声明去掉必填 webServer（headless/无 UI 宿主兼容），API 注册改运行时守卫。~~ ⚠️ **失败已回退**：cordis 4 直接访问未注入属性抛错（`if (ctx.webServer)` 守卫失效）+ 去掉 inject 后 cordis 不再等待宿主 webServer 服务 → **桌面端插件树加载崩溃**，见 [0.7.24] 修复。
 - **712 测试全绿**。
 
 ## [0.7.22] - 2026-09-09
