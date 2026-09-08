@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.7.25] - 2026-09-09
+
+## 🆕 新增
+
+- **`memory_get` 工具（第 8 个模型工具）**：按 id 读取单条记忆完整正文，用于 memory_search / memory_list 命中后读取全文。
+- **`memory_search` / `memory_list` 输出内容预览**：render 现在嵌入命中条目标题、ID/type/importance 元数据与正文预览（不再只输出「命中 N 条」计数）——宿主只透传 render 文本时，模型也能直接读到记忆内容。
+- **记忆巩固模型选型引导**：config 注释与 README 增加巩固模型分类声明（非思考模型 / 思考模型差异与建议），设置面板换巩固模型有据可依。
+
+## 🐛 修复
+
+- **`memory_get` 执行崩溃：`userExecute is not a function`**：memory_get 的 execute 被误嵌套进 output 属性内（defineTool 拿不到 options.execute），模型调用必报错；此前测试只数工具名未执行该工具，714 全绿掩盖。已移回 defineTool 顶层 + 补回归测试。
+- **工具重复注册（DSH live patch reload）**：热补丁重载同一 registry 时 `tool "memory_search" is already registered`——新增按 registry 的 WeakMap 工具名去重，重复跳过并告警。
+- **Standalone API 端口冲突（EADDRINUSE）**：多 DSH profile / 实例共用默认端口时 API 永久不可用——新增 listenWithRetry（最多 20 次递增 + 最终落 OS 分配端口 0），实际绑定端口回传调用方。
+- **client inject 声明与实际消费不一致**：声明 `["slots","locale","layout","connection"]`，实际只消费 slots/locale——对齐为 `["slots","locale"]`。
+- **better-sidebar 集成加固**：peer 依赖 `*` → `^0.18.0`（仍可选）；registerTab 前 getTab 查重跳过重复 tab；注册失败告警并降级回原生侧边栏入口，不再直接报错。
+
+## 🏗️ 工程
+
+- 718 测试全绿（+4 回归测试：memory_get 执行 / 缺失 id、memory_search / memory_list render 内容嵌入）。
+
 ## [0.7.24] - 2026-09-09
 
 ## 🐛 修复
