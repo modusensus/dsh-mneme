@@ -1,10 +1,34 @@
 import { URL } from "node:url";
+import { readFileSync } from "node:fs";
 import { timingSafeEqual, randomBytes } from "node:crypto";
+import { FEATURE_FLAG_SPEC } from "./settings.js";
+import { TYPE_FILE, renderMirrorText, parseHumanEdits } from "./mirror.js";
 
-function sendJson(res, status, payload) {
-  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
+// headers：少数端点（/export 附件下载）需要追加 Content-Disposition 等响应头。
+function sendJson(res, status, payload, headers = {}) {
+  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", ...headers });
   res.end(JSON.stringify(payload));
 }
+
+// 附件下载响应（导出端点）：Content-Type 与文件名（含日期后缀）由调用方给定。
+function sendAttachment(res, status, contentType, filename, body) {
+  res.writeHead(status, {
+    "Content-Type": contentType,
+    "Content-Disposition": `attachment; filename="${filename}"`
+  });
+  res.end(body);
+}
+
+// 导出 JSON 的 version 字段：读插件根的 package.json（src/ 与 lib/ 都在根下
+// 一层，相对 import.meta.url 解析一致）。读取失败（打包/受限环境）降级为
+// "unknown"，导出本身仍然可用。
+const PACKAGE_VERSION = (() => {
+  try {
+    return JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+})();
 
 // Defaults for the standalone external API — keep in step with the schema
 // defaults in config.js (externalApiPort / externalApiHost).
@@ -70,8 +94,42 @@ function parseBody(text) {
   }
 }
 
-export function createApi(ctx, service, settings, commands, embedder, semantic = null, apiToken = "") {
+export function createApi(ctx, service, settings, commands, embedder, semantic = null, apiToken = "", config = null) {
   const disposers = [];
+
+  // feature flags 快照（GET/PUT 共用）：overrides 是持久化的用户显式覆盖；
+  // effective 是启动配置在白名单键上被 overrides 覆盖后的最终值。config 缺席
+  // （旧调用方直连、未传 cfg）时只报被覆盖的键，不把不存在的默认值编造给前端。
+  const flagKeys = [
+    ...FEATURE_FLAG_SPEC.booleans,
+    ...Object.keys(FEATURE_FLAG_SPEC.ints),
+    ...FEATURE_FLAG_SPEC.strings,
+    ...FEATURE_FLAG_SPEC.urls,
+    ...Object.keys(FEATURE_FLAG_SPEC.enums)
+  ];
+  // 嵌套键在 kv 里按点号平铺（"memoryQualityFilter.enabled"），运行时 cfg 里
+  // 是嵌套对象，effective 从对象子字段取值；其余键照旧从 cfg 顶层取。
+  const NESTED_FLAG_PATHS = {
+    "memoryQualityFilter.enabled": ["memoryQualityFilter", "enabled"],
+    "llmAudit.enabled": ["llmAudit", "enabled"]
+  };
+  function configFlagValue(key) {
+    const path = NESTED_FLAG_PATHS[key];
+    if (path) return config?.[path[0]]?.[path[1]];
+    return config?.[key];
+  }
+  function featureSnapshot() {
+    const overrides = settings.getFeatureFlags();
+    const effective = {};
+    for (const key of flagKeys) {
+      if (overrides[key] !== undefined) effective[key] = overrides[key];
+      else {
+        const value = configFlagValue(key);
+        if (value !== undefined) effective[key] = value;
+      }
+    }
+    return { overrides, effective };
+  }
 
   // Ensure the service has an embedder when the API layer was handed one
   // (tests wire the embedder through the API instead of index.js). Without
@@ -112,10 +170,26 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
           ? Number(minRaw)
           : undefined;
         const source = url.searchParams.get("source") || undefined;
-        const items = service.toApiList(service.list({ type, limit, offset, order, minImportance, source }));
+        // updatedFrom/updatedTo：updated_at 闭区间过滤（ISO 日期或完整时间戳）。
+        // 边界归一化在 store 的 updatedAtBounds（list/count 共用同一纯函数）
+        // 完成，非法值在那里被忽略——这里原样透传即可。
+        const updatedFrom = url.searchParams.get("updatedFrom") ?? undefined;
+        const updatedTo = url.searchParams.get("updatedTo") ?? undefined;
+        // archived=only：只看归档（状态页的归档列表用）。归档行不进默认列表，
+        // 所以这是独立的视图开关，而不是 includeArchived 的混看模式。
+        const onlyArchived = url.searchParams.get("archived") === "only";
+        const rows = service.list({ type, limit, offset, order, minImportance, source, updatedFrom, updatedTo, onlyArchived });
+        // 面板行在 wire DTO 之上补 archived/quality_score——模型工具的输出
+        // schema 严格复用 toApiList，扩展只发生在 HTTP 层。
+        const items = service.toApiList(rows).map((m, i) => ({
+          ...m,
+          archived: rows[i].archived === true || rows[i].archived === 1,
+          quality_score: rows[i].quality_score ?? null
+        }));
         // Total honors the same filters as the rows, or the pager's
-        // has-more math breaks whenever minImportance/source is active.
-        sendJson(res, 200, { items, total: service.count(type, { minImportance, source }) });
+        // has-more math breaks whenever minImportance/source/updated-at
+        // bounds are active.
+        sendJson(res, 200, { items, total: service.count(type, { minImportance, source, updatedFrom, updatedTo, onlyArchived }) });
       } catch {
         sendJson(res, 500, { error: "internal" });
       }
@@ -213,6 +287,90 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
           }
           service.remove(id);
           sendJson(res, 200, { ok: true });
+        });
+      } catch {
+        sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
+  // --- 编辑/归档一条记忆（面板写路径，与 /delete 对称命名）-------------------
+  // POST body {id, title?, content?, importance?, tags?, archived?}。字段校验
+  // 只做类型/范围检查：字段出现（!== undefined）就必须合法，宁 400 不静默纠正
+  // ——静默丢字段会让面板误以为保存成功。写入走 service 的正规更新路径：
+  // updated_at 由 store 的单调时钟推进；content 被改写时旧版本按 human_override
+  // 入档（与镜像人工编辑回灌 mergeHumanEdits 的语义对齐，FIFO 上限 20）；
+  // archived 走 setArchived。两条路径都会触发镜像重渲染（afterSync）。
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/update",
+    handler(req, res) {
+      try {
+        if (req.method !== "POST") {
+          sendJson(res, 404, { error: "not-found" });
+          return;
+        }
+        if (!requireAuth(req, res, apiToken)) return;
+        return readBody(req).then((text) => {
+          const body = parseBody(text);
+          const id = typeof body.id === "string" ? body.id.trim() : "";
+          if (!id) {
+            sendJson(res, 400, { error: "missing-id" });
+            return;
+          }
+          const patch = {};
+          if (body.title !== undefined) {
+            if (typeof body.title !== "string" || !body.title.trim()) {
+              sendJson(res, 400, { error: "invalid-title" });
+              return;
+            }
+            patch.title = body.title.trim();
+          }
+          if (body.content !== undefined) {
+            if (typeof body.content !== "string" || !body.content.trim()) {
+              sendJson(res, 400, { error: "invalid-content" });
+              return;
+            }
+            patch.content = body.content.trim();
+          }
+          if (body.importance !== undefined) {
+            if (!Number.isInteger(body.importance) || body.importance < 1 || body.importance > 5) {
+              sendJson(res, 400, { error: "invalid-importance" });
+              return;
+            }
+            patch.importance = body.importance;
+          }
+          if (body.tags !== undefined) {
+            if (!Array.isArray(body.tags) || !body.tags.every((t) => typeof t === "string")) {
+              sendJson(res, 400, { error: "invalid-tags" });
+              return;
+            }
+            patch.tags = body.tags;
+          }
+          if (body.archived !== undefined && typeof body.archived !== "boolean") {
+            sendJson(res, 400, { error: "invalid-archived" });
+            return;
+          }
+          if (Object.keys(patch).length === 0 && body.archived === undefined) {
+            sendJson(res, 400, { error: "no-fields" });
+            return;
+          }
+          const existing = service.getById(id);
+          if (!existing) {
+            sendJson(res, 404, { error: "not-found" });
+            return;
+          }
+          // 内容被改写时旧版本先入档（human_override），人工修正不静默销毁旧值。
+          if (patch.content !== undefined && patch.content !== existing.content) {
+            const history = Array.isArray(existing.content_history) ? existing.content_history : [];
+            patch.content_history = [
+              { content: existing.content ?? "", source: "human_override", updated_at: new Date().toISOString() },
+              ...history
+            ].slice(0, 20);
+          }
+          if (Object.keys(patch).length) service.update(id, patch);
+          if (body.archived !== undefined) service.setArchived(id, body.archived);
+          sendJson(res, 200, { memory: service.getById(id) });
         });
       } catch {
         sendJson(res, 500, { error: "internal" });
@@ -501,6 +659,144 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
     }
   });
 
+  // --- 一条记忆的关联实体（记忆详情侧栏）-------------------------------------
+  // 只读：entity_attrs.memory_id 反查实体（store 一条 JOIN 完成，按提及去重）。
+  // 与目录 /entities 不同，这里以记忆为锚点，回答"这条记忆提到了谁"。记忆不
+  // 存在或无关联一律返回空数组——详情侧栏不需要区分这两种情况。
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/memories/entities",
+    handler(req, res) {
+      try {
+        const url = new URL(req.url, "http://localhost");
+        const memoryId = (url.searchParams.get("memoryId") ?? "").trim();
+        if (!memoryId) {
+          sendJson(res, 400, { error: "missing-memory-id" });
+          return;
+        }
+        sendJson(res, 200, { entities: service.entitiesForMemory?.(memoryId) ?? [] });
+      } catch {
+        sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
+  // --- 导出（面板备份/迁移）---------------------------------------------------
+  // 只读。json：全字段行（含 archived/forgotten，布尔化），updated_at DESC；
+  // markdown：按类型分节，块格式与磁盘镜像完全同构（renderMirrorText 与
+  // mirror.sync 共用同一条渲染路径），因此导出文本可以被 /import 原样吃回。
+  // 全量一次性取回（store.all 按 updated_at DESC）——导出是一次性备份动作，
+  // 不需要流式。
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/export",
+    handler(req, res) {
+      try {
+        const url = new URL(req.url, "http://localhost");
+        const format = url.searchParams.get("format") ?? "json";
+        if (format !== "json" && format !== "markdown") {
+          sendJson(res, 400, { error: "invalid-format" });
+          return;
+        }
+        const rows = service.all?.() ?? [];
+        const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+        if (format === "json") {
+          sendJson(res, 200, {
+            exported_at: new Date().toISOString(),
+            version: PACKAGE_VERSION,
+            count: rows.length,
+            memories: rows
+          }, { "Content-Disposition": `attachment; filename="dsh-mneme-export-${stamp}.json"` });
+          return;
+        }
+        const byType = {};
+        for (const row of rows) {
+          if (TYPE_FILE[row.type]) (byType[row.type] ??= []).push(row);
+        }
+        const sections = [];
+        for (const type of Object.keys(TYPE_FILE)) {
+          if (byType[type]?.length) sections.push(renderMirrorText(type, byType[type]));
+        }
+        sendAttachment(res, 200, "text/markdown; charset=utf-8", `dsh-mneme-export-${stamp}.md`, sections.join("\n"));
+      } catch {
+        sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
+  // --- 导入（Markdown 镜像回填）----------------------------------------------
+  // 写路径（requireAuth）。body {type, markdown}：type 是镜像 TYPE_FILE 键
+  // （preference/project/decision/history/summary），markdown 是与镜像文件同构
+  // 的文本。解析复用 readHumanEdits 的纯函数核心 parseHumanEdits（同一实现，
+  // 行为一致是硬约束），合并走 mergeHumanEdits（只吃 title/content；digest 命
+  // 中或无差异的条目在 service 侧自动跳过）。解析出 0 条不算错误。
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/import",
+    handler(req, res) {
+      try {
+        if (req.method !== "POST") {
+          sendJson(res, 404, { error: "not-found" });
+          return;
+        }
+        if (!requireAuth(req, res, apiToken)) return;
+        return readBody(req).then((text) => {
+          const body = parseBody(text);
+          if (typeof body.type !== "string" || !Object.hasOwn(TYPE_FILE, body.type)) {
+            sendJson(res, 400, { error: "invalid-type" });
+            return;
+          }
+          if (typeof body.markdown !== "string" || !body.markdown.trim()) {
+            sendJson(res, 400, { error: "invalid-markdown" });
+            return;
+          }
+          const edits = parseHumanEdits(body.markdown);
+          service.mergeHumanEdits(body.type, edits);
+          sendJson(res, 200, { merged: edits.length, type: body.type });
+        });
+      } catch {
+        sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
+  // --- 巩固状态（dream 面板）--------------------------------------------------
+  // 只读：最近巩固运行（最多 5 条，created_at DESC）+ 未解决冲突队列。
+  // pendingMemoryIds 从未解决冲突行提取涉及的记忆 id，去重后上限 200，避免积
+  // 压很大时响应失控。listDreamRuns/listConflictPending 走 service 现成的审计
+  // 只读通道（bookkeeping 语义，不触发写钩子）。
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/dream-status",
+    handler(req, res) {
+      try {
+        const runs = (service.listDreamRuns?.({ limit: 5 }) ?? []).map((r) => ({
+          created_at: r.created_at,
+          status: r.status,
+          provider: r.provider ?? null,
+          model: r.model ?? null,
+          error: r.error ?? null
+        }));
+        const pendingConflicts = service.countConflictPending?.() ?? 0;
+        const ids = new Set();
+        for (const row of service.listConflictPending?.({ limit: 200, includeResolved: false }) ?? []) {
+          if (ids.size >= 200) break;
+          if (row.memory_a) ids.add(row.memory_a);
+          if (ids.size >= 200) break;
+          if (row.memory_b) ids.add(row.memory_b);
+        }
+        sendJson(res, 200, {
+          lastRun: runs[0] ?? null,
+          runs,
+          pendingConflicts,
+          pendingMemoryIds: [...ids].slice(0, 200)
+        });
+      } catch {
+        sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
   // --- health: mirror sync state (F-NEW-03 / v0.3.6) ---
   // Auth-gated; only returns a sanitized error code (never raw last_error which
   // may leak paths/token-like strings/internal hosts). On state read failure it
@@ -624,6 +920,41 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
     }
   });
 
+  // --- feature flags（功能开关：面板逐项开关后端能力）-------------------------
+  // 读路由保持开放（与 mode/list 一致），前端无需 token 即可渲染开关状态；PUT
+  // 与其他设置写一致走 requireAuth。空/非对象 patch 直接 400：它不携带任何
+  // 意图，静默成功只会掩盖前端 bug。校验失败（未知键/类型/越界）的 400 把键
+  // 名放进 error，前端能直接定位写坏的开关。生效节奏与 panel_mode 相同：
+  // 持久化后下次启动合并进 cfg，本次启动的运行时行为不变。
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/features",
+    handler(req, res) {
+      try {
+        if (req.method === "PUT" || req.method === "POST") {
+          if (!requireAuth(req, res, apiToken)) return;
+          return readBody(req).then((text) => {
+            const body = parseBody(text);
+            if (typeof body !== "object" || body === null || Array.isArray(body) || Object.keys(body).length === 0) {
+              sendJson(res, 400, { error: "invalid-patch" });
+              return;
+            }
+            try {
+              settings.setFeatureFlags(body);
+            } catch (error) {
+              sendJson(res, 400, { error: error.message });
+              return;
+            }
+            sendJson(res, 200, featureSnapshot());
+          });
+        }
+        sendJson(res, 200, featureSnapshot());
+      } catch {
+        sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
   // --- custom commands ---
   register({
     kind: "exact",
@@ -662,7 +993,7 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
   });
 
   return {
-    routes: 17,
+    routes: 23,
     dispose: () => {
       for (const dispose of disposers) dispose();
     }

@@ -303,6 +303,25 @@ function escapeLike(q) {
   return q.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
+// 日期过滤参数归一化（list/count 共用，保证分页 total 与行同过滤）：接受 ISO
+// 日期（"2026-09-01"）或完整时间戳，返回闭区间的 UTC ISO 边界。date-only 的
+// updatedFrom 按当天 00:00:00.000Z 起、updatedTo 按当天 23:59:59.999Z 收；非
+// 法值一律返回 undefined → 不进 WHERE（忽略而非报错：面板传坏参数时宁可放宽
+// 过滤也不要白屏）。updated_at 列是 toISOString 产生的 UTC "Z" 字符串，字典
+// 序与时间序一致，SQL 里可直接比较。
+function updatedAtBounds(updatedFrom, updatedTo) {
+  const norm = (raw, endOfDay) => {
+    if (typeof raw !== "string" || !raw.trim()) return undefined;
+    const s = raw.trim();
+    const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(s);
+    const ms = Date.parse(dateOnly ? `${s}T00:00:00.000Z` : s);
+    if (Number.isNaN(ms)) return undefined;
+    if (dateOnly && endOfDay) return `${s}T23:59:59.999Z`;
+    return new Date(ms).toISOString();
+  };
+  return { from: norm(updatedFrom, false), to: norm(updatedTo, true) };
+}
+
 function parseTags(raw) {
   try {
     const arr = JSON.parse(raw);
@@ -618,7 +637,7 @@ export function createStore(path) {
     return ts;
   }
 
-  function count(type, { minImportance = null, source = null, includeForgotten = false, includeArchived = false } = {}) {
+  function count(type, { minImportance = null, source = null, includeForgotten = false, includeArchived = false, onlyArchived = false, updatedFrom = null, updatedTo = null } = {}) {
     const clauses = [];
     const params = [];
     if (type !== undefined) {
@@ -634,10 +653,24 @@ export function createStore(path) {
       clauses.push("source = ?");
       params.push(source);
     }
+    // updated_at 闭区间：与 list() 共用 updatedAtBounds 归一化，非法值被忽略
+    // （不进 WHERE），total 才能和行保持同过滤。
+    const bounds = updatedAtBounds(updatedFrom, updatedTo);
+    if (bounds.from) {
+      clauses.push("updated_at >= ?");
+      params.push(bounds.from);
+    }
+    if (bounds.to) {
+      clauses.push("updated_at <= ?");
+      params.push(bounds.to);
+    }
     if (!includeForgotten) {
       clauses.push("forgotten = 0");
     }
-    if (!includeArchived) {
+    // 与 list() 同过滤：total 才能和归档列表的行保持一致。
+    if (onlyArchived) {
+      clauses.push("archived = 1");
+    } else if (!includeArchived) {
       clauses.push("archived = 0");
     }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
@@ -891,7 +924,7 @@ export function createStore(path) {
     return rows.map(toRow);
   }
 
-  function list({ type, limit = 50, offset = 0, order = "importance", includeForgotten = false, includeArchived = false, minImportance = null, source = null } = {}) {
+  function list({ type, limit = 50, offset = 0, order = "importance", includeForgotten = false, includeArchived = false, onlyArchived = false, minImportance = null, source = null, updatedFrom = null, updatedTo = null } = {}) {
     const clauses = [];
     const params = [];
     if (type) {
@@ -908,10 +941,25 @@ export function createStore(path) {
       clauses.push("source = ?");
       params.push(source);
     }
+    // Optional updated_at closed range (date-only "to" is normalized to the
+    // end of that day). Same helper as count() so total matches the rows.
+    const bounds = updatedAtBounds(updatedFrom, updatedTo);
+    if (bounds.from) {
+      clauses.push("updated_at >= ?");
+      params.push(bounds.from);
+    }
+    if (bounds.to) {
+      clauses.push("updated_at <= ?");
+      params.push(bounds.to);
+    }
     if (!includeForgotten) {
       clauses.push("forgotten = 0");
     }
-    if (!includeArchived) {
+    // onlyArchived：只看归档（状态页的归档列表用）；与 includeArchived（含
+    // 归档混看）互斥，同时给时归档视图优先。
+    if (onlyArchived) {
+      clauses.push("archived = 1");
+    } else if (!includeArchived) {
       clauses.push("archived = 0");
     }
     const { limit: lim, offset: off } = sanitizePage(limit, offset, 50);
@@ -1599,6 +1647,30 @@ export function createStore(path) {
   }
 
   /**
+   * 一条记忆关联到的实体（记忆详情侧栏用）：entity_attrs.memory_id 反查实体，
+   * 一条 JOIN 完成。同一记忆对同一实体的多次提及（多条 attr 行）按 name 去重，
+   * 每个实体只出现一次，按提及次数降序。只取 name/type——attr 详情走
+   * entity-attrs 端点。无关联（或记忆不存在）返回空数组。
+   */
+  function entitiesForMemory(memoryId) {
+    const rows = db.prepare(
+      `SELECT e.id, e.name, e.type, e.mention_count, e.last_seen
+       FROM entity_attrs ea JOIN entities e ON e.id = ea.entity_id
+       WHERE ea.memory_id = ?
+       GROUP BY e.id
+       ORDER BY e.mention_count DESC, e.last_seen DESC, e.name ASC`
+    ).all(memoryId ?? "");
+    const seen = new Set();
+    const out = [];
+    for (const row of rows) {
+      if (seen.has(row.name)) continue;
+      seen.add(row.name);
+      out.push({ name: row.name, type: row.type ?? null });
+    }
+    return out;
+  }
+
+  /**
    * Memories carrying a currently-valid attr matching key=value (deduped).
    * When value is empty/undefined, the attr_value filter is dropped and every
    * currently-valid memory for that attr_key is returned — the "attr:key"
@@ -1941,6 +2013,7 @@ export function createStore(path) {
     getCurrentAttrs,
     getAttrHistory,
     getAttrsByMemory,
+    entitiesForMemory,
     findMemoriesByAttr,
     saveRelation,
     migrateAttrsToMemory,

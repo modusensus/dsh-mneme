@@ -41,71 +41,71 @@ test("memory entry registers into the sidebar foot slot", () => {
   );
 });
 
-// The drawer era is over as the PRIMARY surface: the sidebar entry must
-// activate the main-area memory library tab first. The one sanctioned
-// exception is the hero screen — the host hides the whole tab ring while a
-// session is blank, so activation legitimately fails there and the same
-// click falls back to a full-viewport overlay (same MemoryExplorer, not the
-// old 420px side drawer). A dialog role stays banned either way.
-test("tab-first activation with hero-screen overlay fallback", () => {
+// The tab era is over: the in-conversation memory tab fought the floating
+// composer and squeezed the session layout, so the library no longer
+// registers as a conversation view. The sidebar entry opens the centered
+// sheet directly — from any state, including the new-chat hero screen. A
+// dialog role stays banned either way.
+test("sidebar entry opens the sheet; conversation-view tab stays retired", () => {
   assert.equal(
     clientSource.includes("role: \"dialog\""),
     false,
     "no dialog surface should remain"
   );
   assert.ok(
-    clientSource.includes("activateExplorerTab(t(\"memory.view.label\"))"),
-    "the sidebar trigger must activate the memory library tab by its label"
+    /function openLibrary\(\) \{\s*setOverlayOpen\(true\);\s*\}/.test(clientSource),
+    "the entry must open the overlay directly (no tab activation)"
   );
-  assert.ok(
-    clientSource.includes("activateExplorerTab(t(\"memory.view.label\")).then((ok) => { if (!ok) setOpen(true); })"),
-    "a failed tab activation must open the fallback overlay"
+  assert.equal(
+    clientSource.includes('ctx.slots.inject("conversation.view"'),
+    false,
+    "the conversation.view tab must stay retired"
   );
-  assert.ok(
-    /if \(candidates\.length === 0\) \{ resolve\(false\); return; \}/.test(clientSource),
-    "activation must resolve false when the tab ring is absent (hero screen)"
-  );
-  assert.ok(
-    /aria-selected.*true/.test(clientSource),
-    "activation is only confirmed once the host marks the tab selected"
-  );
-  // Same-labelled tabs from other plugins must never be activated by mistake:
-  // the click is only trusted once OUR explorer view actually rendered, and
-  // hidden tab panes are excluded before any click happens.
-  assert.ok(
-    /querySelector\("\.mneme-x"\) !== null/.test(clientSource),
-    "activation must verify the memory explorer rendered, not just the tab state"
-  );
-  assert.ok(
-    /offsetParent === null/.test(clientSource),
-    "hidden tab panes (settings dialogs etc.) must be excluded from activation"
+  assert.equal(
+    clientSource.includes("activateExplorerTab"),
+    false,
+    "the tab-click activation machinery must be gone"
   );
 });
 
-// The fallback overlay reuses the full MemoryExplorer (three columns, graph,
-// settings) at viewport size — not the old side drawer — and closes on Esc
-// or the close button.
-test("hero fallback overlay is a full-viewport MemoryExplorer with a close affordance", () => {
+// The sheet is deliberately NOT fullscreen: a dimmed backdrop plus a rounded
+// panel capped at 1180×880 keeps the conversation visible behind it. It
+// reuses the full MemoryExplorer and closes on Esc, the close button, or a
+// backdrop click.
+test("memory library opens as a centered sheet with backdrop", () => {
   assert.ok(
-    clientSource.includes('.mneme-overlay{position:fixed;inset:0'),
-    "the overlay must cover the full viewport"
+    clientSource.includes(".mneme-backdrop{position:fixed;inset:0"),
+    "a dimmed backdrop must sit behind the sheet"
+  );
+  assert.ok(
+    /\.mneme-overlay\{position:fixed;z-index:1000;left:50%;top:50%;transform:translate\(-50%,-50%\)/.test(clientSource),
+    "the sheet must be centered, not viewport-filling"
+  );
+  assert.ok(
+    clientSource.includes("width:min(1240px,calc(100vw - 88px))"),
+    "the sheet must not occupy the full width and keeps friendly margins"
   );
   assert.ok(
     clientSource.includes('h(MemoryExplorer, { t })'),
-    "the overlay renders the same MemoryExplorer component as the tab"
+    "the sheet renders the same MemoryExplorer component"
   );
   assert.ok(
     clientSource.includes('e.key === "Escape"'),
-    "Esc must close the overlay"
+    "Esc must close the sheet"
+  );
+  assert.ok(
+    clientSource.includes('className: "mneme-backdrop"'),
+    "the backdrop is a clickable close surface"
   );
   assert.ok(
     clientSource.includes('"memory.overlay.close"'),
-    "the overlay ships a localized close label in both dictionaries"
+    "the close affordance keeps its localized label"
   );
 });
 
-// The sidebar hands each footer action only its column state: a wide row
-// (icon + label) when expanded, a bare rail icon when collapsed.
+// The sidebar hands each entry only its column state: a wide row (icon +
+// label) when expanded, a bare rail icon when collapsed — for both the
+// portalled top button and the footer fallback.
 test("trigger renders a wide row or a rail icon from the wide flag", () => {
   assert.ok(
     /wide \? "mneme-trigger" : "mneme-trigger mneme-rail"/.test(clientSource),
@@ -115,23 +115,48 @@ test("trigger renders a wide row or a rail icon from the wide flag", () => {
     /wide && h\("span", \{ className: "mneme-trigger-label" \}/.test(clientSource),
     "the label span must render only when wide"
   );
+  assert.ok(
+    /size: wide \? 15 : 18/.test(clientSource),
+    "the portalled icon must follow the native rail sizing convention"
+  );
 });
 
-// The full-width memory browser lives in the conversation view ring beside
-// Chat / Trajectory, so the client must inject into `conversation.view` with
-// a stable entry id (the active view is persisted by that id).
-test("explorer registers into the conversation view ring", () => {
+// The entry lives ABOVE the workspaces region: the real button is portalled
+// just before the host's regionArea container (below New Session, above the
+// workspace list), while the sidebar.footer.action registration remains as
+// the React anchor and the in-place fallback when the host markup changes.
+test("sidebar entry portals above the workspaces region with footer fallback", () => {
   assert.ok(
-    clientSource.includes('ctx.slots.inject("conversation.view"'),
-    "client must inject into conversation.view"
+    clientSource.includes('ctx.slots.inject("sidebar.footer.action"'),
+    "the footer slot registration must stay as anchor + fallback"
   );
   assert.ok(
-    clientSource.includes('id: "dsh-mneme-memory"'),
-    "the view entry needs a stable, unique id"
+    clientSource.includes("SidebarTopEntry"),
+    "the portalled top entry must exist"
+  );
+  assert.ok(
+    clientSource.includes(`'[class*="regionArea"]'`),
+    "the portal must anchor at the host's regionArea container"
+  );
+  assert.ok(
+    clientSource.includes("insertBefore(created, region)"),
+    "the entry must sit immediately above the workspaces region"
+  );
+  assert.ok(
+    clientSource.includes("if (!host) return fallback;"),
+    "the portal entry persists across collapse (no footer jump); footer fallback only covers portal failure"
+  );
+  assert.ok(
+    clientSource.includes('className: `${nativeCls} mneme-topentry-native`'.replace("${nativeCls} mneme-topentry-native", "${nativeCls} mneme-topentry-native")),
+    "the entry must reuse the host New-Session button class for native geometry alignment"
+  );
+  assert.ok(
+    /querySelector\('\[class\*="newSession"\]'\)/.test(clientSource),
+    "the native class must be read from the live New-Session button, not hardcoded"
   );
   assert.ok(
     clientSource.includes('"memory.view.label"'),
-    "the tab label must come from the memory.view.label dictionary key"
+    "the sheet aria-label must come from the memory.view.label dictionary key"
   );
 });
 
@@ -199,16 +224,21 @@ test("entity: search grammar offers a graph jump", () => {
   );
 });
 
-// The explorer is a three-pane layout: types with counts, a month→day time
-// tree, and a detail pane rendering the untruncated content.
+// The explorer is a card-grid / timeline browse with a right-hand detail
+// drawer: types with counts, a month→day time tree (timeline mode), and the
+// drawer rendering the untruncated content.
 test("explorer lays out types, timeline, and full-text detail", () => {
   assert.ok(
     clientSource.includes('className: "mneme-xmain"'),
     "the three-column grid must be present"
   );
   assert.ok(
-    clientSource.includes('className: "mneme-xdcontent"'),
-    "the detail pane must render the full content"
+    clientSource.includes('className: "mneme-dcontent"'),
+    "the detail drawer must render the full content"
+  );
+  assert.ok(
+    clientSource.includes('className: "mneme-cards"'),
+    "the card-grid view must exist alongside the timeline"
   );
   assert.ok(
     /toLocaleDateString\(undefined, \{ year: "numeric", month: "long" \}\)/.test(clientSource),

@@ -1511,6 +1511,8 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     findEntityByName: (n) => store.findEntityByName(n),
     findEntityById: (id) => store.findEntityById(id),
     getAttrsByMemory: (id) => store.getAttrsByMemory(id),
+    // 记忆详情侧栏：一条记忆关联到的实体（entity_attrs.memory_id 反查，纯读）。
+    entitiesForMemory: (id) => store.entitiesForMemory(id),
     getCurrentAttrs: (id) => store.getCurrentAttrs(id),
     migrateAttrsToMemory: (fromId, toId, now) => store.migrateAttrsToMemory(fromId, toId, now)
   };

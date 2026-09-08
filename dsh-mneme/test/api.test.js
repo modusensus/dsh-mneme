@@ -6,6 +6,11 @@ import { createService } from "../src/service.js";
 import { createApi } from "../src/api.js";
 import { createSettings } from "../src/settings.js";
 import { createVectorIndex } from "../src/vector-index.js";
+import { Config } from "../src/config.js";
+import { parseHumanEdits } from "../src/mirror.js";
+
+// 解析后的 schema 默认值，作为 /features effective 的 bundle 配置侧样本。
+const FLAGS_CFG = Config({});
 
 class FakeRes extends EventEmitter {
   constructor() { super(); this.statusCode = 200; this.body = ""; }
@@ -27,7 +32,7 @@ function req(path, method = "GET", body = null) {
   return r;
 }
 
-function setup(embedder, apiToken = "") {
+function setup(embedder, apiToken = "", config = null) {
   const store = createStore(":memory:");
   const service = createService({ store, mirror: null, config: {} });
   const settings = createSettings(store.db);
@@ -45,7 +50,7 @@ function setup(embedder, apiToken = "") {
       }
     }
   };
-  const api = createApi(ctx, service, settings, commands, embedder, undefined, apiToken);
+  const api = createApi(ctx, service, settings, commands, embedder, undefined, apiToken, config);
   return { store, service, routes, api, settings, apiToken };
 }
 
@@ -510,4 +515,482 @@ test("Bug10: vector-reindex with an embed-only OpenAI-compatible embedder return
   assert.equal(vectorIndex.modelHash(), "text-embedding-3#abc", "model_hash written to vector_meta");
   assert.equal(vectorIndex.dimension(), 3, "dimension written to vector_meta");
   assert.equal(vectorIndex.getEmbedding(service.all()[0].id).length, 3, "embedding persisted");
+});
+
+// --- feature flags（/features：overrides + effective）------------------------
+
+test("GET /api/dsh-mneme/features returns empty overrides and effective config defaults", async () => {
+  const { routes } = setup(undefined, "", FLAGS_CFG);
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/features");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/features"), res);
+  assert.equal(res.statusCode, 200);
+  const data = JSON.parse(res.body);
+  assert.deepEqual(data.overrides, {});
+  // effective 覆盖全部 30 个白名单键，未覆盖时取 bundle 配置的解析默认值；
+  // dreamProvider/dreamModel 无 schema 默认值（Config({}) 解析为 undefined），
+  // 不编造给前端 → 30 - 2 = 28
+  assert.equal(Object.keys(data.effective).length, 28);
+  assert.equal(data.effective.autoInject, true);
+  assert.equal(data.effective.codingRetrospect, false);
+  assert.equal(data.effective.distillMaxChars, 24000);
+  assert.equal(data.effective.codingBoostFactor, 2);
+  // 新增布尔键（含嵌套点号键）从 bundle 配置的对象子字段/顶层取默认值
+  assert.equal(data.effective.bm25SearchEnabled, true);
+  assert.equal(data.effective.conflictFreezeEnabled, false);
+  assert.equal(data.effective.trustEpistemicWeighting, false);
+  assert.equal(data.effective.reflectionFailureTracking, true);
+  assert.equal(data.effective["memoryQualityFilter.enabled"], true);
+  assert.equal(data.effective["llmAudit.enabled"], true);
+  // 新增字符串 / URL / 枚举键
+  assert.equal(data.effective.localEmbedModel, "Xenova/bge-small-zh-v1.5");
+  assert.equal(data.effective.ollamaBaseUrl, "http://localhost:11434");
+  assert.equal(data.effective.ollamaModel, "nomic-embed-text");
+  assert.equal(data.effective.embedProvider, "openai");
+});
+
+test("PUT /api/dsh-mneme/features round-trips, overrides effective and persists", async () => {
+  const { routes, settings } = setup(undefined, "", FLAGS_CFG);
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/features");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/features", "PUT", { autoDream: false, distillMaxChars: 48000 }), res);
+  assert.equal(res.statusCode, 200);
+  const data = JSON.parse(res.body);
+  assert.deepEqual(data.overrides, { autoDream: false, distillMaxChars: 48000 });
+  assert.equal(data.effective.autoDream, false, "override wins over config default");
+  assert.equal(data.effective.distillMaxChars, 48000);
+  assert.equal(data.effective.autoInject, true, "keys not in the patch still report config");
+  assert.deepEqual(settings.getFeatureFlags(), { autoDream: false, distillMaxChars: 48000 });
+});
+
+test("PUT /api/dsh-mneme/features round-trips nested, string, url and enum keys", async () => {
+  const { routes, settings } = setup(undefined, "", FLAGS_CFG);
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/features");
+  const patch = {
+    "memoryQualityFilter.enabled": false,
+    "llmAudit.enabled": false,
+    embedProvider: "local",
+    ollamaBaseUrl: "http://127.0.0.1:11434",
+    dreamProvider: "  siliconflow  ",
+    dreamModel: ""
+  };
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/features", "PUT", patch), res);
+  assert.equal(res.statusCode, 200);
+  const data = JSON.parse(res.body);
+  assert.deepEqual(data.overrides, {
+    "memoryQualityFilter.enabled": false,
+    "llmAudit.enabled": false,
+    embedProvider: "local",
+    ollamaBaseUrl: "http://127.0.0.1:11434",
+    dreamProvider: "siliconflow",
+    dreamModel: ""
+  }, "nested keys persist flat, free strings are trimmed");
+  // 嵌套键的覆盖值压过 bundle 配置的对象子字段
+  assert.equal(data.effective["memoryQualityFilter.enabled"], false);
+  assert.equal(data.effective["llmAudit.enabled"], false);
+  assert.equal(data.effective.embedProvider, "local");
+  assert.equal(data.effective.ollamaBaseUrl, "http://127.0.0.1:11434");
+  assert.equal(data.effective.dreamProvider, "siliconflow");
+  assert.equal(data.effective.dreamModel, "", "empty string is a legal override");
+  assert.deepEqual(settings.getFeatureFlags(), data.overrides, "overrides persisted");
+
+  // 非法枚举 / 非 http 协议的 URL → 400 且不落库
+  const badEnum = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/features", "PUT", { embedProvider: "bogus" }), badEnum);
+  assert.equal(badEnum.statusCode, 400);
+  assert.match(JSON.parse(badEnum.body).error, /embedProvider/);
+
+  const badUrl = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/features", "PUT", { ollamaBaseUrl: "ftp://localhost:11434" }), badUrl);
+  assert.equal(badUrl.statusCode, 400);
+  assert.match(JSON.parse(badUrl.body).error, /ollamaBaseUrl/);
+
+  assert.deepEqual(settings.getFeatureFlags(), data.overrides, "rejected writes persist nothing");
+});
+
+test("PUT /api/dsh-mneme/features rejects unknown keys, bad types and bad ranges with 400", async () => {
+  const { routes, settings } = setup(undefined, "", FLAGS_CFG);
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/features");
+
+  const unknown = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/features", "PUT", { noSuchFlag: true }), unknown);
+  assert.equal(unknown.statusCode, 400);
+  assert.match(JSON.parse(unknown.body).error, /noSuchFlag/);
+
+  const badType = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/features", "PUT", { autoInject: "yes" }), badType);
+  assert.equal(badType.statusCode, 400);
+  assert.match(JSON.parse(badType.body).error, /autoInject/);
+
+  const badRange = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/features", "PUT", { codingBoostFactor: 9 }), badRange);
+  assert.equal(badRange.statusCode, 400);
+  assert.match(JSON.parse(badRange.body).error, /codingBoostFactor/);
+
+  // 空 patch 不携带任何意图，直接 400
+  const empty = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/features", "PUT", {}), empty);
+  assert.equal(empty.statusCode, 400);
+
+  assert.deepEqual(settings.getFeatureFlags(), {}, "failed writes persist nothing");
+});
+
+test("PUT /api/dsh-mneme/features is token-gated; GET stays open", async () => {
+  const { routes } = setup(undefined, "secret-token", FLAGS_CFG);
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/features");
+
+  const get = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/features"), get);
+  assert.equal(get.statusCode, 200, "read stays open without token");
+
+  const put = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/features", "PUT", { autoDream: false }), put);
+  assert.equal(put.statusCode, 401);
+
+  const ok = req("/api/dsh-mneme/features", "PUT", { autoDream: false });
+  ok.headers = { authorization: "Bearer secret-token" };
+  const okRes = new FakeRes();
+  await route.handler(ok, okRes);
+  assert.equal(okRes.statusCode, 200);
+});
+
+// --- 交互式记忆库面板：日期过滤 / update / memories/entities / export / import / dream-status ---
+
+test("GET /api/dsh-mneme/list supports updatedFrom/updatedTo and count matches", async () => {
+  const { routes, service, store } = setup();
+  service.saveWithDedupe({ type: "preference", title: "旧", content: "1" });
+  service.saveWithDedupe({ type: "preference", title: "中", content: "2" });
+  service.saveWithDedupe({ type: "preference", title: "新", content: "3" });
+  const setAt = (title, at) => store.db.prepare("UPDATE memories SET updated_at = ? WHERE title = ?").run(at, title);
+  setAt("旧", "2026-08-01T00:00:00.000Z");
+  setAt("中", "2026-09-01T12:00:00.000Z");
+  setAt("新", "2026-09-15T23:00:00.000Z");
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/list");
+
+  const from = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/list?updatedFrom=2026-09-01"), from);
+  const fromData = JSON.parse(from.body);
+  assert.equal(fromData.items.length, 2);
+  assert.equal(fromData.total, 2, "count filter matches list filter");
+  assert.deepEqual(fromData.items.map((m) => m.title).sort(), ["中", "新"]);
+
+  // date-only updatedTo 闭区间含当天全天（中 09-01T12:00 命中）
+  const range = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/list?updatedFrom=2026-08-01&updatedTo=2026-09-01"), range);
+  const rangeData = JSON.parse(range.body);
+  assert.equal(rangeData.items.length, 2);
+  assert.equal(rangeData.total, 2);
+
+  const to = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/list?updatedTo=2026-08-31"), to);
+  const toData = JSON.parse(to.body);
+  assert.equal(toData.items.length, 1);
+  assert.equal(toData.items[0].title, "旧");
+
+  // 非法日期值 → 忽略（不报错、不过滤）
+  const bad = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/list?updatedFrom=not-a-date&updatedTo=%E4%B9%B1"), bad);
+  const badData = JSON.parse(bad.body);
+  assert.equal(badData.items.length, 3);
+  assert.equal(badData.total, 3);
+
+  // 完整时间戳同样生效
+  const ts = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/list?updatedFrom=2026-09-02T00:00:00.000Z"), ts);
+  const tsData = JSON.parse(ts.body);
+  assert.equal(tsData.items.length, 1);
+  assert.equal(tsData.items[0].title, "新");
+});
+
+test("POST /api/dsh-mneme/update edits title/importance and archives", async () => {
+  const { routes, service } = setup();
+  const created = service.saveWithDedupe({ type: "preference", title: "原始", content: "原始内容" });
+  const id = created.memory.id;
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/update");
+
+  const edit = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/update", "POST", { id, title: "改名", importance: 5 }), edit);
+  assert.equal(edit.statusCode, 200);
+  const row = JSON.parse(edit.body).memory;
+  assert.equal(row.title, "改名");
+  assert.equal(row.importance, 5);
+  assert.equal(row.archived, false, "archived booleanized in the response row");
+  assert.notEqual(row.updated_at, created.memory.updated_at, "updated_at advances");
+
+  const archive = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/update", "POST", { id, archived: true }), archive);
+  assert.equal(archive.statusCode, 200);
+  assert.equal(JSON.parse(archive.body).memory.archived, true);
+  assert.equal(service.getById(id).archived, true);
+});
+
+test("POST /api/dsh-mneme/update archives replaced content into content_history", async () => {
+  const { routes, service } = setup();
+  const created = service.saveWithDedupe({ type: "preference", title: "历史", content: "第一版" });
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/update");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/update", "POST", { id: created.memory.id, content: "第二版" }), res);
+  assert.equal(res.statusCode, 200);
+  const row = service.getById(created.memory.id);
+  assert.equal(row.content, "第二版");
+  assert.equal(row.content_history[0].content, "第一版");
+  assert.equal(row.content_history[0].source, "human_override");
+});
+
+test("POST /api/dsh-mneme/update returns 400/404 for bad requests", async () => {
+  const { routes, service } = setup();
+  const created = service.saveWithDedupe({ type: "preference", title: "存在", content: "x" });
+  const id = created.memory.id;
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/update");
+
+  const missing = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/update", "POST", { title: "无 id" }), missing);
+  assert.equal(missing.statusCode, 400);
+
+  const noFields = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/update", "POST", { id }), noFields);
+  assert.equal(noFields.statusCode, 400);
+
+  const emptyTitle = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/update", "POST", { id, title: "   " }), emptyTitle);
+  assert.equal(emptyTitle.statusCode, 400);
+
+  const emptyContent = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/update", "POST", { id, content: "" }), emptyContent);
+  assert.equal(emptyContent.statusCode, 400);
+
+  const badImportance = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/update", "POST", { id, importance: 9 }), badImportance);
+  assert.equal(badImportance.statusCode, 400);
+
+  const badTags = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/update", "POST", { id, tags: "x" }), badTags);
+  assert.equal(badTags.statusCode, 400);
+
+  const badArchived = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/update", "POST", { id, archived: "yes" }), badArchived);
+  assert.equal(badArchived.statusCode, 400);
+
+  const gone = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/update", "POST", { id: "no-such-id", title: "x" }), gone);
+  assert.equal(gone.statusCode, 404);
+  assert.deepEqual(JSON.parse(gone.body), { error: "not-found" });
+
+  assert.equal(service.getById(id).title, "存在", "failed writes persist nothing");
+});
+
+test("POST /api/dsh-mneme/update is token-gated", async () => {
+  const { routes } = setup(undefined, "secret-token");
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/update");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/update", "POST", { id: "x", title: "y" }), res);
+  assert.equal(res.statusCode, 401);
+});
+
+test("GET /api/dsh-mneme/memories/entities returns entities linked to a memory", async () => {
+  const { routes, service } = setup();
+  const a = service.saveWithDedupe({ type: "project", title: "A", content: "提到甲" });
+  const b = service.saveWithDedupe({ type: "project", title: "B", content: "无关" });
+  const entity = service.createEntity({ name: "甲", type: "person" });
+  // 同一记忆两次提及同一实体（两条 attr）→ 去重后只出现一次
+  service.saveAttr({ entity_id: entity.id, attr_key: "角色", attr_value: "负责人", memory_id: a.memory.id });
+  service.saveAttr({ entity_id: entity.id, attr_key: "团队", attr_value: "前端", memory_id: a.memory.id });
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/memories/entities");
+
+  const res = new FakeRes();
+  await route.handler(req(`/api/dsh-mneme/memories/entities?memoryId=${a.memory.id}`), res);
+  assert.equal(res.statusCode, 200);
+  const data = JSON.parse(res.body);
+  assert.equal(data.entities.length, 1, "deduped by mention");
+  assert.equal(data.entities[0].name, "甲");
+  assert.equal(data.entities[0].type, "person");
+
+  const none = new FakeRes();
+  await route.handler(req(`/api/dsh-mneme/memories/entities?memoryId=${b.memory.id}`), none);
+  assert.deepEqual(JSON.parse(none.body), { entities: [] });
+
+  const missing = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/memories/entities"), missing);
+  assert.equal(missing.statusCode, 400);
+});
+
+test("GET /api/dsh-mneme/export json carries full rows and version", async () => {
+  const { routes, service } = setup();
+  service.saveWithDedupe({ type: "preference", title: "甲", content: "内容甲" });
+  const hidden = service.saveWithDedupe({ type: "preference", title: "乙", content: "内容乙" });
+  service.setForget(hidden.memory.id, true);
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/export");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/export"), res);
+  assert.equal(res.statusCode, 200);
+  const data = JSON.parse(res.body);
+  assert.equal(data.count, 2, "export includes forgotten rows");
+  assert.equal(data.memories.length, 2);
+  assert.equal(typeof data.version, "string", "version comes from package.json");
+  assert.ok(data.exported_at);
+  assert.equal(data.memories.every((m) => typeof m.archived === "boolean" && typeof m.forgotten === "boolean"), true);
+  const times = data.memories.map((m) => m.updated_at);
+  assert.deepEqual(times, [...times].sort().reverse(), "updated_at DESC");
+  assert.match(res.headers["Content-Disposition"], /attachment; filename="dsh-mneme-export-\d{8}\.json"/);
+});
+
+test("GET /api/dsh-mneme/export markdown feeds straight back through import", async () => {
+  const { routes, service } = setup();
+  const a = service.saveWithDedupe({ type: "preference", title: "语言", content: "中文优先" });
+  const b = service.saveWithDedupe({ type: "preference", title: "风格", content: "简洁" });
+  const exportRoute = routes.find((r) => r.path === "/api/dsh-mneme/export");
+  const importRoute = routes.find((r) => r.path === "/api/dsh-mneme/import");
+
+  const res = new FakeRes();
+  await exportRoute.handler(req("/api/dsh-mneme/export?format=markdown"), res);
+  assert.equal(res.statusCode, 200);
+  assert.match(res.headers["Content-Type"], /text\/markdown/);
+  assert.match(res.headers["Content-Disposition"], /attachment; filename="dsh-mneme-export-\d{8}\.md"/);
+  const md = res.body;
+  assert.ok(md.includes("- **ID**: `" + a.memory.id + "`"), "anchor line present (readHumanEdits-compatible)");
+
+  // 黄金用例：导出文本原样导入 → 解析出全部条目，且字段无漂移
+  const back = new FakeRes();
+  await importRoute.handler(req("/api/dsh-mneme/import", "POST", { type: "preference", markdown: md }), back);
+  assert.equal(back.statusCode, 200);
+  const data = JSON.parse(back.body);
+  assert.equal(data.type, "preference");
+  assert.ok(data.merged >= 2, "both memories parsed back");
+  assert.equal(service.getById(a.memory.id).title, "语言");
+  assert.equal(service.getById(a.memory.id).content, "中文优先");
+  assert.equal(service.getById(b.memory.id).title, "风格");
+  assert.equal(service.getById(b.memory.id).content, "简洁");
+});
+
+test("POST /api/dsh-mneme/import validates type/markdown and tolerates zero edits", async () => {
+  const { routes } = setup();
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/import");
+
+  const badType = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/import", "POST", { type: "preferences", markdown: "x" }), badType);
+  assert.equal(badType.statusCode, 400, "TYPE_FILE keys are singular, plural is rejected");
+
+  const badMd = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/import", "POST", { type: "preference", markdown: "" }), badMd);
+  assert.equal(badMd.statusCode, 400);
+
+  const zero = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/import", "POST", { type: "preference", markdown: "# 空镜像" }), zero);
+  assert.equal(zero.statusCode, 200);
+  assert.deepEqual(JSON.parse(zero.body), { merged: 0, type: "preference" });
+});
+
+test("POST /api/dsh-mneme/import is token-gated", async () => {
+  const { routes } = setup(undefined, "secret-token");
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/import");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/import", "POST", { type: "preference", markdown: "x" }), res);
+  assert.equal(res.statusCode, 401);
+});
+
+test("GET /api/dsh-mneme/dream-status returns runs and pending conflict ids", async () => {
+  const { routes, service } = setup();
+  service.saveDreamRun({ created_at: "2026-01-01T00:00:00.000Z", status: "ok", provider: "ollama", model: "qwen", snapshot_hash: "h1", input_count: 2, receipt: "r1" });
+  service.saveDreamRun({ created_at: "2026-01-02T00:00:00.000Z", status: "failed", error: "boom", snapshot_hash: "h2", input_count: 0, receipt: "r2" });
+  const pending = service.saveConflictPending({ memory_a: "aaaa", memory_b: "bbbb", reason: "矛盾" });
+
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/dream-status");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/dream-status"), res);
+  assert.equal(res.statusCode, 200);
+  const data = JSON.parse(res.body);
+  assert.equal(data.runs.length, 2);
+  assert.equal(data.runs[0].created_at, "2026-01-02T00:00:00.000Z", "created_at DESC");
+  assert.deepEqual(data.lastRun, data.runs[0]);
+  assert.deepEqual(Object.keys(data.lastRun).sort(), ["created_at", "error", "model", "provider", "status"]);
+  assert.equal(data.runs[0].error, "boom");
+  assert.equal(data.runs[1].provider, "ollama");
+  assert.equal(data.pendingConflicts, 1);
+  assert.deepEqual(data.pendingMemoryIds.sort(), ["aaaa", "bbbb"]);
+
+  // 解决后队列清空
+  service.resolveConflictPending(pending.id, { winner: "aaaa" });
+  const after = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/dream-status"), after);
+  const afterData = JSON.parse(after.body);
+  assert.equal(afterData.pendingConflicts, 0);
+  assert.deepEqual(afterData.pendingMemoryIds, []);
+});
+
+test("parseHumanEdits is the pure core of readHumanEdits (CRLF tolerant)", () => {
+  const digest = "0".repeat(64);
+  const text = [
+    "# x\r\n",
+    "\r\n",
+    "## 标题\r\n",
+    "\r\n",
+    "- **ID**: `m1`\n",
+    "- **类型**: preference\n",
+    "- **重要性**: 3\n",
+    "- **标签**: \n",
+    "- **更新时间**: 2026-01-01T00:00:00.000Z\n",
+    "\n",
+    `<!-- mirror-digest: ${digest} -->\n`,
+    "正文一段\n",
+    "\n",
+    "---\n",
+    "\n",
+    "## 另一条\n",
+    "\r\n",
+    "- **ID**: `m2`\n",
+    "- **类型**: preference\n",
+    "- **重要性**: 4\n",
+    "- **标签**: \n",
+    "- **更新时间**: 2026-01-02T00:00:00.000Z\n",
+    "\n",
+    "内容二\n",
+    "\n",
+    "---\n"
+  ].join("");
+  const edits = parseHumanEdits(text);
+  assert.equal(edits.length, 2);
+  assert.equal(edits[0].id, "m1");
+  assert.equal(edits[0].title, "标题");
+  assert.equal(edits[0].content, "正文一段");
+  assert.equal(edits[1].id, "m2");
+  assert.equal(edits[1].content, "内容二");
+});
+
+test("GET /api/dsh-mneme/list?archived=only lists just archived rows; default list hides them", async () => {
+  const { routes, service } = setup();
+  service.saveWithDedupe({ type: "preference", title: "在用", content: "keep" });
+  service.saveWithDedupe({ type: "project", title: "已归档", content: "gone" });
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/list");
+  const upd = routes.find((r) => r.path === "/api/dsh-mneme/update");
+
+  const def0 = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/list"), def0);
+  const target = JSON.parse(def0.body).items.find((m) => m.title === "已归档");
+
+  const arch = new FakeRes();
+  await upd.handler(req("/api/dsh-mneme/update", "POST", { id: target.id, archived: true }), arch);
+  assert.equal(arch.statusCode, 200);
+
+  const def = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/list"), def);
+  assert.equal(JSON.parse(def.body).total, 1, "default list hides archived rows");
+
+  const only = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/list?archived=only"), only);
+  const onlyData = JSON.parse(only.body);
+  assert.equal(onlyData.total, 1, "archived-only count matches rows");
+  assert.deepEqual(onlyData.items.map((m) => m.title), ["已归档"]);
+  assert.equal(onlyData.items[0].archived, true);
+
+  // 恢复（unarchive）后归档视图清空、默认列表重新可见
+  const restore = new FakeRes();
+  await upd.handler(req("/api/dsh-mneme/update", "POST", { id: target.id, archived: false }), restore);
+  assert.equal(restore.statusCode, 200);
+  const empty = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/list?archived=only"), empty);
+  assert.equal(JSON.parse(empty.body).total, 0);
+  const back = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/list"), back);
+  assert.equal(JSON.parse(back.body).total, 2);
 });

@@ -158,7 +158,7 @@ window.__ModuleLoader__.load({
         "memory.explorer.importance": "重要性",
         "memory.explorer.topK": "返回数量",
         "memory.explorer.topKOption": "返回 {n} 条",
-        "memory.card.open": "在主区记忆库中查看全文",
+        "memory.card.open": "在记忆库中查看全文",
         "memory.time.now": "刚刚",
         "memory.time.seconds": "{n}秒前",
         "memory.time.minutes": "{n}分钟前",
@@ -212,6 +212,136 @@ window.__ModuleLoader__.load({
         "memory.settings.extapi.copied": "已复制",
         "memory.settings.extapi.savedHint": "已保存，重启 DSH 后生效",
         "memory.settings.extapi.invalidPort": "端口需为 1-65535 的数字",
+        "memory.tab.rejected_solution": "被否决方案",
+        "memory.tab.pitfall": "踩坑记录",
+        "memory.tab.constraint": "工程约束",
+        "memory.features.title": "功能开关",
+        "memory.features.desc": "按需启停后端能力，改动保存后重启 DSH 生效。",
+        "memory.features.group.core": "核心",
+        "memory.features.group.enhance": "记忆增强",
+        "memory.features.group.dream": "巩固与睡眠",
+        "memory.features.group.advanced": "高级",
+        "memory.features.advancedToggle": "高级（注入策略 · 反思 · 实验项）",
+        "memory.features.restartHint": "重启 DSH 后生效",
+        "memory.features.loadFailed": "加载失败",
+        "memory.features.autoInject": "自动注入",
+        "memory.features.autoInject.hint": "每轮对话自动携带相关记忆",
+        "memory.features.autoSummarize": "自动总结",
+        "memory.features.autoSummarize.hint": "对话结束自动提炼记忆条目",
+        "memory.features.hotMemoryEnabled": "热记忆",
+        "memory.features.hotMemoryEnabled.hint": "最近几轮对话原文随注入携带，不写入长期记忆",
+        "memory.features.entityExtractionEnabled": "实体抽取",
+        "memory.features.entityExtractionEnabled.hint": "从记忆中提取人物/项目/概念，图谱随之生长",
+        "memory.features.codingRetrospect": "编码记忆蒸馏",
+        "memory.features.codingRetrospect.hint": "用完整转录（含工具调用与报错）提炼踩坑、约束与被否决方案",
+        "memory.features.rerankEnabled": "结果重排",
+        "memory.features.rerankEnabled.hint": "本地重排模型对召回结果精排，更慢更准",
+        "memory.features.searchSemanticDedup": "语义去重",
+        "memory.features.searchSemanticDedup.hint": "搜索结果中意思相近的条目只保留一条",
+        "memory.features.autoDream": "记忆巩固",
+        "memory.features.autoDream.hint": "后台自动合并、沉淀碎片记忆",
+        "memory.features.sleepModeEnabled": "睡眠模式",
+        "memory.features.sleepModeEnabled.hint": "空闲时段做分层压缩与整理",
+        "memory.features.hybridInject": "混合注入",
+        "memory.features.hybridInject.hint": "关键词 + 向量双路召回后合并注入",
+        "memory.features.selectiveInjectEnabled": "选择性注入",
+        "memory.features.selectiveInjectEnabled.hint": "按相关性筛选，只注入值得携带的记忆",
+        "memory.features.adaptiveThresholdEnabled": "自适应阈值",
+        "memory.features.adaptiveThresholdEnabled.hint": "按召回质量动态调整相关性门槛",
+        "memory.features.reflectionUpdateEnabled": "反思更新",
+        "memory.features.reflectionUpdateEnabled.hint": "巩固时允许修正已有记忆",
+        "memory.features.distill": "蒸馏与限流",
+        "memory.features.distillRateLimitIntervalMs": "蒸馏放行间隔 (ms)",
+        "memory.features.distillRateLimitRetries": "429 重试次数",
+        "memory.features.distillRateLimitBaseDelayMs": "退避起始延迟 (ms)",
+        "memory.features.distillMaxChars": "转录截断上限（字符）",
+        "memory.features.codingBoostFactor": "编码记忆加权",
+        "memory.features.memoryQualityFilter.enabled": "记忆质量过滤",
+        "memory.features.memoryQualityFilter.enabled.hint": "低价值记忆自动归档，注入按质量降权",
+        "memory.features.llmAudit.enabled": "后台调用审计",
+        "memory.features.llmAudit.enabled.hint": "记录巩固/总结的后台模型调用与 token 消耗",
+        "memory.features.bm25SearchEnabled": "BM25 关键词检索",
+        "memory.features.bm25SearchEnabled.hint": "传统关键词打分检索，与向量召回互补",
+        "memory.features.conflictFreezeEnabled": "冲突冻结",
+        "memory.features.conflictFreezeEnabled.hint": "巩固发现互相矛盾的记忆时先冻结待确认",
+        "memory.features.trustEpistemicWeighting": "可信度加权",
+        "memory.features.trustEpistemicWeighting.hint": "按来源可信度调整召回排序（实验性）",
+        "memory.features.reflectionFailureTracking": "反思失败追踪",
+        "memory.features.reflectionFailureTracking.hint": "记录巩固决策的失败样本供后续改进",
+        "memory.features.embedRoute": "语义检索路线",
+        "memory.features.embedProvider": "Embedding 提供方",
+        "memory.features.embedProvider.openai": "OpenAI 兼容接口",
+        "memory.features.embedProvider.local": "本地模型（离线）",
+        "memory.features.embedProvider.ollama": "Ollama",
+        "memory.features.embedProvider.openai.hint": "接口地址 / Key / 模型在「向量搜索」卡片配置",
+        "memory.features.embedProvider.local.hint": "首次使用会下载模型，之后完全离线",
+        "memory.features.embedProvider.ollama.hint": "需要本机 Ollama 服务在运行",
+        "memory.features.localEmbedModel": "本地 embedding 模型",
+        "memory.features.ollamaBaseUrl": "Ollama 服务地址",
+        "memory.features.ollamaModel": "Ollama 模型名",
+        "memory.features.dreamProvider": "巩固模型 Provider",
+        "memory.features.dreamModel": "巩固用模型名",
+        "memory.features.dreamModelHint": "留空 = 跟随主对话模型；只影响记忆巩固（autoDream）用的模型",
+        "memory.explorer.viewCards": "卡片",
+        "memory.explorer.viewTimeline": "时间线",
+        "memory.explorer.viewAria": "视图切换",
+        "memory.explorer.dateLabel": "时间",
+        "memory.explorer.date.all": "全部时间",
+        "memory.explorer.date.7d": "近 7 天",
+        "memory.explorer.date.30d": "近 30 天",
+        "memory.explorer.date.90d": "近 90 天",
+        "memory.explorer.more": "更多操作",
+        "memory.explorer.exportJson": "导出 JSON",
+        "memory.explorer.exportMarkdown": "导出 Markdown",
+        "memory.explorer.importMd": "导入 Markdown 镜像…",
+        "memory.explorer.importTitle": "导入 Markdown 镜像",
+        "memory.explorer.importHint": "选择一个镜像类型的 Markdown 文件，解析其中的人工编辑并合并进记忆库。",
+        "memory.explorer.importType": "镜像类型",
+        "memory.explorer.importPick": "选择文件…",
+        "memory.explorer.importConfirm": "导入",
+        "memory.explorer.importCancel": "取消",
+        "memory.explorer.importing": "导入中…",
+        "memory.explorer.imported": "已合并 {n} 条编辑",
+        "memory.explorer.importFailed": "导入失败",
+        "memory.explorer.importNoFile": "请先选择文件",
+        "memory.explorer.exportFailed": "导出失败",
+        "memory.explorer.conflictBadge": "冲突",
+        "memory.explorer.archivedBadge": "已归档",
+        "memory.explorer.detail.edit": "编辑",
+        "memory.explorer.detail.save": "保存",
+        "memory.explorer.detail.cancel": "取消",
+        "memory.explorer.detail.archive": "归档",
+        "memory.explorer.detail.archived": "已归档",
+        "memory.explorer.detail.archiveFailed": "操作失败",
+        "memory.explorer.detail.saved": "已保存，镜像同步更新",
+        "memory.explorer.detail.quality": "质量分",
+        "memory.explorer.detail.entities": "关联实体",
+        "memory.explorer.detail.entitiesEmpty": "开启实体抽取后，相关人物/项目会出现在这里",
+        "memory.explorer.detail.closeAria": "关闭详情",
+        "memory.explorer.detail.editTitle": "标题",
+        "memory.explorer.detail.editContent": "内容",
+        "memory.explorer.detail.editImportance": "重要性",
+        "memory.status.dream": "最近巩固",
+        "memory.status.dreamNever": "尚未运行",
+        "memory.status.conflicts": "待确认冲突",
+        "memory.status.conflictsHint": "冻结的矛盾记忆，等待人工确认",
+        "memory.status.workbench": "工作动态",
+        "memory.status.dreamConsolidate": "记忆巩固",
+        "memory.status.summarize": "总结提炼",
+        "memory.status.tokens": "{n} tokens",
+        "memory.status.deposited": "沉淀 {n} 条记忆",
+        "memory.status.failed": "失败",
+        "memory.status.success": "成功",
+        "memory.status.skipped": "跳过",
+        "memory.status.emptyFeed": "还没有后台活动：对话结束后会自动提炼记忆",
+        "memory.status.consolidated": "沉淀的记忆",
+        "memory.status.consolidatedEmpty": "autoDream / autoSummarize 沉淀的记忆会出现在这里",
+        "memory.status.archivedMemories": "已归档的记忆",
+        "memory.status.archivedEmpty": "没有归档的记忆",
+        "memory.status.restore": "恢复",
+        "memory.settings.extapi.reveal": "显示",
+        "memory.settings.extapi.hide": "隐藏",
+        "memory.settings.extapi.maskHint": "Token 已遮蔽；「复制」可复制完整值",
         "memory.explorer.delete": "删除",
         "memory.explorer.confirmDelete": "确认删除?",
         "memory.explorer.cancel": "取消",
@@ -292,7 +422,7 @@ window.__ModuleLoader__.load({
         "memory.explorer.importance": "Importance",
         "memory.explorer.topK": "Results limit",
         "memory.explorer.topKOption": "Return {n}",
-        "memory.card.open": "Open full text in the Memory tab",
+        "memory.card.open": "Open full text in the memory library",
         "memory.time.now": "just now",
         "memory.time.seconds": "{n}s ago",
         "memory.time.minutes": "{n}m ago",
@@ -346,6 +476,136 @@ window.__ModuleLoader__.load({
         "memory.settings.extapi.copied": "Copied",
         "memory.settings.extapi.savedHint": "Saved. Takes effect after restarting DSH",
         "memory.settings.extapi.invalidPort": "Port must be a number between 1 and 65535",
+        "memory.tab.rejected_solution": "Rejected solutions",
+        "memory.tab.pitfall": "Pitfalls",
+        "memory.tab.constraint": "Constraints",
+        "memory.features.title": "Features",
+        "memory.features.desc": "Toggle backend capabilities. Changes take effect after restarting DSH.",
+        "memory.features.group.core": "Core",
+        "memory.features.group.enhance": "Enhancement",
+        "memory.features.group.dream": "Consolidation",
+        "memory.features.group.advanced": "Advanced",
+        "memory.features.advancedToggle": "Advanced (injection · reflection · experimental)",
+        "memory.features.restartHint": "Takes effect after restarting DSH",
+        "memory.features.loadFailed": "Failed to load",
+        "memory.features.autoInject": "Auto injection",
+        "memory.features.autoInject.hint": "Carry relevant memories into every turn",
+        "memory.features.autoSummarize": "Auto summarization",
+        "memory.features.autoSummarize.hint": "Distill memory entries when a conversation ends",
+        "memory.features.hotMemoryEnabled": "Hot memory",
+        "memory.features.hotMemoryEnabled.hint": "Carry the last few turns verbatim; never written to long-term memory",
+        "memory.features.entityExtractionEnabled": "Entity extraction",
+        "memory.features.entityExtractionEnabled.hint": "Extract people / projects / concepts so the graph grows by itself",
+        "memory.features.codingRetrospect": "Coding retrospection",
+        "memory.features.codingRetrospect.hint": "Distill pitfalls, constraints and rejected solutions from full transcripts (tools and errors included)",
+        "memory.features.rerankEnabled": "Reranking",
+        "memory.features.rerankEnabled.hint": "Rerank recalled results with a local model — slower, more precise",
+        "memory.features.searchSemanticDedup": "Semantic dedup",
+        "memory.features.searchSemanticDedup.hint": "Keep one entry when search hits near-duplicates",
+        "memory.features.autoDream": "Memory consolidation",
+        "memory.features.autoDream.hint": "Merge and settle fragmented memories in the background",
+        "memory.features.sleepModeEnabled": "Sleep mode",
+        "memory.features.sleepModeEnabled.hint": "Layered compaction during idle periods",
+        "memory.features.hybridInject": "Hybrid injection",
+        "memory.features.hybridInject.hint": "Merge keyword + vector recall before injecting",
+        "memory.features.selectiveInjectEnabled": "Selective injection",
+        "memory.features.selectiveInjectEnabled.hint": "Only inject memories worth carrying, filtered by relevance",
+        "memory.features.adaptiveThresholdEnabled": "Adaptive threshold",
+        "memory.features.adaptiveThresholdEnabled.hint": "Adjust the relevance floor with recall quality",
+        "memory.features.reflectionUpdateEnabled": "Reflective update",
+        "memory.features.reflectionUpdateEnabled.hint": "Allow consolidation to revise existing memories",
+        "memory.features.distill": "Distillation & rate limiting",
+        "memory.features.distillRateLimitIntervalMs": "Distill spacing (ms)",
+        "memory.features.distillRateLimitRetries": "429 retries",
+        "memory.features.distillRateLimitBaseDelayMs": "Backoff base delay (ms)",
+        "memory.features.distillMaxChars": "Transcript cap (chars)",
+        "memory.features.codingBoostFactor": "Coding boost factor",
+        "memory.features.memoryQualityFilter.enabled": "Memory quality filter",
+        "memory.features.memoryQualityFilter.enabled.hint": "Archive low-value memories automatically; injection downranks by quality",
+        "memory.features.llmAudit.enabled": "Background call audit",
+        "memory.features.llmAudit.enabled.hint": "Log background model calls and token usage from consolidation / summaries",
+        "memory.features.bm25SearchEnabled": "BM25 keyword search",
+        "memory.features.bm25SearchEnabled.hint": "Classic keyword scoring, complementary to vector recall",
+        "memory.features.conflictFreezeEnabled": "Conflict freezing",
+        "memory.features.conflictFreezeEnabled.hint": "Freeze contradictory memories for confirmation during consolidation",
+        "memory.features.trustEpistemicWeighting": "Credibility weighting",
+        "memory.features.trustEpistemicWeighting.hint": "Adjust recall ranking by source credibility (experimental)",
+        "memory.features.reflectionFailureTracking": "Reflection failure tracking",
+        "memory.features.reflectionFailureTracking.hint": "Record failed consolidation decisions for later improvement",
+        "memory.features.embedRoute": "Semantic search route",
+        "memory.features.embedProvider": "Embedding provider",
+        "memory.features.embedProvider.openai": "OpenAI-compatible API",
+        "memory.features.embedProvider.local": "Local model (offline)",
+        "memory.features.embedProvider.ollama": "Ollama",
+        "memory.features.embedProvider.openai.hint": "Endpoint / key / model live in the Vector Search card below",
+        "memory.features.embedProvider.local.hint": "First use downloads the model; fully offline afterwards",
+        "memory.features.embedProvider.ollama.hint": "Requires a local Ollama server",
+        "memory.features.localEmbedModel": "Local embedding model",
+        "memory.features.ollamaBaseUrl": "Ollama server URL",
+        "memory.features.ollamaModel": "Ollama model",
+        "memory.features.dreamProvider": "Consolidation provider",
+        "memory.features.dreamModel": "Consolidation model",
+        "memory.features.dreamModelHint": "Leave empty to follow the main conversation model; only affects autoDream consolidation",
+        "memory.explorer.viewCards": "Cards",
+        "memory.explorer.viewTimeline": "Timeline",
+        "memory.explorer.viewAria": "Switch view",
+        "memory.explorer.dateLabel": "Time",
+        "memory.explorer.date.all": "All time",
+        "memory.explorer.date.7d": "Last 7 days",
+        "memory.explorer.date.30d": "Last 30 days",
+        "memory.explorer.date.90d": "Last 90 days",
+        "memory.explorer.more": "More actions",
+        "memory.explorer.exportJson": "Export JSON",
+        "memory.explorer.exportMarkdown": "Export Markdown",
+        "memory.explorer.importMd": "Import Markdown mirror…",
+        "memory.explorer.importTitle": "Import Markdown mirror",
+        "memory.explorer.importHint": "Pick a Markdown mirror file; its manual edits are parsed and merged into the store.",
+        "memory.explorer.importType": "Mirror type",
+        "memory.explorer.importPick": "Choose file…",
+        "memory.explorer.importConfirm": "Import",
+        "memory.explorer.importCancel": "Cancel",
+        "memory.explorer.importing": "Importing…",
+        "memory.explorer.imported": "Merged {n} edits",
+        "memory.explorer.importFailed": "Import failed",
+        "memory.explorer.importNoFile": "Choose a file first",
+        "memory.explorer.exportFailed": "Export failed",
+        "memory.explorer.conflictBadge": "Conflict",
+        "memory.explorer.archivedBadge": "Archived",
+        "memory.explorer.detail.edit": "Edit",
+        "memory.explorer.detail.save": "Save",
+        "memory.explorer.detail.cancel": "Cancel",
+        "memory.explorer.detail.archive": "Archive",
+        "memory.explorer.detail.archived": "Archived",
+        "memory.explorer.detail.archiveFailed": "Action failed",
+        "memory.explorer.detail.saved": "Saved; mirrors re-rendered",
+        "memory.explorer.detail.quality": "Quality",
+        "memory.explorer.detail.entities": "Related entities",
+        "memory.explorer.detail.entitiesEmpty": "Turn on entity extraction and related people / projects appear here",
+        "memory.explorer.detail.closeAria": "Close details",
+        "memory.explorer.detail.editTitle": "Title",
+        "memory.explorer.detail.editContent": "Content",
+        "memory.explorer.detail.editImportance": "Importance",
+        "memory.status.dream": "Last consolidation",
+        "memory.status.dreamNever": "Not yet run",
+        "memory.status.conflicts": "Pending conflicts",
+        "memory.status.conflictsHint": "Frozen contradictory memories awaiting confirmation",
+        "memory.status.workbench": "Activity",
+        "memory.status.dreamConsolidate": "Consolidation",
+        "memory.status.summarize": "Summarization",
+        "memory.status.tokens": "{n} tokens",
+        "memory.status.deposited": "{n} memories deposited",
+        "memory.status.failed": "failed",
+        "memory.status.success": "success",
+        "memory.status.skipped": "skipped",
+        "memory.status.emptyFeed": "No background activity yet: memories are distilled after conversations",
+        "memory.status.consolidated": "Deposited memories",
+        "memory.status.consolidatedEmpty": "Memories deposited by autoDream / autoSummarize appear here",
+        "memory.status.archivedMemories": "Archived memories",
+        "memory.status.archivedEmpty": "Nothing archived",
+        "memory.status.restore": "Restore",
+        "memory.settings.extapi.reveal": "Reveal",
+        "memory.settings.extapi.hide": "Hide",
+        "memory.settings.extapi.maskHint": "Token masked; Copy still copies the full value",
         "memory.explorer.delete": "Delete",
         "memory.explorer.confirmDelete": "Confirm delete?",
         "memory.explorer.cancel": "Cancel",
@@ -428,18 +688,18 @@ window.__ModuleLoader__.load({
       ".mneme-entitychip:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent)}",
       // --- main-area memory library page ---
       ".mneme-x{flex:1;min-height:0;height:100%;width:100%;box-sizing:border-box;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1);--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2)}",
-      ".mneme-xbar{flex:none;display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--dsw-alias-border-l2);padding:0 16px}",
+      ".mneme-xbar{position:relative;flex:none;display:flex;align-items:center;justify-content:center;gap:6px;border-bottom:1px solid var(--dsw-alias-border-l2);padding:0 16px;min-height:52px}",
       ".mneme-filterbar{flex:none;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 16px;border-bottom:1px solid var(--dsw-alias-border-l2)}",
-      ".mneme-vtabs{display:flex;align-items:stretch;height:38px}",
-      ".mneme-vtab{position:relative;border:0;background:none;cursor:pointer;padding:0 10px;color:var(--dsw-alias-label-tertiary);font-family:inherit;font-size:13px;font-weight:500;line-height:16px;display:inline-flex;align-items:center;gap:6px}",
+      ".mneme-vtabs{display:flex;align-items:stretch;height:46px}",
+      ".mneme-vtab{position:relative;border:0;background:none;cursor:pointer;padding:0 16px;color:var(--dsw-alias-label-tertiary);font-family:inherit;font-size:14px;font-weight:500;line-height:20px;display:inline-flex;align-items:center;gap:7px}",
       ".mneme-vtab:hover{color:var(--dsw-alias-label-primary)}",
       ".mneme-vtab.mneme-active{color:var(--dsw-alias-state-business-primary)}",
-      ".mneme-vtab.mneme-active::after{content:\"\";position:absolute;left:8px;right:8px;bottom:-1px;height:2px;border-radius:2px;background:var(--dsw-alias-state-business-primary)}",
-      ".mneme-xtools{margin-left:auto;display:flex;align-items:center;gap:8px;padding:0 0 0 12px}",
+      ".mneme-vtab.mneme-active::after{content:\"\";position:absolute;left:10px;right:10px;bottom:-1px;height:2.5px;border-radius:2px;background:var(--dsw-alias-state-business-primary)}",
+      ".mneme-xtools{position:absolute;right:14px;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:8px;padding:0}",
       ".mneme-xcount{flex:none;font-size:12px;line-height:16px;color:var(--dsw-alias-label-tertiary);white-space:nowrap}",
       // --- three-column browse layout: hairline separators, no outer box ---
       ".mneme-xmain{flex:1;min-height:0;display:flex;flex-direction:row;overflow:hidden}",
-      ".mneme-xside{flex:none;width:236px;min-width:0;min-height:0;overflow-y:auto;padding:12px;border-right:1px solid var(--dsw-alias-border-l2);box-sizing:border-box;display:flex;flex-direction:column;gap:8px}",
+      ".mneme-xside{flex:none;width:236px;min-width:0;min-height:0;overflow-y:auto;padding:16px 14px;border-right:1px solid var(--dsw-alias-border-l2);box-sizing:border-box;display:flex;flex-direction:column;gap:8px}",
       ".mneme-xside--filter{width:214px}",
       ".mneme-xbrowse{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}",
       ".mneme-xrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}",
@@ -525,7 +785,7 @@ window.__ModuleLoader__.load({
       ".mneme-relname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
       // --- settings: quiet stacked sections, one concern per section ---
       ".mneme-set{flex:1;min-height:0;overflow-y:auto;padding:8px 24px 48px;box-sizing:border-box}",
-      ".mneme-set-inner{max-width:680px}",
+      ".mneme-set-inner{max-width:720px;margin:0 auto}",
       ".mneme-set-sec{padding:20px 0 24px;border-bottom:1px solid var(--dsw-alias-border-l2)}",
       ".mneme-set-sec:last-child{border-bottom:none}",
       ".mneme-set-title{font-size:14px;font-weight:600;color:var(--dsw-alias-label-primary);margin-bottom:4px}",
@@ -550,16 +810,95 @@ window.__ModuleLoader__.load({
       ".mneme-set-cmddesc{font-size:12px;line-height:17px;color:var(--dsw-alias-label-tertiary);margin-top:1px;word-break:break-word}",
       // --- settings sub-view ---
       ".mneme-set{flex:1;min-height:0;overflow-y:auto;padding:8px 24px 48px;box-sizing:border-box}",
-      // --- hero fallback: full-viewport memory library when no tab ring exists ---
-      // The host hides the whole conversation tab ring while a session is
-      // blank (hero screen), so the sidebar entry cannot activate the tab
-      // there. This surface reuses the exact MemoryExplorer UI at full size —
-      // not a side drawer — so the library stays reachable from any state.
-      ".mneme-overlay{position:fixed;inset:0;z-index:1000;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1);animation:mneme-fadein .12s ease-out}",
-      ".mneme-overlaybar{flex:none;display:flex;align-items:center;justify-content:space-between;height:44px;padding:0 12px 0 16px;border-bottom:1px solid var(--dsw-alias-border-l2)}",
-      ".mneme-overlaytitle{font-size:14px;font-weight:600;color:var(--dsw-alias-label-primary)}",
+      // --- 记忆库页面：居中 sheet，非全屏 ---
+      // 从对话直接打开一页记忆库：背板压暗 + 居中圆角卡片（上限 1180×880），
+      // 对话仍留在背板之后，任何状态下（含新会话 hero、无 tab 环）都可用。
+      // portal 到 <body>，宿主侧边栏的层叠上下文裁不住它。
+      ".mneme-backdrop{position:fixed;inset:0;z-index:999;background:color-mix(in srgb,var(--dsw-alias-label-primary) 16%,transparent);backdrop-filter:blur(2px);animation:mneme-fadein .14s ease-out}",
+      ".mneme-overlay{position:fixed;z-index:1000;left:50%;top:50%;transform:translate(-50%,-50%);width:min(1240px,calc(100vw - 88px));height:min(920px,calc(100vh - 64px));display:flex;flex-direction:column;border:1px solid var(--dsw-alias-border-l2);border-radius:16px;overflow:hidden;background:var(--dsw-alias-bg-layer-1);box-shadow:0 24px 64px color-mix(in srgb,var(--dsw-alias-label-primary) 22%,transparent);animation:mneme-pop .18s cubic-bezier(.2,.9,.3,1)}",
+      ".mneme-overlaybar{flex:none;display:flex;align-items:center;justify-content:space-between;height:48px;padding:0 12px 0 18px;border-bottom:1px solid var(--dsw-alias-border-l2)}",
+      ".mneme-overlaytitle{font-size:14px;font-weight:600;color:var(--dsw-alias-label-primary);display:flex;align-items:center;gap:8px}",
       ".mneme-overlaybody{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}",
       "@keyframes mneme-fadein{from{opacity:0}to{opacity:1}}",
+      "@keyframes mneme-pop{from{opacity:0;transform:translate(-50%,-50%) scale(.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}}",
+      // --- 侧边栏顶部入口：借宿主「新会话」按钮的原生类名对齐 ---
+      // wrapper display:contents 隐身，按钮成为侧边栏弹性布局的直接子元素；
+      // 盒模型/间距/收起态 rail 几何全部继承宿主，我们只覆盖配色为次级观感。
+      ".mneme-topentry{display:contents}",
+      ".mneme-topentry-native{background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary)}",
+      ".mneme-topentry-native:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}",
+      ".mneme-topentry-native .mneme-topentry-label{flex:1;min-width:0;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+      // --- 功能开关：一行一开关，Claude 式安静排版 ---
+      ".mneme-featgroup{flex:none;font-size:12px;font-weight:600;letter-spacing:.02em;color:var(--dsw-alias-label-tertiary);margin:16px 0 2px}",
+      ".mneme-featrow{display:flex;align-items:center;gap:14px;padding:11px 2px;border-bottom:1px solid var(--dsw-alias-border-l1)}",
+      ".mneme-featrow:last-child{border-bottom:none}",
+      ".mneme-featmain{flex:1;min-width:0}",
+      ".mneme-featname{font-size:13.5px;font-weight:500;line-height:20px;color:var(--dsw-alias-label-primary)}",
+      ".mneme-feathint{font-size:12.5px;line-height:18px;color:var(--dsw-alias-label-tertiary);margin-top:2px}",
+      ".mneme-switch{position:relative;flex:none;width:36px;height:22px;border-radius:11px;border:none;cursor:pointer;background:var(--dsw-alias-interactive-bg-active);transition:background .15s}",
+      ".mneme-switch::after{content:\"\";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:var(--dsw-alias-bg-layer-1,#fff);box-shadow:0 1px 3px color-mix(in srgb,var(--dsw-alias-label-primary) 25%,transparent);transition:transform .15s}",
+      ".mneme-switch.mneme-on{background:var(--dsw-alias-state-business-primary)}",
+      ".mneme-switch.mneme-on::after{transform:translateX(14px)}",
+      ".mneme-switch:disabled{opacity:.5;cursor:default}",
+      ".mneme-featnum{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 2px;border-bottom:1px solid var(--dsw-alias-border-l1)}",
+      ".mneme-featnum:last-child{border-bottom:none}",
+      ".mneme-featnumlabel{font-size:13px;line-height:20px;color:var(--dsw-alias-label-secondary)}",
+      ".mneme-numinput{box-sizing:border-box;width:110px;height:30px;padding:0 10px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base,transparent);color:var(--dsw-alias-label-primary);font-family:inherit;font-size:13px;outline:none;text-align:right;transition:border-color .12s,box-shadow .12s}",
+      ".mneme-numinput:focus{border-color:var(--dsw-alias-state-business-primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-business-primary) 15%,transparent)}",
+      // 字符串开关的输入框（provider/model 等）与其子块容器
+      ".mneme-strinput{box-sizing:border-box;width:240px;max-width:60%;height:30px;padding:0 10px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base,transparent);color:var(--dsw-alias-label-primary);font-family:inherit;font-size:13px;outline:none;text-align:left;transition:border-color .12s,box-shadow .12s}",
+      ".mneme-strinput:focus{border-color:var(--dsw-alias-state-business-primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-business-primary) 15%,transparent)}",
+      ".mneme-featsub{margin:2px 0 8px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;display:flex;flex-direction:column;gap:6px}",
+      ".mneme-featsub .mneme-featnum{padding:6px 0;border-bottom:none}",
+      ".mneme-featsubhint{font-size:12px;line-height:17px;color:var(--dsw-alias-label-tertiary)}",
+      // --- 交互式记忆库：工具栏 / 卡片网格 / 详情抽屉 / 更多菜单 ---
+      // sheet 边距放宽：与窗口边缘保持呼吸距离，居中不顶满。
+      // 视图切换（卡片/时间线）分段控件挂在子页栏右侧。
+      ".mneme-seg{display:inline-flex;align-items:center;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;overflow:hidden}",
+      ".mneme-seg button{border:none;background:none;color:var(--dsw-alias-label-tertiary);cursor:pointer;font-family:inherit;font-size:12px;line-height:16px;padding:5px 10px;display:inline-flex;align-items:center;gap:5px}",
+      ".mneme-seg button:hover{color:var(--dsw-alias-label-primary)}",
+      ".mneme-seg button.mneme-active{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary);font-weight:500}",
+      // 卡片网格：响应式 auto-fill，卡片悬停轻浮起
+      ".mneme-cards{flex:1;min-height:0;overflow-y:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(252px,1fr));gap:14px;padding:20px 24px 32px;align-content:start}",
+      ".mneme-card{display:flex;flex-direction:column;gap:7px;min-width:0;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;padding:12px 13px;background:var(--dsw-alias-bg-layer-1);cursor:pointer;font-family:inherit;text-align:left;transition:border-color .12s,box-shadow .12s,transform .12s}",
+      ".mneme-card:hover{border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 45%,var(--dsw-alias-border-l2));box-shadow:0 6px 20px color-mix(in srgb,var(--dsw-alias-label-primary) 10%,transparent);transform:translateY(-1px)}",
+      ".mneme-card.mneme-active{border-color:var(--dsw-alias-state-business-primary)}",
+      ".mneme-cardhead{display:flex;align-items:center;gap:6px;font-size:11.5px;line-height:16px;color:var(--dsw-alias-label-tertiary)}",
+      ".mneme-cardtitle{font-size:13.5px;font-weight:600;line-height:19px;color:var(--dsw-alias-label-primary);word-break:break-word;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}",
+      ".mneme-cardexcerpt{font-size:12.5px;line-height:18px;color:var(--dsw-alias-label-secondary);word-break:break-word;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}",
+      ".mneme-cardfoot{display:flex;align-items:center;gap:8px;margin-top:auto;font-size:11.5px;line-height:16px;color:var(--dsw-alias-label-tertiary)}",
+      ".mneme-cardsrc{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+      // 徽章：冲突待确认 / 已归档
+      ".mneme-badge{flex:none;display:inline-flex;align-items:center;gap:4px;height:18px;padding:0 7px;border-radius:6px;font-size:11px;line-height:14px}",
+      ".mneme-badge--conflict{color:var(--dsw-alias-state-error,#c33);background:color-mix(in srgb,var(--dsw-alias-state-error,#c33) 10%,transparent);border:1px solid color-mix(in srgb,var(--dsw-alias-state-error,#c33) 30%,transparent)}",
+      ".mneme-badge--archived{color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-interactive-bg-hover)}",
+      // 详情抽屉：sheet 内右侧滑出，覆盖在浏览区之上
+      ".mneme-xmain{position:relative}",
+      "@keyframes mneme-slidein{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:translateX(0)}}",
+      ".mneme-drawer{position:absolute;top:0;right:0;bottom:0;width:min(432px,52%);display:flex;flex-direction:column;border-left:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);box-shadow:-16px 0 40px color-mix(in srgb,var(--dsw-alias-label-primary) 10%,transparent);animation:mneme-slidein .18s ease-out;z-index:6}",
+      ".mneme-drawerbar{flex:none;display:flex;align-items:center;gap:8px;height:44px;padding:0 10px 0 16px;border-bottom:1px solid var(--dsw-alias-border-l2)}",
+      ".mneme-drawertype{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:500;color:var(--dsw-alias-label-secondary)}",
+      ".mneme-drawerbody{flex:1;min-height:0;overflow-y:auto;padding:20px 22px 28px}",
+      ".mneme-drawertitle{width:100%;font-size:16px;font-weight:600;line-height:23px;color:var(--dsw-alias-label-primary);word-break:break-word}",
+      ".mneme-drawertitle-input{width:100%;box-sizing:border-box;font-size:15px;font-weight:600;line-height:22px;padding:7px 10px;border-radius:8px;border:1px solid var(--dsw-alias-state-business-primary);background:var(--dsw-alias-bg-base,transparent);color:var(--dsw-alias-label-primary);font-family:inherit;outline:none;box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-business-primary) 15%,transparent)}",
+      ".mneme-dmeta{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;margin-top:12px;font-size:12.5px;line-height:19px}",
+      ".mneme-dmetakey{color:var(--dsw-alias-label-tertiary)}",
+      ".mneme-dmetaval{color:var(--dsw-alias-label-secondary);min-width:0;word-break:break-word}",
+      ".mneme-dcontent{margin-top:14px;font-size:13.5px;line-height:1.75;color:var(--dsw-alias-label-primary);white-space:pre-wrap;word-break:break-word}",
+      ".mneme-dcontent-input{width:100%;box-sizing:border-box;min-height:180px;font-size:13.5px;line-height:1.7;padding:9px 11px;border-radius:8px;border:1px solid var(--dsw-alias-state-business-primary);background:var(--dsw-alias-bg-base,transparent);color:var(--dsw-alias-label-primary);font-family:inherit;outline:none;resize:vertical;box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-business-primary) 15%,transparent)}",
+      ".mneme-dentities{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}",
+      ".mnementity-chip{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;font-size:12px;line-height:16px;color:var(--dsw-alias-label-secondary);cursor:default}",
+      ".mneme-dactions{flex:none;display:flex;flex-wrap:wrap;gap:8px;padding:10px 16px;border-top:1px solid var(--dsw-alias-border-l2)}",
+      // 更多操作菜单（导入/导出）与导入弹层
+      ".mneme-menuwrap{position:relative}",
+      ".mneme-menu{position:absolute;right:0;top:calc(100% + 6px);min-width:180px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 12px 32px color-mix(in srgb,var(--dsw-alias-label-primary) 16%,transparent);padding:5px;z-index:20;animation:mneme-fadein .1s ease-out}",
+      ".mneme-menu button{display:flex;align-items:center;gap:8px;width:100%;border:none;background:none;color:var(--dsw-alias-label-primary);cursor:pointer;font-family:inherit;font-size:13px;line-height:18px;padding:8px 10px;border-radius:8px;text-align:left}",
+      ".mneme-menu button:hover{background:var(--dsw-alias-interactive-bg-hover)}",
+      ".mneme-impdialog{position:absolute;right:0;top:calc(100% + 6px);width:300px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 12px 32px color-mix(in srgb,var(--dsw-alias-label-primary) 16%,transparent);padding:14px;z-index:20;animation:mneme-fadein .1s ease-out}",
+      ".mneme-improw{display:flex;align-items:center;gap:8px;margin-top:10px}",
+      // 瞬时操作提示（删除/归档）：挂在浏览层底部居中，不被抽屉卸载吞掉
+      ".mneme-x{position:relative}",
+      ".mneme-toast{position:absolute;left:50%;bottom:20px;transform:translateX(-50%);background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-1);font-size:12.5px;line-height:18px;padding:7px 16px;border-radius:10px;z-index:30;box-shadow:0 8px 24px color-mix(in srgb,var(--dsw-alias-label-primary) 25%,transparent);animation:mneme-fadein .15s ease-out}",
       // --- explorer refresh: paged month tree, sticky headers, inline icons ---
       ".mneme-vtabico{flex:none;opacity:.85}",
       ".mneme-xsearchwrap{position:relative;flex:none}",
@@ -572,9 +911,21 @@ window.__ModuleLoader__.load({
       ".mneme-xmore{display:flex;justify-content:center;align-items:center;padding:10px 0 24px;min-height:20px}",
       ".mneme-xemptyico{display:block;margin:0 auto 6px;opacity:.7}",
       // --- status sub-view: responsive stat-card grid (auto-fill, ~220px min) ---
-      ".mneme-status{flex:1;min-height:0;overflow-y:auto;padding:16px 20px 32px;box-sizing:border-box}",
-      ".mneme-statusgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;max-width:960px}",
+      ".mneme-status{flex:1;min-height:0;overflow-y:auto;padding:20px 24px 40px;box-sizing:border-box}",
+      ".mneme-statusgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;max-width:1000px;margin:0 auto}",
       ".mneme-statuscard{min-width:0;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:14px}",
+      // --- 状态页工作台：让用户看见插件在干活（动态/沉淀/归档） ---
+      ".mneme-wbhead{margin:28px auto 10px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);max-width:1000px}",
+      ".mneme-wblist{max-width:1000px;display:flex;flex-direction:column;gap:6px}",
+      ".mneme-wbrow{display:flex;gap:10px;align-items:flex-start;padding:10px 14px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px}",
+      ".mneme-wbdot{flex:none;width:8px;height:8px;border-radius:50%;margin-top:6px;background:var(--dsw-alias-state-success,#2a9d6a)}",
+      ".mneme-wbdot--err{background:var(--dsw-alias-state-error,#c33)}",
+      ".mneme-wbmain{min-width:0;flex:1}",
+      ".mneme-wbtitle{font-size:13px;line-height:19px;color:var(--dsw-alias-label-primary)}",
+      ".mneme-wbsub{font-size:12px;line-height:17px;color:var(--dsw-alias-label-tertiary);margin-top:1px}",
+      ".mneme-wbmemo{display:flex;gap:10px;align-items:center;padding:10px 14px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px}",
+      ".mneme-wbmemo .mneme-xdot{flex:none}",
+      ".mneme-wbmemo-main{min-width:0;flex:1}",
       ".mneme-statusnum{font-size:24px;font-weight:600;line-height:32px;color:var(--dsw-alias-label-primary);font-variant-numeric:tabular-nums}",
       ".mneme-statuscap{margin-top:4px;font-size:13px;line-height:19px;color:var(--dsw-alias-label-tertiary);word-break:break-word}",
       // --- destructive actions: red outline = delete, solid red = confirm ---
@@ -623,7 +974,12 @@ window.__ModuleLoader__.load({
       project: "#22c55e",
       decision: "#3b82f6",
       summary: "#a855f7",
-      history: "#94a3b8"
+      history: "#94a3b8",
+      // codingRetrospect 的三类编码记忆：警示色区分度最高——踩坑/被否决方案
+      // 天然带"注意"语义，工程约束用冷色表达"规则"。
+      rejected_solution: "#fb923c",
+      pitfall: "#ef4444",
+      constraint: "#0ea5e9"
     };
     function memoryTypeColor(type) {
       return MEMORY_TYPE_COLORS[type] || "#94a3b8";
@@ -1110,6 +1466,185 @@ window.__ModuleLoader__.load({
     }
 
 
+    // --- 功能开关卡片（可插拔后端能力）---
+    // GET /features 拿 overrides + effective，PUT 提交增量；启动时 index.js
+    // 把持久化的 kv 合并进配置，因此每个开关都标注「重启 DSH 后生效」。
+    // 分组排版：核心/增强/巩固常驻，注入策略等收进「高级」折叠，普通用户
+    // 不被专业项淹没。429 调速器参数、distillMaxChars、codingBoostFactor
+    // 属调优噪音，按对齐结论留在配置文件，不上 UI。
+    const FEATURE_GROUPS = [
+      { key: "group.core", items: ["autoInject", "autoSummarize", "hotMemoryEnabled", "memoryQualityFilter.enabled", "llmAudit.enabled"] },
+      { key: "group.enhance", items: ["entityExtractionEnabled", "codingRetrospect", "rerankEnabled", "searchSemanticDedup", "bm25SearchEnabled"] },
+      { key: "group.dream", items: ["autoDream", "sleepModeEnabled"] }
+    ];
+    const FEATURE_ADVANCED_BOOLS = ["hybridInject", "selectiveInjectEnabled", "adaptiveThresholdEnabled", "reflectionUpdateEnabled", "reflectionFailureTracking", "conflictFreezeEnabled", "trustEpistemicWeighting"];
+    // 字符串键（blur/Enter 提交，空串合法 = 跟随默认）：巩固模型与语义
+    // 检索路线。embedProvider 是枚举，用下拉单独渲染。
+    const FEATURE_STRINGS = ["dreamProvider", "dreamModel", "localEmbedModel", "ollamaBaseUrl", "ollamaModel"];
+    const EMBED_PROVIDERS = ["openai", "local", "ollama"];
+
+    function FeatureRow({ name, hint, on, disabled, onToggle }) {
+      return h("div", { className: "mneme-featrow" },
+        h("div", { className: "mneme-featmain" },
+          h("div", { className: "mneme-featname" }, name),
+          h("div", { className: "mneme-feathint" }, hint)
+        ),
+        h("button", {
+          type: "button",
+          className: on ? "mneme-switch mneme-on" : "mneme-switch",
+          role: "switch",
+          "aria-checked": String(on),
+          "aria-label": name,
+          disabled,
+          onClick: onToggle
+        })
+      );
+    }
+
+    function FeaturesCard({ t }) {
+      const [state, setState] = useState(null); // { overrides, effective }
+      const [error, setError] = useState("");
+      const [busy, setBusy] = useState(false);
+      const [savedTick, setSavedTick] = useState(false);
+      const [showAdv, setShowAdv] = useState(false);
+      const [strs, setStrs] = useState({}); // 字符串输入的本地草稿：key -> string
+
+      useEffect(() => {
+        let cancelled = false;
+        apiFetch("/api/dsh-mneme/features")
+          .then((res) => { if (!res.ok) throw new Error("HTTP " + res.status); return res.json(); })
+          .then((j) => {
+            if (cancelled) return;
+            setState(j);
+            const e = (j && j.effective) || {};
+            const draft = {};
+            for (const key of FEATURE_STRINGS) draft[key] = String(e[key] ?? "");
+            setStrs(draft);
+          })
+          .catch(() => { if (!cancelled) setError(t("memory.features.loadFailed")); });
+        return () => { cancelled = true; };
+      }, [t]);
+
+      const eff = (state && state.effective) || {};
+
+      const put = async (patch) => {
+        setBusy(true);
+        try {
+          const res = await apiFetch("/api/dsh-mneme/features", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(patch)
+          });
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          setState(await res.json());
+          setSavedTick(true);
+          setTimeout(() => setSavedTick(false), 1800);
+        } catch {
+          setError(t("memory.features.loadFailed"));
+        } finally {
+          setBusy(false);
+        }
+      };
+
+      // 字符串项失焦/回车提交：trim 后与生效值相同则回填放弃，否则交给
+      // 后端校验（ollamaBaseUrl 的协议、embedProvider 的枚举在后端把关）。
+      const commitString = (key) => {
+        const raw = (strs[key] ?? "").trim();
+        if (raw === String(eff[key] ?? "")) {
+          setStrs((c) => ({ ...c, [key]: String(eff[key] ?? "") }));
+          return;
+        }
+        put({ [key]: raw });
+      };
+
+      const boolRow = (k) => h(FeatureRow, {
+        key: k,
+        name: t(`memory.features.${k}`),
+        hint: t(`memory.features.${k}.hint`),
+        on: !!eff[k],
+        disabled: busy,
+        onToggle: () => put({ [k]: !eff[k] })
+      });
+
+      const strRow = (key) => h("div", { className: "mneme-featnum", key },
+        h("span", { className: "mneme-featnumlabel" }, t(`memory.features.${key}`)),
+        h("input", {
+          className: "mneme-strinput",
+          value: strs[key] ?? "",
+          onChange: (e) => setStrs((c) => ({ ...c, [key]: e.target.value })),
+          onBlur: () => commitString(key),
+          onKeyDown: (e) => { if (e.key === "Enter") e.target.blur(); }
+        }));
+
+      // 语义检索路线：provider 下拉即时提交；local/ollama 选中时展开各自
+      // 的连接字段，openai 的连接信息由「向量搜索」卡片持有，只给指引。
+      const embedSub = h("div", { className: "mneme-featsub" },
+        h("div", { className: "mneme-featnum" },
+          h("span", { className: "mneme-featnumlabel" }, t("memory.features.embedProvider")),
+          h("select", {
+            className: "mneme-select",
+            value: eff.embedProvider || "openai",
+            disabled: busy,
+            onChange: (e) => put({ embedProvider: e.target.value })
+          },
+            EMBED_PROVIDERS.map((p) => h("option", { key: p, value: p }, t(`memory.features.embedProvider.${p}`))))
+        ),
+        h("div", { className: "mneme-featsubhint" },
+          t(`memory.features.embedProvider.${eff.embedProvider || "openai"}.hint`)),
+        eff.embedProvider === "local" && strRow("localEmbedModel"),
+        eff.embedProvider === "ollama" && strRow("ollamaBaseUrl"),
+        eff.embedProvider === "ollama" && strRow("ollamaModel")
+      );
+
+      // 巩固模型：autoDream 开着才展开，避免闲置配置占版面。
+      const dreamSub = eff.autoDream && h("div", { className: "mneme-featsub" },
+        strRow("dreamProvider"),
+        strRow("dreamModel"),
+        h("div", { className: "mneme-featsubhint" }, t("memory.features.dreamModelHint"))
+      );
+
+      if (error && !state) return h("section", { className: "mneme-set-card" },
+        h("div", { className: "mneme-set-title" }, t("memory.features.title")),
+        h("div", { className: "mneme-set-hint" }, error));
+
+      return h("section", { className: "mneme-set-card" },
+        h("div", { className: "mneme-set-title" },
+          t("memory.features.title"),
+          savedTick && h("span", { className: "mneme-saved", style: { marginLeft: 8, fontWeight: 400 } }, t("memory.features.restartHint"))
+        ),
+        h("div", { className: "mneme-set-desc" }, t("memory.features.desc")),
+        state === null && !error
+          ? h("div", { className: "mneme-set-hint" }, "…")
+          : h(react.Fragment, null,
+              FEATURE_GROUPS.map((g) => h(react.Fragment, { key: g.key },
+                h("div", { className: "mneme-featgroup" }, t(`memory.features.${g.key}`)),
+                g.items.map(boolRow),
+                g.key === "group.enhance" && embedSub,
+                g.key === "group.dream" && dreamSub
+              )),
+              h("div", { className: "mneme-featgroup" },
+                h("button", {
+                  type: "button",
+                  className: "mneme-footbtn",
+                  "aria-expanded": String(showAdv),
+                  onClick: () => setShowAdv(!showAdv)
+                },
+                  h(Icon, { name: showAdv ? "chevronDown" : "chevronRight", size: 12 }),
+                  t("memory.features.advancedToggle"))
+              ),
+              showAdv && FEATURE_ADVANCED_BOOLS.map(boolRow)
+            )
+      );
+    }
+
+    // 令牌遮蔽：保留首尾少量字符便于辨认，中间全部打点；完整值只经复制
+    // 通道离开面板。
+    function maskToken(value) {
+      const s = String(value ?? "");
+      if (s.length <= 8) return "•".repeat(Math.max(6, s.length));
+      return `${s.slice(0, 5)}${"•".repeat(10)}${s.slice(-4)}`;
+    }
+
     function SettingsContent({ t }) {
       const [profile, setProfile] = react.useState("");
       const [rules, setRules] = react.useState([]);
@@ -1141,6 +1676,8 @@ window.__ModuleLoader__.load({
       const [extapiSaved, setExtapiSaved] = react.useState(false);
       const [extapiCopied, setExtapiCopied] = react.useState(false);
       const [extapiError, setExtapiError] = react.useState("");
+      // 令牌默认遮蔽显示：完整值只经「复制」离开面板，不直接铺在页面上。
+      const [extapiTokenShown, setExtapiTokenShown] = react.useState(false);
 
       const load = react.useCallback(async () => {
         try {
@@ -1433,6 +1970,9 @@ window.__ModuleLoader__.load({
             )
           )
         ),
+        // 功能开关 — 0.7.13/0.7.14 后端能力的前端总闸（codingRetrospect、
+        // 智能调速器参数、实体抽取、巩固等）；重启 DSH 后生效。
+        h(FeaturesCard, { t }),
         // 运行模式 — light vs standard chip radios; each click PUTs and the
         // change only lands after a DSH restart (green saved hint says so).
         h("section", { className: "mneme-set-card" },
@@ -1505,7 +2045,16 @@ window.__ModuleLoader__.load({
                       t("memory.settings.vectorSave"))
                   ),
                   h("div", { style: { display: "flex", alignItems: "center", gap: 8, marginTop: 10 } },
-                    h("div", { className: "mneme-set-token", style: { flex: 1, minWidth: 0 } }, extapi.token || "—"),
+                    h("div", {
+                      className: "mneme-set-token",
+                      style: { flex: 1, minWidth: 0 },
+                      title: extapi.token && !extapiTokenShown ? t("memory.settings.extapi.maskHint") : undefined
+                    }, !extapi.token ? "—" : (extapiTokenShown ? extapi.token : maskToken(extapi.token))),
+                    h("button", {
+                      className: "mneme-footbtn",
+                      onClick: () => setExtapiTokenShown(!extapiTokenShown),
+                      "aria-label": extapiTokenShown ? t("memory.settings.extapi.hide") : t("memory.settings.extapi.reveal")
+                    }, extapiTokenShown ? t("memory.settings.extapi.hide") : t("memory.settings.extapi.reveal")),
                     h("button", { className: "mneme-btn", onClick: copyExtapiToken },
                       t("memory.settings.extapi.copy")),
                     extapiCopied && h("span", { className: "mneme-saved" }, t("memory.settings.extapi.copied"))
@@ -1551,59 +2100,14 @@ window.__ModuleLoader__.load({
       );
     }
 
-    // --- Main-area memory library: the single home for every memory feature ---
-    // Registered under conversation.view beside Chat / Trajectory. The old
-    // right-hand drawer is gone: the sidebar foot entry activates this tab
-    // directly. The framework keeps the active-view setter private to the
-    // conversation package, and the DOM tab click is the one stable
-    // activation path available to plugins.
-    //
-    // One host constraint remains: the conversation header (and with it the
-    // whole tab ring) is hidden while a session is blank — the new-chat hero
-    // screen. There the tab simply does not exist, so activateExplorerTab
-    // resolves false and the sidebar entry falls back to the full-viewport
-    // overlay surface below.
-    // Candidate tabs whose label matches ours exactly. The conversation tab
-    // ring carries no registrant id in the DOM, so the label is all we have —
-    // but other plugins may register views (or settings dialogs may render
-    // panes) with the same text, and hidden panes still sit in the document.
-    // Restrict to rendered tabs (offsetParent filters display:none subtrees)
-    // and verify by rendering, not by label alone (see activateExplorerTab).
-    function findExplorerTabs(label) {
-      const matches = [];
-      for (const tab of document.querySelectorAll('[role="tab"]')) {
-        if ((tab.textContent || "").trim() !== label) continue;
-        if (tab.offsetParent === null && getComputedStyle(tab).position !== "fixed") continue;
-        matches.push(tab);
-      }
-      return matches;
-    }
-
-    // Click the memory library tab and wait (bounded, rAF-polled) until the
-    // host marks it selected AND our explorer actually rendered (`.mneme-x`).
-    // aria-selected alone cannot tell our tab from a same-labelled tab of
-    // another plugin — the sidebar entry must not activate theirs. On a
-    // failed candidate, move on to the next one; resolve false when the
-    // fallback overlay should take over.
-    function activateExplorerTab(label) {
-      return new Promise((resolve) => {
-        const candidates = findExplorerTabs(label);
-        if (candidates.length === 0) { resolve(false); return; }
-        let index = 0;
-        const tryNext = () => {
-          if (index >= candidates.length) { resolve(false); return; }
-          const tab = candidates[index++];
-          tab.click();
-          const deadline = Date.now() + 400;
-          (function check() {
-            const rendered = document.querySelector(".mneme-x") !== null;
-            if (tab.getAttribute("aria-selected") === "true" && rendered) { resolve(true); return; }
-            if (Date.now() >= deadline) { setTimeout(tryNext, 0); return; }
-            requestAnimationFrame(check);
-          })();
-        };
-        tryNext();
-      });
+    // --- 打开记忆库 ---
+    // v0.7.15 起记忆库不再注册 conversation.view tab：对话内嵌体验差
+    // （面板被悬浮输入框遮挡、挤压会话布局）。唯一入口是侧边栏记忆按钮，
+    // 直接打开居中 sheet——对话留在背板之后，不占全屏。保留这层间接函数
+    // 是给图/实体视图的「查看来源记忆」跳转一个稳定语义：打开 sheet，
+    // MemoryExplorer 内部状态（选中行、过滤）由各自的跳转回调处理。
+    function openLibrary() {
+      setOverlayOpen(true);
     }
 
     // --- Hero fallback overlay state (module-level pub/sub) ---
@@ -1624,11 +2128,9 @@ window.__ModuleLoader__.load({
       return [open, setOverlayOpen];
     }
 
-    // Full-viewport memory library for states without a tab ring (new-chat
-    // hero). Same MemoryExplorer component as the tab view — identical
-    // three-column layout, graph and settings — plus a slim top bar with a
-    // close affordance. Esc closes. Portalled to <body> so sidebar stacking
-    // contexts cannot clip it.
+    // 居中 sheet 记忆库：任何状态下（含新会话 hero、无 tab 环）都能从侧边栏
+    // 入口直接打开。背板点击 / Esc 关闭。portal 到 <body>，侧边栏的层叠
+    // 上下文裁不住它；运行时拒绝 react-dom 时就地渲染（position:fixed 仍然成立）。
     function MemoryOverlay({ t }) {
       const [open, setOpen] = useOverlayOpen();
       useEffect(() => {
@@ -1638,16 +2140,30 @@ window.__ModuleLoader__.load({
         return () => window.removeEventListener("keydown", onKey);
       }, [open]);
       if (!open) return null;
-      const tree = h("div", { className: "mneme-overlay", role: "region", "aria-label": t("memory.view.label") },
-        h("div", { className: "mneme-overlaybar" },
-          h("span", { className: "mneme-overlaytitle" }, t("memory.view.label")),
-          h("button", {
-            type: "button",
-            className: "mneme-footbtn",
-            onClick: () => setOpen(false)
-          }, t("memory.overlay.close"))
-        ),
-        h("div", { className: "mneme-overlaybody" }, h(MemoryExplorer, { t }))
+      // 背板与 sheet 是兄弟节点而不是嵌套：点击背板自身才关闭，sheet 内部
+      // 的任何点击都不会冒泡到背板，不需要额外拦截。
+      const tree = h(react.Fragment, null,
+        h("div", {
+          className: "mneme-backdrop",
+          onClick: () => setOpen(false),
+          "aria-hidden": "true"
+        }),
+        h("div", { className: "mneme-overlay", role: "region", "aria-label": t("memory.view.label") },
+          h("div", { className: "mneme-overlaybar" },
+            h("span", { className: "mneme-overlaytitle" },
+              h(IconArchiveOutline20, { size: 15 }),
+              t("memory.view.label")
+            ),
+            h("button", {
+              type: "button",
+              className: "mneme-footbtn",
+              "aria-label": t("memory.overlay.close"),
+              title: t("memory.overlay.close"),
+              onClick: () => setOpen(false)
+            }, "✕")
+          ),
+          h("div", { className: "mneme-overlaybody" }, h(MemoryExplorer, { t }))
+        )
       );
       if (reactDom && typeof document !== "undefined") return reactDom.createPortal(tree, document.body);
       return tree;
@@ -1789,17 +2305,396 @@ window.__ModuleLoader__.load({
       });
     }
 
+    // 巩固状态卡（×2）：最近一次 autoDream 运行 + 待确认冲突计数。数据来自
+    // /dream-status，一次取回两张卡共用；失败只影响这两张卡自身。
+    function DreamStatusCards({ t }) {
+      const [state, setState] = useState({ loading: true, error: false, lastRun: null, pending: 0 });
+      useEffect(() => {
+        let cancelled = false;
+        apiFetch("/api/dsh-mneme/dream-status")
+          .then((res) => { if (!res.ok) throw new Error("http"); return res.json(); })
+          .then((d) => {
+            if (cancelled) return;
+            setState({
+              loading: false,
+              error: false,
+              lastRun: (d && d.lastRun) || null,
+              pending: Number((d && d.pendingConflicts) ?? 0)
+            });
+          })
+          .catch(() => { if (!cancelled) setState({ loading: false, error: true, lastRun: null, pending: 0 }); });
+        return () => { cancelled = true; };
+      }, []);
+      const run = state.lastRun;
+      const num = run ? formatRelativeTime(run.created_at, t) : t("memory.status.dreamNever");
+      const cap = run
+        ? `${run.status || "—"}${run.model ? ` · ${run.model}` : ""}`
+        : t("memory.settings.mode.offList");
+      return h(react.Fragment, null,
+        h(StatusCard, { t, title: t("memory.status.dream"), loading: state.loading, error: state.error, num, cap }),
+        h(StatusCard, {
+          t,
+          title: t("memory.status.conflicts"),
+          loading: state.loading,
+          error: state.error,
+          num: state.pending.toLocaleString(),
+          cap: t("memory.status.conflictsHint")
+        })
+      );
+    }
+
+    // --- 状态页工作台：让用户切实看见插件在干活 ---
+    // 活动流合并 llm_audit 里 autoDream/autoSummarize 的后台调用（状态、
+    // token、沉淀条数）；沉淀记忆列表用 audit 行携带的 related_memory_ids
+    // 对照最近列表解析出标题；归档列表走 /list?archived=only，「恢复」经
+    // POST /update {archived:false} 送回主列表。
+    function parseRelatedIds(v) {
+      if (Array.isArray(v)) return v;
+      if (typeof v === "string") {
+        try { const a = JSON.parse(v); return Array.isArray(a) ? a : []; } catch { return []; }
+      }
+      return [];
+    }
+
+    function WorkbenchSection({ t }) {
+      const [feed, setFeed] = useState(null); // audit rows（已过滤巩固/总结）
+      const [deposited, setDeposited] = useState(null); // ids 解析出的记忆
+      const [archived, setArchived] = useState(null);
+      const [restoring, setRestoring] = useState("");
+
+      const load = useCallback(() => {
+        let cancelled = false;
+        apiFetch("/api/dsh-mneme/semantic/llm-audit?pageSize=12")
+          .then((r) => (r.ok ? r.json() : { items: [] }))
+          .then((d) => {
+            if (cancelled) return;
+            const rows = (d.items || []).filter((r) =>
+              r.trigger_source === "autoDream" || r.trigger_source === "autoSummarize");
+            setFeed(rows);
+            const ids = [];
+            for (const row of rows) {
+              for (const id of parseRelatedIds(row.related_memory_ids)) {
+                if (!ids.includes(id)) ids.push(id);
+              }
+            }
+            return apiFetch("/api/dsh-mneme/list?limit=300&order=chrono")
+              .then((r2) => (r2.ok ? r2.json() : { items: [] }))
+              .then((d2) => {
+                if (cancelled) return;
+                const byId = new Map((d2.items || []).map((m) => [m.id, m]));
+                setDeposited(ids.map((id) => byId.get(id)).filter(Boolean).slice(0, 8));
+              });
+          })
+          .catch(() => { if (!cancelled) setFeed([]); });
+        apiFetch("/api/dsh-mneme/list?archived=only&limit=50&order=chrono")
+          .then((r) => (r.ok ? r.json() : { items: [] }))
+          .then((d) => { if (!cancelled) setArchived(d.items || []); })
+          .catch(() => { if (!cancelled) setArchived([]); });
+        return () => { cancelled = true; };
+      }, []);
+      useEffect(() => { load(); }, [load]);
+
+      const restore = (id) => {
+        setRestoring(id);
+        apiFetch("/api/dsh-mneme/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, archived: false })
+        })
+          .then((r) => { if (!r.ok) throw new Error("http"); })
+          .then(() => setArchived((cur) => (cur || []).filter((m) => m.id !== id)))
+          .catch(() => {})
+          .finally(() => setRestoring(""));
+      };
+
+      const statusLabel = (s) => s === "error"
+        ? t("memory.status.failed")
+        : s === "skipped" ? t("memory.status.skipped") : t("memory.status.success");
+      const triggerLabel = (s) => s === "autoDream"
+        ? t("memory.status.dreamConsolidate") : t("memory.status.summarize");
+
+      return h(react.Fragment, null,
+        h("div", { className: "mneme-wbhead" }, t("memory.status.workbench")),
+        feed === null
+          ? h("div", { className: "mneme-featsubhint" }, "…")
+          : feed.length === 0
+            ? h("div", { className: "mneme-featsubhint" }, t("memory.status.emptyFeed"))
+            : h("div", { className: "mneme-wblist" },
+                feed.map((row) => {
+                  const n = parseRelatedIds(row.related_memory_ids).length;
+                  return h("div", { className: "mneme-wbrow", key: row.id ?? row.timestamp },
+                    h("span", { className: row.status === "error" ? "mneme-wbdot mneme-wbdot--err" : "mneme-wbdot", "aria-hidden": "true" }),
+                    h("div", { className: "mneme-wbmain" },
+                      h("div", { className: "mneme-wbtitle" },
+                        `${triggerLabel(row.trigger_source)} · ${statusLabel(row.status)}`),
+                      h("div", { className: "mneme-wbsub" },
+                        formatRelativeTime(row.timestamp, t),
+                        n > 0 && ` · ${t("memory.status.deposited").replace("{n}", String(n))}`,
+                        row.total_tokens ? ` · ${t("memory.status.tokens").replace("{n}", Number(row.total_tokens).toLocaleString())}` : "",
+                        row.error_message ? ` · ${row.error_message}` : "")
+                    ));
+                })),
+        deposited !== null && deposited.length > 0 && h(react.Fragment, null,
+          h("div", { className: "mneme-wbhead" }, t("memory.status.consolidated")),
+          h("div", { className: "mneme-wblist" },
+            deposited.map((m) => h("div", { className: "mneme-wbmemo", key: m.id },
+              h("span", { className: "mneme-xdot", style: { color: memoryTypeColor(m.type) }, "aria-hidden": "true" }),
+              h("div", { className: "mneme-wbmemo-main" },
+                h("div", { className: "mneme-wbtitle" }, m.title || (m.content || "").slice(0, 40)),
+                h("div", { className: "mneme-wbsub" },
+                  `${typeLabel(t, m.type)} · ${formatRelativeTime(m.updated_at || m.created_at, t)}`))
+              )))),
+        archived !== null && h(react.Fragment, null,
+          h("div", { className: "mneme-wbhead" }, t("memory.status.archivedMemories")),
+          archived.length === 0
+            ? h("div", { className: "mneme-featsubhint" }, t("memory.status.archivedEmpty"))
+            : h("div", { className: "mneme-wblist" },
+                archived.map((m) => h("div", { className: "mneme-wbmemo", key: m.id },
+                  h("span", { className: "mneme-xdot", style: { color: memoryTypeColor(m.type) }, "aria-hidden": "true" }),
+                  h("div", { className: "mneme-wbmemo-main" },
+                    h("div", { className: "mneme-wbtitle" }, m.title || (m.content || "").slice(0, 40)),
+                    h("div", { className: "mneme-wbsub" },
+                      `${typeLabel(t, m.type)} · ${formatRelativeTime(m.updated_at || m.created_at, t)}`)),
+                  h("button", {
+                    type: "button",
+                    className: "mneme-btn",
+                    disabled: restoring === m.id,
+                    onClick: () => restore(m.id)
+                  }, t("memory.status.restore"))
+                ))))
+      );
+    }
+
     function StatusPanel({ t }) {
       return h("div", { className: "mneme-status" },
         h("div", { className: "mneme-statusgrid" },
           h(MemoriesStatusCard, { t }),
           h(EntitiesStatusCard, { t }),
           h(VectorStatusCard, { t }),
-          h(LlmStatusCard, { t })
+          h(LlmStatusCard, { t }),
+          h(DreamStatusCards, { t })
+        ),
+        h(WorkbenchSection, { t })
+      );
+    }
+
+
+    // --- 详情抽屉 ---
+    // 右侧滑出：全文、来源、质量分、关联实体与手动操作（编辑/归档/删除）。
+    // 编辑态本地暂存草稿，保存经 POST /update 落库；后端成功后重渲染镜像，
+    // 前端只做本地视图同步。两步删除确认在此完成（红钮武装 → 实心红提交）。
+    function MemoryDrawer({ t, memory, conflict, deleting, deleteError, onClose, onDelete, onSaved }) {
+      const [editing, setEditing] = useState(false);
+      const [title, setTitle] = useState(memory.title || "");
+      const [content, setContent] = useState(memory.content || "");
+      const [importance, setImportance] = useState(memory.importance || 3);
+      const [confirmDelete, setConfirmDelete] = useState(false);
+      const [busy, setBusy] = useState(false);
+      const [savedTick, setSavedTick] = useState(false);
+      const [saveError, setSaveError] = useState(false);
+      const [copied, setCopied] = useState(false);
+      const [entities, setEntities] = useState(null);
+
+      useEffect(() => {
+        let cancelled = false;
+        apiFetch(`/api/dsh-mneme/memories/entities?memoryId=${encodeURIComponent(memory.id)}`)
+          .then((res) => (res.ok ? res.json() : { entities: [] }))
+          .then((d) => { if (!cancelled) setEntities(d.entities || []); })
+          .catch(() => { if (!cancelled) setEntities([]); });
+        return () => { cancelled = true; };
+      }, [memory.id]);
+
+      const postUpdate = (patch, opts) => {
+        setBusy(true);
+        setSaveError(false);
+        apiFetch("/api/dsh-mneme/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: memory.id, ...patch })
+        })
+          .then((res) => { if (!res.ok) throw new Error("http"); return res.json(); })
+          .then((d) => {
+            onSaved(d.memory, opts);
+            setEditing(false);
+            setSavedTick(true);
+            setTimeout(() => setSavedTick(false), 2000);
+          })
+          .catch(() => setSaveError(true))
+          .finally(() => setBusy(false));
+      };
+
+      const save = () => {
+        const t2 = title.trim();
+        if (!t2) return;
+        postUpdate({ title: t2, content, importance }, {});
+      };
+
+      return h("aside", { className: "mneme-drawer", "aria-label": t("memory.explorer.detail") },
+        h("div", { className: "mneme-drawerbar" },
+          h("span", { className: "mneme-drawertype" },
+            h("span", { className: "mneme-xdot", style: { color: memoryTypeColor(memory.type) }, "aria-hidden": "true" }),
+            typeLabel(t, memory.type)
+          ),
+          conflict && h("span", { className: "mneme-badge mneme-badge--conflict" }, "⚠ ", t("memory.explorer.conflictBadge")),
+          h("button", {
+            type: "button",
+            className: "mneme-footbtn",
+            style: { marginLeft: "auto" },
+            "aria-label": t("memory.explorer.detail.closeAria"),
+            title: t("memory.explorer.detail.closeAria"),
+            onClick: onClose
+          }, "✕")
+        ),
+        h("div", { className: "mneme-drawerbody" },
+          editing
+            ? h(react.Fragment, null,
+                h("div", { className: "mneme-xcolhead", style: { padding: "0 0 4px" } }, t("memory.explorer.detail.editTitle")),
+                h("input", { className: "mneme-drawertitle-input", value: title, onChange: (e) => setTitle(e.target.value) }))
+            : h("div", { className: "mneme-drawertitle" }, memory.title || t("memory.panel.empty")),
+          h("div", { className: "mneme-dmeta" },
+            h("span", { className: "mneme-dmetakey" }, t("memory.explorer.importance")),
+            editing
+              ? h("select", {
+                  className: "mneme-select",
+                  style: { height: 26, fontSize: 12, justifySelf: "start" },
+                  value: importance,
+                  onChange: (e) => setImportance(Number(e.target.value))
+                }, [1, 2, 3, 4, 5].map((n) => h("option", { key: n, value: n }, "★".repeat(n))))
+              : h("span", { className: "mneme-dmetaval" }, "★".repeat(Math.min(5, Math.max(0, memory.importance || 0)))),
+            memory.source && h(react.Fragment, null,
+              h("span", { className: "mneme-dmetakey" }, t("memory.explorer.source")),
+              h("span", { className: "mneme-dmetaval", title: memory.source }, memory.source)),
+            memory.quality_score != null && h(react.Fragment, null,
+              h("span", { className: "mneme-dmetakey" }, t("memory.explorer.detail.quality")),
+              h("span", { className: "mneme-dmetaval" }, String(memory.quality_score))),
+            h("span", { className: "mneme-dmetakey" }, t("memory.explorer.created")),
+            h("span", { className: "mneme-dmetaval", title: formatDate(memory.created_at) }, formatDateShort(memory.created_at)),
+            h("span", { className: "mneme-dmetakey" }, t("memory.explorer.updated")),
+            h("span", { className: "mneme-dmetaval", title: formatDate(memory.updated_at) },
+              `${formatRelativeTime(memory.updated_at, t)}（${formatDateShort(memory.updated_at)}）`),
+            Array.isArray(memory.tags) && memory.tags.length > 0 && h(react.Fragment, null,
+              h("span", { className: "mneme-dmetakey" }, t("memory.explorer.tags")),
+              h("span", { className: "mneme-dmetaval" }, memory.tags.join(" · ")))
+          ),
+          entities !== null && h(react.Fragment, null,
+            h("div", { className: "mneme-xcolhead", style: { padding: "16px 0 0" } }, t("memory.explorer.detail.entities")),
+            entities.length === 0
+              ? h("div", { className: "mneme-featsubhint", style: { marginTop: 4 } }, t("memory.explorer.detail.entitiesEmpty"))
+              : h("div", { className: "mneme-dentities" },
+                  entities.map((e, i) => h("span", { key: `${e.name}-${i}`, className: "mnementity-chip" },
+                    h("span", { className: "mneme-xdot", style: { color: typeColor(e.type) }, "aria-hidden": "true" }),
+                    e.name
+                  )))),
+          editing && h("div", { className: "mneme-xcolhead", style: { padding: "16px 0 4px" } }, t("memory.explorer.detail.editContent")),
+          editing
+            ? h("textarea", { className: "mneme-dcontent-input", value: content, onChange: (e) => setContent(e.target.value) })
+            : h("div", { className: "mneme-dcontent" }, memory.content)
+        ),
+        h("div", { className: "mneme-dactions" },
+          editing
+            ? h(react.Fragment, null,
+                h("button", { type: "button", className: "mneme-btn", disabled: busy, onClick: save }, t("memory.explorer.detail.save")),
+                h("button", {
+                  type: "button",
+                  className: "mneme-btn",
+                  disabled: busy,
+                  onClick: () => {
+                    setEditing(false);
+                    setTitle(memory.title || "");
+                    setContent(memory.content || "");
+                    setImportance(memory.importance || 3);
+                  }
+                }, t("memory.explorer.detail.cancel")),
+                savedTick && h("span", { className: "mneme-saved" }, t("memory.explorer.detail.saved")),
+                saveError && h("span", { style: { fontSize: 12, color: "var(--dsw-alias-state-error,#c33)" } }, t("memory.explorer.detail.archiveFailed"))
+              )
+            : h(react.Fragment, null,
+                h("button", { type: "button", className: "mneme-btn", onClick: () => setEditing(true) }, t("memory.explorer.detail.edit")),
+                h("button", { type: "button", className: "mneme-btn", disabled: busy, onClick: () => postUpdate({ archived: true }, { archived: true }) },
+                  t("memory.explorer.detail.archive")),
+                h("button", {
+                  type: "button",
+                  className: "mneme-btn",
+                  onClick: () => {
+                    navigator.clipboard?.writeText(memory.content || "").then(
+                      () => { setCopied(true); setTimeout(() => setCopied(false), 1500); },
+                      () => {}
+                    );
+                  }
+                }, copied ? t("memory.explorer.copied") : t("memory.explorer.copy")),
+                confirmDelete
+                  ? h(react.Fragment, null,
+                      h("button", { type: "button", className: "mneme-btn mneme-btndangerconfirm", disabled: deleting, onClick: () => onDelete(memory.id) },
+                        t("memory.explorer.confirmDelete")),
+                      h("button", { type: "button", className: "mneme-btn", onClick: () => setConfirmDelete(false) },
+                        t("memory.explorer.cancel"))
+                    )
+                  : h("button", { type: "button", className: "mneme-btn mneme-btndanger", onClick: () => setConfirmDelete(true) },
+                      t("memory.explorer.delete")),
+                deleteError && h("span", { style: { fontSize: 12, color: "var(--dsw-alias-state-error,#c33)" } },
+                  t("memory.explorer.deleteFailed"))
+              )
         )
       );
     }
 
+    // --- 导入弹层 ---
+    // 选类型 → 选文件 → 解析合并。文件在本地读成文本，POST /import 只传
+    // 文本与类型；成功后提示合并条数，并由父级刷新列表。
+    function ImportDialog({ t, onClose, onImported }) {
+      const [type, setType] = useState("preference");
+      const [file, setFile] = useState(null);
+      const [busy, setBusy] = useState(false);
+      const [msg, setMsg] = useState("");
+      const [err, setErr] = useState("");
+      const fileRef = useRef(null);
+      const submit = () => {
+        if (!file) { setErr(t("memory.explorer.importNoFile")); return; }
+        setBusy(true);
+        setErr("");
+        file.text()
+          .then((text) => apiFetch("/api/dsh-mneme/import", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type, markdown: text })
+          }))
+          .then((res) => { if (!res.ok) throw new Error("http"); return res.json(); })
+          .then((d) => {
+            setMsg(t("memory.explorer.imported").replace("{n}", String((d && d.merged) ?? 0)));
+            setBusy(false);
+            setTimeout(() => { onImported(); onClose(); }, 900);
+          })
+          .catch(() => { setBusy(false); setErr(t("memory.explorer.importFailed")); });
+      };
+      return h("div", { className: "mneme-impdialog", role: "region", "aria-label": t("memory.explorer.importTitle") },
+        h("div", { className: "mneme-set-title" }, t("memory.explorer.importTitle")),
+        h("div", { className: "mneme-featsubhint", style: { marginTop: 4 } }, t("memory.explorer.importHint")),
+        h("div", { className: "mneme-improw" },
+          h("span", { className: "mneme-featnumlabel" }, t("memory.explorer.importType")),
+          h("select", { className: "mneme-select", value: type, onChange: (e) => setType(e.target.value) },
+            ["preference", "project", "decision", "summary", "history"].map((k) =>
+              h("option", { key: k, value: k }, typeLabel(t, k))))
+        ),
+        h("div", { className: "mneme-improw" },
+          h("button", { type: "button", className: "mneme-btn", onClick: () => fileRef.current?.click() },
+            file ? file.name : t("memory.explorer.importPick")),
+          h("input", {
+            ref: fileRef,
+            type: "file",
+            accept: ".md,.markdown,text/markdown",
+            style: { display: "none" },
+            onChange: (e) => { setFile((e.target.files && e.target.files[0]) || null); setErr(""); }
+          })
+        ),
+        err && h("div", { className: "mneme-featsubhint", style: { color: "var(--dsw-alias-state-error,#c33)", marginTop: 8 } }, err),
+        msg && h("div", { className: "mneme-saved", style: { marginTop: 8 } }, msg),
+        h("div", { className: "mneme-improw", style: { justifyContent: "flex-end" } },
+          h("button", { type: "button", className: "mneme-btn", disabled: busy, onClick: onClose }, t("memory.explorer.importCancel")),
+          h("button", { type: "button", className: "mneme-btn", disabled: busy, onClick: submit },
+            busy ? t("memory.explorer.importing") : t("memory.explorer.importConfirm"))
+        )
+      );
+    }
 
     function MemoryExplorer({ t }) {
       const [view, setView] = useState("memory"); // memory | entity | status | settings
@@ -1817,15 +2712,28 @@ window.__ModuleLoader__.load({
       const [selectedId, setSelectedId] = useState(null);
       const [expandedMonths, setExpandedMonths] = useState(null); // null = 仅最新一个月展开
       const [collapsed, setCollapsed] = useState({});
-      const [copied, setCopied] = useState(false);
       const [reloadKey, setReloadKey] = useState(0);
-      const [confirmDelete, setConfirmDelete] = useState(false); // two-step delete armed
       const [deleting, setDeleting] = useState(false);
       const [deleteError, setDeleteError] = useState(false);
-      const [deleteMsg, setDeleteMsg] = useState(false); // transient "deleted" notice
+      const [toastMsg, setToastMsg] = useState(""); // 瞬时操作提示（删除/归档），挂在外层不被抽屉卸载吞掉
       const [graphFocus, setGraphFocus] = useState("");
+      // 交互式面板新增：浏览模式（卡片/时间线，本地记住）、时间筛选、
+      // 冲突冻结指示、更多操作菜单与导入弹层。
+      const [viewMode, setViewMode] = useState(() => {
+        try { return window.localStorage.getItem("dsh-mneme-view") === "cards" ? "cards" : "timeline"; }
+        catch { return "timeline"; }
+      });
+      const [dateRange, setDateRange] = useState("all"); // all | 7d | 30d | 90d
+      const [pendingIds, setPendingIds] = useState(() => new Set());
+      const [menuOpen, setMenuOpen] = useState(false);
+      const [importOpen, setImportOpen] = useState(false);
       const itemRefs = useRef(new Map());
       const moreRef = useRef(null);
+
+      const switchViewMode = (mode) => {
+        setViewMode(mode);
+        try { window.localStorage.setItem("dsh-mneme-view", mode); } catch { /* 隐私模式等 */ }
+      };
 
       useEffect(() => {
         apiFetch("/api/dsh-mneme/vector-config")
@@ -1834,11 +2742,27 @@ window.__ModuleLoader__.load({
           .catch(() => {});
       }, []);
 
+      // 冲突冻结指示：dream-status 一次带出待确认冲突涉及的记忆 id，
+      // 卡片与详情抽屉据此画「冲突」徽章。
+      useEffect(() => {
+        let cancelled = false;
+        apiFetch("/api/dsh-mneme/dream-status")
+          .then((res) => (res.ok ? res.json() : { pendingMemoryIds: [] }))
+          .then((d) => { if (!cancelled) setPendingIds(new Set(d.pendingMemoryIds || [])); })
+          .catch(() => {});
+        return () => { cancelled = true; };
+      }, [reloadKey]);
+
       // One query string behind every browse-list fetch (initial page,
-      // loadMore, auto-refresh): the type filter and the importance floor
-      // always travel together, so counts and pagination stay consistent.
+      // loadMore, auto-refresh): the type filter, importance floor and time
+      // window always travel together, so counts and pagination stay
+      // consistent.
+      const dateFromIso = dateRange === "all" ? "" : new Date(
+        Date.now() - (dateRange === "7d" ? 7 : dateRange === "30d" ? 30 : 90) * 86400000
+      ).toISOString();
       const filterQS = (type === "all" ? "" : `&type=${encodeURIComponent(type)}`)
-        + (minImp ? `&minImportance=${minImp}` : "");
+        + (minImp ? `&minImportance=${minImp}` : "")
+        + (dateFromIso ? `&updatedFrom=${encodeURIComponent(dateFromIso)}` : "");
       const listUrl = (offset) => `/api/dsh-mneme/list?limit=${PAGE_SIZE}&offset=${offset}${filterQS}&order=chrono`;
 
       // Browse = paged, pure-chronological pages (order=chrono). The default
@@ -1935,10 +2859,10 @@ window.__ModuleLoader__.load({
         itemRefs.current.get(selectedId)?.scrollIntoView({ block: "nearest" });
       }, [selectedId]);
 
-      // The two-step delete arms per selection: switching or clearing the
-      // target disarms it, so a stale confirm can never delete a new pick.
+      // The two-step delete arms inside the drawer per selection: switching
+      // or clearing the target disarms it, so a stale confirm can never
+      // delete a new pick.
       useEffect(() => {
-        setConfirmDelete(false);
         setDeleteError(false);
       }, [selectedId]);
 
@@ -1993,22 +2917,12 @@ window.__ModuleLoader__.load({
 
       const selected = visible.find((m) => m.id === selectedId) || null;
 
-      const copyContent = () => {
-        if (!selected) return;
-        navigator.clipboard?.writeText(selected.content || "").then(
-          () => { setCopied(true); setTimeout(() => setCopied(false), 1500); },
-          () => {}
-        );
-      };
-
-      // Two-step delete (no window.confirm): the red button arms, a second
-      // click commits POST /api/dsh-mneme/delete. On success the row leaves
-      // every local view (browse pages + search results), the selection
-      // clears and the total shrinks; failures — 404 included — surface as
-      // a transient red note next to the actions.
-      const deleteSelected = () => {
-        if (!selected || deleting) return;
-        const id = selected.id;
+      // Delete / archive / edit commit through POST endpoints; on success the
+      // row leaves or updates in every local view (browse pages + search
+      // results). Failures — 404 included — surface as a transient red note
+      // in the drawer's action bar.
+      const deleteById = (id) => {
+        if (!id || deleting) return;
         setDeleting(true);
         setDeleteError(false);
         apiFetch("/api/dsh-mneme/delete", {
@@ -2022,15 +2936,52 @@ window.__ModuleLoader__.load({
             setRemoteItems((cur) => (cur ? cur.filter((m) => m.id !== id) : cur));
             setTotal((n) => Math.max(0, n - 1));
             setSelectedId(null);
-            setConfirmDelete(false);
-            setDeleteMsg(true);
-            setTimeout(() => setDeleteMsg(false), 2500);
+            setToastMsg(t("memory.explorer.deleted"));
+            setTimeout(() => setToastMsg(""), 2500);
           })
           .catch(() => {
             setDeleteError(true);
             setTimeout(() => setDeleteError(false), 4000);
           })
           .finally(() => setDeleting(false));
+      };
+
+      // 编辑保存 / 归档的本地落账：替换或移除对应行；镜像由后端重渲染。
+      // 归档从所有视图移除（列表默认只看未归档），并清空选中。
+      const applyMemoryUpdate = (updated, { archived = false } = {}) => {
+        if (archived) {
+          setItems((cur) => cur.filter((m) => m.id !== updated.id));
+          setRemoteItems((cur) => (cur ? cur.filter((m) => m.id !== updated.id) : cur));
+          setTotal((n) => Math.max(0, n - 1));
+          setSelectedId(null);
+          setToastMsg(t("memory.explorer.detail.archived"));
+          setTimeout(() => setToastMsg(""), 2500);
+          return;
+        }
+        const replace = (m) => (m.id === updated.id ? updated : m);
+        setItems((cur) => cur.map(replace));
+        setRemoteItems((cur) => (cur ? cur.map(replace) : cur));
+      };
+
+      // 导出：JSON 走响应对象重序列化（缩进美化），Markdown 原样落盘；
+      // 文件名带日期，浏览器下载不动主列表。
+      const exportData = (format) => {
+        apiFetch(`/api/dsh-mneme/export?format=${format}`)
+          .then(async (res) => {
+            if (!res.ok) throw new Error("http");
+            const blob = format === "json"
+              ? new Blob([JSON.stringify(await res.json(), null, 2)], { type: "application/json" })
+              : new Blob([await res.text()], { type: "text/markdown" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `dsh-mneme-export-${new Date().toISOString().slice(0, 10)}.${format === "json" ? "json" : "md"}`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+          })
+          .catch(() => {});
       };
 
       // Graph → memory jump: land on the browser tab with filters reset so
@@ -2074,7 +3025,45 @@ window.__ModuleLoader__.load({
                 s.label
               ))
           ),
+          view === "memory" && h("div", { className: "mneme-xtools" },
+            h("div", { className: "mneme-seg", role: "group", "aria-label": t("memory.explorer.viewAria") },
+              h("button", {
+                type: "button",
+                className: viewMode === "cards" ? "mneme-active" : "",
+                onClick: () => switchViewMode("cards")
+              }, t("memory.explorer.viewCards")),
+              h("button", {
+                type: "button",
+                className: viewMode === "timeline" ? "mneme-active" : "",
+                onClick: () => switchViewMode("timeline")
+              }, t("memory.explorer.viewTimeline"))
+            ),
+            h("div", { className: "mneme-menuwrap" },
+              h("button", {
+                type: "button",
+                className: "mneme-footbtn",
+                style: { fontSize: 15, padding: "3px 9px" },
+                "aria-label": t("memory.explorer.more"),
+                "aria-expanded": String(menuOpen),
+                title: t("memory.explorer.more"),
+                onClick: () => { setMenuOpen(!menuOpen); setImportOpen(false); }
+              }, "⋯"),
+              menuOpen && h("div", { className: "mneme-menu", role: "menu" },
+                h("button", { type: "button", role: "menuitem", onClick: () => { setMenuOpen(false); exportData("json"); } },
+                  t("memory.explorer.exportJson")),
+                h("button", { type: "button", role: "menuitem", onClick: () => { setMenuOpen(false); exportData("markdown"); } },
+                  t("memory.explorer.exportMarkdown")),
+                h("button", { type: "button", role: "menuitem", onClick: () => { setImportOpen(true); setMenuOpen(false); } },
+                  t("memory.explorer.importMd"))
+              ),
+              importOpen && h(ImportDialog, {
+                t,
+                onClose: () => setImportOpen(false),
+                onImported: () => setReloadKey((k) => k + 1)
+              })
+            )
           ),
+        ),
         view === "memory" && h("div", { className: "mneme-xmain" },
           h("div", { className: "mneme-xside" },
             h("div", { className: "mneme-xcolhead" }, t("memory.explorer.searchTitle")),
@@ -2104,6 +3093,17 @@ window.__ModuleLoader__.load({
                 onChange: (e) => setSearchTopK(Number(e.target.value)),
                 title: t("memory.explorer.topK")
               }, [5, 10, 20, 50].map((n) => h("option", { key: n, value: n }, t("memory.explorer.topKOption").replace("{n}", String(n)))))
+            ),
+            h("div", { className: "mneme-xrow" },
+              h("select", {
+                className: "mneme-select mneme-xselect",
+                value: dateRange,
+                onChange: (e) => setDateRange(e.target.value),
+                title: t("memory.explorer.dateLabel"),
+                "aria-label": t("memory.explorer.dateLabel")
+              },
+                ["all", "7d", "30d", "90d"].map((k) =>
+                  h("option", { key: k, value: k }, t(`memory.explorer.date.${k}`))))
             ),
             h("div", { className: "mneme-xrow" },
               h("span", { className: "mneme-xcount" }, t("memory.explorer.count").replace("{n}", String(visible.length))),
@@ -2137,7 +3137,42 @@ window.__ModuleLoader__.load({
                 h("span", { className: "mneme-xcount2" }, String(counts[key]))
               ))
           ),
-          h("div", { className: "mneme-xbrowse" },
+          viewMode === "cards"
+            ? h("div", { className: "mneme-cards" },
+                loading
+                  ? h("div", { className: "mneme-xempty", style: { gridColumn: "1 / -1" } }, "…")
+                  : visible.length === 0
+                    ? h("div", { className: "mneme-xempty", style: { gridColumn: "1 / -1" } },
+                        h(Icon, { name: "inbox", size: 20, className: "mneme-xemptyico" }),
+                        t("memory.explorer.empty"))
+                    : sorted.map((m) => h("button", {
+                        key: m.id,
+                        type: "button",
+                        className: m.id === selectedId ? "mneme-card mneme-active" : "mneme-card",
+                        onClick: () => setSelectedId(m.id)
+                      },
+                        h("div", { className: "mneme-cardhead" },
+                          h("span", { className: "mneme-xdot", style: { color: memoryTypeColor(m.type) }, title: typeLabel(t, m.type), "aria-hidden": "true" }),
+                          h("span", null, typeLabel(t, m.type)),
+                          h("span", { style: { marginLeft: "auto", fontVariantNumeric: "tabular-nums" } }, formatRelativeTime(m.updated_at || m.created_at, t))
+                        ),
+                        pendingIds.has(m.id) && h("span", { className: "mneme-badge mneme-badge--conflict", style: { alignSelf: "flex-start" } }, "⚠ ", t("memory.explorer.conflictBadge")),
+                        h("div", { className: "mneme-cardtitle" }, m.title || (m.content || "").slice(0, 60)),
+                        h("div", { className: "mneme-cardexcerpt" }, m.content || ""),
+                        h("div", { className: "mneme-cardfoot" },
+                          h("span", null, "★".repeat(Math.min(5, Math.max(0, m.importance || 0)))),
+                          m.source && h("span", { className: "mneme-cardsrc", title: m.source }, m.source)
+                        )
+                      )),
+                h("div", { ref: moreRef, className: "mneme-xmore", style: { gridColumn: "1 / -1" } },
+                  canLoadMore
+                    ? h("button", { className: "mneme-footbtn", disabled: loadingMore, onClick: loadMore },
+                        loadingMore ? "…" : `${t("memory.explorer.loadMore")}（${items.length}/${total}）`)
+                    : (!loading && visible.length > 0 && !q && !remoteItems
+                        ? h("span", { className: "mneme-xcount" }, `${items.length} / ${total}`)
+                        : null))
+              )
+            : h("div", { className: "mneme-xbrowse" },
             h("div", { className: "mneme-xtree" },
               h("div", { className: "mneme-xcolhead" }, t("memory.explorer.timeline")),
               loading
@@ -2202,94 +3237,106 @@ window.__ModuleLoader__.load({
                       : null)
               )
             ),
-            h("div", { className: "mneme-xdetail" },
-              selected
-                ? h(react.Fragment, { key: selected.id },
-                    h("div", { className: "mneme-xdinner" },
-                      h("div", { className: "mneme-xdtitle" }, selected.title),
-                      h("div", { className: "mneme-xdmeta" },
-                        h("span", { style: { display: "inline-flex", alignItems: "center", gap: "6px" } },
-                          h("span", { className: "mneme-xdot", style: { color: memoryTypeColor(selected.type) }, "aria-hidden": "true" }),
-                          `${typeLabel(t, selected.type)} · ${t("memory.explorer.importance")} ★${selected.importance}`
-                        ),
-                        selected.source && h("span", { title: selected.source },
-                          `${t("memory.explorer.source")}: `,
-                          h("span", { className: "mneme-xdsrc" }, selected.source)),
-                        h("span", { title: formatDate(selected.created_at) }, `${t("memory.explorer.created")}: ${formatDateShort(selected.created_at)}`),
-                        h("span", { title: formatDate(selected.updated_at) }, `${t("memory.explorer.updated")}: ${formatRelativeTime(selected.updated_at, t)}`)
-                      ),
-                      Array.isArray(selected.tags) && selected.tags.length > 0 && h("div", { className: "mneme-xdmeta" },
-                        h("span", null, `${t("memory.explorer.tags")}: ${selected.tags.join(" · ")}`)
-                      ),
-                      h("div", { className: "mneme-xdcontent" }, selected.content),
-                      h("div", { className: "mneme-xdactions" },
-                        h("button", { className: "mneme-footbtn", onClick: copyContent },
-                          h(Icon, { name: copied ? "check" : "copy", size: 12 }),
-                          copied ? t("memory.explorer.copied") : t("memory.explorer.copy")),
-                        // two-step delete: red outline arms, solid red commits
-                        confirmDelete
-                          ? h(react.Fragment, null,
-                              h("button", {
-                                className: "mneme-btn mneme-btndangerconfirm",
-                                disabled: deleting,
-                                onClick: deleteSelected
-                              }, t("memory.explorer.confirmDelete")),
-                              h("button", {
-                                className: "mneme-btn",
-                                onClick: () => setConfirmDelete(false)
-                              }, t("memory.explorer.cancel"))
-                            )
-                          : h("button", {
-                              className: "mneme-btn mneme-btndanger",
-                              onClick: () => setConfirmDelete(true)
-                            }, t("memory.explorer.delete")),
-                        deleteError && h("span", { style: { fontSize: 12, color: "var(--dsw-alias-state-error,#c33)" } },
-                          t("memory.explorer.deleteFailed"))
-                      )
-                    )
-                  )
-                : h("div", { className: "mneme-xempty" },
-                    deleteMsg && h("div", { className: "mneme-saved", style: { marginBottom: 6 } }, t("memory.explorer.deleted")),
-                    t("memory.explorer.emptyDetail"))
-            )
-          )
+            ),
+      // 详情抽屉：卡片/时间线共用，选中即从右侧滑出（替代旧底部面板）。
+      // 两步删除确认在抽屉内完成；编辑/归档经 /update 落库并同步本地视图。
+      selected && h(MemoryDrawer, {
+        key: selected.id,
+        t,
+        memory: selected,
+        conflict: pendingIds.has(selected.id),
+        deleting,
+        deleteError,
+        onClose: () => setSelectedId(null),
+        onDelete: deleteById,
+        onSaved: applyMemoryUpdate
+      })
         ),
         view === "entity" && h(EntityPanel, { t, focusEntity: graphFocus, onJumpMemory: jumpToMemory }),
         view === "status" && h(StatusPanel, { t }),
         view === "settings" && h("div", { className: "mneme-set" },
           h("div", { className: "mneme-set-inner" }, h(SettingsContent, { t }))
-        )
+        ),
+        toastMsg && h("div", { className: "mneme-toast", role: "status" }, toastMsg)
       );
     }
 
-    // --- Sidebar foot entry: the wide row / rail icon that activates the
-    // main-area memory library tab. When the tab ring is absent (new-chat
-    // hero screen hides the conversation header entirely) the same click
-    // opens the full-viewport overlay instead — the library stays reachable
-    // from every conversation state.
-    function SidebarTrigger({ wide, t }) {
-      const [, setOpen] = useOverlayOpen();
+    // --- Sidebar entry: 工作区上方的记忆按钮 ---
+    // 注册仍在 sidebar.footer.action（list 插槽）——它既是 React 树的挂载
+    // 锚点，也是 portal 失效时的原位回退。真实按钮 portal 插到 regionArea
+    // （工作区列表容器）之前，即「新会话」按钮下方、工作区上方。
+    // 几何对齐方案：读取宿主「新会话」按钮的实时 className 原样套用，再用
+    // 我们的修饰类覆盖配色（次级观感）。这样展开态与收起态（rail）都直接
+    // 继承宿主自己的盒模型与间距——宿主改版/缩进动画零位移，无需硬编码。
+    // 宿主结构异常时约 2 秒后放弃 portal，footer 回退按钮保持可用。
+    function SidebarFallbackTrigger({ wide, t }) {
       return h("button", {
         type: "button",
         className: wide ? "mneme-trigger" : "mneme-trigger mneme-rail",
         "aria-label": t("memory.sidebar.aria"),
-        title: t("memory.sidebar.aria"),
-        onClick: () => {
-          activateExplorerTab(t("memory.view.label")).then((ok) => { if (!ok) setOpen(true); });
-        }
+        title: t("memory.panel.open"),
+        onClick: openLibrary
       },
         h(IconArchiveOutline20, { size: wide ? 16 : 18 }),
         wide && h("span", { className: "mneme-trigger-label" }, t("memory.panel.open"))
       );
     }
 
+    function SidebarTopEntry({ wide, t, fallback }) {
+      const [host, setHost] = useState(null);
+      const [nativeCls, setNativeCls] = useState("");
+      useEffect(() => {
+        if (!reactDom || typeof document === "undefined") return undefined;
+        let tries = 0, timer = null, created = null;
+        const attempt = () => {
+          const region = document.querySelector('[class*="regionArea"]');
+          if (region && region.parentElement) {
+            // 「新会话」按钮与 regionArea 同级且紧邻其前，借它的类名获得
+            // 与原生侧边栏项完全一致的盒模型（含收起态 rail 几何）。
+            const ns = region.parentElement.querySelector('[class*="newSession"]')
+              || region.previousElementSibling;
+            created = document.createElement("div");
+            created.dataset.pluginEntry = "@modusensus/dsh-mneme";
+            region.parentElement.insertBefore(created, region);
+            setHost(created);
+            setNativeCls(ns?.className || "");
+            return;
+          }
+          if (++tries > 40) return; // 放弃 portal，footer 回退保持可用
+          timer = setTimeout(attempt, 50);
+        };
+        attempt();
+        return () => {
+          clearTimeout(timer);
+          if (created && created.parentElement) created.parentElement.removeChild(created);
+        };
+      }, []);
+      if (!host) return fallback;
+      // wrapper 用 display:contents 隐身：我们的按钮成为侧边栏弹性布局的
+      // 直接子元素，与「新会话」按钮同级同距；展开/收起只切换图标与文案。
+      return reactDom.createPortal(
+        h("div", { className: "mneme-topentry", style: { display: "contents" } },
+          h("button", {
+            type: "button",
+            className: `${nativeCls} mneme-topentry-native`.trim(),
+            "aria-label": t("memory.sidebar.aria"),
+            title: t("memory.panel.open"),
+            onClick: openLibrary
+          },
+            h(IconArchiveOutline20, { size: wide ? 15 : 18 }),
+            wide && h("span", { className: "mneme-topentry-label" }, t("memory.panel.open"))
+          )
+        ), host);
+    }
+
     function apply(ctx) {
       ctx.effect(() => ctx.locale.register(NS, dictionaries), "dsh-mneme: dictionaries");
 
-      // Register the memory entry beside Settings at the sidebar foot. The
-      // entry renders a wide row (icon + label) when the sidebar is expanded
-      // and a rail icon when collapsed; clicking activates the memory
-      // library conversation view.
+      // 记忆库唯一入口：sidebar.footer.action 注册作为锚点与回退；真实按钮
+      // 由 SidebarTopEntry portal 到侧边栏工作区上方。overlay 从这个常驻
+      // 插槽挂载（portal 到 body），会话切换不影响它的开关状态。
+      // v0.7.15 起不再注册 conversation.view tab——对话内嵌的面板被悬浮
+      // 输入框遮挡、挤压会话布局，sheet 页是更舒服的承载方式。
       ctx.slots.inject("sidebar.footer.action", () => {
         const t = ctx.locale.bind(NS);
         return ctx.slots.register({
@@ -2298,26 +3345,13 @@ window.__ModuleLoader__.load({
           order: 0,
           label: () => t("memory.panel.open")
         }, (props) => h(react.Fragment, null,
-          h(SidebarTrigger, { ...props, t }),
-          // The overlay mounts from the always-rendered sidebar slot so it
-          // survives conversation switches; the portal moves it to <body>.
+          h(SidebarTopEntry, {
+            wide: !!(props && props.wide),
+            t,
+            fallback: h(SidebarFallbackTrigger, { wide: !!(props && props.wide), t })
+          }),
           h(MemoryOverlay, { t })
         ));
-      });
-
-      // Register the memory library as a conversation view tab, beside
-      // Chat / Trajectory. The view ignores its session props: the library
-      // reads the memory store over HTTP. It hosts every memory feature —
-      // browse, graph and settings — in the main content area.
-      ctx.slots.inject("conversation.view", () => {
-        const t = ctx.locale.bind(NS);
-        return ctx.slots.register({
-          name: "conversation.view",
-          id: "dsh-mneme-memory",
-          order: 30,
-          locale: NS,
-          label: () => t("memory.view.label")
-        }, () => h(MemoryExplorer, { t }));
       });
     }
 
