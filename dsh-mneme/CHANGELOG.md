@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.7.22] - 2026-09-09
+
+## 🐛 修复
+
+- **恢复 v0.6.9 的 skipInvalid 宽容校验路径（issue #89 回归，v0.7.11 重写丢失）**：v0.6.9（issue #26）实现的 `dreamSkipInvalid`（单条非法决策跳过 + 合法子集应用 + run 记 degraded）与 `allowCrossTypeMerge` 开关在 v0.7.11 近重写时丢失，README Fail-safe 一节承诺的宽容行为自此与代码错讹；qwen3.8-flash 等弱模型决策合规抖动下 4/4 全败，整单拒绝白烧 LLM 调用。恢复三件：
+  - **`decisions.js` 原样移植 skipInvalid 双轨结构**：单条错误进 local，skipInvalid 时记入 skipped 并从 decisions 原地剔除、不 claim 任何 id；严格模式（不传开关）行为不变，sleep 路径维持严格。
+  - **`allowCrossTypeMerge` 显式放宽跨类型合并**；全局上限/覆盖率下限仍整单拒绝（刷爆上限=模型坏了，不是轻微 schema 漂移）。
+  - **`dream.js` 透传 config 开关**：skipped 非空时 run 状态如实记为 degraded（ok:true 保持基线刷新语义），跳过明细进 warn 日志。
+- **autoDream 最小触发间隔（issue #89 请求 2）**：新增 `dreamMinIntervalMinutes`（0-10080，默认 0=不限）；`minIntervalMs` 节流——失败/degraded run 也占用间隔（节流目的正是防失败调用连发），间隔内触发静默跳过。
+
+## 🏗️ 工程
+
+- 三个新 feature flags（`dreamSkipInvalid` 默认 true / `allowCrossTypeMerge` 默认 false / `dreamMinIntervalMinutes` 默认 0）入白名单，**34 键**。
+- 696 测试全绿（+8：v0.6.9 五用例移植 + degraded/严格 e2e + 节流 + 白名单计数）。
+
 ## [0.7.21] - 2026-09-08
 
 ## 🐛 修复
