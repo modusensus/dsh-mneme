@@ -37,9 +37,7 @@
     "client": {
       "inject": [
         "slots",
-        "locale",
-        
-        
+        "locale"
       ],
       "platform": "web"
     },

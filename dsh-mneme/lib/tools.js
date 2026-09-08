@@ -22,12 +22,6 @@ const MEMORY_ITEM_SCHEMA = {
     source: { type: "string" },
     created_at: { type: "string", required: true },
     updated_at: { type: "string", required: true }
-  /* const toolsRegistry = ctx.tools;
-  let registeredTools = REGISTERED_TOOLS.get(toolsRegistry);
-  if (!registeredTools) {
-    registeredTools = new Set();
-    REGISTERED_TOOLS.set(toolsRegistry, registeredTools);
-  */
   }
 };
 

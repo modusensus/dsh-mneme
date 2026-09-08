@@ -44,15 +44,15 @@ function walkSchema(node, path, problems) {
   }
 }
 
-test("registers seven tools with correct names", () => {
+test("registers eight tools with correct names", () => {
   const { registered } = setup();
   const names = registered.map((t) => t.name).sort();
-  assert.deepEqual(names, ["memory_archive", "memory_delete", "memory_forget", "memory_list", "memory_save", "memory_search", "memory_update"]);
+  assert.deepEqual(names, ["memory_archive", "memory_delete", "memory_forget", "memory_get", "memory_list", "memory_save", "memory_search", "memory_update"]);
 });
 
 test("compiled schemas pass the enforced DSH subset (defineTool projection)", () => {
   const { registered } = setup();
-  assert.equal(registered.length, 7);
+  assert.equal(registered.length, 8);
   for (const tool of registered) {
     assertSupportedJsonSchema(tool.parameters);
     assertSupportedJsonSchema(tool.output.schema);

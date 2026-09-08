@@ -235,7 +235,7 @@ test("better-sidebar tab mounts via an inner sub-plugin, standalone mode intact"
     "the inner apply must still guard the service shape before registering"
   );
   assert.ok(
-    /id: "dsh-mneme:memory"/.test(clientSource),
+    /(?:const TAB_ID = |id: )"dsh-mneme:memory"/.test(clientSource),
     "the registered tab id must be package-prefixed"
   );
   assert.ok(
