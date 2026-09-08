@@ -34,7 +34,7 @@ dsh web
 - 不是向量数据库——语义搜索是可选增强，默认零额外依赖
 - 不替代会话日志——它存的是「值得跨会话记住的」精炼知识
 - 不改变模型本身——进化的是记忆库与每次注入的上下文
-- 删对话 ≠ 删记忆——开启会话生命周期后，删除会话只是把该会话出生的记忆**软隐藏**（可恢复），数据不丢
+- 删对话 ≠ 删记忆——记忆是跨会话的全局知识（v0.7.11 起不再与会话绑定），删除会话不影响已存入的记忆
 
 ## ✨ 功能
 
@@ -42,7 +42,7 @@ dsh web
 
 - **SQLite 主存储**：`~/.dsh/memory/memory.db`，`node:sqlite` 内置，零原生依赖
 - **Markdown 镜像**：`preferences.md` / `projects.md` / `decisions.md` / `history.md` / `summary.md`，人类可读、可手工编辑（**人工修改优先**合并回库）
-- **9 种记忆类型**：`preference` 偏好 / `project` 项目 / `decision` 决策 / `history` 历史 / `summary` 会话总览 / `pattern` 模式 + 编码记忆三型 `rejected_solution` 被否方案 / `pitfall` 踩坑 / `constraint` 约束（v0.7.13 起，`codingRetrospect` 默认关；v0.7.12 重写已收窄删除 user/fact 两型）
+- **9 种记忆类型**：`preference` 偏好 / `project` 项目 / `decision` 决策 / `history` 历史 / `summary` 会话总览 / `pattern` 模式 + 编码记忆三型 `rejected_solution` 被否方案 / `pitfall` 踩坑 / `constraint` 约束（v0.7.13 起，`codingRetrospect` 默认关；v0.7.11 近重写已收窄删除 user/fact 两型）
 - **镜像同步状态机（v0.3.6+）**：mirror 与主库强一致，用 `generation`（期望轮次）/ `applied_generation`（已应用轮次）建模同步债务
   - 业务写操作在**自身事务内原子递增** desired generation——崩溃在 COMMIT 后、渲染前，重启也能凭 durable 债务恢复，绝不静默跳过（v0.3.8）
   - `generation` 用 SQLite 原子语句递增，多进程并发零丢失；带 `CHECK` 上界，负数/溢出拒绝
@@ -106,15 +106,6 @@ dsh web
 - **审计延续**：睡眠周期写入 `dream_runs`，`run_type='sleep'`，与 autoDream 共用审计表可追溯
 
 > 配置详见 `docs/SLEEP.md`；迁移说明见 `docs/MIGRATION.md`。
-
-### 会话生命周期：把对话当存档点 💾（v0.6.0，opt-in）
-
-**默认关闭**（`sessionLifecycleEnabled: false`，保持旧行为）。开启后，会话被删除/销毁（DSH `session/disposed` 事件）时，自动把该会话内出生（`session_id` 溯源）的记忆**软隐藏**——不再出现在检索/注入/列表/整理，但**不删除**，随时可恢复：
-
-- **与 `archived` 正交**：`archived` 是用户/AI 主动"长期保留但安静"，`session_disposed_at` 是会话删除被动隔离，两者互不覆盖。恢复会话绝不复活你手动归档的记忆
-- **全局记忆免疫**：存量无 `session_id` 的记忆视为全局，永不参与会话清理
-- **幂等 + 熔断**：dispose/restore 状态守卫幂等（重复调用 no-op）；事件回调内部异常 catch 住，不抛进 DSH 会话清理流程
-- **恢复**：整会话 `service.restoreBySession(sessionId)` 一键还原；`service.listBySession(sessionId, { includeDisposed: true })` 可查看当前隐藏了哪些（DTO 带 `disposed` 标记）
 
 官方设置面板 → 「记忆库设置」→「记忆」标签：按类型浏览、全文搜索；启用向量搜索后可用「语义」切换做向量召回。
 
@@ -212,7 +203,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 
 ## 🆕 最近版本亮点
 
-> ⚠️ **历史存档提示**：下方及路线图表中 v0.7.12 之前的早期条目记录的实验功能（Wiki-Link、tag 系统/目录/tag 加权、user/fact 分层类型、前缀 id 解析、/stats 与 /directory 端点等）已在 v0.7.12 近重写时移除，仅作版本历史存档，**不代表当前能力**。（heat 热度模型已于 v0.7.19 从 v0.7.10 完整找回回归，见下方 [v0.7.19](#recent-version-highlights)。）当前特性以本 README 正文与 [配置表](#-配置) 为准。
+> ⚠️ **历史存档提示**：下方及路线图表中 v0.7.12 之前的早期条目记录的实验功能（Wiki-Link、tag 系统/目录/tag 加权、user/fact 分层类型、前缀 id 解析、/stats 与 /directory 端点等）已在 **v0.7.11** 近重写时移除（v0.7.11 与 v0.7.12 同日发布，历史文档多标 v0.7.12，此处勘误归一到 v0.7.11），仅作版本历史存档，**不代表当前能力**。同期未记载的移除另有：会话生命周期（`session_disposed_at` 软隐藏）、provenance 出生会话溯源（`session_id`）、决策字段归一化（normalizeDecisions，已由提示词硬规范取代）。（heat 热度模型已于 v0.7.19 从 v0.7.10 完整找回回归，见下方 [v0.7.19](#recent-version-highlights)。）当前特性以本 README 正文与 [配置表](#-配置) 为准。
 
 | 版本 | 亮点 |
 |------|------|
@@ -348,8 +339,6 @@ dsh web
     dreamThresholdCount: 10
     dreamThresholdChars: 5000
     dreamDelayMs: 2000
-    # 会话生命周期（v0.6.0，默认关）：会话被删时软隐藏其记忆，可恢复
-    # sessionLifecycleEnabled: false
 ```
 
 ## ⚙️ 配置
@@ -418,8 +407,6 @@ dsh web
 | `searchSemanticDedupThreshold` | `0.95` | 语义去重相似度阈值（v0.5.0，默认 0.95，范围 0.5-1.0）：`searchSemanticDedup=true` 时生效，调整可防小模型误折叠 |
 | `memoryQualityFilter` | `{enabled:true, archiveThreshold:30, degradeThreshold:60, minContentLength:10}` | 记忆质量过滤（v0.4.6，默认开）：写库前启发式打分 0-100，元记忆词汇/自指/过短/重复/近似重复扣分；≥60 正常存储，30-60 降权（注入排序按 importance×quality/100），<30 归档标记 `low_quality`（显式搜索仍可召回，永不自动注入） |
 | `llmAudit` | `{enabled:true, retentionDays:90}` | LLM 消耗审计（v0.4.6，默认开）：每次后台 LLM 调用（autoDream/autoSummarize）写 `llm_audit_logs`（tokens/duration/status/source）；失败记 error 不阻塞；只读 API `/api/dsh-mneme/semantic/llm-audit` + `/llm-audit/stats` |
-| `sessionLifecycleEnabled` | `false` | 会话生命周期（v0.6.0，默认关）：开启后会话被删除/销毁时自动把该会话出生的记忆软隐藏（`session_disposed_at`，与 `archived` 正交、可恢复）；存量无 `session_id` 的记忆永不参与清理 |
-| `showSidebarTrigger` | `true` | 侧边栏底部（左下角）记忆入口按钮（issue #38，默认开）：与其他插件（如 dsh-cost-meter）抢占同一 footer slot 导致 UI 冲突时可关掉；仅隐藏按钮，记忆库仍可通过顶部「记忆库」标签访问。Web 面板「设置」里有对应开关 |
 
 > 🔐 **API 安全**：DSH 无内置鉴权且默认仅监听 `127.0.0.1`。插件 API 默认开放（便于 Web 面板即装即用）。如需防护（如局域网暴露），在配置中设置 `apiToken`：写操作（画像/规则/命令）与密钥端点（`vector-config`、`vector-reindex`）需携带 `Authorization: Bearer <token>`（前端设置面板可填入同一 token），只读的 `list` / `search` / `semantic` 保持开放。`/api/dsh-mneme/vector-config` 返回的 `apiKey` 已掩码（`sk-***…`），存储仍保留明文供调用；前端回传空或掩码值表示"不改 key"。
 

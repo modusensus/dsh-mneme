@@ -4,7 +4,7 @@
 
 ## 🆕 新功能
 
-- **heat 热度模型回归（issue #87 社区反馈）**：v0.7.12 近重写时与 Wiki-Link/tag 等一并被移除的 v0.7.0「自进化记忆 heat 热度模型」完整找回：
+- **heat 热度模型回归（issue #87 社区反馈）**：v0.7.11 近重写时与 Wiki-Link/tag 等一并被移除的 v0.7.0「自进化记忆 heat 热度模型」完整找回：
   - `src/heat.js` 纯函数模块恢复：幂律衰减 `H=1/(1+λΔt)^α` + per-type 差异化半衰期（`TYPE_DECAY`，preference/pattern/summary 免疫 λ=0）
   - 配置恢复：`heatEnabled` / `heatGlobalAlpha` / `heatTypeDecay` / `sleepHeatThreshold` / `recallRecordDefault` / `recallRetentionDays`
   - **sleep 降级热联合双保护**：phaseDemotion 需「时间窗冷 + heat<阈值 + importance<5」才降级，免疫类型永不因 sleep 降级；ref 语义恢复 `last_accessed_at ?? created_at`（updated_at 不算访问）
@@ -22,6 +22,14 @@
 ## 🏗️ 工程
 
 - 683 测试全绿（+15：heat 6 测 / sleep-heat 6 测（含 heatEnabled=false 纯时间分层回归）/ updated-at-semantics 3 测回归；sleep.test.js demotionConfig 适配热闸、recall-layer 适配 recordRecall 默认开）
+
+## 📝 历史补记与勘误（issue #87 全仓审计）
+
+- **删除版本勘误**：v0.7.11（发布提交 `ce4658e`）近重写时移除了一批 v0.6.x/v0.7.0 实验功能（Wiki-Link、tag 系统/目录/tag 加权、user/fact 分层类型、前缀 id 解析、/stats 与 /directory 端点、heat、内置面板 client.js 内联面板）——此前本 CHANGELOG 与 README 中英 archival note 把删除归因于 v0.7.12，已统一勘误。v0.7.11 与 v0.7.12 同日发布，v0.7.12 相对其父提交未删除任何文件。
+- **静默丢失补记**（此前全文档零记载，本次如实补录，**不找回**）：
+  1. **provenance 出生会话溯源（`session_id`）**：v0.6.1 引入，v0.7.11 连测试一并删除；`source` 字段与 `epistemic_status` 来源分级仍保留
+  2. **会话生命周期（`session_disposed_at` 软隐藏）**：v0.6.0 引入，v0.7.11 从存活的 store/service 静默剥离；README 死文档与死配置键（`sessionLifecycleEnabled`/`showSidebarTrigger`）已清理；留待 issue #47 无痕会话重做
+  3. **normalizeDecisions 决策字段归一化**：v0.5.3 引入，v0.7.11 删除，功能由「提示词硬规范字段名 + extractJsonArray 解包」取代
 
 ## [0.7.18] - 2026-09-08
 

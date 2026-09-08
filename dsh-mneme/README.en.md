@@ -162,7 +162,7 @@ Every **background LLM call** (autoDream consolidation + summary, autoSummarize 
 
 ## 🆕 Recent Release Highlights
 
-> ⚠️ **Archival note**: pre-v0.7.12 rows below record experimental features later removed in the v0.7.12 rewrite (Wiki-Link, tag system/directory/tag-boost, user/fact layered types, prefix-id resolution, /stats and /directory endpoints). They are version history only — **not current capability**. (The heat model was fully restored in v0.7.19 from v0.7.10, see below.) Current features are what this README's body and the [config table](#-configuration) describe.
+> ⚠️ **Archival note**: pre-v0.7.12 rows below record experimental features later removed in the **v0.7.11** rewrite (Wiki-Link, tag system/directory/tag-boost, user/fact layered types, prefix-id resolution, /stats and /directory endpoints). v0.7.11 and v0.7.12 shipped the same day; historical docs credited v0.7.12, corrected here to v0.7.11. Unrecorded removals in the same rewrite: session lifecycle (`session_disposed_at` soft-hide), provenance birth-session tracking (`session_id`), and the decision-field normalizer (`normalizeDecisions`, superseded by strict prompt schema + `extractJsonArray`). They are version history only — **not current capability**. (The heat model was fully restored in v0.7.19 from v0.7.10, see below.) Current features are what this README's body and the [config table](#-configuration) describe.
 
 | Version | Highlights |
 |------|------|
