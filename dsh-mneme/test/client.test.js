@@ -219,6 +219,45 @@ test("importance renders as star glyphs, not raw text stars", () => {
   );
 });
 
+// better-sidebar ecosystem integration is an optional capability (official
+// external-plugin-guide §2.2): 'betterSidebar' IS declared in inject (DSH's
+// runtime gates ctx property access on the inject declaration — probing
+// without declaring fails the whole loader entry, verified in the field) and
+// marked as an optional peer dependency, so when it is absent the service
+// resolves to undefined and registration skips gracefully. Registration
+// probes at runtime inside a named ctx.effect (scope cleanup on HMR/disable)
+// with a bounded retry for service-provision ordering.
+test("better-sidebar tab declares optional inject, probes, and skips gracefully", () => {
+  assert.ok(
+    /const inject = \["slots", "locale", "betterSidebar"\];/.test(clientSource),
+    "module inject must declare betterSidebar — DSH gates ctx property access on it"
+  );
+  assert.ok(
+    /const bs = ctx\.betterSidebar;[\s\S]{0,60}typeof bs\.registerTab === "function"/.test(clientSource),
+    "the tab registration must still probe ctx.betterSidebar at runtime (undefined when absent)"
+  );
+  assert.ok(
+    /id: "dsh-mneme:memory"/.test(clientSource),
+    "the registered tab id must be package-prefixed"
+  );
+  assert.ok(
+    /title: \(\) => t\("memory\.view\.label"\)/.test(clientSource),
+    "the tab title must reuse the localized 记忆库 label"
+  );
+  assert.ok(
+    /component: \(\) => h\(MemoryExplorer, \{ t \}\)/.test(clientSource),
+    "the tab must reuse the MemoryExplorer views"
+  );
+  assert.ok(
+    clientSource.includes('"dsh-mneme: better-sidebar tab"'),
+    "the registration effect must carry a named label for scope cleanup"
+  );
+  assert.ok(
+    /if \(\+\+tries <= 10\) timer = setTimeout\(attempt, 1000\);/.test(clientSource),
+    "the service probe must retry with a bound (10 × 1s), not loop forever"
+  );
+});
+
 // The graph toggle must not read as "share": the primitives share icon is
 // banned and a custom node-graph glyph takes its place.
 test("graph toggle uses a node-graph glyph, not the share icon", () => {
@@ -230,6 +269,44 @@ test("graph toggle uses a node-graph glyph, not the share icon", () => {
   assert.ok(
     clientSource.includes("GraphNodesIcon"),
     "the custom node-graph icon must back the graph toggle"
+  );
+});
+
+// 方案 A：查询收敛。状态页只做仪表盘（小页预览 + 服务端 total + 查看全部），
+// 沉淀/归档的完整浏览走记忆库的 deposited/archived 筛选视图（chip 预置 +
+// 状态页入口跳转），详情抽屉给归档记忆一个反向的「恢复」。
+test("status dashboard links into deposited/archived library views", () => {
+  assert.ok(
+    clientSource.includes('"/api/dsh-mneme/list?deposited=only&limit=8&order=chrono"'),
+    "the workbench deposited preview must read the server-side deposited view"
+  );
+  assert.ok(
+    clientSource.includes('"/api/dsh-mneme/list?archived=only&limit=3&order=chrono"'),
+    "the workbench archived preview must cap at 3 rows backed by a server total"
+  );
+  assert.ok(
+    clientSource.includes("browseWithFilter"),
+    "the status page must jump into the library with preset filters"
+  );
+  assert.ok(
+    /view === "status" && h\(StatusPanel, \{ t, onBrowse: browseWithFilter \}\)/.test(clientSource),
+    "the status panel must receive the browse-jump callback"
+  );
+  assert.ok(
+    clientSource.includes('(depositedOnly ? "&deposited=only" : "")'),
+    "the library filterQS must carry the deposited chip"
+  );
+  assert.ok(
+    clientSource.includes('(archivedOnly ? "&archived=only" : "")'),
+    "the library filterQS must carry the archived chip"
+  );
+  assert.ok(
+    clientSource.includes('postUpdate({ archived: false }, { restored: true })'),
+    "the drawer must offer restore for archived memories"
+  );
+  assert.ok(
+    clientSource.includes('"memory.status.viewAll"'),
+    "the view-all entries must come from the dictionary"
   );
 });
 

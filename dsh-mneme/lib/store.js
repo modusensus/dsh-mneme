@@ -637,7 +637,7 @@ export function createStore(path) {
     return ts;
   }
 
-  function count(type, { minImportance = null, source = null, includeForgotten = false, includeArchived = false, onlyArchived = false, updatedFrom = null, updatedTo = null } = {}) {
+  function count(type, { minImportance = null, source = null, includeForgotten = false, includeArchived = false, onlyArchived = false, depositedOnly = false, updatedFrom = null, updatedTo = null } = {}) {
     const clauses = [];
     const params = [];
     if (type !== undefined) {
@@ -672,6 +672,12 @@ export function createStore(path) {
       clauses.push("archived = 1");
     } else if (!includeArchived) {
       clauses.push("archived = 0");
+    }
+    // 与 list() 同过滤：deposited 视图的 total 才能和行保持一致。
+    if (depositedOnly) {
+      clauses.push(
+        "(id IN (SELECT record_id FROM receipt_chain WHERE kind IN ('merge', 'update') AND verdict = 'live') OR source = 'dream')"
+      );
     }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     return db.prepare(`SELECT count(*) AS c FROM memories ${where}`).get(...params).c;
@@ -924,7 +930,7 @@ export function createStore(path) {
     return rows.map(toRow);
   }
 
-  function list({ type, limit = 50, offset = 0, order = "importance", includeForgotten = false, includeArchived = false, onlyArchived = false, minImportance = null, source = null, updatedFrom = null, updatedTo = null } = {}) {
+  function list({ type, limit = 50, offset = 0, order = "importance", includeForgotten = false, includeArchived = false, onlyArchived = false, depositedOnly = false, minImportance = null, source = null, updatedFrom = null, updatedTo = null } = {}) {
     const clauses = [];
     const params = [];
     if (type) {
@@ -961,6 +967,14 @@ export function createStore(path) {
       clauses.push("archived = 1");
     } else if (!includeArchived) {
       clauses.push("archived = 0");
+    }
+    // depositedOnly：只看 autoDream 巩固过的记忆——receipt_chain 的 merge /
+    // update live verdict（record_id 即保留/更新目标）∪ source="dream" 的
+    // 直写沉淀（记忆库总览）。conflict 不算沉淀：两侧只被仲裁，内容未落。
+    if (depositedOnly) {
+      clauses.push(
+        "(id IN (SELECT record_id FROM receipt_chain WHERE kind IN ('merge', 'update') AND verdict = 'live') OR source = 'dream')"
+      );
     }
     const { limit: lim, offset: off } = sanitizePage(limit, offset, 50);
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";

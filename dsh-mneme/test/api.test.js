@@ -994,3 +994,58 @@ test("GET /api/dsh-mneme/list?archived=only lists just archived rows; default li
   await route.handler(req("/api/dsh-mneme/list"), back);
   assert.equal(JSON.parse(back.body).total, 2);
 });
+
+test("GET /api/dsh-mneme/list?deposited=only lists dream-touched memories (receipts ∪ source=dream)", async () => {
+  const { routes, service } = setup();
+  const plain = service.saveWithDedupe({ type: "preference", title: "无关", content: "plain" });
+  const merged = service.saveWithDedupe({ type: "project", title: "被巩固", content: "merged" });
+  const updated = service.saveWithDedupe({ type: "decision", title: "被更新", content: "updated" });
+  service.saveWithDedupe({ type: "summary", title: "总览", content: "overview", source: "dream" });
+  const ids = [plain, merged, updated].map((r) => r.memory.id);
+
+  // 巩固账本：merge 落在 keepSource、update 落在目标；conflict 只仲裁不落
+  // 内容，不算沉淀。verdict='live' 才有效。
+  service.saveReceipt({
+    receipt_id: "r-merge", run_id: "run-1", record_id: merged.memory.id, kind: "merge",
+    input_digest: "d1", keep_source: merged.memory.id, sources: [merged.memory.id, ids[0]],
+    verdict: "live", count_before: 2, count_after: 1, policy_epoch: 0,
+    created_at: new Date().toISOString()
+  });
+  service.saveReceipt({
+    receipt_id: "r-update", run_id: "run-1", record_id: updated.memory.id, kind: "update",
+    input_digest: "d2", verdict: "live", count_before: 1, count_after: 1,
+    policy_epoch: 0, created_at: new Date().toISOString()
+  });
+  service.saveReceipt({
+    receipt_id: "r-conflict", run_id: "run-1", record_id: "winner-x", kind: "conflict",
+    input_digest: "d3", winner_id: "winner-x", loser_id: "loser-y", verdict: "live",
+    count_before: 2, count_after: 2, policy_epoch: 0, created_at: new Date().toISOString()
+  });
+
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/list");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/list?deposited=only"), res);
+  const data = JSON.parse(res.body);
+  assert.deepEqual(
+    data.items.map((m) => m.title).sort(),
+    ["总览", "被巩固", "被更新"],
+    "deposited view = receipt merge/update records ∪ source=dream writes"
+  );
+  assert.equal(data.total, 3, "total honors the deposited filter");
+
+  // 默认列表不受 deposited 过滤影响
+  const def = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/list"), def);
+  assert.equal(JSON.parse(def.body).total, 4);
+
+  // 与 archived=only 可叠加：归档的沉淀记忆才出现在交集视图里
+  const upd = routes.find((r) => r.path === "/api/dsh-mneme/update");
+  const arch = new FakeRes();
+  await upd.handler(req("/api/dsh-mneme/update", "POST", { id: merged.memory.id, archived: true }), arch);
+  assert.equal(arch.statusCode, 200);
+  const both = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/list?deposited=only&archived=only"), both);
+  const bothData = JSON.parse(both.body);
+  assert.deepEqual(bothData.items.map((m) => m.title), ["被巩固"]);
+  assert.equal(bothData.total, 1);
+});

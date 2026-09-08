@@ -178,7 +178,11 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
         // archived=only：只看归档（状态页的归档列表用）。归档行不进默认列表，
         // 所以这是独立的视图开关，而不是 includeArchived 的混看模式。
         const onlyArchived = url.searchParams.get("archived") === "only";
-        const rows = service.list({ type, limit, offset, order, minImportance, source, updatedFrom, updatedTo, onlyArchived });
+        // deposited=only：只看 autoDream 巩固过的记忆（receipt_chain 的
+        // merge/update verdict ∪ source=dream 直写）——状态页「查看全部」
+        // 与记忆库的「沉淀」筛选 chip 共用这个视图。
+        const depositedOnly = url.searchParams.get("deposited") === "only";
+        const rows = service.list({ type, limit, offset, order, minImportance, source, updatedFrom, updatedTo, onlyArchived, depositedOnly });
         // 面板行在 wire DTO 之上补 archived/quality_score——模型工具的输出
         // schema 严格复用 toApiList，扩展只发生在 HTTP 层。
         const items = service.toApiList(rows).map((m, i) => ({
@@ -189,7 +193,7 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
         // Total honors the same filters as the rows, or the pager's
         // has-more math breaks whenever minImportance/source/updated-at
         // bounds are active.
-        sendJson(res, 200, { items, total: service.count(type, { minImportance, source, updatedFrom, updatedTo, onlyArchived }) });
+        sendJson(res, 200, { items, total: service.count(type, { minImportance, source, updatedFrom, updatedTo, onlyArchived, depositedOnly }) });
       } catch {
         sendJson(res, 500, { error: "internal" });
       }

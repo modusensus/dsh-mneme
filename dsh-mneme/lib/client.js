@@ -105,7 +105,7 @@ window.__ModuleLoader__.load({
       return fetch(path, { ...opts, headers });
     }
 
-    const inject = ["slots", "locale"];
+    const inject = ["slots", "locale", "betterSidebar"];
 
     const NS = "memory";
 
@@ -174,6 +174,11 @@ window.__ModuleLoader__.load({
         "memory.explorer.updated": "更新",
         "memory.explorer.tags": "标签",
         "memory.explorer.importance": "重要性",
+        "memory.explorer.sourceFilter": "来源",
+        "memory.explorer.filterDeposited": "沉淀",
+        "memory.explorer.filterDepositedHint": "只看 autoDream 巩固/更新过的记忆",
+        "memory.explorer.filterArchived": "已归档",
+        "memory.explorer.filterArchivedHint": "只看已归档的记忆（默认列表不含它们）",
         "memory.explorer.topK": "返回数量",
         "memory.explorer.topKOption": "返回 {n} 条",
         "memory.card.open": "在记忆库中查看全文",
@@ -329,6 +334,8 @@ window.__ModuleLoader__.load({
         "memory.explorer.detail.save": "保存",
         "memory.explorer.detail.cancel": "取消",
         "memory.explorer.detail.archive": "归档",
+        "memory.explorer.detail.restore": "恢复",
+        "memory.explorer.detail.restored": "已恢复到主列表",
         "memory.explorer.detail.archived": "已归档",
         "memory.explorer.detail.archiveFailed": "操作失败",
         "memory.explorer.detail.saved": "已保存，镜像同步更新",
@@ -355,6 +362,9 @@ window.__ModuleLoader__.load({
         "memory.status.consolidated": "沉淀的记忆",
         "memory.status.consolidatedEmpty": "autoDream / autoSummarize 沉淀的记忆会出现在这里",
         "memory.status.archivedMemories": "已归档的记忆",
+        "memory.status.viewAll": "查看全部",
+        "memory.status.depositedCount": "沉淀的记忆（{n}）",
+        "memory.status.archivedCount": "已归档的记忆（{n}）",
         "memory.status.archivedEmpty": "没有归档的记忆",
         "memory.status.restore": "恢复",
         "memory.settings.extapi.reveal": "显示",
@@ -438,6 +448,11 @@ window.__ModuleLoader__.load({
         "memory.explorer.updated": "Updated",
         "memory.explorer.tags": "Tags",
         "memory.explorer.importance": "Importance",
+        "memory.explorer.sourceFilter": "Source",
+        "memory.explorer.filterDeposited": "Deposited",
+        "memory.explorer.filterDepositedHint": "Only memories autoDream consolidated or updated",
+        "memory.explorer.filterArchived": "Archived",
+        "memory.explorer.filterArchivedHint": "Only archived memories (excluded from the default list)",
         "memory.explorer.topK": "Results limit",
         "memory.explorer.topKOption": "Return {n}",
         "memory.card.open": "Open full text in the memory library",
@@ -593,6 +608,8 @@ window.__ModuleLoader__.load({
         "memory.explorer.detail.save": "Save",
         "memory.explorer.detail.cancel": "Cancel",
         "memory.explorer.detail.archive": "Archive",
+        "memory.explorer.detail.restore": "Restore",
+        "memory.explorer.detail.restored": "Restored to the main list",
         "memory.explorer.detail.archived": "Archived",
         "memory.explorer.detail.archiveFailed": "Action failed",
         "memory.explorer.detail.saved": "Saved; mirrors re-rendered",
@@ -619,6 +636,9 @@ window.__ModuleLoader__.load({
         "memory.status.consolidated": "Deposited memories",
         "memory.status.consolidatedEmpty": "Memories deposited by autoDream / autoSummarize appear here",
         "memory.status.archivedMemories": "Archived memories",
+        "memory.status.viewAll": "View all",
+        "memory.status.depositedCount": "Deposited memories ({n})",
+        "memory.status.archivedCount": "Archived memories ({n})",
         "memory.status.archivedEmpty": "Nothing archived",
         "memory.status.restore": "Restore",
         "memory.settings.extapi.reveal": "Reveal",
@@ -686,6 +706,8 @@ window.__ModuleLoader__.load({
     // text-turns-brand-blue active states — no boxed panels).
     const CSS_TAG = "@modusensus/dsh-mneme/drawer.css";
     const css = [
+      // --- explorer shell: container queries let the toolbar adapt to the
+      // better-sidebar workbench pane (~500px) as well as the 1240px sheet ---
       // --- sidebar foot trigger (wide row / collapsed rail icon) ---
       ".mneme-trigger{box-sizing:border-box;cursor:pointer;width:calc(100% + 4px);height:42px;color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:12px;flex:none;align-items:center;gap:8px;margin:4px -2px;padding:0 10px 0 8px;font-family:inherit;font-size:14px;line-height:22px;display:flex;overflow:hidden}",
       ".mneme-trigger:hover{background:var(--dsw-alias-interactive-bg-hover)}",
@@ -705,7 +727,11 @@ window.__ModuleLoader__.load({
       ".mneme-entitychip{flex:none;height:26px;padding:0 10px;border-radius:8px;border:none;background:none;color:var(--dsw-alias-state-business-primary);cursor:pointer;font-family:inherit;font-size:12px;line-height:16px;display:inline-flex;align-items:center}",
       ".mneme-entitychip:hover{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent)}",
       // --- main-area memory library page ---
-      ".mneme-x{flex:1;min-height:0;height:100%;width:100%;box-sizing:border-box;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1);--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2)}",
+      ".mneme-x{flex:1;min-height:0;height:100%;width:100%;box-sizing:border-box;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1);--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);container-type:inline-size}",
+      // 窄容器（better-sidebar 工作台 ~500px）下中央 vtabs 会与右缘悬浮的
+      // 卡片/时间线切换器重叠：容器查询收窄时隐藏切换器，视图模式沿用
+      // localStorage 记忆，宽容器（sheet）不受影响。
+      "@container (max-width: 640px){.mneme-xtools .mneme-seg{display:none}}",
       ".mneme-xbar{position:relative;flex:none;display:flex;align-items:center;justify-content:center;gap:6px;border-bottom:1px solid var(--dsw-alias-border-l2);padding:0 16px;min-height:52px}",
       ".mneme-filterbar{flex:none;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 16px;border-bottom:1px solid var(--dsw-alias-border-l2)}",
       ".mneme-vtabs{display:flex;align-items:stretch;height:46px}",
@@ -938,7 +964,7 @@ window.__ModuleLoader__.load({
       ".mneme-statusgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;max-width:1000px;margin:0 auto}",
       ".mneme-statuscard{min-width:0;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:14px}",
       // --- 状态页工作台：让用户看见插件在干活（动态/沉淀/归档） ---
-      ".mneme-wbhead{margin:28px auto 10px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);max-width:1000px}",
+      ".mneme-wbhead{margin:28px auto 10px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);max-width:1000px;display:flex;align-items:baseline;justify-content:space-between;gap:8px}",
       ".mneme-wblist{max-width:1000px;display:flex;flex-direction:column;gap:6px}",
       ".mneme-wbrow{display:flex;gap:10px;align-items:flex-start;padding:10px 14px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px}",
       ".mneme-wbdot{flex:none;width:8px;height:8px;border-radius:50%;margin-top:6px;background:var(--dsw-alias-state-success,#2a9d6a)}",
@@ -2379,11 +2405,14 @@ window.__ModuleLoader__.load({
       return [];
     }
 
-    function WorkbenchSection({ t }) {
+    function WorkbenchSection({ t, onBrowse }) {
       const [feed, setFeed] = useState(null); // audit rows（已过滤巩固/总结）
-      const [deposited, setDeposited] = useState(null); // ids 解析出的记忆
-      const [archived, setArchived] = useState(null);
+      const [deposited, setDeposited] = useState(null); // 沉淀记忆首页（服务端 deposited 视图）
+      const [depositedTotal, setDepositedTotal] = useState(0);
+      const [archived, setArchived] = useState(null); // 归档记忆首页
+      const [archivedTotal, setArchivedTotal] = useState(0);
       const [restoring, setRestoring] = useState("");
+      const [wbReload, setWbReload] = useState(0);
 
       const load = useCallback(() => {
         let cancelled = false;
@@ -2391,30 +2420,31 @@ window.__ModuleLoader__.load({
           .then((r) => (r.ok ? r.json() : { items: [] }))
           .then((d) => {
             if (cancelled) return;
-            const rows = (d.items || []).filter((r) =>
-              r.trigger_source === "autoDream" || r.trigger_source === "autoSummarize");
-            setFeed(rows);
-            const ids = [];
-            for (const row of rows) {
-              for (const id of parseRelatedIds(row.related_memory_ids)) {
-                if (!ids.includes(id)) ids.push(id);
-              }
-            }
-            return apiFetch("/api/dsh-mneme/list?limit=300&order=chrono")
-              .then((r2) => (r2.ok ? r2.json() : { items: [] }))
-              .then((d2) => {
-                if (cancelled) return;
-                const byId = new Map((d2.items || []).map((m) => [m.id, m]));
-                setDeposited(ids.map((id) => byId.get(id)).filter(Boolean).slice(0, 8));
-              });
+            setFeed((d.items || []).filter((r) =>
+              r.trigger_source === "autoDream" || r.trigger_source === "autoSummarize"));
           })
           .catch(() => { if (!cancelled) setFeed([]); });
-        apiFetch("/api/dsh-mneme/list?archived=only&limit=50&order=chrono")
-          .then((r) => (r.ok ? r.json() : { items: [] }))
-          .then((d) => { if (!cancelled) setArchived(d.items || []); })
+        // 仪表盘数据源：沉淀/归档各取一小页 + 服务端 total（/list 的 total
+        // 与行同过滤）。长列表不再进状态页——「查看全部」跳记忆库的筛选
+        // 视图，查询收敛到有搜索/分页的地方。
+        apiFetch("/api/dsh-mneme/list?deposited=only&limit=8&order=chrono")
+          .then((r) => (r.ok ? r.json() : { items: [], total: 0 }))
+          .then((d) => {
+            if (cancelled) return;
+            setDeposited(d.items || []);
+            setDepositedTotal(d.total || 0);
+          })
+          .catch(() => { if (!cancelled) setDeposited([]); });
+        apiFetch("/api/dsh-mneme/list?archived=only&limit=3&order=chrono")
+          .then((r) => (r.ok ? r.json() : { items: [], total: 0 }))
+          .then((d) => {
+            if (cancelled) return;
+            setArchived(d.items || []);
+            setArchivedTotal(d.total || 0);
+          })
           .catch(() => { if (!cancelled) setArchived([]); });
         return () => { cancelled = true; };
-      }, []);
+      }, [wbReload]);
       useEffect(() => { load(); }, [load]);
 
       const restore = (id) => {
@@ -2425,7 +2455,10 @@ window.__ModuleLoader__.load({
           body: JSON.stringify({ id, archived: false })
         })
           .then((r) => { if (!r.ok) throw new Error("http"); })
-          .then(() => setArchived((cur) => (cur || []).filter((m) => m.id !== id)))
+          .then(() => {
+            setArchived((cur) => (cur || []).filter((m) => m.id !== id));
+            setArchivedTotal((n) => Math.max(0, n - 1));
+          })
           .catch(() => {})
           .finally(() => setRestoring(""));
       };
@@ -2457,8 +2490,14 @@ window.__ModuleLoader__.load({
                         row.error_message ? ` · ${row.error_message}` : "")
                     ));
                 })),
-        deposited !== null && deposited.length > 0 && h(react.Fragment, null,
-          h("div", { className: "mneme-wbhead" }, t("memory.status.consolidated")),
+        deposited !== null && depositedTotal > 0 && h(react.Fragment, null,
+          h("div", { className: "mneme-wbhead" },
+            h("span", null, t("memory.status.depositedCount").replace("{n}", String(depositedTotal))),
+            onBrowse && depositedTotal > deposited.length && h("button", {
+              type: "button",
+              className: "mneme-footbtn",
+              onClick: () => onBrowse({ deposited: true })
+            }, t("memory.status.viewAll"))),
           h("div", { className: "mneme-wblist" },
             deposited.map((m) => h("div", { className: "mneme-wbmemo", key: m.id },
               h("span", { className: "mneme-xdot", style: { color: memoryTypeColor(m.type) }, "aria-hidden": "true" }),
@@ -2468,7 +2507,13 @@ window.__ModuleLoader__.load({
                   `${typeLabel(t, m.type)} · ${formatRelativeTime(m.updated_at || m.created_at, t)}`))
               )))),
         archived !== null && h(react.Fragment, null,
-          h("div", { className: "mneme-wbhead" }, t("memory.status.archivedMemories")),
+          h("div", { className: "mneme-wbhead" },
+            h("span", null, t("memory.status.archivedCount").replace("{n}", String(archivedTotal))),
+            onBrowse && archivedTotal > archived.length && h("button", {
+              type: "button",
+              className: "mneme-footbtn",
+              onClick: () => onBrowse({ archived: true })
+            }, t("memory.status.viewAll"))),
           archived.length === 0
             ? h("div", { className: "mneme-featsubhint" }, t("memory.status.archivedEmpty"))
             : h("div", { className: "mneme-wblist" },
@@ -2488,7 +2533,7 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function StatusPanel({ t }) {
+    function StatusPanel({ t, onBrowse }) {
       return h("div", { className: "mneme-status" },
         h("div", { className: "mneme-statusgrid" },
           h(MemoriesStatusCard, { t }),
@@ -2497,7 +2542,7 @@ window.__ModuleLoader__.load({
           h(LlmStatusCard, { t }),
           h(DreamStatusCards, { t })
         ),
-        h(WorkbenchSection, { t })
+        h(WorkbenchSection, { t, onBrowse })
       );
     }
 
@@ -2633,8 +2678,11 @@ window.__ModuleLoader__.load({
               )
             : h(react.Fragment, null,
                 h("button", { type: "button", className: "mneme-btn", onClick: () => setEditing(true) }, t("memory.explorer.detail.edit")),
-                h("button", { type: "button", className: "mneme-btn", disabled: busy, onClick: () => postUpdate({ archived: true }, { archived: true }) },
-                  t("memory.explorer.detail.archive")),
+                memory.archived
+                  ? h("button", { type: "button", className: "mneme-btn", disabled: busy, onClick: () => postUpdate({ archived: false }, { restored: true }) },
+                      t("memory.explorer.detail.restore"))
+                  : h("button", { type: "button", className: "mneme-btn", disabled: busy, onClick: () => postUpdate({ archived: true }, { archived: true }) },
+                      t("memory.explorer.detail.archive")),
                 h("button", {
                   type: "button",
                   className: "mneme-btn",
@@ -2747,6 +2795,9 @@ window.__ModuleLoader__.load({
         catch { return "timeline"; }
       });
       const [dateRange, setDateRange] = useState("all"); // all | 7d | 30d | 90d
+      // 方案 A：沉淀/归档筛选 chip——状态页「查看全部」也会带着它们跳转过来。
+      const [depositedOnly, setDepositedOnly] = useState(false); // 只看 autoDream 巩固
+      const [archivedOnly, setArchivedOnly] = useState(false); // 只看已归档
       const [pendingIds, setPendingIds] = useState(() => new Set());
       const [menuOpen, setMenuOpen] = useState(false);
       const [importOpen, setImportOpen] = useState(false);
@@ -2785,7 +2836,9 @@ window.__ModuleLoader__.load({
       ).toISOString();
       const filterQS = (type === "all" ? "" : `&type=${encodeURIComponent(type)}`)
         + (minImp ? `&minImportance=${minImp}` : "")
-        + (dateFromIso ? `&updatedFrom=${encodeURIComponent(dateFromIso)}` : "");
+        + (dateFromIso ? `&updatedFrom=${encodeURIComponent(dateFromIso)}` : "")
+        + (depositedOnly ? "&deposited=only" : "")
+        + (archivedOnly ? "&archived=only" : "");
       const listUrl = (offset) => `/api/dsh-mneme/list?limit=${PAGE_SIZE}&offset=${offset}${filterQS}&order=chrono`;
 
       // Browse = paged, pure-chronological pages (order=chrono). The default
@@ -2971,13 +3024,24 @@ window.__ModuleLoader__.load({
 
       // 编辑保存 / 归档的本地落账：替换或移除对应行；镜像由后端重渲染。
       // 归档从所有视图移除（列表默认只看未归档），并清空选中。
-      const applyMemoryUpdate = (updated, { archived = false } = {}) => {
+      const applyMemoryUpdate = (updated, { archived = false, restored = false } = {}) => {
         if (archived) {
           setItems((cur) => cur.filter((m) => m.id !== updated.id));
           setRemoteItems((cur) => (cur ? cur.filter((m) => m.id !== updated.id) : cur));
           setTotal((n) => Math.max(0, n - 1));
           setSelectedId(null);
           setToastMsg(t("memory.explorer.detail.archived"));
+          setTimeout(() => setToastMsg(""), 2500);
+          return;
+        }
+        if (restored) {
+          // 恢复：行离开当前视图（抽屉只能从归档浏览列表打开它），回主列表
+          // 由下一次筛选切换/刷新自然带出。
+          setItems((cur) => cur.filter((m) => m.id !== updated.id));
+          setRemoteItems((cur) => (cur ? cur.filter((m) => m.id !== updated.id) : cur));
+          setTotal((n) => Math.max(0, n - 1));
+          setSelectedId(null);
+          setToastMsg(t("memory.explorer.detail.restored"));
           setTimeout(() => setToastMsg(""), 2500);
           return;
         }
@@ -3024,6 +3088,16 @@ window.__ModuleLoader__.load({
       const openGraphFor = (name) => {
         setGraphFocus(name || "");
         setView("entity");
+      };
+
+      // 状态页「查看全部」入口：跳回记忆库并预置对应筛选（清搜索态，避免
+      // remoteItems 盖过浏览列表）。
+      const browseWithFilter = (patch) => {
+        setDepositedOnly(!!patch.deposited);
+        setArchivedOnly(!!patch.archived);
+        setQuery("");
+        setRemoteItems(null);
+        setView("memory");
       };
 
       const subviews = [
@@ -3143,6 +3217,19 @@ window.__ModuleLoader__.load({
                   className: minImp === v ? "mneme-chip mneme-active" : "mneme-chip",
                   onClick: () => setMinImp(v)
                 }, v === 0 ? t("memory.tab.all") : `★${v}+`))
+            ),
+            h("div", { className: "mneme-xcolhead" }, t("memory.explorer.sourceFilter")),
+            h("div", { className: "mneme-xrow" },
+              h("button", {
+                className: depositedOnly ? "mneme-chip mneme-active" : "mneme-chip",
+                title: t("memory.explorer.filterDepositedHint"),
+                onClick: () => setDepositedOnly(!depositedOnly)
+              }, t("memory.explorer.filterDeposited")),
+              h("button", {
+                className: archivedOnly ? "mneme-chip mneme-active" : "mneme-chip",
+                title: t("memory.explorer.filterArchivedHint"),
+                onClick: () => setArchivedOnly(!archivedOnly)
+              }, t("memory.explorer.filterArchived"))
             ),
             h("div", { className: "mneme-xcolhead" }, t("memory.explorer.types")),
             h("button", {
@@ -3276,7 +3363,7 @@ window.__ModuleLoader__.load({
       })
         ),
         view === "entity" && h(EntityPanel, { t, focusEntity: graphFocus, onJumpMemory: jumpToMemory }),
-        view === "status" && h(StatusPanel, { t }),
+        view === "status" && h(StatusPanel, { t, onBrowse: browseWithFilter }),
         view === "settings" && h("div", { className: "mneme-set" },
           h("div", { className: "mneme-set-inner" }, h(SettingsContent, { t }))
         ),
@@ -3369,6 +3456,7 @@ window.__ModuleLoader__.load({
     }
 
     function apply(ctx) {
+      const t = ctx.locale.bind(NS);
       ctx.effect(() => ctx.locale.register(NS, dictionaries), "dsh-mneme: dictionaries");
 
       // 记忆库唯一入口：sidebar.footer.action 注册作为锚点与回退；真实按钮
@@ -3377,7 +3465,6 @@ window.__ModuleLoader__.load({
       // v0.7.15 起不再注册 conversation.view tab——对话内嵌的面板被悬浮
       // 输入框遮挡、挤压会话布局，sheet 页是更舒服的承载方式。
       ctx.slots.inject("sidebar.footer.action", () => {
-        const t = ctx.locale.bind(NS);
         return ctx.slots.register({
           name: "sidebar.footer.action",
           id: "dsh-mneme",
@@ -3392,6 +3479,40 @@ window.__ModuleLoader__.load({
           h(MemoryOverlay, { t })
         ));
       });
+
+      // --- better-sidebar 生态 tab（可选软依赖，官方指南 §2.2 契约）---
+      // 'betterSidebar' 声明进 inject + package.json optional peer：未安装
+      // better-sidebar 时服务解析为 undefined，探测条件不成立即静默跳过，
+      // 现有 footer 锚点 + 顶部入口 + sheet 完全不受影响（实测：DSH 运行时
+      // 对 ctx 属性访问有 inject 闸门，未声明就取值会直接 fail 整个 loader
+      // entry，§15 的「不声明纯探测」模式在 DSH 上不可用）。
+      // 服务提供时序仍无保证（better-sidebar 可能晚于本插件加载），短重试
+      // 兜底；注册包在 ctx.effect 里，HMR/禁用时随作用域自动清理。
+      ctx.effect(() => {
+        let tries = 0, timer = null;
+        const attempt = () => {
+          const bs = ctx.betterSidebar;
+          if (bs && typeof bs.registerTab === "function") {
+            try {
+              bs.registerTab({
+                id: "dsh-mneme:memory",
+                title: () => t("memory.view.label"),
+                icon: (size) => h(IconArchiveOutline20, { size }),
+                order: 60,
+                component: () => h(MemoryExplorer, { t })
+              });
+              return;
+            } catch (err) {
+              // id 重复等注册失败不应拖垮其余功能，留一条线索即可
+              console.error("[dsh-mneme] better-sidebar registerTab failed:", err);
+              return;
+            }
+          }
+          if (++tries <= 10) timer = setTimeout(attempt, 1000);
+        };
+        attempt();
+        return () => clearTimeout(timer);
+      }, "dsh-mneme: better-sidebar tab");
     }
 
     exports.apply = apply;
