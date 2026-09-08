@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Awesome](https://awesome-dsh-plugin.com/badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
-[![tests](https://img.shields.io/badge/tests-648%20passed-success)](https://github.com/modusensus/dsh-mneme)
+[![tests](https://img.shields.io/badge/tests-662%20passed-success)](https://github.com/modusensus/dsh-mneme)
 [![CI](https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/ci.yml)](https://github.com/modusensus/dsh-mneme/actions)
 [![node](https://img.shields.io/badge/node-24%2B-blue)](https://nodejs.org)
 [![npm downloads](https://img.shields.io/npm/dm/@modusensus/dsh-mneme?color=blue&label=downloads)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
@@ -41,8 +41,8 @@ dsh web
 ### 记忆存储（SQLite + Markdown 镜像）
 
 - **SQLite 主存储**：`~/.dsh/memory/memory.db`，`node:sqlite` 内置，零原生依赖
-- **Markdown 镜像**：`preferences.md` / `projects.md` / `decisions.md` / `history.md` / `summary.md` / `user.md` / `facts.md`，人类可读、可手工编辑（**人工修改优先**合并回库）
-- **8 种记忆类型**：用户可存 6 种（`preference` 偏好 / `project` 项目 / `decision` 决策 / `history` 历史 / `user` 用户画像 / `fact` 原子事实）+ AI 自动生成 2 种（`summary` 会话总览 / `pattern` 模式）（v0.7.5 起新增 user/fact 两个轻量分层，单表 `type` 字段扩展，不动表结构）
+- **Markdown 镜像**：`preferences.md` / `projects.md` / `decisions.md` / `history.md` / `summary.md`，人类可读、可手工编辑（**人工修改优先**合并回库）
+- **9 种记忆类型**：`preference` 偏好 / `project` 项目 / `decision` 决策 / `history` 历史 / `summary` 会话总览 / `pattern` 模式 + 编码记忆三型 `rejected_solution` 被否方案 / `pitfall` 踩坑 / `constraint` 约束（v0.7.13 起，`codingRetrospect` 默认关；v0.7.12 重写已收窄删除 user/fact 两型）
 - **镜像同步状态机（v0.3.6+）**：mirror 与主库强一致，用 `generation`（期望轮次）/ `applied_generation`（已应用轮次）建模同步债务
   - 业务写操作在**自身事务内原子递增** desired generation——崩溃在 COMMIT 后、渲染前，重启也能凭 durable 债务恢复，绝不静默跳过（v0.3.8）
   - `generation` 用 SQLite 原子语句递增，多进程并发零丢失；带 `CHECK` 上界，负数/溢出拒绝
@@ -57,7 +57,7 @@ dsh web
 | `memory_search` | 全文搜索（中文子串友好，可启用向量语义搜索） |
 | `memory_list` | 按类型分页列出（`include_archived=true` 可查看已归档） |
 | `memory_update` | 修改已有记忆 |
-| `memory_delete` | 删除记忆（v0.6.0 支持 `query` 按描述删除，不只能靠记忆 ID） |
+| `memory_delete` | 删除记忆（按记忆 ID 精确删除） |
 | `memory_forget` | 抑制注入（降权不删除，可恢复） |
 | `memory_archive` | 归档/恢复记忆（v0.2.5；归档后隐藏于列表/搜索/注入/整理，`archived=false` 可恢复） |
 
@@ -76,20 +76,20 @@ dsh web
   - `update`（v0.2.1）：直接修正单条记忆的过时/错误内容（单 id / 必须实际变化 / 非 summary / 24h 保护 / 每次 ≤2）
 - **失败追踪（v0.2.1）**：用户纠正记忆时写入 `failure_memories` 表（旧值/新值），为后续自进化积累数据
 - **摘要生成**：整理后生成"记忆库总览"（单一实例），作为下次会话的优先注入
-- **Fail-safe**：非法 LLM 输出（未知 id / 非法 action / 越界 importance 等）拒绝整单，绝不破坏记忆库；跨类型合并这类"单条非法"决策（Issue #26）默认跳过并应用合法子集（run 记为 `degraded`），`dreamSkipInvalid:false` 可恢复旧的整单拒绝
+- **Fail-safe**：非法 LLM 输出（未知 id / 非法 action / 越界 importance / 跨类型合并等"单条非法"决策，Issue #26）默认跳过该条并应用合法子集（run 记为 `degraded`），绝不破坏记忆库
 - **裁决审计**：每次运行写入 `dream_runs` 审计表（输入快照 sha256 digest + 完整输入快照 + 决策清单 + 逐 id 去向 + receipt），可离线回放；merge / conflict / update 幂等应用，重放/并发重复执行无累积副作用；update 记录 `_before` 快照
 
 #### dreamMaxTokens 调优指南
 
-默认 `4096` 已覆盖常规记忆库。当**记忆量大**（数万字符以上）时，决策清单与摘要可能超过默认预算，建议按规模调大：
+默认 `8192` 已覆盖常规记忆库。当**记忆量大**（数万字符以上）时，决策清单与摘要可能超过默认预算，建议按规模调大：
 
 | 记忆库规模 | 建议 `dreamMaxTokens` |
 |-----------|----------------------|
-| 常规（<1 万字） | `4096`（默认） |
+| 常规（<1 万字） | `8192`（默认） |
 | 中等（1 万-5 万字） | `65536` |
 | 大型（5 万字以上） | `131072`（上限） |
 
-> 若使用**思考型模型**（如 deepseek-v4-flash / DeepSeek-R1 类），模型可能把全部预算花在 reasoning 上导致正文为空（日志出现 `no json array in llm output`）。此时把 `dreamReasoningEffort` 设为 `off` 显式关闭思考（实测 8192 token 预算不再被推理吃光，输出恢复正常）；sleep 侧对应 `sleepReasoningEffort`。默认 `none` 不传该字段，完全沿用模型自身默认，行为与旧版本一致。
+> 若使用**思考型模型**（如 deepseek-v4-flash / DeepSeek-R1 类），模型可能把全部预算花在 reasoning 上导致正文为空（日志出现 `no json array in llm output`，v0.7.16 已修复）。此时把 `dreamReasoningEffort` 设为 `low` 显式压低思考（`none` 默认不传该字段，完全沿用模型自身默认，行为与旧版本一致）；即使被方舟拒绝该参数，v0.7.16 起也会自动去掉重试一次。sleep 侧对应 `sleepReasoningEffort`。
 
 ### Sleep Mode 系统级睡眠 💤（v0.4.0，opt-in）
 
@@ -115,22 +115,6 @@ dsh web
 - **全局记忆免疫**：存量无 `session_id` 的记忆视为全局，永不参与会话清理
 - **幂等 + 熔断**：dispose/restore 状态守卫幂等（重复调用 no-op）；事件回调内部异常 catch 住，不抛进 DSH 会话清理流程
 - **恢复**：整会话 `service.restoreBySession(sessionId)` 一键还原；`service.listBySession(sessionId, { includeDisposed: true })` 可查看当前隐藏了哪些（DTO 带 `disposed` 标记）
-
-### Wiki-Link 双向链接 🔗（v0.6.1，opt-in）
-
-**默认关闭**（`wikiLinkEnabled: false`）。开启后，记忆正文支持 `[[target]]` / `[[显示|target]]` 双括号链接语法：保存时自动解析并记录跨记忆 `links_to` 关系（partial 唯一索引只对 links_to 去重），记忆详情旁出现反向链接面板，点击可跳转来源记忆。提供只读 API：backlinks / forward-links / wikilink-resolve（输出脱敏）。
-
-### Tag 系统 🏷️（v0.6.2，opt-in）
-
-`autoTagEnabled` 默认关。开启后：正文 `#标签` 即时标记（规则 `[a-zA-Z0-9_一-龥-]+`，≤20 字符，非法/超长自动丢弃）；autoDream 整理后 LLM 自动打 1-3 个标签（`autoTagMaxPerRun=10` 频控，fail-safe）；tags 存 `entity_attrs`；`tag:` 搜索前缀可与关键词/`entity:`/`attr:` 组合；mirror 顶部渲染 `#tag` 行；记忆面板标签可点击（过滤）、添加、移除（`manualTagEnabled` 默认开）。存储与搜索能力始终可用，`autoTagEnabled` 只控制自动打标。
-
-### 目录视图 📁（v0.6.3）
-
-记忆面板新增「目录」视图：以 Tag 为轴心的一级手风琴文件夹，无标签记忆自动沉底到「无标签」兜底组；组内按重要性/时间双降序；点击条目直达详情页。数据由 `GET /api/dsh-mneme/directory` 提供（只读、排除 disposed/archived/forgotten）。
-
-### Tag 加权召回 ⚖️（v0.6.4，opt-in）
-
-`tagBoostEnabled` 默认关。开启后，三路召回合并出候选后做 tag 加权重排：候选记忆 tags 与 Query 提取 tags（`#xxx` + 已知 tag 列表）交集 → 分数 `×1.15`；与当前 Session 热记忆 tags 交集 → `×1.08`（可叠加，上限 1.0）。关闭时行为与旧版完全一致，可用 `evaluateRetrieval` 开关对比调优。
 
 官方设置面板 → 「记忆库设置」→「记忆」标签：按类型浏览、全文搜索；启用向量搜索后可用「语义」切换做向量召回。
 
@@ -226,22 +210,13 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 - **选择性注入**：query 向量可用时注入候选按主题相似度重排（`selectiveInjectEnabled` 可关）；**搜索时语义去重**为激进选项（`searchSemanticDedup=true` 显式开启，近重复行 Rerank 前丢弃）
 - **召回基准**（`scripts/benchmark-recall.js`）：标准查询集驱动，计算 Recall@5 与 MRR，`legacy`（三特性全关）vs `fused`（默认配置）双跑对比
 
-### 自进化记忆 🌡️（v0.7.0，默认保守开启）
-
-让记忆库从"存得准、召得回"进化为会自我衰减、识别兴趣漂移的智能体：
-
-- **heat 热度模型**（`src/heat.js`）：类遗忘曲线幂律衰减 `H = 1/(1+λ·Δt)^α`，per-type 差异化半衰期（TYPE_DECAY）：preference/pattern/summary 免疫（λ=0，热度恒 1.0），project 慢衰减（λ=0.0008），decision 中速（λ=0.002），history 较快（λ=0.006）；全局参数 `heatGlobalAlpha`(默认 1.2) 控制衰减速度
-- **sleep 热联合双保护**：降级需同时满足"冷"（heat < `sleepHeatThreshold` 0.05）+"非紧要"（importance < 5）+"非免疫类型"三重条件——冷但重要（如遗忘的高价值决策）与热但低值（如刚访问的闲聊）都受到保护，免疫类型（preference 等）永不降级
-- **updated_at 语义修正**：合并/更新刷新的 `updated_at` 不再计为访问（`last_accessed_at` 独立追踪），杜绝 autoDream 合并动作伪装成"刚被召回"；触达数据采集（touchRecalled）由 `heatEnabled` 门控
-- **recall_runs 数据前提**：检索记录默认开启（`recallRecordDefault: true`），candidates 打 `injected` 标记区分"被召回"（false）与"被注入上下文"（true）两个消耗强度；注入场景也记账（mode="inject"）；90 天滚动清理（`recallRetentionDays`）防膨胀
-- **实体热投影**（ego-graph API + 前端）：`entityHeat` 取关联记忆 heat 的 max 值，API 返回 `heat` 字段；前端节点大小/明暗随热度变化（`nodeRadius`/`fillOpacity`），兴趣漂移在图谱上可见
-- **配置**：`heatEnabled`(默认 true)、`heatTypeDecay`(per-type λ)、`heatGlobalAlpha`(1.2)、`sleepHeatThreshold`(0.05)、`recallRecordDefault`(true)、`recallRetentionDays`(90)
-
 ## 🆕 最近版本亮点
+
+> ⚠️ **历史存档提示**：下方及路线图表中 v0.7.12 之前的早期条目记录的实验功能（heat 热度模型、Wiki-Link、tag 系统/目录/tag 加权、user/fact 分层类型、前缀 id 解析、/stats 与 /directory 端点等）已在 v0.7.12 近重写时移除，仅作版本历史存档，**不代表当前能力**。当前特性以本 README 正文与 [配置表](#-配置) 为准。
 
 | 版本 | 亮点 |
 |------|------|
-| **v0.7.16** | 修复 autoDream 在 thinking 模型上空体 failed（`no json array in llm output`）：恢复 config-first 路由（设置面板「巩固模型」生效，Issue #25）+ reasoningEffort 被拒自动去掉重试一次 + 解析失败如实记 llm_audit error 并带原始输出头日志；648 测试全绿 |
+| **v0.7.16** | 修复 autoDream 在 thinking 模型上空体 failed（`no json array in llm output`）：恢复 config-first 路由（设置面板「巩固模型」生效，Issue #25）+ reasoningEffort 被拒自动去掉重试一次 + 解析失败如实记 llm_audit error 并带原始输出头日志；补测 API 路由空白（/delete、/entities、/external-api）+ lib 运行时冒烟（src↔lib 一致性）；662 测试全绿 |
 | **v0.7.15** | 桌面端适配：记忆库面板重设计（撤对话 tab → 居中非全屏 sheet、卡片网格/时间线双视图、右侧详情抽屉、编辑/归档/关联实体）+ 侧边栏入口上移工作区上方（借用宿主原生类名对齐、收起态零位移）+ 功能开关 30 键上 UI（features API，巩固模型与 embedding 提供方可配）+ 状态页工作台（巩固卡/工作动态流/沉淀记忆/归档恢复）+ 导入导出（镜像同构 md 黄金闭环）+ Token 面板默认遮蔽；645 测试全绿 |
 | **v0.7.14** | 安全修复（CWE-200）：蒸馏不再把助手 `reasoning` 私有推理块送进蒸馏上下文（只采公开 `text`，防止记忆沉淀私有思考链）；617 测试全绿 |
 | **v0.7.13** | 编码记忆蒸馏（`codingRetrospect` 默认关）：完整转录（用户+助手回答+工具调用/结果+代码执行）提炼原子记忆，新增 `rejected_solution`/`pitfall`/`constraint` 三类型，编码任务 `codingBoostFactor` 加权（cap 5）+ 智能调速器（蒸馏全局串行队列 + 429 指数退避自动重试）+ 原子记忆语义保留（宁可拆多条不合并丢细节，`distillMaxChars` 默认 24000）+ 修复 v0.7.12 CI 回归（恢复 c8 覆盖率）；616 测试全绿 |
@@ -310,7 +285,14 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 | **v0.7.8** | ✅ 完成 | DSH 0.1.2-rc.1 兼容（issues #58 #59） | 官方移除 `Session.events` 属性、改用 `snapshotEvents()` 方法后 autoSummarize 与 hot-context 注入失效；改为兼容垫片 `session.snapshotEvents?.() ?? session.events`，新旧 DSH 通吃，老版本不受影响；新增 2 个回归用例；812 测试全绿 |
 | **v0.7.6** | ✅ 完成 | issue #48 修复 | 四工具统一 `service.resolveMemoryId`：截断/前缀短 id 也能精确操作（精确命中优先、唯一前缀解析、多命中拒绝并列出候选、`memory_delete` 未命中幂等返回 + `logger.warn` 留痕）；Web bundle `client.js` 改 src 正源；801 测试全绿 |
 | **v0.7.9** | ✅ 完成 | issue #65 修复 | v0.7.8 的 snapshotEvents 适配未同步 lib/（npm 实际加载 lib/）导致发布产物静默失效；补齐 lib 三处垫片 + 发布前 src↔lib 一致性校验（`scripts/check-sync.js`，root prepack 调用，漂移 exit 1）+ `test/lib-smoke.test.js` 从 lib 导入复跑 + 一致性断言；815 测试全绿 |
-| **v0.8.0** | 🚧 计划中（9 月末） | 图谱增强 | 兴趣漂移可视化 + scope 隔离（issue #17）+ 跨 workspace 记忆共享 + 更多 heat 信号 |
+| **v0.7.10** | ✅ 完成 | Web 面板体验升级 | 记忆类型色点体系 + 图谱画布平移/缩放（0.5x–3x 光标锚定）+ 设置页分区重排 + 侧边栏同标签冲突修复 + 详情 meta 精排 + 只读端点 `GET /api/dsh-mneme/entities`；815 测试全绿 |
+| **v0.7.11** | ✅ 完成 | 记忆库面板改版 | 按月分页 + 无限滚动 + 搜索全局化 + 30s 静默刷新 + 状态子页四卡 + 删除两步确认 + 重要性过滤芯片 + 内联 Lucide 图标；bundle 默认开实体抽取；修复 issue#72 图谱节点裁剪 + issue#59 autoSummarize 垫片；595 测试全绿 |
+| **v0.7.12** | ✅ 完成 | 近重写：纯 HTTP API + CLI | 内置面板 client.js 删除改纯 HTTP API（`127.0.0.1:8790` Bearer 鉴权，api.js/api-standalone.js）+ 独立 CLI `dsh-mneme`（bin/cli.mjs 零依赖）+ 轻量模式 lightMode + 设置面板新卡片；store TYPES 收窄 8→6（删 user/fact）、distill VALID →4、saveWithDedupe 改单参 |
+| **v0.7.13** | ✅ 完成 | 编码记忆蒸馏 + 调速器 | `codingRetrospect`（默认关：完整转录提炼原子记忆，新增 rejected_solution/pitfall/constraint 三类型）+ 智能调速器（蒸馏全局串行队列 + 429 指数退避重试）+ 语义保留（distillMaxChars 默认 24000）；616 测试全绿 |
+| **v0.7.14** | ✅ 完成 | 安全修复（CWE-200） | 蒸馏不再采集私有推理块：`collectMessages` 只采公开 text，防止记忆库沉淀模型私有思考链；617 测试全绿 |
+| **v0.7.15** | ✅ 完成 | 桌面端适配 | 记忆库面板重设计 + 功能开关 30 键 UI（features API）+ 状态页工作台 + 导入导出（镜像同构 md 黄金闭环）+ Token 面板默认遮蔽；645 测试全绿 |
+| **v0.7.16** | ✅ 完成 | autoDream thinking 模型空体修复 + 补测 | 恢复 config-first 路由（设置面板「巩固模型」生效，Issue #25）+ reasoningEffort 被拒自动去掉重试 + 解析失败如实记 llm_audit error；补测 API 路由空白（/delete、/entities、/external-api）+ lib 运行时冒烟；662 测试全绿 |
+| **v0.8.0** | 🚧 计划中（9 月末） | 图谱增强 | 兴趣漂移可视化 + scope 隔离（issue #17）+ 跨 workspace 记忆共享 |
 
 > 新能力一律做成**可开关的功能**（配置启用/关闭），默认保守开启、不破坏现有行为。`failure_memories` 表与 autoDream 决策引擎已为后续反思性成长铺好路。
 
@@ -383,9 +365,7 @@ dsh web
 | `dreamDelayMs` | `2000` | 整理异步延迟（去抖） |
 | `dreamProvider` / `dreamModel` | 空 | dream 的 LLM 路由覆盖（显式配置优先于 agent 默认模型；留空则回退到 agent 默认模型） |
 | `dreamMaxTokens` | `8192` | dream LLM 调用最大 token 数（上限 131072；大记忆量建议调大，见下方调优指南） |
-| `dreamReasoningEffort` | `none` | dream LLM 推理强度透传：`off` / `low` / `medium` / `high` / `none`（`off`=显式关闭思考，思考型模型（如 deepseek-v4-flash）必须用它，否则推理会烧光 token 预算导致正文为空；`none`=不传该字段，沿用模型默认） |
-| `dreamSkipInvalid` | `true` | 跳过非法决策（Issue #26，默认开）：跨类型 merge 等"单条非法"决策不再整单拒绝，而是跳过该决策、应用合法子集，run 记为 `degraded`（`applied>0`，autoTag 照常触发）；设为 `false` 恢复旧的"任意非法即整单拒绝"（`applied=0`）。防洗白语义不变——显式覆盖率不足 / update 超量等全局错误仍整单拒绝 |
-| `allowCrossTypeMerge` | `false` | 允许跨类型合并（Issue #26，默认关）：类型有语义边界（`preference` 注入权重更高、`decision`/`project` 注入上下文不同），跨类型合并默认视为非法并被跳过；显式开启后放宽该检查，跨类型 merge 可被应用，类型边界由用户自行承担 |
+| `dreamReasoningEffort` | `none` | dream LLM 推理强度透传：`low` / `medium` / `high` / `none`（`none`=不传该字段，沿用模型默认；思考型模型（如 deepseek-v4-flash）想压低思考可设 `low`；被方舟拒绝该参数时 v0.7.16 起自动去掉重试一次） |
 | `apiToken` | 空 | 可选 API 鉴权 token；设置后写操作与密钥接口要求 `Authorization: Bearer <apiToken>` |
 | `embedProvider` | `openai` | 语义后端：`openai`（默认，兼容 v0.1）/ `local`（ONNX 离线）/ `ollama` |
 | `localEmbedModel` | `Xenova/bge-small-zh-v1.5` | 本地 ONNX embedding 模型 |
@@ -542,10 +522,9 @@ src/
 ├── hot-memory.js     # 会话级短期热记忆（v0.5.0：滚动轮次 + token 预算）
 ├── embedding.js      # OpenAI 兼容 embeddings 客户端 + 向量检索
 ├── api.js            # HTTP 路由（Web 面板数据通道）
-├── client.js         # Web 面板 bundle（ModuleLoader 自注册；v0.7.6 起 src 正源）
 └── index.js          # 插件接线
-lib/                  # src 的同步分发产物（npm run sync；发布前由 root prepack 的 check-sync.js 校验一致性，无手写例外）
-test/                 # 648 个 node:test 测试（审计与三轴线压测不变量；src↔lib 一致性由 scripts/check-sync.js 发布闸门校验）
+lib/                  # src 的同步分发产物（npm run sync；发布前由 root prepack 的 check-sync.js 校验一致性；唯一手写例外 lib/client.js——Web 面板 bundle，sync 不覆盖）
+test/                 # 662 个 node:test 测试（审计与三轴线压测不变量；src↔lib 一致性由 scripts/check-sync.js 发布闸门校验）
 scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压测 · sync-lib.js 同步 · check-sync.js 发布闸门 · benchmark-recall.js 召回基准
 ```
 
@@ -554,14 +533,14 @@ scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压
 ```bash
 cd dsh-mneme
 npm install        # 安装 peer 依赖（以 devDependencies 形式，用于本地测试）
-npm test           # 运行 648 个测试
+npm test           # 运行 662 个测试
 npm run stress     # 三轴线压测：长会话检索 / 冲突仲裁 / 多 Agent 并发（离线 mock LLM）
 npm run sync       # 把 src/ 同步到 lib/（发布时由 prepack 钩子自动执行）
 ```
 
 > 压测（`npm run stress`）三条轴线：**长会话检索**（Recall@k、陈旧残留率）、**冲突裁决**（可重放仲裁集：审计快照 hash + receipt + 幂等回放）、**多 Agent 并发**（丢更新、重复合并、事务/崩溃恢复）。每次 autoDream 运行都会写入审计表 `dream_runs`（输入快照 digest + 决策清单 + 逐 id 去向 + receipt），让高通过率下也能定位静默错误。
 
-> `lib/` 是 `src/` 的同步分发产物（`npm run sync`）：v0.7.6 起全部由 src 复制而来，**不再有任何手写 lib 文件**——Web 面板 bundle 也以 `src/client.js` 为唯一正源。
+> `lib/` 是 `src/` 的同步分发产物（`npm run sync`）：除 **`lib/client.js`**（Web 面板 bundle）为 lib 独有的手写文件、sync 与 check-sync 均不触碰外，其余全部由 src 复制而来。改 src 必 `npm run sync` 并提交 lib，否则发布产物静默失效（issue #65 教训）。
 
 ## 📄 设计文档
 

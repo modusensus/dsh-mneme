@@ -11,7 +11,7 @@
 
 ## 🏗️ 工程
 
-- 648 测试全绿（+3：config-first 路由、解析失败 audit 记 error、effort 被拒回退重试）。
+- 662 测试全绿（+17：config-first 路由、解析失败 audit 记 error、effort 被拒回退重试，另补 API 路由空白 /delete·/entities·/external-api 与 lib 运行时冒烟）。
 
 ## [0.7.15] - 2026-09-08
 

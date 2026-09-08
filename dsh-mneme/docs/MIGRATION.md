@@ -75,19 +75,20 @@
 | 键 | 默认值 | 说明 |
 |----|--------|------|
 | `embedProvider` | `openai` | 嵌入后端：`local`（ONNX）\| `ollama` \| `openai` |
-| `embedModel` | 空 | 模型名：local=HF 模型 id（`Xenova/bge-small-zh-v1.5`），ollama=Ollama 模型，openai=API 模型 |
-| `embedDimension` | 空 | 向量维度；不填则按后端推断（local 默认 512，ollama/openai 首次响应推断） |
-| `embedDevice` | `cpu` | 仅 local 生效：`cpu` \| `wasm` \| `gpu` |
-| `embedBatchSize` | `8` | 分批嵌入条数（local/openai 生效） |
-| `embedCacheDir` | `""` | 仅 local 生效：模型缓存目录，空=HF 默认缓存 |
-| `embedBaseUrl` | `""` | ollama 默认 `http://localhost:11434`；openai 必填 |
-| `embedApiKey` | `""` | 仅 openai 生效 |
+| `localEmbedModel` | `Xenova/bge-small-zh-v1.5` | 仅 local：HF 模型 id |
+| `localEmbedDimension` | `512` | 仅 local：向量维度 |
+| `localEmbedDevice` | `cpu` | 仅 local：`cpu` \| `gpu` |
+| `localEmbedBatchSize` | `8` | 仅 local：分批嵌入条数 |
+| `ollamaBaseUrl` | `http://localhost:11434` | 仅 ollama：后端地址 |
+| `ollamaModel` | `nomic-embed-text` | 仅 ollama：模型名 |
+| `embedModelCacheDir` | `""` | 模型缓存目录；空=用户级 `~/.dsh/mneme/models` |
+| `embedModelMirror` | `https://hf-mirror.com` | 模型下载镜像 |
 | `rerankEnabled` | `false` | 是否启用 Rerank 精排（Phase 2） |
 | `rerankModel` | `Xenova/bge-reranker-base` | Rerank 模型 |
 
 ### 2.2 默认值 = 保持 v0.1 行为
 
-- `embedProvider` 默认 `openai`，且 `embedBaseUrl` / `embedApiKey` / `embedModel` 为空时，**行为与 v0.1 完全一致**：使用 `user_settings` 表里通过 Web/API 配置的 `vector-config`（若配置过），否则 LIKE 关键词搜索
+- `embedProvider` 默认 `openai`，且未额外配置时**行为与 v0.1 完全一致**：使用 `user_settings` 表里通过 Web/API 配置的 `vector-config`（若配置过），否则 LIKE 关键词搜索
 - 也就是说：**什么都不改，升级后一切照旧**；想让语义搜索离线化，把 `embedProvider` 改成 `local` 或 `ollama` 即可
 
 ### 2.3 行为变化
@@ -119,7 +120,7 @@ dsh plugin --profile web update @modusensus/dsh-mneme
 #    - id: dsh-mneme
 #      config:
 #        embedProvider: local
-#        embedModel: Xenova/bge-small-zh-v1.5
+#        localEmbedModel: Xenova/bge-small-zh-v1.5
 
 # 3. 重启并验证
 dsh web

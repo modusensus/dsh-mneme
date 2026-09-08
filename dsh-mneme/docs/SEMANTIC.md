@@ -64,7 +64,7 @@ docs/
 
 ## 3. 搜索流水线
 
-`memory_search` 在 v0.2 的完整链路（对应 `src/tools.js` 的 `mode: auto | keyword | vector`）：
+`memory_search` 在 v0.2 的完整链路（对应 `src/tools.js` 的 `mode: auto | keyword | vector | hybrid`）：
 
 ```
                 query
@@ -207,7 +207,7 @@ LocalEmbedder(ONNX) ──失败──► OllamaEmbedder ──失败──► O
 
 ## 7. 配置新增项
 
-见 [MIGRATION.md](MIGRATION.md) 完整表格。核心：`embedProvider`（`local` / `ollama` / `openai`，默认 `openai` 保持 v0.1 行为）、`embedModel`、`embedDimension`、`embedDevice`、`embedBatchSize`、`embedCacheDir`、`rerankEnabled`、`rerankModel`。
+见 [MIGRATION.md](MIGRATION.md) 完整表格。核心：`embedProvider`（`local` / `ollama` / `openai`，默认 `openai` 保持 v0.1 行为）、`localEmbedModel`、`localEmbedDimension`、`localEmbedDevice`、`localEmbedBatchSize`、`ollamaBaseUrl`、`ollamaModel`、`embedModelCacheDir`、`rerankEnabled`、`rerankModel`。
 
 ## 8. 测试与基准
 

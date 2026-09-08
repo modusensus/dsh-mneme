@@ -7,7 +7,7 @@ English | [简体中文](README.md)
 [![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Awesome](https://awesome-dsh-plugin.com/badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
-[![tests](https://img.shields.io/badge/tests-648%20passed-success)](https://github.com/modusensus/dsh-mneme)
+[![tests](https://img.shields.io/badge/tests-662%20passed-success)](https://github.com/modusensus/dsh-mneme)
 
 > A cross-session memory plugin for DeepSeek Harness: it lets the Agent remember you, remember your projects, and organize memories automatically. **Mneme** (Μνήμη) — named after Mnemosyne, the Greek goddess of memory who presides over memory and dreams, just as autoDream consolidates memories in the background.
 
@@ -19,7 +19,7 @@ English | [简体中文](README.md)
 
 - **SQLite primary storage**: `~/.dsh/memory/memory.db`, built-in `node:sqlite`, zero native dependencies
 - **Markdown mirror**: `preferences.md` / `projects.md` / `decisions.md` / `history.md` / `summary.md` — human-readable and hand-editable (**manual edits take priority** when merged back into the store)
-- **4+1 memory types**: `preference` / `project` / `decision` / `history` / `summary`
+- **9 memory types**: `preference` / `project` / `decision` / `history` / `summary` / `pattern` + coding-retrospect types `rejected_solution` / `pitfall` / `constraint` (v0.7.13, `codingRetrospect` opt-in; the `user`/`fact` types were dropped in the v0.7.12 rewrite)
 - **Mirror sync state machine (v0.3.6+)**: the mirror is strongly consistent with the primary store, with sync debt modeled via `generation` (desired round) / `applied_generation` (applied round)
   - Business write operations **atomically increment** the desired generation **within their own transaction** — even a crash after COMMIT but before rendering recovers on restart from the durable debt, never silently skipped (v0.3.8)
   - `generation` is incremented with atomic SQLite statements — zero loss under multi-process concurrency; a `CHECK` upper bound rejects negative values/overflow
@@ -53,16 +53,16 @@ English | [简体中文](README.md)
   - `update` (v0.2.1): directly corrects outdated/incorrect content of a single memory (single id / must actually change / not `summary` / 24h protection / ≤2 per run)
 - **Failure tracking (v0.2.1)**: when the user corrects a memory, it is written to the `failure_memories` table (old value/new value), accumulating data for future self-evolution
 - **Summary generation**: after consolidation, a "memory store overview" (single instance) is generated, injected with priority in the next session
-- **Fail-safe**: illegal LLM output (unknown id / invalid action / cross-type merge / out-of-range importance) rejects the entire decision list — the memory store is never corrupted
+- **Fail-safe**: "individually invalid" decisions (unknown id / invalid action / cross-type merge / out-of-range importance, Issue #26) are skipped and the valid subset applied — the run is marked `degraded` and the memory store is never corrupted; only global errors (coverage shortfall / update overflow) reject the whole list
 - **Adjudication audit**: every run writes to the `dream_runs` audit table (input snapshot sha256 digest + full input snapshot + decision list + per-id disposition + receipt), replayable offline; merge / conflict / update are applied idempotently — replays and concurrent duplicate runs have no cumulative side effects; `update` records a `_before` snapshot
 
 #### dreamMaxTokens Tuning Guide
 
-The default `4096` covers ordinary memory stores. When the **memory volume is large** (tens of thousands of characters or more), the decision list and summary may exceed the default budget; scale it up by size:
+The default `8192` covers ordinary memory stores. When the **memory volume is large** (tens of thousands of characters or more), the decision list and summary may exceed the default budget; scale it up by size:
 
 | Memory store size | Recommended `dreamMaxTokens` |
 |-----------|----------------------|
-| Ordinary (<10k chars) | `4096` (default) |
+| Ordinary (<10k chars) | `8192` (default) |
 | Medium (10k–50k chars) | `65536` |
 | Large (>50k chars) | `131072` (cap) |
 
@@ -162,8 +162,23 @@ Every **background LLM call** (autoDream consolidation + summary, autoSummarize 
 
 ## 🆕 Recent Release Highlights
 
+> ⚠️ **Archival note**: pre-v0.7.12 rows below record experimental features later removed in the v0.7.12 rewrite (heat model, Wiki-Link, tag system/directory/tag-boost, user/fact layered types, prefix-id resolution, /stats and /directory endpoints). They are version history only — **not current capability**. Current features are what this README's body and the [config table](#-configuration) describe.
+
 | Version | Highlights |
 |------|------|
+| **v0.7.16** | Fixed autoDream empty-body failures on thinking models (`no json array in llm output`): restored config-first routing (settings "consolidation model" wins, Issue #25) + reasoningEffort auto-retry without effort on rejection + honest `llm_audit` error on parse failure; backfilled API-route tests (/delete, /entities, /external-api) + lib runtime smoke; 662 tests green |
+| **v0.7.15** | Desktop adaptation: library panel redesign + 30-key feature-flag UI (features API) + status dashboard + import/export (mirror-isomorphic md golden loop) + token masking by default; 645 tests green |
+| **v0.7.14** | Security fix (CWE-200): distillation no longer collects private `reasoning` blocks — only public `text`; 617 tests green |
+| **v0.7.13** | Coding-memory distillation `codingRetrospect` (opt-in: full-transcript atomic memories, 3 new types) + 429 governor (global serial queue + exponential backoff); 616 tests green |
+| **v0.7.12** | Near-rewrite: inlined panel replaced by a pure HTTP API (127.0.0.1:8790 Bearer auth) + standalone zero-dep CLI `dsh-mneme` + lightMode; memory TYPES narrowed 8→6 (user/fact dropped) |
+| **v0.7.11** | Library panel redesign: monthly pagination + infinite scroll + global search + 30s silent refresh + two-step delete + issues #72/#59 fixes; 595 tests green |
+| **v0.7.10** | Web panel UX: memory-type color dots + graph canvas pan/zoom + settings re-grouping + sidebar tab-conflict fix + read-only `/entities` endpoint; 815 tests green |
+| **v0.7.9** | Issue #65 fix: the snapshotEvents shim only landed in src/, never the npm-loaded lib/ — synced lib + pre-publish src↔lib consistency gate (check-sync.js) + lib smoke tests; 815 tests green |
+| **v0.7.8** | DSH 0.1.2-rc.1 compatibility (issues #58 #59): `Session.events` → `snapshotEvents()` shim; autoSummarize & hot-context injection restored; 812 tests green |
+| **v0.7.5** | Layered memory types (user/fact) + Overview view + stats endpoint; 790 tests green |
+| **v0.7.0** | Self-evolving memory: heat power-law decay + per-type half-life + sleep dual-protection + entity heat projection; 757 tests green |
+| **v0.6.0** | Session lifecycle: `session_disposed_at` soft-hide (orthogonal to archived, recoverable) + `memory_delete` description delete; 628 tests green |
+| **v0.5.0** | Recall fusion & memory graph: BM25 three-way recall fusion + ego-graph API + zero-dep SVG force-directed graph + hot memory; 593 tests green |
 | **v0.4.2** | autoSummarize custom model: the `summarizeProvider`/`summarizeModel` config options let you independently designate a lightweight model (e.g. qwen3.6-plus) for session summaries, saving main-model tokens; 473 tests green |
 | **v0.4.0** | System-level Sleep Mode: idle-triggered four-phase deep maintenance (conflict resolution / archival demotion / pattern discovery / relation completion), interruptible, serially safe, fail-safe; tiered compression releases cold memories; 471 tests green |
 | **v0.3.9** | Fixed 4 FAILs from the third-party audit: CAS made atomic within the same transaction, mirror degraded-receipt passthrough, per-type physical terminal-state convergence, strict integer validation for generation and stabilized concurrent initialization |
@@ -187,7 +202,15 @@ Every **background LLM call** (autoDream consolidation + summary, autoSummarize 
 | **v0.4.5** | ✅ Done | Epistemic trust + recall eval | Memory credibility grading `trustEpistemicWeighting` (observation>inferred>subjective: retrieval ranking favors high-credibility memories, injection tags `[verified]`, dream merge/conflict favors the more credible side; opt-in, off by default) + retrieval evaluation `evaluateRetrieval` persisted to `recall_evals` (`evalPersistTestResults` opt-in, off by default; production retrieval always goes through `recall_runs`, unconditionally isolated); 518 tests green |
 | **v0.4.6** | ✅ Done | 8 fixes (vector pipeline + injection/quality/audit) | Vector pipeline fixes (embedSingle adaptation / `autoReindexOnBoot` backfill of existing data / `vector_meta` metadata) + injection semantic recall `hybridInject` + same-title append `content_history` + injection length caps (300 per item / 1500 per block) + memory quality filter `memoryQualityFilter` + LLM usage audit `llmAudit` (table + instrumentation + read-only APIs); 553 tests green |
 | **v0.4.7** | ✅ Done | Idempotent schema migrations | When the same db is opened concurrently, the `PRAGMA table_info` check and ALTER are non-atomic and may repeat `ADD COLUMN`, failing with a duplicate column name; switched to an `addColumn` helper that swallows the race (try/catch), unifying all 12 migration sites |
-| **v0.5.0+** | 🚀 Long-term | Self-evolving memory | Interest drift tracking + cross-workspace memory sharing (pending DSH support) |
+| v0.5.0 | ✅ Done | Recall fusion & memory graph | BM25 three-way recall fusion + ego-graph API + zero-dep SVG force-directed graph + hot memory + recall benchmark; 593 tests green |
+| v0.6.0 | ✅ Done | Session lifecycle | `session_disposed_at` soft-hide (orthogonal to archived, recoverable) + `memory_delete` description delete + event circuit-breaker; 628 tests green |
+| v0.6.x | ✅ Done | Panel enhancements + fixes | 7 further 0.6.x releases: Wiki-Link/tag/directory experiments (later removed in v0.7.12), #25/#26 fixes, allowCrossTypeMerge, ID-exposure hardening, version-sync discipline; up to 735 tests green |
+| v0.7.0 | ✅ Done | Self-evolving memory | heat power-law decay + per-type half-life + sleep dual-protection + entity heat projection + recall_runs marking + 90-day cleanup; 757 tests green (heat model later removed in v0.7.12) |
+| v0.7.1–0.7.8 | ✅ Done | Issue fixes + graph backfill | tags↔entity_attrs bridge, inline-confirm delete, sidebar trigger toggle, brace escaping, user/fact layered types + stats endpoint (later removed), prefix-id resolution (later removed), sleep batch entity extraction, snapshotEvents() DSH compat; 764→812 tests green |
+| v0.7.9 | ✅ Done | lib-sync gate | Issue #65: src-only shim silently killed the shipped lib — synced lib + pre-publish src↔lib consistency check + lib smoke tests; 815 tests green |
+| v0.7.10–0.7.12 | ✅ Done | Panel redesign + near-rewrite | UX upgrades (color dots, pan/zoom, pagination, global search), then near-rewrite: inlined panel → pure HTTP API + standalone CLI + lightMode; TYPES narrowed 8→6 |
+| v0.7.13–0.7.16 | ✅ Done | Distillation, security, desktop, dream fix | codingRetrospect + 429 governor; private reasoning blocks dropped (CWE-200); desktop panel redesign + feature flags; autoDream thinking-model empty-body fix + backfilled tests; 662 tests green |
+| **v0.8.0** | 🚧 Planned (late Sep) | Graph enhancement | Interest-drift visualization + scope isolation (issue #17) + cross-workspace sharing |
 
 > All new capabilities ship as **toggleable features** (enabled/disabled via configuration), conservatively on by default and never breaking existing behavior. The `failure_memories` table and the autoDream decision engine have already paved the way for future reflective growth.
 
@@ -256,8 +279,8 @@ It works out of the box with the defaults. To adjust, override in `~/.dsh/profil
 | `dreamThresholdCount` | `10` | Memory count threshold that triggers consolidation |
 | `dreamThresholdChars` | `5000` | Total character threshold that triggers consolidation |
 | `dreamDelayMs` | `2000` | Asynchronous consolidation delay (debounce) |
-| `dreamProvider` / `dreamModel` | empty | LLM route fallback for dream (defaults to the agent's default model) |
-| `dreamMaxTokens` | `4096` | Maximum tokens per dream LLM call (cap 131072; increase for large memory stores — see the tuning guide below) |
+| `dreamProvider` / `dreamModel` | empty | Explicit dream LLM route — config wins over the agent's default model (config-first, v0.7.16); left empty, the agent's default model is used |
+| `dreamMaxTokens` | `8192` | Maximum tokens per dream LLM call (cap 131072; increase for large memory stores — see the tuning guide below) |
 | `dreamReasoningEffort` | `none` | Reasoning-effort passthrough for the dream LLM: `low` / `medium` / `high` / `none` (`none` = omit the field and use the model default; set `low` when a reasoning model exhausts its budget on reasoning and produces an empty body) |
 | `apiToken` | empty | Optional API auth token; once set, write operations and key endpoints require `Authorization: Bearer <apiToken>` |
 | `embedProvider` | `openai` | Semantic backend: `openai` (default, v0.1-compatible) / `local` (ONNX offline) / `ollama` |
@@ -405,7 +428,7 @@ src/
 lib/
 ├── client.js         # Web 面板（手写 ModuleLoader bundle）
 └── *.js              # src 的同步分发产物
-test/                 # 648 个 node:test 测试（含审计与三轴线压测不变量）
+test/                 # 662 node:test tests (audit + three-axis stress invariants)
 scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压测 · sync-lib.js 同步
 ```
 
@@ -414,7 +437,7 @@ scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压
 ```bash
 cd dsh-mneme
 npm install        # 安装 peer 依赖（以 devDependencies 形式，用于本地测试）
-npm test           # 运行 450 个测试
+npm test           # 运行 662 个测试
 npm run stress     # 三轴线压测：长会话检索 / 冲突仲裁 / 多 Agent 并发（离线 mock LLM）
 npm run sync       # 把 src/ 同步到 lib/（发布时由 prepack 钩子自动执行）
 ```

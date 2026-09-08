@@ -319,8 +319,8 @@ dsh-mneme:
   # Reranking is opt-in (default: off) — no extra model downloads unless enabled
   rerankEnabled: false
 
-  # Keep auto-tagging off by default (data minimization)
-  autoTagEnabled: false
+  # Coding-memory distillation is off by default (data minimization)
+  codingRetrospect: false
 
   # Disable session lifecycle if you do not need session-scoped disposal
   sessionLifecycleEnabled: false
@@ -677,8 +677,8 @@ dsh-mneme:
   # Rerank 为 opt-in（默认关闭）——未启用时不下载额外模型
   rerankEnabled: false
 
-  # 自动打标签默认关闭（数据最小化）
-  autoTagEnabled: false
+  # 编码记忆蒸馏默认关闭（数据最小化）
+  codingRetrospect: false
 
   # 不需要会话级清理时可关闭会话生命周期
   sessionLifecycleEnabled: false

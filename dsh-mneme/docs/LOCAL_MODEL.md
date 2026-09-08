@@ -13,7 +13,7 @@
 | GPU（可选） | 显存 ≥ 2GB | 开启 `localEmbedDevice: "gpu"`（onnxruntime 需要额外安装 cuda 后端） |
 | 网络 | 仅首次下载模型需要 | 已下载后可完全离线（默认走 Hugging Face，可换镜像源） |
 
-> 依赖：`@huggingface/transformers`（transformers.js）+ `onnxruntime-node` 已声明在插件 `package.json` 的 `dependencies`，无需额外安装。
+> 依赖：`@huggingface/transformers`（transformers.js）已声明在插件 `package.json` 的 `dependencies`；`onnxruntime-node` 作为可选原生后端列在 `allowScripts`（首次安装需确认脚本），无需手动额外安装。
 
 ## 2. 模型安装 / 下载
 
@@ -72,12 +72,12 @@ rm -rf ~/.dsh/mneme/models/hub/models--Xenova--bge-small-zh-v1.5
     # ── Embedding ──────────────────────────────
     embedProvider: local        # local | ollama | openai（默认 openai，保持 v0.1 行为）
     localEmbedModel: Xenova/bge-small-zh-v1.5
-    embedDimension: 512         # 与模型匹配的向量维度
-    localEmbedDevice: cpu            # cpu | wasm | gpu（仅 local 生效）
-    embedBatchSize: 8           # 分批嵌入条数，内存紧张调小
-    embedModelCacheDir: ""           # 模型缓存目录（local 生效，空=用户级 ~/.dsh/mneme/models）
-    embedBaseUrl: ""            # openai/ollama 生效（ollama 默认 http://localhost:11434）
-    embedApiKey: ""             # openai 生效
+    localEmbedDimension: 512    # 与模型匹配的向量维度
+    localEmbedDevice: cpu       # cpu | gpu（仅 local 生效）
+    localEmbedBatchSize: 8      # 分批嵌入条数，内存紧张调小
+    embedModelCacheDir: ""      # 模型缓存目录（空=用户级 ~/.dsh/mneme/models）
+    ollamaBaseUrl: "http://localhost:11434"   # 仅 ollama 生效
+    ollamaModel: "nomic-embed-text"           # 仅 ollama 生效（openai 端点走面板 vector-config）
     # ── Rerank（Phase 2，可选）─────────────────
     rerankEnabled: false        # 开启向量召回后的精排
     rerankModel: Xenova/bge-reranker-base
@@ -94,11 +94,11 @@ rm -rf ~/.dsh/mneme/models/hub/models--Xenova--bge-small-zh-v1.5
 
 | 配置 | local (ONNX) | ollama | openai |
 |------|--------------|--------|--------|
-| `localEmbedModel` | HF 模型 id（如 `Xenova/bge-small-zh-v1.5`） | Ollama 模型名（如 `nomic-embed-text`） | API 模型名（如 `text-embedding-3-small`） |
-| `embedBaseUrl` | — | `http://localhost:11434`（默认） | OpenAI 兼容端点 |
-| `embedApiKey` | — | — | 必填 |
+| `localEmbedModel` | HF 模型 id（如 `Xenova/bge-small-zh-v1.5`） | —（用 `ollamaModel`） | —（用面板 vector-config） |
+| `ollamaBaseUrl` | — | `http://localhost:11434`（默认） | — |
+| `ollamaModel` | — | Ollama 模型名（如 `nomic-embed-text`） | — |
 | `localEmbedDevice` | ✅ | — | — |
-| `embedBatchSize` | ✅ | — | ✅ |
+| `localEmbedBatchSize` | ✅ | — | — |
 | `embedModelCacheDir` | ✅ | — | — |
 
 ## 4. 首次使用
