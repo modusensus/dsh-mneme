@@ -870,7 +870,7 @@ test("Bug8: runDream records llm_audit_logs rows for consolidation and summary",
   assert.deepEqual(summarize.related_memory_ids, [], "summary audit has no related ids");
   for (const row of rows) {
     assert.equal(row.status, "success");
-    assert.equal(row.model_id, "mock:stress-model");
+    assert.equal(row.model_id, "deepseek:deepseek-chat", "config-first route (Issue #25): dreamProvider/dreamModel wins");
     assert.ok(Number.isInteger(row.duration_ms) && row.duration_ms >= 0, "duration recorded");
     assert.equal(row.input_tokens, 0);
     assert.equal(row.output_tokens, 0);

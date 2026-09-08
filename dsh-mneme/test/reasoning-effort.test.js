@@ -107,6 +107,70 @@ test("issue#9: dream forwards dreamReasoningEffort on both LLM calls", async () 
   store.close();
 });
 
+test("issue#25: dreamProvider/dreamModel config wins over the agentDefaultModel route", async () => {
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config: {} });
+  const dream = createDreamScheduler({ onRun: () => Promise.resolve({ ok: true, skipped: true }) });
+  const { memory: a } = service.saveWithDedupe({ type: "project", title: "插件", content: "旧", importance: 3 });
+  const { memory: b } = service.saveWithDedupe({ type: "project", title: "插件2", content: "新细节", importance: 4 });
+  const captured = [];
+  const ctx = dreamCtx({
+    captured,
+    onConsolidation: () => JSON.stringify([
+      { action: "merge", ids: [a.id, b.id], keepSource: b.id, title: "插件总览", content: "合并内容", importance: 4 }
+    ])
+  });
+  // dreamCtx's agentDefaultModel resolves (mock:mock-model), but the explicit
+  // config route must win — otherwise dreamProvider/dreamModel is dead code in
+  // a standard DSH install and the dream can never be moved off a thinking model.
+  const result = await dream.runDream(ctx, service, { dreamProvider: "volcano", dreamModel: "deepseek-v3" });
+  assert.equal(result.ok, true);
+  assert.ok(captured.length >= 2, "consolidation + summary both hit the LLM");
+  for (const options of captured) {
+    assert.equal(options.provider, "volcano");
+    assert.equal(options.model, "deepseek-v3", "config route wins over agentDefaultModel (mock:mock-model)");
+  }
+  store.close();
+});
+
+test("issue#9: rejected reasoningEffort retries once without it and still consolidates", async () => {
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config: {} });
+  const dream = createDreamScheduler({ onRun: () => Promise.resolve({ ok: true, skipped: true }) });
+  const { memory: a } = service.saveWithDedupe({ type: "project", title: "插件", content: "旧", importance: 3 });
+  const { memory: b } = service.saveWithDedupe({ type: "project", title: "插件2", content: "新细节", importance: 4 });
+  const calls = [];
+  const ctx = {
+    logger: { warn: () => {} },
+    agentDefaultModel: { currentSelection: () => ({ provider: "mock", model: "mock-model" }) },
+    llm: {
+      async *stream(options) {
+        calls.push(options);
+        const userText = options.messages.find((m) => m.role === "user")?.content?.[0]?.text ?? "";
+        if (userText.startsWith("id=")) {
+          // First attempt forwards reasoningEffort: the provider rejects it.
+          if (options.reasoningEffort) {
+            throw new Error("UNSUPPORTED_REASONING_EFFORT: DeepSeek does not support reasoning effort \"low\"");
+          }
+          yield { type: "text-delta", index: 0, text: JSON.stringify([
+            { action: "merge", ids: [a.id, b.id], keepSource: b.id, title: "合并标题", content: "合并内容", importance: 4 }
+          ]) };
+        } else {
+          yield { type: "text-delta", index: 0, text: "记忆库总览：用户偏好中文。" };
+        }
+        yield { type: "finish", reason: { kind: "stop" } };
+      }
+    }
+  };
+  const result = await dream.runDream(ctx, service, { dreamReasoningEffort: "low" });
+  assert.equal(result.ok, true, "run survives the effort rejection via the fallback retry");
+  assert.ok(result.applied > 0, "consolidation still lands changes");
+  assert.equal(calls.length, 3, "consolidation tried (rejected) + retried without effort + summary");
+  assert.equal(calls[0].reasoningEffort, "low", "first consolidation attempt forwards the effort");
+  assert.equal("reasoningEffort" in calls[1], false, "retry omits the rejected effort field");
+  store.close();
+});
+
 // ---------------------------------------------------------------- sleep passthrough
 
 function sleepSetup() {

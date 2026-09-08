@@ -50,10 +50,11 @@ test("autoDream writes llm_audit_logs rows for consolidation and summary", async
   assert.equal(summarize.trigger_source, "autoDream");
   assert.equal(consolidate.status, "success");
   assert.equal(summarize.status, "success");
-  // mockCtx resolves the route from agentDefaultModel (mock:stress-model), not
-  // the config fallback — assert the actually-used route.
-  assert.equal(consolidate.model_id, "mock:stress-model");
-  assert.equal(summarize.model_id, "mock:stress-model");
+  // config-first (Issue #25): dreamSetup sets dreamProvider/dreamModel, so it
+  // wins over mockCtx's agentDefaultModel (mock:stress-model) — assert the
+  // actually-used config route.
+  assert.equal(consolidate.model_id, "deepseek:deepseek-chat");
+  assert.equal(summarize.model_id, "deepseek:deepseek-chat");
   assert.ok(Array.isArray(consolidate.related_memory_ids) && consolidate.related_memory_ids.length === 2,
     "consolidation audit records the snapshot ids");
   assert.ok(consolidate.total_tokens >= 0 && summarize.total_tokens >= 0);
@@ -107,6 +108,35 @@ test("autoDream throwing LLM is audited as status=error", async () => {
   assert.equal(rows.length, 1, "throwing call still audited");
   assert.equal(rows[0].status, "error");
   assert.match(rows[0].error_message, /network down/);
+  store.close();
+});
+
+test("autoDream parse failure is audited as status=error, not fake success", async () => {
+  const { store, service, config } = dreamSetup();
+  service.saveWithDedupe({ type: "project", title: "主题", content: "内容" });
+  // Stream completes fine but returns no JSON array — the run fails, and the
+  // audit must NOT claim success (the old bug: llm_audit said dream_consolidate
+  // success while the run recorded failed).
+  const warnings = [];
+  const ctx = {
+    logger: { warn: (m) => warnings.push(m) },
+    llm: {
+      async *stream() {
+        yield { type: "text-delta", index: 0, text: "抱歉，我无法解析成 JSON。" };
+        yield { type: "finish", reason: { kind: "stop" } };
+      }
+    }
+  };
+  const dream = createDreamScheduler({ thresholdCount: 1, thresholdChars: 0, delayMs: 0 });
+  const result = await dream.runDream(ctx, service, config);
+  assert.equal(result.ok, false);
+  assert.equal(result.error, "no json array in llm output");
+  const rows = service.listLlmAudits();
+  assert.equal(rows.length, 1, "failed consolidation still audited");
+  assert.equal(rows[0].operation_type, "dream_consolidate");
+  assert.equal(rows[0].status, "error", "stream succeeded but output unusable → audit error");
+  assert.match(rows[0].error_message, /no json array in llm output/);
+  assert.ok(warnings.some((m) => m.includes("head: 抱歉，我无法解析成")), "raw output head logged for diagnosis");
   store.close();
 });
 

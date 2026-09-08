@@ -1,7 +1,7 @@
 import { validateDecisions, applyDecisions } from "./dream/decisions.js";
 import { clusterMemories, findPotentialConflicts } from "./dream/clustering.js";
 import { createHash, randomUUID } from "node:crypto";
-export { validateDecisions, applyDecisions };
+export { validateDecisions, applyDecisions, withEffortFallback };
 
 
 // Extract the first JSON array from LLM output, tolerating markdown fences,
@@ -282,6 +282,15 @@ async function runAuditedLlm(ctx, service, config, spec, body) {
       // record it as error here so the audit shows the truth.
       status = "error";
       errorMessage = errorMessage ?? "llm stream aborted or errored";
+    } else if (typeof spec.auditError === "function") {
+      // A stream that returned text but yields nothing usable is still a
+      // failed call — record it as error, not the default success, so the
+      // audit no longer contradicts a failed run (dream "no json array").
+      const message = spec.auditError(result);
+      if (message) {
+        status = "error";
+        errorMessage = message;
+      }
     }
     return result;
   } catch (error) {
@@ -311,20 +320,50 @@ async function runAuditedLlm(ctx, service, config, spec, body) {
 }
 
 /**
- * Resolve the LLM route: agent default model (deployment) first, plugin config
- * (dreamProvider/dreamModel) as fallback. Falls through to undefined when no
- * route exists — runDream then fails safe. Fallback is logged so a silent
- * route switch is observable.
+ * Reasoning-effort rejection fallback (v0.8.1): a configured dreamReasoningEffort
+ * / sleepReasoningEffort may be rejected by the provider (volcano-engine returns
+ * UNSUPPORTED_REASONING_EFFORT for values it does not accept — "off" is known
+ * rejected there). When that happens, retry once WITHOUT the reasoning field
+ * instead of hard-failing the run, so effort config is safe to experiment with:
+ * accepted → reasoning capped; rejected → provider default (old behavior),
+ * logged so the rejection is observable.
+ */
+async function withEffortFallback(ctx, effort, attempt, fallback) {
+  if (!effort || effort === "none") return attempt();
+  try {
+    return await attempt();
+  } catch (error) {
+    const message = String(error?.message ?? error);
+    // matches both "reasoning effort" (natural language) and the bare
+    // "UNSUPPORTED_REASONING_EFFORT" error code (underscore).
+    if (!/reasoning[\s_]*effort/i.test(message)) throw error;
+    ctx.logger?.warn?.(`dsh-mneme dream: reasoningEffort "${effort}" rejected (${message}); retrying without it`);
+    return fallback();
+  }
+}
+
+/**
+ * Resolve the LLM route (Issue #25): an explicit plugin config
+ * (dreamProvider/dreamModel) is the user's declared override and wins; the
+ * agent default model (deployment) is only a fallback when no config route is
+ * set. In a standard DSH install agentDefaultModel always resolves, so without
+ * this ordering the config route would be dead code and dreamProvider/dreamModel
+ * could never take effect (v0.7.11 regressed this; README §config documents
+ * config-first). Falls through to undefined when no route exists — runDream
+ * then fails safe. A config→default switch is logged so it is observable.
  */
 function resolveRoute(ctx, config, logger) {
+  if (config.dreamProvider && config.dreamModel) return { provider: config.dreamProvider, model: config.dreamModel };
   try {
     const sel = ctx.agentDefaultModel?.currentSelection?.();
-    if (sel?.provider && sel?.model) return { provider: sel.provider, model: sel.model };
-    logger?.warn?.("dsh-mneme dream: agentDefaultModel unavailable, falling back to config route");
+    if (sel?.provider && sel?.model) {
+      logger?.info?.("dsh-mneme dream: no dreamProvider/dreamModel config, falling back to agent default");
+      return { provider: sel.provider, model: sel.model };
+    }
+    logger?.warn?.("dsh-mneme dream: agentDefaultModel unavailable, no config route either");
   } catch (error) {
-    logger?.warn?.(`dsh-mneme dream: agentDefaultModel lookup failed, falling back to config route: ${String(error)}`);
+    logger?.warn?.(`dsh-mneme dream: agentDefaultModel lookup failed: ${String(error)}`);
   }
-  if (config.dreamProvider && config.dreamModel) return { provider: config.dreamProvider, model: config.dreamModel };
   return undefined;
 }
 
@@ -585,28 +624,37 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       ? CONSOLIDATION_PROMPT + `\n\n当前为「冲突冻结」模式：检测到内容矛盾的条目时，仍请输出 conflict，并以 winner/loser 作为候选、reason 说明理由；冲突不会被自动裁决，而会冻结待人工确认。`
       : CONSOLIDATION_PROMPT;
     let decisionText;
+    // 加固（v0.8.1）：配置的 reasoningEffort 被 provider 拒收时回退重试一次
+    // （不带该字段），避免 thinking 模型配置 low/medium 直接整单失败。解析放
+    // 在 auditError 检查器里、闭包交回主流程，避免二次解析；解析失败同时如实
+    // 记 audit error 并在日志带原始输出前 300 字节，便于定位"推理吞预算返回空体"。
+    const effort = config.dreamReasoningEffort && config.dreamReasoningEffort !== "none" ? config.dreamReasoningEffort : null;
+    let decisions = null;
+    const runConsolidation = (withEffort) => runAuditedLlm(ctx, service, config, {
+      triggerSource: "autoDream",
+      operationType: "dream_consolidate",
+      modelId: `${route.provider}:${route.model}`,
+      relatedMemoryIds: [...snapshot.keys()],
+      auditError: (text) => {
+        decisions = extractJsonArray(text);
+        return Array.isArray(decisions) ? null : "no json array in llm output";
+      }
+    }, (reportUsage) => streamText(ctx, {
+      provider: route.provider,
+      model: route.model,
+      purpose: "compaction",
+      maxTokens: config.dreamMaxTokens ?? 4096,
+      ...(withEffort && effort ? { reasoningEffort: effort } : {}),
+      messages: [
+        { role: "system", content: [{ type: "text", text: consolidationPrompt }] },
+        { role: "user", content: [{ type: "text", text: listText }] }
+      ]
+    }, reportUsage));
     try {
       // Bug8: the consolidation call is audited (tokens/time/status). A throw
       // re-propagates to the catch below; an aborted stream returns undefined
       // and is treated as a failed run after the check below.
-      decisionText = await runAuditedLlm(ctx, service, config, {
-        triggerSource: "autoDream",
-        operationType: "dream_consolidate",
-        modelId: `${route.provider}:${route.model}`,
-        relatedMemoryIds: [...snapshot.keys()]
-      }, (reportUsage) => streamText(ctx, {
-        provider: route.provider,
-        model: route.model,
-        purpose: "compaction",
-        maxTokens: config.dreamMaxTokens ?? 4096,
-        ...(config.dreamReasoningEffort && config.dreamReasoningEffort !== "none"
-          ? { reasoningEffort: config.dreamReasoningEffort }
-          : {}),
-        messages: [
-          { role: "system", content: [{ type: "text", text: consolidationPrompt }] },
-          { role: "user", content: [{ type: "text", text: listText }] }
-        ]
-      }, reportUsage));
+      decisionText = await withEffortFallback(ctx, effort, () => runConsolidation(true), () => runConsolidation(false));
     } catch (error) {
       logger?.warn?.(`dsh-mneme dream: consolidation llm call failed: ${String(error)}`);
       return finish({ ok: false, error: "llm failed", summary: false });
@@ -615,10 +663,9 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       logger?.warn?.("dsh-mneme dream: consolidation llm stream aborted or errored");
       return finish({ ok: false, error: "llm failed", summary: false });
     }
-
-    const decisions = extractJsonArray(decisionText);
     if (!Array.isArray(decisions)) {
-      logger?.warn?.(`dsh-mneme dream: no json array in llm output (raw length ${decisionText?.length ?? 0})`);
+      const head = (decisionText ?? "").slice(0, 300).replace(/\s+/g, " ").trim();
+      logger?.warn?.(`dsh-mneme dream: no json array in llm output (raw length ${decisionText?.length ?? 0}; head: ${head})`);
       return finish({ ok: false, error: "no json array in llm output", summary: false });
     }
     const { ok, errors } = validateDecisions(decisions, snapshot, {
@@ -735,26 +782,25 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     // Summary generation (second LLM call). A throwing stream is reported as
     // a failed run; summary:false marks a run that produced no summary.
     let summaryText;
+    const runSummary = (withEffort) => runAuditedLlm(ctx, service, config, {
+      triggerSource: "autoDream",
+      operationType: "dream_summarize",
+      modelId: `${route.provider}:${route.model}`,
+      relatedMemoryIds: []
+    }, (reportUsage) => streamText(ctx, {
+      provider: route.provider,
+      model: route.model,
+      purpose: "compaction",
+      maxTokens: config.dreamMaxTokens ?? 2048,
+      ...(withEffort && effort ? { reasoningEffort: effort } : {}),
+      messages: [
+        { role: "system", content: [{ type: "text", text: SUMMARY_PROMPT }] },
+        { role: "user", content: [{ type: "text", text: service.all().filter((m) => !m.archived && m.type !== "summary").map((m) => `- ${m.title}: ${m.content}`).join("\n") }] }
+      ]
+    }, reportUsage));
     try {
       // Bug8: the summary call is audited too (operation dream_summarize).
-      summaryText = await runAuditedLlm(ctx, service, config, {
-        triggerSource: "autoDream",
-        operationType: "dream_summarize",
-        modelId: `${route.provider}:${route.model}`,
-        relatedMemoryIds: []
-      }, (reportUsage) => streamText(ctx, {
-        provider: route.provider,
-        model: route.model,
-        purpose: "compaction",
-        maxTokens: config.dreamMaxTokens ?? 2048,
-        ...(config.dreamReasoningEffort && config.dreamReasoningEffort !== "none"
-          ? { reasoningEffort: config.dreamReasoningEffort }
-          : {}),
-        messages: [
-          { role: "system", content: [{ type: "text", text: SUMMARY_PROMPT }] },
-          { role: "user", content: [{ type: "text", text: service.all().filter((m) => !m.archived && m.type !== "summary").map((m) => `- ${m.title}: ${m.content}`).join("\n") }] }
-        ]
-      }, reportUsage));
+      summaryText = await withEffortFallback(ctx, effort, () => runSummary(true), () => runSummary(false));
     } catch (error) {
       logger?.warn?.(`dsh-mneme dream: summary llm call failed: ${String(error)}`);
       return finish({ ok: false, error: "llm failed", applied, decisions: auditDecisions, outcome, frozen: frozenCount, summary: false });

@@ -17,7 +17,7 @@
 import { randomUUID, createHash } from "node:crypto";
 import { validateDecisions, applyDecisions } from "./decisions.js";
 import { findPotentialConflicts } from "./clustering.js";
-import { buildReceipt } from "../dream.js";
+import { buildReceipt, withEffortFallback } from "../dream.js";
 
 const SUMMARY_MAX = 120;
 // Conflict similarity threshold per strictness level (v0.4.0):
@@ -72,16 +72,18 @@ async function streamText(ctx, options) {
   return text;
 }
 
-/** LLM route: agent default model first, then sleepProvider/Model, then the
- *  dream route as a shared fallback. Sleep can pin a cheaper model for its
- *  bulk passes without disturbing the dream route. */
+/** LLM route (Issue #25): explicit sleepProvider/Model wins, then the dream
+ *  route as a shared explicit fallback, then the agent default model. Sleep
+ *  can pin a cheaper model for its bulk passes without disturbing the dream
+ *  route. Explicit config first — otherwise the config routes are dead code
+ *  whenever agentDefaultModel resolves (see resolveRoute in dream.js). */
 function resolveSleepRoute(ctx, config, logger) {
+  if (config.sleepProvider && config.sleepModel) return { provider: config.sleepProvider, model: config.sleepModel };
+  if (config.dreamProvider && config.dreamModel) return { provider: config.dreamProvider, model: config.dreamModel };
   try {
     const sel = ctx?.agentDefaultModel?.currentSelection?.();
     if (sel?.provider && sel?.model) return { provider: sel.provider, model: sel.model };
-  } catch { /* fall through to config route */ }
-  if (config.sleepProvider && config.sleepModel) return { provider: config.sleepProvider, model: config.sleepModel };
-  if (config.dreamProvider && config.dreamModel) return { provider: config.dreamProvider, model: config.dreamModel };
+  } catch { /* fall through to warn */ }
   logger?.warn?.("dsh-mneme sleep: no llm route available");
   return undefined;
 }
@@ -182,19 +184,19 @@ async function phaseConflicts(ctx, service, config, logger, runId, semantic = nu
   const listText = selected.map((p) =>
     `候选冲突：\nid=${p.a.id} | type=${p.a.type} | title=${p.a.title}\n${p.a.content}\n---\nid=${p.b.id} | type=${p.b.type} | title=${p.b.title}\n${p.b.content}\n（相似度 ${p.similarity.toFixed(2)}）`
   ).join("\n\n");
-  const text = await streamText(ctx, {
+  const sleepEffort = config.sleepReasoningEffort && config.sleepReasoningEffort !== "none" ? config.sleepReasoningEffort : null;
+  const runConflict = (withEffort) => streamText(ctx, {
     provider: route.provider,
     model: route.model,
     purpose: "sleep-conflict",
     maxTokens: 2048,
-    ...(config.sleepReasoningEffort && config.sleepReasoningEffort !== "none"
-      ? { reasoningEffort: config.sleepReasoningEffort }
-      : {}),
+    ...(withEffort && sleepEffort ? { reasoningEffort: sleepEffort } : {}),
     messages: [
       { role: "system", content: [{ type: "text", text: CONFLICT_PROMPT }] },
       { role: "user", content: [{ type: "text", text: listText }] }
     ]
   });
+  const text = await withEffortFallback(ctx, sleepEffort, () => runConflict(true), () => runConflict(false));
   if (text === undefined) return { status: "failed", error: "llm failed" };
   const decisions = parseJsonArray(text);
   if (!decisions) return { status: "failed", error: "invalid decisions json" };
@@ -282,19 +284,19 @@ async function phasePatterns(ctx, service, config, logger, runId, signal = null)
     .map((m) => `id=${m.id} | type=${m.type} | importance=${m.importance} | updated=${m.updated_at} | title=${m.title} | content=${m.content}`)
     .join("\n");
   const maxPatterns = config.sleepMaxPatternPerRun ?? 3;
-  const text = await streamText(ctx, {
+  const sleepEffort = config.sleepReasoningEffort && config.sleepReasoningEffort !== "none" ? config.sleepReasoningEffort : null;
+  const runPattern = (withEffort) => streamText(ctx, {
     provider: route.provider,
     model: route.model,
     purpose: "sleep-pattern",
     maxTokens: 2048,
-    ...(config.sleepReasoningEffort && config.sleepReasoningEffort !== "none"
-      ? { reasoningEffort: config.sleepReasoningEffort }
-      : {}),
+    ...(withEffort && sleepEffort ? { reasoningEffort: sleepEffort } : {}),
     messages: [
       { role: "system", content: [{ type: "text", text: PATTERN_PROMPT.replace("N", String(maxPatterns)) }] },
       { role: "user", content: [{ type: "text", text: listText }] }
     ]
   });
+  const text = await withEffortFallback(ctx, sleepEffort, () => runPattern(true), () => runPattern(false));
   if (text === undefined) return { status: "failed", error: "llm failed" };
   const decisions = parseJsonArray(text);
   if (!decisions || decisions.length === 0) return { status: "skipped", reason: "no patterns found" };

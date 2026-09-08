@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.7.16] - 2026-09-08
+
+## 🐛 修复
+
+- **autoDream 在 thinking 模型上输出预算被推理吞掉、整单 failed**：consolidation 走主模型（volcano deepseek-v4-flash，v4 系默认开推理）且 `dreamReasoningEffort` 默认 `none`（不带 reasoning 控制）时，推理会耗尽 `dreamMaxTokens` 预算、正文返回空体，5 次连续 failed（`no json array in llm output`）。三处配套修复：
+  - **路由优先级恢复 config-first（Issue #25）**：v0.7.11 曾把 `resolveRoute`/`resolveSleepRoute` 改回 agent 默认模型优先，导致 `dreamProvider`/`dreamModel`（设置面板「巩固模型」）在标准 DSH 安装下恒为死代码——设置页把 dream 指到非思考型模型根本不会生效。恢复「显式 config 优先、agent 默认回退」，README §config 契约与代码重新一致。
+  - **reasoningEffort 被拒时回退重试一次**：配置的 effort 被 provider 拒收（volcano 实测连 `off` 都报 `UNSUPPORTED_REASONING_EFFORT`）原本整单失败；现自动去掉该字段重试一次，effort 配置（low/medium/high）可安全实测——接受就封顶推理、拒绝则退化 provider 默认并打日志。
+  - **解析失败如实记账 + 原始输出日志**：`runAuditedLlm` 新增 `auditError` 检查器，「流式成功但输出不可解析」不再假记 `success`（此前 llm_audit 全是 success 却 run failed），`no json array` 时带原始输出前 300 字节日志便于定位。
+
+## 🏗️ 工程
+
+- 648 测试全绿（+3：config-first 路由、解析失败 audit 记 error、effort 被拒回退重试）。
+
 ## [0.7.15] - 2026-09-08
 
 ## 🆕 新功能
