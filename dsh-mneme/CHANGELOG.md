@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.7.15] - 2026-09-08
+
+## 🆕 新功能
+
+- **记忆库面板重设计（桌面端适配）**：面板从「挤在对话里的 tab」升级为独立交互页面——撤 `conversation.view` tab，改为居中非全屏 sheet（上限 1240×920，背板 Esc / 点击关闭）；侧边栏入口上移到工作区上方，运行时借用宿主「新会话」按钮原生类名对齐盒模型（wrapper `display:contents`），展开态与收起态（rail）都和原生图标零位移对齐；`sidebar.footer.action` 注册保留为锚点与失效回退。
+- **卡片视图 / 时间线双视图**：卡片网格（类型色点 / 标题 / 摘要 / 星级 / 来源 / 相对时间）与月度时间树一键切换，偏好本地记住；无限滚动两视图通用。
+- **详情抽屉与手动操作**：右侧滑出抽屉展示全文、来源、质量分、标签与**关联实体**（`GET /memories/entities?memoryId=`）；支持直接**编辑**（`POST /update`，content_history 语义不变、镜像自动重渲染）、**归档**、复制全文与两步删除；操作提示升级为 sheet 级 toast。
+- **功能开关（0.7.13/0.7.14 后端能力首次上 UI）**：`GET/PUT /api/dsh-mneme/features` 30 键白名单（布尔 / 整数 / 字符串 / URL / 枚举，含 `memoryQualityFilter.enabled`、`llmAudit.enabled` 两个嵌套键与 `ollamaBaseUrl` 协议白名单），设置页分组展示（核心 / 记忆增强 / 巩固与睡眠 / 高级折叠）；**巩固模型**与 **embedding 提供方**（openai/local/ollama）可配；启动按「用户开关 > 轻量预设 > bundle 配置」合并。429 调速器参数、`distillMaxChars` 等调优项留在配置文件不上 UI。
+- **状态页工作台**：新增「最近巩固」「待确认冲突」卡（`GET /dream-status`）；**工作动态流**展示 autoDream/autoSummarize 每次后台调用的状态、token 与沉淀条数；**沉淀的记忆**按 audit 关联 id 解析标题；**已归档的记忆**一键恢复。
+- **导入 / 导出**：`GET /export?format=json|markdown`（Markdown 与磁盘镜像字节同构，可被导入直接吃回）+ `POST /import`（`parseHumanEdits` 重构为纯函数后复用）；面板「更多操作」菜单直达。
+- **时间范围筛选**：`/list` 支持 `updatedFrom`/`updatedTo` 闭区间（date-only 归一化到整天）与 `archived=only` 归档视图，list/count 同过滤保证分页 total 一致。
+
+## 🔒 安全
+
+- **外部 API Token 面板默认遮蔽**：只显示首尾少量字符（显示/隐藏切换），完整值仅经「复制」通道离开面板，不再明文铺在页面上。
+
+## 🐛 修复
+
+- 新记忆类型 `rejected_solution` / `pitfall` / `constraint` 标签与配色补齐（此前浏览 / 筛选 / 详情里显示原始英文 key）。
+- 模型工具严格输出 schema 不受面板字段扩展影响：`archived` / `quality_score` 只在 HTTP 层补充 wire DTO，`toApiList` 保持精简。
+
+## 🧪 测试
+
+- 645 全绿（+28：feature flags 全类型校验与嵌套键、update 往返与 404/400、entities 映射、export→import 黄金闭环、dream-status、archived=only 与默认列表互斥、面板结构断言重写）。
+
 ## [0.7.14] - 2026-09-08
 
 ## 🐛 修复
