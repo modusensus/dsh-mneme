@@ -11,9 +11,17 @@
   - **touchRecalled 门控**由 `heatEnabled` 接管；**实体热投影**回归（ego 图谱节点 heat 字段 + 前端 nodeRadius/fillOpacity 随热度缩放）
   - **recall_runs 默认记录**恢复（`recallRecordDefault: true`）
 
+## ⚠️ 行为变更（验收清单落地）
+
+- **heatEnabled 默认关**（`false`）：v0.7.12 起用户已习惯无 heat 行为，默认开=全员行为变更。默认关时 sleep 降级退回纯时间分层（v0.7.12 行为），touch 零写入。
+- **feature_flags 白名单接线**：`heatEnabled` 加入 `FEATURE_FLAG_BOOLEANS`（现成 30 键机制的 31 键）——面板可启停 = 线上回滚开关，首次线上事故无需回滚版本。
+- **lightMode 联动关停**：`heatEnabled` 加入 `LIGHT_MODE_OFF`，轻量模式不开热计算。
+- **sleep 降级审计暴露**：`/api/dsh-mneme/dream-status` 返回 `run_type` + `demotion {demoted, archived}` 计数（数据来自 runSleep 已写入 dream_runs 的 `decisions.demotion`）——状态页工作动态可展示「降级 N 条 / 归档 M 条」，自动改记忆留痕。
+- **updated_at ⊥ last_accessed_at 契约**：heat/sleep ref 永不 fallback 到 `updated_at`（只用 `last_accessed_at ?? created_at`）；heat 是运行时投影不写盘；heat 加权不进入 `order=chrono`（记忆库分页/月份树/无限滚动稳定序不受影响）。
+
 ## 🏗️ 工程
 
-- 682 测试全绿（+14：heat 6 测 / sleep-heat 5 测 / updated-at-semantics 3 测回归；sleep.test.js demotionConfig 适配热闸、recall-layer 适配 recordRecall 默认开）
+- 683 测试全绿（+15：heat 6 测 / sleep-heat 6 测（含 heatEnabled=false 纯时间分层回归）/ updated-at-semantics 3 测回归；sleep.test.js demotionConfig 适配热闸、recall-layer 适配 recordRecall 默认开）
 
 ## [0.7.18] - 2026-09-08
 

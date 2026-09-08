@@ -304,9 +304,11 @@ export const Config = z.object({
   lightMode: z.boolean().default(false),
 
   // --- heat: v0.7.0 self-evolution (heat + interest drift) ----------------
-  // 总开关，默认开但保守：不改变召回排序，只提供热度字段 / sleep 降级
-  // 联合判定保护 / 前端热度投影。关闭后跳过所有 heat 计算与热度触达。
-  heatEnabled: z.boolean().default(true),
+  // 总开关，默认关（v0.7.12+ 用户已习惯无 heat 行为，默认开=全员行为变更）。
+  // 开启后：提供热度字段 / sleep 降级联合判定保护 / 前端热度投影，不改变
+  // 召回排序。关闭则跳过所有 heat 计算与热度触达，sleep 降级退回纯时间分层。
+  // 也走 feature_flags（FEATURE_FLAG_BOOLEANS 白名单），面板可启停=线上回滚开关。
+  heatEnabled: z.boolean().default(false),
   // 幂律形状参数 α（heat = 1/(1+λΔt)^α），越大衰减越快。
   heatGlobalAlpha: z.number().min(0.1).max(5).default(1.2),
   // per-type 衰减因子 λ；λ=0 的类型免疫（热度恒 1.0，sleep 永不降级）。
@@ -332,7 +334,9 @@ const LIGHT_MODE_OFF = [
   "hybridInject",
   "searchSemanticDedup",
   "selectiveInjectEnabled",
-  "bm25SearchEnabled"
+  "bm25SearchEnabled",
+  // 轻量模式不开热计算（heat 属于重型增强；关掉后 sleep 降级也退回纯时间分层）。
+  "heatEnabled"
 ];
 
 /**

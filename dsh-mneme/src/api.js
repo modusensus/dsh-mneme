@@ -782,7 +782,13 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
           status: r.status,
           provider: r.provider ?? null,
           model: r.model ?? null,
-          error: r.error ?? null
+          error: r.error ?? null,
+          run_type: r.run_type ?? "auto",
+          // sleep 审计：heat/时间分层降级决策计数（工作动态可展示"降级 N 条"）。
+          // 数据来自 runSleep 写入的 decisions.demotion（{demoted,archived} 数组）。
+          demotion: r.decisions?.demotion
+            ? { demoted: (r.decisions.demotion.demoted ?? []).length, archived: (r.decisions.demotion.archived ?? []).length }
+            : null
         }));
         const pendingConflicts = service.countConflictPending?.() ?? 0;
         const ids = new Set();

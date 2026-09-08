@@ -47,6 +47,7 @@ const FEATURE_FLAG_BOOLEANS = [
   "codingRetrospect",
   "autoDream",
   "sleepModeEnabled",
+  "heatEnabled",
   "hybridInject",
   "selectiveInjectEnabled",
   "searchSemanticDedup",

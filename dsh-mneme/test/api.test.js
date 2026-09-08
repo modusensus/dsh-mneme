@@ -527,10 +527,10 @@ test("GET /api/dsh-mneme/features returns empty overrides and effective config d
   assert.equal(res.statusCode, 200);
   const data = JSON.parse(res.body);
   assert.deepEqual(data.overrides, {});
-  // effective 覆盖全部 30 个白名单键，未覆盖时取 bundle 配置的解析默认值；
-  // dreamProvider/dreamModel 无 schema 默认值（Config({}) 解析为 undefined），
-  // 不编造给前端 → 30 - 2 = 28
-  assert.equal(Object.keys(data.effective).length, 28);
+  // effective 覆盖全部 31 个白名单键（含 v0.7.19 新增的 heatEnabled），未覆盖时
+  // 取 bundle 配置的解析默认值；dreamProvider/dreamModel 无 schema 默认值
+  // （Config({}) 解析为 undefined），不编造给前端 → 31 - 2 = 29
+  assert.equal(Object.keys(data.effective).length, 29);
   assert.equal(data.effective.autoInject, true);
   assert.equal(data.effective.codingRetrospect, false);
   assert.equal(data.effective.distillMaxChars, 24000);
@@ -903,7 +903,9 @@ test("GET /api/dsh-mneme/dream-status returns runs and pending conflict ids", as
   assert.equal(data.runs.length, 2);
   assert.equal(data.runs[0].created_at, "2026-01-02T00:00:00.000Z", "created_at DESC");
   assert.deepEqual(data.lastRun, data.runs[0]);
-  assert.deepEqual(Object.keys(data.lastRun).sort(), ["created_at", "error", "model", "provider", "status"]);
+  assert.deepEqual(Object.keys(data.lastRun).sort(), ["created_at", "demotion", "error", "model", "provider", "run_type", "status"]);
+  assert.equal(data.lastRun.run_type, "auto", "default run_type is auto");
+  assert.equal(data.lastRun.demotion, null, "no demotion info for non-sleep runs");
   assert.equal(data.runs[0].error, "boom");
   assert.equal(data.runs[1].provider, "ollama");
   assert.equal(data.pendingConflicts, 1);

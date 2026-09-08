@@ -25,6 +25,8 @@ function saveMemory(service, title, content, type = "project", importance = 3) {
 function sleepConfig(overrides = {}) {
   return {
     sleepModeEnabled: true,
+    // 本组测试全部验证 heat 保护语义 → 必须显式开启（v0.7.19 起默认关）。
+    heatEnabled: true,
     sleepConflictStrictness: "normal",
     sleepArchiveDays: 30,   // 30-90 天窗口 → 压缩为摘要
     sleepCompressDays: 90,  // >=90 天 → 直接归档
@@ -95,6 +97,17 @@ test("slow-decay project stays heat-protected at the compress tier (λ=0.0008)",
   // 100 天已越过 90 天归档窗，但 project 热值≈0.28>0.05 → heat 闸拦下。
   assert.ok(!demotion.archived.includes(mem.id), "慢衰减类型热值仍高 → 不归档");
   assert.equal(store.getById(mem.id).archived, false);
+  store.close();
+});
+
+test("heatEnabled=false (v0.7.19 默认) 退回纯时间分层：importance 5 冷记忆也被归档", async () => {
+  const { store, service } = setup();
+  const mem = saveMemory(service, "紧要决策", "v0.7.12 无 heat 保护语义", "decision", 5);
+  // 显式关 heat（默认值）→ phaseDemotion 不做热联合判定，纯时间分层。
+  const config = sleepConfig({ heatEnabled: false });
+  const demotion = await run([[mem, 400]], service, config);
+  assert.ok(demotion.archived.includes(mem.id), "heat 关 → 400 天冷记忆直接归档（无 importance 保护）");
+  assert.equal(store.getById(mem.id).archived, true);
   store.close();
 });
 

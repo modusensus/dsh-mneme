@@ -247,14 +247,18 @@ function phaseDemotion(service, config, logger, runId, signal = null) {
     if (!ref) continue;
     const t = new Date(ref).getTime();
     if (Number.isNaN(t)) continue;
-    // v0.7.0 热联合判定：时间窗之外再加两道保护闸——热度低于
+    // v0.7.0 热联合判定（仅 heatEnabled 时启用；默认关则退回纯时间分层，
+    // 与 v0.7.12 行为一致）：时间窗之外再加两道保护闸——热度低于
     // sleepHeatThreshold 且 importance<5 才允许降级。λ=0 的免疫类型 heat 恒
     // 1.0 天然豁免（preference/pattern/summary 永不因 sleep 降级）；importance
     // ≥5 的紧要记忆无论多冷都保留。`冷但重要` 与 `热但低值` 均不满足条件。
-    const heat = computeHeat(m, Date.now(), config);
-    const heatProtected = heat >= (config.sleepHeatThreshold ?? 0.05);
-    const important = (m.importance ?? 0) >= 5;
-    if (heatProtected || important) continue;
+    const heatOn = config.heatEnabled !== false;
+    if (heatOn) {
+      const heat = computeHeat(m, Date.now(), config);
+      const heatProtected = heat >= (config.sleepHeatThreshold ?? 0.05);
+      const important = (m.importance ?? 0) >= 5;
+      if (heatProtected || important) continue;
+    }
     if (t < compressCut) {
       service.setArchived(m.id, true);
       archived.push(m.id);

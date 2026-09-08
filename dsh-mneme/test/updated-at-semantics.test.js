@@ -44,16 +44,16 @@ test("store.update bumps updated_at but never last_accessed_at", () => {
   store.close();
 });
 
-test("search bumps last_accessed_at by default (heatEnabled on) and is gated off by heatEnabled=false", async () => {
-  // Default config: heatEnabled 默认开 → last_accessed_at 被采集（与 sleep 开关解耦）。
-  const a = setup();
+test("search bumps last_accessed_at with heatEnabled on, and is gated off by heatEnabled=false", async () => {
+  // 显式开启 heat（v0.7.19 起默认关）：last_accessed_at 被采集（与 sleep 开关解耦）。
+  const a = setup({ heatEnabled: true });
   saveMemory(a.service, "量子计算", "入门");
   await a.service.searchMemories("量子", { mode: "keyword" });
   const rowA = a.store.getById(a.service.all()[0].id);
-  assert.ok(rowA.last_accessed_at, "touch runs with heatEnabled default on even when sleepModeEnabled off");
+  assert.ok(rowA.last_accessed_at, "touch runs when heatEnabled is true even when sleepModeEnabled off");
   a.store.close();
 
-  // heatEnabled=false → 热路径零写入。
+  // heatEnabled=false（默认值）→ 热路径零写入。
   const b = setup({ heatEnabled: false });
   saveMemory(b.service, "量子计算", "入门");
   await b.service.searchMemories("量子", { mode: "keyword" });
