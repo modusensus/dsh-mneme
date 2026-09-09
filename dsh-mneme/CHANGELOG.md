@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.7.26] - 2026-09-09
+
+## 🐛 修复
+
+- **记忆巩固 `UNSUPPORTED_REASONING_EFFORT` 根治（defaultEffort 陷阱）**：harness 在调用方省略 effort 参数时注入 `reasoning.defaultEffort`（模型声明的最低档），若该默认档位本身不被模型支持（如火山 coding 适配器声明 `defaultEffort="low"` 而模型只收某固定档位），则任何重试策略都无效——换 effort 或去掉 effort 都会被同一个理由拒绝。修复：新增 `resolveDreamEffort`，在发流**前**经 `ctx.llm.resolveModelInfo()` 探测路由模型支持的 effort 档位，再发送受支持的档位——
+  - 配置档位（`dreamReasoningEffort` / `sleepReasoningEffort`）被支持 → 原样发送；
+  - 配置档位不被支持 → 自动换用模型声明的 `defaultEffort`（若也支持）或首个支持档位，并 `logger.warn` 留痕；
+  - 模型声明无 reasoning 能力 → 省略 effort 字段（发送普通补全请求）；
+  - `resolveModelInfo` 查询失败 → 按配置原样发送（fail-open，不因探测失败卡死巩固）。
+  - 影响面：autoDream（`dream.js`）与 sleep（`dream/sleep.js`）两条路径共用该 helper。
+- **设置面板巩固/睡眠模型字段选型提示**：`dreamProvider`/`dreamModel`/`dreamReasoningEffort`/`sleepProvider`/`sleepModel`/`sleepReasoningEffort` 6 字段补 `.description()`——引导选非思考模型（思考模型可能烧光 token 预算返回空体导致巩固失败），并说明 effort 不支持时会自动换档。
+
+## ✨ 新增
+
+- **巩固/睡眠模型连通性测试（Web 设置面板配套后端）**：
+  - `GET /api/dsh-mneme/llm-providers`：宿主侧 LLM provider/model 发现（`ctx.llm.listProviders()`/`listModels()`，逐 provider best-effort），返回 `{ providers: [{ provider, models: [{ id, name }] }] }`，无 `ctx.llm` 时 501；**密钥仅存宿主侧，不经插件侧、不入本端点**。
+  - `POST /api/dsh-mneme/test-model`：`{ provider?, model?, reasoningEffort? }` 连通性探测——最小流式调用（maxTokens 16）实测模型真实可通。**空 body = 按巩固路由解析**（`dreamProvider/dreamModel > agent 默认模型`，解析不出返回 400 `no-route`）；部分输入（有 provider 缺 model）400 `missing-provider-or-model`；成功 200 `{ ok:true, durationMs, modelId }`（+`reply` 预览），失败 502 `{ ok:false, error, durationMs, modelId }`；requireAuth 鉴权。
+
+## 🏗️ 工程
+
+- **测试清理**：`client.test.js` 移除 identity `.replace()`（CodeQL `js/identity-replacement` 告警 #1，测试死代码）。
+- 732 测试全绿。
+
 ## [0.7.25] - 2026-09-09
 
 ## 🆕 新增
