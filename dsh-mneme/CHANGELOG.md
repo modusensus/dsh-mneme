@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.27] - 2026-09-09
+
+## 🐛 修复
+
+- **v0.7.26 端点遗漏补齐（发版树缺端点分支）**：v0.7.26 的 CHANGELOG/Release 已宣告 `llm-providers` / `test-model` 两个设置面板端点，但承载它们的 `fix/dream-effort-trap` 分支未合入 main——发版树里面板「级联下拉 + 测试连通性」调用会 404。本版将该分支 rebase 到 main 后合入（PR #100），端点实际落地；与 main 已合内容重复的提交（docs 及 effort 陷阱修复等价补丁）rebase 时自动丢弃。
+
 ## [0.7.26] - 2026-09-09
 
 ## 🐛 修复
