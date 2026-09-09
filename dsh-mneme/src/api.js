@@ -296,7 +296,10 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
         provider,
         model,
         purpose: "dsh-mneme-connectivity-test",
-        maxTokens: 16,
+        // 给思考模型留出「思考完还有正文」的空间：16 会被 reasoning 全部吃掉，
+        // reply 恒为空，「真的答了 ok」对思考模型不成立。按实际用量计费，手动
+        // 按钮无放大风险。
+        maxTokens: 1024,
         ...(reasoningEffort && reasoningEffort !== "none" ? { reasoningEffort } : {}),
         messages: [{ role: "system", content: [{ type: "text", text: "Reply with exactly one word: ok" }] }]
       })) {
