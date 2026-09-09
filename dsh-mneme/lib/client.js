@@ -1592,7 +1592,7 @@ window.__ModuleLoader__.load({
     const FEATURE_ADVANCED_BOOLS = ["hybridInject", "selectiveInjectEnabled", "adaptiveThresholdEnabled", "reflectionUpdateEnabled", "reflectionFailureTracking", "conflictFreezeEnabled", "trustEpistemicWeighting"];
     // 字符串键（blur/Enter 提交，空串合法 = 跟随默认）：巩固模型与语义
     // 检索路线。embedProvider 是枚举，用下拉单独渲染。
-    const FEATURE_STRINGS = ["dreamProvider", "dreamModel", "localEmbedModel", "ollamaBaseUrl", "ollamaModel"];
+    const FEATURE_STRINGS = ["dreamProvider", "dreamModel", "sleepProvider", "sleepModel", "localEmbedModel", "ollamaBaseUrl", "ollamaModel"];
     const EMBED_PROVIDERS = ["openai", "local", "ollama"];
 
     function FeatureRow({ name, hint, on, disabled, onToggle }) {
@@ -1623,8 +1623,9 @@ window.__ModuleLoader__.load({
       // 巩固/睡眠模型路由下拉的数据源：GET /llm-providers 探测（云端 v0.7.26+
       // 的插件侧端点）。null = 端点不可用（404/失败）→ 回退纯文本输入，不挡旧后端。
       const [routes, setRoutes] = useState(null);
-      // 连通性测试结果：{ running: true } | { ok, ms, detail }
-      const [testState, setTestState] = useState(null);
+      // 连通性测试结果（巩固/睡眠各一份，互不串扰）：{ running: true } | { ok, ms, detail }
+      const [dreamTest, setDreamTest] = useState(null);
+      const [sleepTest, setSleepTest] = useState(null);
 
       useEffect(() => {
         let cancelled = false;
@@ -1700,7 +1701,7 @@ window.__ModuleLoader__.load({
       // 连通性测试：POST /test-model，空 provider/model = 按巩固路由解析
       // （agent 默认）。durationMs 优先后端值，缺失时客户端兜底计时；成功行
       // 附模型的实际回复（reply，后端截 100 字符）——「真的答了 ok」而非只报通。
-      const runModelTest = async (provider, model) => {
+      const runModelTest = async (provider, model, setTestState) => {
         setTestState({ running: true });
         const started = Date.now();
         try {
@@ -1733,7 +1734,7 @@ window.__ModuleLoader__.load({
       // 适配器，用户不会选到不存在的模型）+ 连通性测试。空值 = 跟随默认
       // 路由；改动即提交（与 embedProvider 下拉一致）。当前值不在枚举里时
       // 保留为额外选项，避免静默改值。
-      const routeSelects = (providerKey, modelKey) => {
+      const routeSelects = (providerKey, modelKey, testState, setTestState) => {
         const curP = strs[providerKey] ?? "";
         const curM = strs[modelKey] ?? "";
         const entries = Array.isArray(routes) ? routes : [];
@@ -1769,7 +1770,7 @@ window.__ModuleLoader__.load({
             h("button", {
               type: "button", className: "mneme-btn",
               disabled: busy || (testState && testState.running),
-              onClick: () => runModelTest(curP, curM)
+              onClick: () => runModelTest(curP, curM, setTestState)
             }, t((testState && testState.running) ? "memory.features.modelTesting" : "memory.features.modelTest")),
             testState && !testState.running && h("div", { className: "mneme-featsubhint" },
               (testState.ok ? "✓ " + t("memory.features.modelTestOk") : "✗ " + t("memory.features.modelTestFail"))
@@ -1812,7 +1813,7 @@ window.__ModuleLoader__.load({
       // 可用时用级联下拉 + 连通性测试；旧后端（端点 404）回退纯文本输入。
       const dreamSub = eff.autoDream && h("div", { className: "mneme-featsub" },
         Array.isArray(routes)
-          ? routeSelects("dreamProvider", "dreamModel")
+          ? routeSelects("dreamProvider", "dreamModel", dreamTest, setDreamTest)
           : h(react.Fragment, null, strRow("dreamProvider"), strRow("dreamModel")),
         h("div", { className: "mneme-featsubhint" }, t("memory.features.dreamModelHint"))
       );
@@ -1820,7 +1821,7 @@ window.__ModuleLoader__.load({
       // 睡眠模型：sleepModeEnabled 开着才展开（sleepProvider/sleepModel 随本版
       // 进白名单；下拉与测试复用同一 /llm-providers 数据源）。
       const sleepSub = eff.sleepModeEnabled && Array.isArray(routes) && h("div", { className: "mneme-featsub" },
-        routeSelects("sleepProvider", "sleepModel"),
+        routeSelects("sleepProvider", "sleepModel", sleepTest, setSleepTest),
         h("div", { className: "mneme-featsubhint" }, t("memory.features.sleepModelHint"))
       );
 

@@ -481,7 +481,7 @@ test("consolidation/sleep model routing: provider dropdowns from /llm-providers,
     "the probe must only accept a {providers: []} shape"
   );
   assert.ok(
-    /Array\.isArray\(routes\)\s*\?\s*routeSelects\("dreamProvider", "dreamModel"\)/.test(clientSource),
+    /Array\.isArray\(routes\)\s*\?\s*routeSelects\("dreamProvider", "dreamModel", dreamTest, setDreamTest\)/.test(clientSource),
     "dream routing must upgrade to dropdowns only when the probe succeeded"
   );
   assert.ok(
@@ -490,8 +490,25 @@ test("consolidation/sleep model routing: provider dropdowns from /llm-providers,
   );
   // 2. 睡眠侧行：跟随 sleepModeEnabled 门控，与巩固共用数据源
   assert.ok(
-    /const sleepSub = eff\.sleepModeEnabled && Array\.isArray\(routes\) && h\("div", \{ className: "mneme-featsub" \},\s*\n\s*routeSelects\("sleepProvider", "sleepModel"\)/.test(clientSource),
+    /const sleepSub = eff\.sleepModeEnabled && Array\.isArray\(routes\) && h\("div", \{ className: "mneme-featsub" \},\s*\n\s*routeSelects\("sleepProvider", "sleepModel", sleepTest, setSleepTest\)/.test(clientSource),
     "the sleep route row must gate on sleepModeEnabled and share the providers source"
+  );
+  // 2b. 睡眠路由的值必须进初始化草稿：FEATURE_STRINGS 漏键会导致重挂载后
+  // 下拉永远显示「跟随默认路由」（后端存了但前端读不回来）。
+  assert.ok(
+    /const FEATURE_STRINGS = \["dreamProvider", "dreamModel", "sleepProvider", "sleepModel",/.test(clientSource),
+    "sleepProvider/sleepModel must be restored into the draft on mount, not only written"
+  );
+  // 2c. 连通性测试状态按路由各持一份：共享单份会让点一个按钮两个组同时
+    // 显示「测试中/结果」且互相禁用。
+  assert.ok(
+    /const \[dreamTest, setDreamTest\] = useState\(null\);/.test(clientSource)
+      && /const \[sleepTest, setSleepTest\] = useState\(null\);/.test(clientSource),
+    "the connectivity test state must be per-route, not shared between dream and sleep"
+  );
+  assert.ok(
+    /runModelTest\(curP, curM, setTestState\)/.test(clientSource),
+    "each route's test button must target its own test state"
   );
   // 3. 连通性测试：真实最小调用 + 结果展示（成功/失败 + 耗时 + 报错原因）
   assert.ok(
