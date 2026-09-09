@@ -4,6 +4,7 @@ import { timingSafeEqual, randomBytes } from "node:crypto";
 import { FEATURE_FLAG_SPEC } from "./settings.js";
 import { TYPE_FILE, renderMirrorText, parseHumanEdits } from "./mirror.js";
 import { computeHeat } from "./heat.js";
+import { describeStreamFailure, resolveRoute } from "./dream.js";
 
 // headers：少数端点（/export 附件下载）需要追加 Content-Disposition 等响应头。
 function sendJson(res, status, payload, headers = {}) {
@@ -273,6 +274,104 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
         sendJson(res, 200, { profile: settings.getProfile() });
       } catch {
         sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
+  // --- dream/sleep 模型连通性 + 模型发现（settings 面板）----------------------
+  // Connectivity probe for a dream/sleep model route: runs one minimal LLM call
+  // through the same harness path the consolidation uses and reports success /
+  // failure + latency + error. Reuses describeStreamFailure so the panel shows
+  // the same error wording the audit rows carry. Optional reasoningEffort
+  // mirrors what the consolidation would send — the panel can verify a model
+  // actually accepts the configured effort without tripping a full run.
+  async function testLlmConnectivity(llm, provider, model, reasoningEffort) {
+    const startedAt = Date.now();
+    const elapsed = () => Date.now() - startedAt;
+    const modelId = `${provider}:${model}`;
+    try {
+      let reply = "";
+      let error = "";
+      for await (const chunk of llm.stream({
+        provider,
+        model,
+        purpose: "dsh-mneme-connectivity-test",
+        maxTokens: 16,
+        ...(reasoningEffort && reasoningEffort !== "none" ? { reasoningEffort } : {}),
+        messages: [{ role: "system", content: [{ type: "text", text: "Reply with exactly one word: ok" }] }]
+      })) {
+        if (chunk.type === "text-delta" && typeof chunk.text === "string") reply += chunk.text;
+        if (chunk.type === "finish" && (chunk.reason?.kind === "error" || chunk.reason?.kind === "aborted")) {
+          error = describeStreamFailure(chunk.reason);
+          break;
+        }
+      }
+      if (error) return { ok: false, durationMs: elapsed(), error, modelId };
+      return { ok: true, durationMs: elapsed(), modelId, reply: reply.trim().slice(0, 100) };
+    } catch (error) {
+      return { ok: false, durationMs: elapsed(), error: String(error?.message ?? error), modelId };
+    }
+  }
+
+  // List every provider + model the host has registered, so the panel can offer
+  // a dropdown over REAL models instead of free-text guesses. Read-only, no auth
+  // (same as list/search). Best-effort per provider: one whose model list can't
+  // be resolved yields an empty models array instead of failing the whole call.
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/llm-providers",
+    handler(req, res) {
+      try {
+        const llm = ctx.llm;
+        if (typeof llm?.listProviders !== "function" || typeof llm?.listModels !== "function") {
+          return sendJson(res, 501, { error: "llm-unavailable" });
+        }
+        let providers;
+        try { providers = llm.listProviders() ?? []; } catch { providers = []; }
+        return Promise.all(providers.map(async (p) => {
+          let models = [];
+          try { models = (await llm.listModels(p.id)) ?? []; } catch { models = []; }
+          return {
+            provider: p.id,
+            models: models.map((m) => ({ id: m.id, name: m.name ?? m.id }))
+          };
+        })).then((rows) => sendJson(res, 200, { providers: rows }));
+      } catch {
+        return sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
+  // Connectivity test for a dream/sleep model route. Runs one tiny LLM call and
+  // reports ok / failure + latency + error. Auth-gated: it spends the user's
+  // API quota, so a stray local page must not be able to drain it via loopback.
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/test-model",
+    handler(req, res) {
+      try {
+        if (req.method !== "POST") return sendJson(res, 404, { error: "not-found" });
+        if (!requireAuth(req, res, apiToken)) return;
+        return readBody(req).then(async (text) => {
+          const body = parseBody(text);
+          let provider = typeof body.provider === "string" ? body.provider.trim() : "";
+          let model = typeof body.model === "string" ? body.model.trim() : "";
+          if ((!provider && model) || (provider && !model)) return sendJson(res, 400, { error: "missing-provider-or-model" });
+          if (!provider && !model) {
+            // 空 = 按巩固路由解析（dreamProvider/dreamModel > agent 默认模型），
+            // 让面板一键测"当前巩固模型"而无需手填。
+            const route = resolveRoute(ctx, config ?? {}, ctx.logger);
+            if (!route) return sendJson(res, 400, { error: "no-route" });
+            provider = route.provider;
+            model = route.model;
+          }
+          const llm = ctx.llm;
+          if (typeof llm?.stream !== "function") return sendJson(res, 501, { error: "llm-unavailable" });
+          const result = await testLlmConnectivity(llm, provider, model, body.reasoningEffort);
+          return sendJson(res, result.ok ? 200 : 502, result);
+        });
+      } catch {
+        return sendJson(res, 500, { error: "internal" });
       }
     }
   });

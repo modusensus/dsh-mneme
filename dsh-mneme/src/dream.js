@@ -1,7 +1,7 @@
 import { validateDecisions, applyDecisions } from "./dream/decisions.js";
 import { clusterMemories, findPotentialConflicts } from "./dream/clustering.js";
 import { createHash, randomUUID } from "node:crypto";
-export { validateDecisions, applyDecisions, withEffortFallback, describeStreamFailure, resolveDreamEffort };
+export { validateDecisions, applyDecisions, withEffortFallback, describeStreamFailure, resolveDreamEffort, resolveRoute };
 
 
 // Extract the first JSON array from LLM output, tolerating markdown fences,
