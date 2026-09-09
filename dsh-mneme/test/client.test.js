@@ -466,3 +466,66 @@ test("heat badges render from the /list projection and self-hide when off", () =
     "toggling heat sort must land on the cards view (sort does not apply to the month tree)"
   );
 });
+
+// 巩固/睡眠模型路由 UI：下拉数据来自宿主侧已注册适配器（/llm-providers，
+// 云端插件侧端点），「测试连通性」走 POST /test-model 真实最小调用。旧后端
+// 端点 404 时必须回退纯文本输入——前端自门控，不挡旧版本。
+test("consolidation/sleep model routing: provider dropdowns from /llm-providers, connectivity test via /test-model, graceful fallback", () => {
+  // 1. 端点探测与降级
+  assert.ok(
+    clientSource.includes('apiFetch("/api/dsh-mneme/llm-providers")'),
+    "the features card must probe GET /llm-providers for the route dropdowns"
+  );
+  assert.ok(
+    /setRoutes\(Array\.isArray\(j && j\.providers\) \? j\.providers : \[\]\)/.test(clientSource),
+    "the probe must only accept a {providers: []} shape"
+  );
+  assert.ok(
+    /Array\.isArray\(routes\)\s*\?\s*routeSelects\("dreamProvider", "dreamModel"\)/.test(clientSource),
+    "dream routing must upgrade to dropdowns only when the probe succeeded"
+  );
+  assert.ok(
+    /:\s*h\(react\.Fragment, null, strRow\("dreamProvider"\), strRow\("dreamModel"\)\)/.test(clientSource),
+    "when /llm-providers is unavailable the plain text inputs must remain (old-backend fallback)"
+  );
+  // 2. 睡眠侧行：跟随 sleepModeEnabled 门控，与巩固共用数据源
+  assert.ok(
+    /const sleepSub = eff\.sleepModeEnabled && Array\.isArray\(routes\) && h\("div", \{ className: "mneme-featsub" \},\s*\n\s*routeSelects\("sleepProvider", "sleepModel"\)/.test(clientSource),
+    "the sleep route row must gate on sleepModeEnabled and share the providers source"
+  );
+  // 3. 连通性测试：真实最小调用 + 结果展示（成功/失败 + 耗时 + 报错原因）
+  assert.ok(
+    clientSource.includes('apiFetch("/api/dsh-mneme/test-model", {'),
+    "the connectivity test must POST /test-model"
+  );
+  assert.ok(
+    /body: JSON\.stringify\(\{ provider, model \}\)/.test(clientSource),
+    "the test payload must carry the selected provider/model (empty = follow default route)"
+  );
+  assert.ok(
+    /typeof j\.durationMs === "number" \? j\.durationMs : Date\.now\(\) - started/.test(clientSource),
+    "the result duration must prefer the backend's durationMs and fall back to client timing"
+  );
+  assert.ok(
+    clientSource.includes("memory.features.modelTestOk") && clientSource.includes("memory.features.modelTestFail"),
+    "the result line must render success/failure with the localized labels"
+  );
+  // 4. 下拉改动即提交（与 embedProvider 一致），当前值不在枚举时保留为额外选项
+  assert.ok(
+    /setStrs\(\(c\) => \(\{ \.\.\.c, \[key\]: v \}\)\);\s*\n\s*put\(\{ \[key\]: v \}\)/.test(clientSource),
+    "select changes must commit through the features PUT like the embed provider select"
+  );
+  assert.ok(
+    /curM && !mVals\.includes\(curM\) \? h\("option", \{ key: "current", value: curM \}, curM\) : null/.test(clientSource),
+    "a configured value missing from the provider's model list must survive as an extra option"
+  );
+  // 5. 双语 i18n 与样式
+  for (const key of ["routeFollowDefault", "modelTest", "modelTesting", "modelTestOk", "modelTestFail", "sleepModelHint"]) {
+    const occurrences = clientSource.split(`"memory.features.${key}"`).length - 1;
+    assert.ok(occurrences >= 2, `i18n key memory.features.${key} must exist in both zh and en (got ${occurrences})`);
+  }
+  assert.ok(
+    clientSource.includes(".mneme-routeselect{width:240px;max-width:60%}"),
+    "the route selects must share the string-input width budget"
+  );
+});

@@ -82,6 +82,10 @@ const FEATURE_FLAG_INT_RANGES = {
 const FEATURE_FLAG_STRINGS = [
   "dreamProvider",
   "dreamModel",
+  // 睡眠侧专用路由（sleep.js 的 config-first 第三层）：面板下拉随
+  // /llm-providers 端点一起提供，留空 = 用巩固模型或当前模型。
+  "sleepProvider",
+  "sleepModel",
   "localEmbedModel",
   "ollamaModel"
 ];

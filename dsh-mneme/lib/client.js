@@ -326,6 +326,15 @@ window.__ModuleLoader__.load({
         "memory.features.dreamProvider": "巩固模型 Provider",
         "memory.features.dreamModel": "巩固用模型名",
         "memory.features.dreamModelHint": "留空 = 跟随主对话模型；只影响记忆巩固（autoDream）用的模型",
+        "memory.features.sleepProvider": "睡眠 Provider",
+        "memory.features.sleepModel": "睡眠模型",
+        "memory.features.sleepModelHint": "留空 = 用巩固模型或当前模型；建议选非思考模型",
+        "memory.features.routeFollowDefault": "跟随默认路由",
+        "memory.features.modelTest": "测试连通性",
+        "memory.features.modelTesting": "测试中…",
+        "memory.features.modelTestOk": "连通正常",
+        "memory.features.modelTestFail": "测试失败",
+        "memory.features.modelTestHint": "真实发起一次最小巩固调用，验证 Provider/模型连通与 effort 支持",
         "memory.explorer.viewCards": "卡片",
         "memory.explorer.viewTimeline": "时间线",
         "memory.explorer.viewAria": "视图切换",
@@ -606,6 +615,15 @@ window.__ModuleLoader__.load({
         "memory.features.dreamProvider": "Consolidation provider",
         "memory.features.dreamModel": "Consolidation model",
         "memory.features.dreamModelHint": "Leave empty to follow the main conversation model; only affects autoDream consolidation",
+        "memory.features.sleepProvider": "Sleep provider",
+        "memory.features.sleepModel": "Sleep model",
+        "memory.features.sleepModelHint": "Leave empty to reuse the consolidation model; a non-reasoning model is recommended",
+        "memory.features.routeFollowDefault": "Follow default route",
+        "memory.features.modelTest": "Test connectivity",
+        "memory.features.modelTesting": "Testing…",
+        "memory.features.modelTestOk": "Connected",
+        "memory.features.modelTestFail": "Test failed",
+        "memory.features.modelTestHint": "Fires one minimal consolidation call to verify provider/model connectivity and effort support",
         "memory.explorer.viewCards": "Cards",
         "memory.explorer.viewTimeline": "Timeline",
         "memory.explorer.viewAria": "Switch view",
@@ -750,6 +768,7 @@ window.__ModuleLoader__.load({
       ".mneme-chip:hover{background:var(--dsw-alias-interactive-bg-hover)}",
       ".mneme-chip.mneme-active{color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent)}",
       ".mneme-select{box-sizing:border-box;height:30px;padding:0 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base,transparent);color:var(--dsw-alias-label-primary);font-family:inherit;font-size:13px;outline:none}",
+      ".mneme-routeselect{width:240px;max-width:60%}",
       ".mneme-footbtn{border:none;background:none;color:var(--dsw-alias-label-secondary);cursor:pointer;font-family:inherit;font-size:12px;line-height:16px;padding:3px 8px;border-radius:6px}",
       ".mneme-footbtn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}",
       ".mneme-hint{color:var(--dsw-alias-label-tertiary);padding:24px 0;text-align:center;font-size:13px}",
@@ -1601,6 +1620,11 @@ window.__ModuleLoader__.load({
       const [savedTick, setSavedTick] = useState(false);
       const [showAdv, setShowAdv] = useState(false);
       const [strs, setStrs] = useState({}); // 字符串输入的本地草稿：key -> string
+      // 巩固/睡眠模型路由下拉的数据源：GET /llm-providers 探测（云端 v0.7.26+
+      // 的插件侧端点）。null = 端点不可用（404/失败）→ 回退纯文本输入，不挡旧后端。
+      const [routes, setRoutes] = useState(null);
+      // 连通性测试结果：{ running: true } | { ok, ms, detail }
+      const [testState, setTestState] = useState(null);
 
       useEffect(() => {
         let cancelled = false;
@@ -1615,6 +1639,16 @@ window.__ModuleLoader__.load({
             setStrs(draft);
           })
           .catch(() => { if (!cancelled) setError(t("memory.features.loadFailed")); });
+        return () => { cancelled = true; };
+      }, [t]);
+
+      // 插件侧枚举端点探测：不可用时静默保持 routes=null（文本框回退）。
+      useEffect(() => {
+        let cancelled = false;
+        apiFetch("/api/dsh-mneme/llm-providers")
+          .then((res) => { if (!res.ok) throw new Error("HTTP " + res.status); return res.json(); })
+          .then((j) => { if (!cancelled) setRoutes(Array.isArray(j && j.providers) ? j.providers : []); })
+          .catch(() => {});
         return () => { cancelled = true; };
       }, [t]);
 
@@ -1659,6 +1693,82 @@ window.__ModuleLoader__.load({
         onToggle: () => put({ [k]: !eff[k] })
       });
 
+      // 模型枚举项的统一形状：string 或 {id, name?}（/llm-providers 契约）。
+      const modelLabel = (m) => (typeof m === "string" ? m : String((m && (m.name || m.id)) ?? ""));
+      const modelValue = (m) => (typeof m === "string" ? m : String((m && m.id) ?? ""));
+
+      // 连通性测试：POST /test-model，空 provider/model = 按巩固路由解析
+      // （agent 默认）。durationMs 优先取后端值，缺失时客户端兜底计时。
+      const runModelTest = async (provider, model) => {
+        setTestState({ running: true });
+        const started = Date.now();
+        try {
+          const res = await apiFetch("/api/dsh-mneme/test-model", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ provider, model })
+          });
+          const j = await res.json().catch(() => ({}));
+          if (!res.ok || j.ok === false) throw new Error(j.error || "HTTP " + res.status);
+          setTestState({
+            ok: true,
+            ms: typeof j.durationMs === "number" ? j.durationMs : Date.now() - started,
+            detail: j.modelId || ""
+          });
+        } catch (err) {
+          setTestState({ ok: false, ms: Date.now() - started, detail: String((err && err.message) ?? err) });
+        }
+      };
+
+      // 巩固/睡眠路由行：provider/model 级联下拉（数据来自宿主侧已注册的
+      // 适配器，用户不会选到不存在的模型）+ 连通性测试。空值 = 跟随默认
+      // 路由；改动即提交（与 embedProvider 下拉一致）。当前值不在枚举里时
+      // 保留为额外选项，避免静默改值。
+      const routeSelects = (providerKey, modelKey) => {
+        const curP = strs[providerKey] ?? "";
+        const curM = strs[modelKey] ?? "";
+        const entries = Array.isArray(routes) ? routes : [];
+        const entry = entries.find((p) => p && p.provider === curP);
+        const models = (entry && Array.isArray(entry.models)) ? entry.models : [];
+        const mVals = models.map(modelValue);
+        const pList = entries.map((p) => p.provider).concat(
+          curP && !entries.some((p) => p.provider === curP) ? [curP] : []);
+        const putKey = (key) => (e) => {
+          const v = e.target.value;
+          setStrs((c) => ({ ...c, [key]: v }));
+          put({ [key]: v });
+        };
+        return h(react.Fragment, null,
+          h("div", { className: "mneme-featnum" },
+            h("span", { className: "mneme-featnumlabel" }, t(`memory.features.${providerKey}`)),
+            h("select", {
+              className: "mneme-select mneme-routeselect", value: curP, disabled: busy,
+              "aria-label": t(`memory.features.${providerKey}`), onChange: putKey(providerKey)
+            },
+              h("option", { value: "" }, t("memory.features.routeFollowDefault")),
+              pList.map((p) => h("option", { key: p, value: p }, p)))),
+          h("div", { className: "mneme-featnum" },
+            h("span", { className: "mneme-featnumlabel" }, t(`memory.features.${modelKey}`)),
+            h("select", {
+              className: "mneme-select mneme-routeselect", value: curM, disabled: busy,
+              "aria-label": t(`memory.features.${modelKey}`), onChange: putKey(modelKey)
+            },
+              h("option", { value: "" }, t("memory.features.routeFollowDefault")),
+              models.map((m, i) => h("option", { key: modelValue(m) + "|" + i, value: modelValue(m) }, modelLabel(m))),
+              curM && !mVals.includes(curM) ? h("option", { key: "current", value: curM }, curM) : null)),
+          h("div", { className: "mneme-featnum" },
+            h("button", {
+              type: "button", className: "mneme-btn",
+              disabled: busy || (testState && testState.running),
+              onClick: () => runModelTest(curP, curM)
+            }, t((testState && testState.running) ? "memory.features.modelTesting" : "memory.features.modelTest")),
+            testState && !testState.running && h("div", { className: "mneme-featsubhint" },
+              (testState.ok ? "✓ " + t("memory.features.modelTestOk") : "✗ " + t("memory.features.modelTestFail"))
+              + (typeof testState.ms === "number" ? " · " + (testState.ms / 1000).toFixed(1) + "s" : "")
+              + (testState.detail ? " · " + testState.detail : "")))
+        );
+      };
+
       const strRow = (key) => h("div", { className: "mneme-featnum", key },
         h("span", { className: "mneme-featnumlabel" }, t(`memory.features.${key}`)),
         h("input", {
@@ -1689,11 +1799,20 @@ window.__ModuleLoader__.load({
         eff.embedProvider === "ollama" && strRow("ollamaModel")
       );
 
-      // 巩固模型：autoDream 开着才展开，避免闲置配置占版面。
+      // 巩固模型：autoDream 开着才展开，避免闲置配置占版面。/llm-providers
+      // 可用时用级联下拉 + 连通性测试；旧后端（端点 404）回退纯文本输入。
       const dreamSub = eff.autoDream && h("div", { className: "mneme-featsub" },
-        strRow("dreamProvider"),
-        strRow("dreamModel"),
+        Array.isArray(routes)
+          ? routeSelects("dreamProvider", "dreamModel")
+          : h(react.Fragment, null, strRow("dreamProvider"), strRow("dreamModel")),
         h("div", { className: "mneme-featsubhint" }, t("memory.features.dreamModelHint"))
+      );
+
+      // 睡眠模型：sleepModeEnabled 开着才展开（sleepProvider/sleepModel 随本版
+      // 进白名单；下拉与测试复用同一 /llm-providers 数据源）。
+      const sleepSub = eff.sleepModeEnabled && Array.isArray(routes) && h("div", { className: "mneme-featsub" },
+        routeSelects("sleepProvider", "sleepModel"),
+        h("div", { className: "mneme-featsubhint" }, t("memory.features.sleepModelHint"))
       );
 
       if (error && !state) return h("section", { className: "mneme-set-card" },
@@ -1713,7 +1832,7 @@ window.__ModuleLoader__.load({
                 h("div", { className: "mneme-featgroup" }, t(`memory.features.${g.key}`)),
                 g.items.map(boolRow),
                 g.key === "group.enhance" && embedSub,
-                g.key === "group.dream" && dreamSub
+                g.key === "group.dream" && h(react.Fragment, null, dreamSub, sleepSub)
               )),
               h("div", { className: "mneme-featgroup" },
                 h("button", {
