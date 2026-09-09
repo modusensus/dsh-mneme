@@ -26,13 +26,14 @@ English | [简体中文](README.md)
   - Per-type `committed / failed / pending` receipts; the health endpoint distinguishes `ok / degraded / unknown`
   - State write failures are never silent: sync failures are logged and leave debt behind, converging automatically on restart
 
-### Model Tools (7)
+### Model Tools (8)
 
 | Tool | Function |
 |------|------|
 | `memory_save` | Save a memory (automatic dedup and merge by title) |
 | `memory_search` | Full-text search (Chinese-substring friendly; vector semantic search can be enabled) |
 | `memory_list` | Paginated listing by type (`include_archived=true` to view archived items) |
+| `memory_get` | Read a single memory's full body by id (v0.7.25; read the full text after a search/list hit) |
 | `memory_update` | Modify an existing memory |
 | `memory_delete` | Delete a memory |
 | `memory_forget` | Suppress injection (down-weighted rather than deleted; recoverable) |
