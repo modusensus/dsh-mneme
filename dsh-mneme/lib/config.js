@@ -62,8 +62,8 @@ export const Config = z.object({
   //     reasoning effort —— 即使去掉 effort 重试，harness 的 defaultEffort 也会顶上来
   //     再次拒绝（UNSUPPORTED_REASONING_EFFORT），插件 fallback 无法绕开。
   //     选用时建议配 dreamReasoningEffort 并实测；不行就换非思考模型。
-  dreamProvider: z.string(),
-  dreamModel: z.string(),
+  dreamProvider: z.string().description("记忆巩固专用模型的服务商（settings「巩固模型」）。巩固反复失败时，优先改用官方非思考模型的服务商（如 deepseek / glm）。"),
+  dreamModel: z.string().description("记忆巩固专用模型。建议选非思考模型（如 deepseek-chat、glm-5-2 类）：思考模型可能烧光 token 预算返回空体，导致巩固失败（UNSUPPORTED_REASONING_EFFORT）。"),
   dreamMaxTokens: z.natural().min(256).max(131072).default(32768),
   // Pass-through reasoning effort for dream's LLM calls. 'none' (default)
   // omits the field so the provider's own default applies; low/medium/high
@@ -78,7 +78,7 @@ export const Config = z.object({
     z.const("medium"),
     z.const("high"),
     z.const("none")
-  ]).default("none"),
+  ]).default("none").description("巩固模型的推理档位：'none'（默认）用服务商自带默认；low/medium/high 原样传递。模型不支持的值会自动换用其支持的档位（v0.7.26+）。"),
   // 滑动窗口上限（v0.4.4）：autoDream 每次只对最近 dreamMaxSnapshotSize 条
   // 记忆做 consolidation。大记忆量下全量快照会把 LLM 输入撑爆（636 记忆 →
   // 677 "missing" errors、applied=0），窗口外的旧记忆不进 snapshot。
@@ -251,8 +251,8 @@ export const Config = z.object({
   sleepMaxPatternPerRun: z.natural().min(0).max(10).default(3),
   // Optional LLM route override for sleep's bulk passes (empty = use dream
   // route / agent default model).
-  sleepProvider: z.string().default(""),
-  sleepModel: z.string().default(""),
+  sleepProvider: z.string().default("").description("sleep 深维护专用模型服务商，留空用巩固模型或当前模型。"),
+  sleepModel: z.string().default("").description("sleep 深维护专用模型，留空用巩固模型或当前模型；建议同巩固模型选非思考模型。"),
   // Pass-through reasoning effort for sleep's LLM passes, same semantics as
   // dreamReasoningEffort: 'none' (default) omits the field; low/medium/high
   // are forwarded verbatim.
@@ -261,7 +261,7 @@ export const Config = z.object({
     z.const("medium"),
     z.const("high"),
     z.const("none")
-  ]).default("none"),
+  ]).default("none").description("同 dreamReasoningEffort：sleep 各阶段 LLM 的推理档位，'none' 用服务商默认。"),
 
   // --- epistemic trust: memory source credibility (v0.4.5) -----------------
   // Distinguish memories by source: observation (measured / witnessed),
