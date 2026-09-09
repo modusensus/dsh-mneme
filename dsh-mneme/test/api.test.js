@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
 import { createStore } from "../src/store.js";
 import { createService } from "../src/service.js";
 import { createApi } from "../src/api.js";
@@ -517,6 +518,20 @@ test("Bug10: vector-reindex with an embed-only OpenAI-compatible embedder return
   assert.equal(vectorIndex.getEmbedding(service.all()[0].id).length, 3, "embedding persisted");
 });
 
+// --- /info（反馈预填的插件版本）-----------------------------------------------
+
+test("GET /api/dsh-mneme/info returns the package version for feedback prefills", async () => {
+  const { routes } = setup(undefined);
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/info");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/info"), res);
+  assert.equal(res.statusCode, 200);
+  const data = JSON.parse(res.body);
+  // 与插件根 package.json 的版本一致（反馈 issue/邮件的预填环境信息依赖它）。
+  const expected = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
+  assert.equal(data.version, expected);
+});
+
 // --- feature flags（/features：overrides + effective）------------------------
 
 test("GET /api/dsh-mneme/features returns empty overrides and effective config defaults", async () => {
@@ -527,13 +542,15 @@ test("GET /api/dsh-mneme/features returns empty overrides and effective config d
   assert.equal(res.statusCode, 200);
   const data = JSON.parse(res.body);
   assert.deepEqual(data.overrides, {});
-  // effective 覆盖全部 39 个白名单键（含 v0.7.20 heatEnabled、Issue #89 新增
+  // effective 覆盖全部 42 个白名单键（含 v0.7.20 heatEnabled、Issue #89 新增
   // dreamSkipInvalid/allowCrossTypeMerge/dreamMinIntervalMinutes、面板可调的
-  // dreamMaxTokens、睡眠路由 sleepProvider/sleepModel，以及 PR1 新增的
-  // recallFusion/signalTransparency），未覆盖时取 bundle 配置的解析默认值；
+  // dreamMaxTokens、睡眠路由 sleepProvider/sleepModel、PR1 新增的
+  // recallFusion/signalTransparency，以及 issue #109 新增的实体抽取路由
+  // entityExtractionProvider/entityExtractionModel/entityExtractionReasoning），
+  // 未覆盖时取 bundle 配置的解析默认值；
   // dreamProvider/dreamModel 无 schema 默认值（Config({}) 解析为 undefined），
-  // 不编造给前端 → 39 - 2 = 37
-  assert.equal(Object.keys(data.effective).length, 37);
+  // 不编造给前端 → 42 - 2 = 40
+  assert.equal(Object.keys(data.effective).length, 40);
   assert.equal(data.effective.dreamSkipInvalid, true);
   assert.equal(data.effective.allowCrossTypeMerge, false);
   assert.equal(data.effective.dreamMinIntervalMinutes, 0);
@@ -559,6 +576,10 @@ test("GET /api/dsh-mneme/features returns empty overrides and effective config d
   // PR1：融合配方枚举 + 信号透明布尔（均有默认值，故计入 effective 计数）
   assert.equal(data.effective.recallFusion, "blend");
   assert.equal(data.effective.signalTransparency, false);
+  // issue #109：实体抽取路由三键（均有默认值，故计入 effective 计数）
+  assert.equal(data.effective.entityExtractionProvider, "");
+  assert.equal(data.effective.entityExtractionModel, "");
+  assert.equal(data.effective.entityExtractionReasoning, "none");
 });
 
 test("PUT /api/dsh-mneme/features round-trips, overrides effective and persists", async () => {

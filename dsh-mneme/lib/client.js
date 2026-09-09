@@ -239,6 +239,12 @@ window.__ModuleLoader__.load({
         "memory.settings.apiTokenPlaceholder": "留空 = 不鉴权（默认）",
         "memory.settings.apiTokenSave": "保存 Token",
         "memory.settings.apiTokenSaved": "Token 已保存",
+        "memory.settings.feedback.title": "帮助与反馈",
+        "memory.settings.feedback.desc": "遇到问题？先看看仓库已有的 issue，或直接把情况反馈过来：",
+        "memory.settings.feedback.newIssue": "GitHub 新建 issue（自动带上环境信息）",
+        "memory.settings.feedback.email": "邮件反馈（work@modusensus.space）",
+        "memory.settings.feedback.browse": "浏览仓库已知问题",
+        "memory.settings.feedback.hint": "反馈前先搜搜是否已有相同问题，能省一份重复的 issue～",
         "memory.settings.mode.title": "运行模式",
         "memory.settings.mode.desc": "轻量模式只保留核心的记忆读写与自动注入（关闭 autoDream 巩固、实体抽取、语义搜索等高级功能），适合只想「记住偏好」的轻量使用；标准模式开启全部功能。",
         "memory.settings.mode.light": "轻量",
@@ -276,6 +282,14 @@ window.__ModuleLoader__.load({
         "memory.features.hotMemoryEnabled.hint": "最近几轮对话原文随注入携带，不写入长期记忆",
         "memory.features.entityExtractionEnabled": "实体抽取",
         "memory.features.entityExtractionEnabled.hint": "从记忆中提取人物/项目/概念，图谱随之生长",
+        "memory.features.entityExtractionProvider": "实体抽取 Provider",
+        "memory.features.entityExtractionModel": "实体抽取模型",
+        "memory.features.entityExtractionReasoning": "实体抽取思考强度",
+        "memory.features.entityExtractionReasoning.none": "跟随默认",
+        "memory.features.entityExtractionReasoning.low": "低",
+        "memory.features.entityExtractionReasoning.medium": "中",
+        "memory.features.entityExtractionReasoning.high": "高",
+        "memory.features.entityExtractionModelHint": "Provider/模型留空 = 跟随主对话模型；思考强度 none = 服务商默认",
         "memory.features.codingRetrospect": "编码记忆蒸馏",
         "memory.features.codingRetrospect.hint": "用完整转录（含工具调用与报错）提炼踩坑、约束与被否决方案",
         "memory.features.rerankEnabled": "结果重排",
@@ -528,6 +542,12 @@ window.__ModuleLoader__.load({
         "memory.settings.apiTokenPlaceholder": "Empty = no auth (default)",
         "memory.settings.apiTokenSave": "Save Token",
         "memory.settings.apiTokenSaved": "Token saved",
+        "memory.settings.feedback.title": "Help & feedback",
+        "memory.settings.feedback.desc": "Stuck? Search the existing issues, or tell us what happened:",
+        "memory.settings.feedback.newIssue": "Open a GitHub issue (environment info prefilled)",
+        "memory.settings.feedback.email": "Email feedback (work@modusensus.space)",
+        "memory.settings.feedback.browse": "Browse known issues",
+        "memory.settings.feedback.hint": "Search for an existing issue first — it saves a duplicate.",
         "memory.settings.mode.title": "Runtime mode",
         "memory.settings.mode.desc": "Light mode keeps only the core memory read/write and auto-injection (autoDream consolidation, entity extraction and semantic search are off) — for light use where you just want preferences remembered. Standard mode enables everything.",
         "memory.settings.mode.light": "Light",
@@ -565,6 +585,14 @@ window.__ModuleLoader__.load({
         "memory.features.hotMemoryEnabled.hint": "Carry the last few turns verbatim; never written to long-term memory",
         "memory.features.entityExtractionEnabled": "Entity extraction",
         "memory.features.entityExtractionEnabled.hint": "Extract people / projects / concepts so the graph grows by itself",
+        "memory.features.entityExtractionProvider": "Entity extraction provider",
+        "memory.features.entityExtractionModel": "Entity extraction model",
+        "memory.features.entityExtractionReasoning": "Entity extraction reasoning",
+        "memory.features.entityExtractionReasoning.none": "Follow default",
+        "memory.features.entityExtractionReasoning.low": "Low",
+        "memory.features.entityExtractionReasoning.medium": "Medium",
+        "memory.features.entityExtractionReasoning.high": "High",
+        "memory.features.entityExtractionModelHint": "Provider / model empty = follow the main conversation model; reasoning none = provider default",
         "memory.features.codingRetrospect": "Coding retrospection",
         "memory.features.codingRetrospect.hint": "Distill pitfalls, constraints and rejected solutions from full transcripts (tools and errors included)",
         "memory.features.rerankEnabled": "Reranking",
@@ -950,6 +978,7 @@ window.__ModuleLoader__.load({
       ".mneme-numinput:focus{border-color:var(--dsw-alias-state-business-primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-business-primary) 15%,transparent)}",
       // 字符串开关的输入框（provider/model 等）与其子块容器
       ".mneme-strinput{box-sizing:border-box;width:240px;max-width:60%;height:30px;padding:0 10px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base,transparent);color:var(--dsw-alias-label-primary);font-family:inherit;font-size:13px;outline:none;text-align:left;transition:border-color .12s,box-shadow .12s}",
+      ".mneme-feed-link{display:block;color:var(--dsw-alias-brand,var(--dsw-alias-label-primary));text-decoration:none;font-size:13px;line-height:20px;padding:4px 2px;border-radius:6px;transition:opacity .12s}.mneme-feed-link:hover{opacity:.8;text-decoration:underline}",
       ".mneme-strinput:focus{border-color:var(--dsw-alias-state-business-primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-business-primary) 15%,transparent)}",
       ".mneme-featsub{margin:2px 0 8px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;display:flex;flex-direction:column;gap:6px}",
       ".mneme-featsub .mneme-featnum{padding:6px 0;border-bottom:none}",
@@ -1592,8 +1621,10 @@ window.__ModuleLoader__.load({
     const FEATURE_ADVANCED_BOOLS = ["hybridInject", "selectiveInjectEnabled", "adaptiveThresholdEnabled", "reflectionUpdateEnabled", "reflectionFailureTracking", "conflictFreezeEnabled", "trustEpistemicWeighting"];
     // 字符串键（blur/Enter 提交，空串合法 = 跟随默认）：巩固模型与语义
     // 检索路线。embedProvider 是枚举，用下拉单独渲染。
-    const FEATURE_STRINGS = ["dreamProvider", "dreamModel", "sleepProvider", "sleepModel", "localEmbedModel", "ollamaBaseUrl", "ollamaModel"];
+    const FEATURE_STRINGS = ["dreamProvider", "dreamModel", "sleepProvider", "sleepModel", "entityExtractionProvider", "entityExtractionModel", "localEmbedModel", "ollamaBaseUrl", "ollamaModel"];
     const EMBED_PROVIDERS = ["openai", "local", "ollama"];
+    // 实体抽取思考强度（issue #109）：与后端 FEATURE_FLAG_ENUMS 枚举对齐。
+    const ENTITY_REASONING = ["none", "low", "medium", "high"];
 
     function FeatureRow({ name, hint, on, disabled, onToggle }) {
       return h("div", { className: "mneme-featrow" },
@@ -1623,9 +1654,10 @@ window.__ModuleLoader__.load({
       // 巩固/睡眠模型路由下拉的数据源：GET /llm-providers 探测（云端 v0.7.26+
       // 的插件侧端点）。null = 端点不可用（404/失败）→ 回退纯文本输入，不挡旧后端。
       const [routes, setRoutes] = useState(null);
-      // 连通性测试结果（巩固/睡眠各一份，互不串扰）：{ running: true } | { ok, ms, detail }
+      // 连通性测试结果（巩固/睡眠/实体抽取各一份，互不串扰）：{ running: true } | { ok, ms, detail }
       const [dreamTest, setDreamTest] = useState(null);
       const [sleepTest, setSleepTest] = useState(null);
+      const [entityTest, setEntityTest] = useState(null);
 
       useEffect(() => {
         let cancelled = false;
@@ -1825,6 +1857,26 @@ window.__ModuleLoader__.load({
         h("div", { className: "mneme-featsubhint" }, t("memory.features.sleepModelHint"))
       );
 
+      // 实体抽取路由与思考强度（issue #109）：entityExtractionEnabled 开着才
+      // 展开。provider/model 级联下拉 + 连通性测试（同巩固/睡眠），reasoning
+      // 枚举即时提交；旧后端（/llm-providers 404）回退纯文本输入。
+      const entitySub = eff.entityExtractionEnabled && h("div", { className: "mneme-featsub" },
+        Array.isArray(routes)
+          ? routeSelects("entityExtractionProvider", "entityExtractionModel", entityTest, setEntityTest)
+          : h(react.Fragment, null, strRow("entityExtractionProvider"), strRow("entityExtractionModel")),
+        h("div", { className: "mneme-featnum" },
+          h("span", { className: "mneme-featnumlabel" }, t("memory.features.entityExtractionReasoning")),
+          h("select", {
+            className: "mneme-select",
+            value: eff.entityExtractionReasoning || "none",
+            disabled: busy,
+            onChange: (e) => put({ entityExtractionReasoning: e.target.value })
+          },
+            ENTITY_REASONING.map((r) => h("option", { key: r, value: r }, t(`memory.features.entityExtractionReasoning.${r}`))))
+        ),
+        h("div", { className: "mneme-featsubhint" }, t("memory.features.entityExtractionModelHint"))
+      );
+
       if (error && !state) return h("section", { className: "mneme-set-card" },
         h("div", { className: "mneme-set-title" }, t("memory.features.title")),
         h("div", { className: "mneme-set-hint" }, error));
@@ -1841,7 +1893,7 @@ window.__ModuleLoader__.load({
               FEATURE_GROUPS.map((g) => h(react.Fragment, { key: g.key },
                 h("div", { className: "mneme-featgroup" }, t(`memory.features.${g.key}`)),
                 g.items.map(boolRow),
-                g.key === "group.enhance" && embedSub,
+                g.key === "group.enhance" && h(react.Fragment, null, embedSub, entitySub),
                 g.key === "group.dream" && h(react.Fragment, null, dreamSub, sleepSub)
               )),
               h("div", { className: "mneme-featgroup" },
@@ -1867,6 +1919,18 @@ window.__ModuleLoader__.load({
       return `${s.slice(0, 5)}${"•".repeat(10)}${s.slice(-4)}`;
     }
 
+    // 反馈预填用的平台标签：从 userAgent 提一个粗粒度 OS 名，够定位问题即可，
+    // 不引第三方解析库。浏览器/Electron webview 里都能取到。
+    const platformLabel = () => {
+      const ua = (typeof navigator !== "undefined" && navigator.userAgent) || "";
+      if (/Windows NT/.test(ua)) return "Windows";
+      if (/Mac OS X/.test(ua)) return "macOS";
+      if (/Android/.test(ua)) return "Android";
+      if (/iPhone|iPad/.test(ua)) return "iOS";
+      if (/Linux/.test(ua)) return "Linux";
+      return "Unknown";
+    };
+
     function SettingsContent({ t }) {
       const [profile, setProfile] = react.useState("");
       const [rules, setRules] = react.useState([]);
@@ -1883,6 +1947,8 @@ window.__ModuleLoader__.load({
         (typeof window !== "undefined" && window.localStorage) ? window.localStorage.getItem("dsh-mneme-api-token") || "" : ""
       );
       const [apiTokenSaved, setApiTokenSaved] = react.useState(false);
+      // 反馈入口的插件版本（GET /info）。失败保持 "unknown"，链接仍可用。
+      const [pkgVersion, setPkgVersion] = react.useState("unknown");
       // 运行模式 — light vs standard; null = still loading. The card keeps
       // its own busy/saved/error state so it never blocks the others.
       const [mode, setMode] = react.useState(null);
@@ -1917,6 +1983,27 @@ window.__ModuleLoader__.load({
       }, []);
 
       react.useEffect(() => { load(); }, [load]);
+
+      // 帮助与反馈卡片的版本号：独立小请求，失败不影响其它卡片。
+      react.useEffect(() => {
+        let cancelled = false;
+        apiFetch("/api/dsh-mneme/info")
+          .then((res) => (res.ok ? res.json() : null))
+          .then((j) => { if (!cancelled && j && typeof j.version === "string") setPkgVersion(j.version); })
+          .catch(() => {});
+        return () => { cancelled = true; };
+      }, []);
+
+      // 反馈链接预填：环境信息（插件版本 + 平台）+ 问题描述骨架。邮件主题带
+      // 版本/平台方便归档，正文同款模板；纯链接零后端成本。
+      const feedbackEnv = `**插件版本**: ${pkgVersion}\n**平台**: ${platformLabel()}\n`;
+      const feedbackBody = feedbackEnv + "**问题描述**:\n- 期望行为:\n- 实际行为:\n- 复现步骤:\n";
+      const issueHref = "https://github.com/modusensus/dsh-mneme/issues/new?title="
+        + encodeURIComponent("[dsh-mneme] 问题反馈")
+        + "&body=" + encodeURIComponent(feedbackBody);
+      const mailHref = "mailto:work@modusensus.space?subject="
+        + encodeURIComponent(`[dsh-mneme 反馈] ${pkgVersion} / ${platformLabel()}`)
+        + "&body=" + encodeURIComponent(feedbackBody);
 
       // Runtime mode + external API — two independent fetches: one failing
       // endpoint only errors its own card, never the other one.
@@ -2318,6 +2405,19 @@ window.__ModuleLoader__.load({
             h("button", { className: "mneme-btn", onClick: saveToken }, t("memory.settings.apiTokenSave"))
           ),
           apiTokenSaved && h("div", { style: { marginTop: 8 } }, h("span", { className: "mneme-saved" }, t("memory.settings.apiTokenSaved")))
+        ),
+        // 帮助与反馈 — 反馈问题三入口（新建 issue 预填 / 邮件 / 浏览已知问题）。
+        // 纯前端链接零后端成本；插件版本来自 /info，平台取 userAgent。GitHub
+        // 仓库当前没有 issue 模板，故用 issues/new?title=&body= 直接预填。
+        h("section", { className: "mneme-set-sec" },
+          h("div", { className: "mneme-set-title" }, t("memory.settings.feedback.title")),
+          h("div", { className: "mneme-set-desc" }, t("memory.settings.feedback.desc")),
+          h("div", { style: { display: "flex", flexDirection: "column", gap: 2 } },
+            h("a", { className: "mneme-feed-link", href: issueHref, target: "_blank", rel: "noopener noreferrer" }, t("memory.settings.feedback.newIssue")),
+            h("a", { className: "mneme-feed-link", href: mailHref }, t("memory.settings.feedback.email")),
+            h("a", { className: "mneme-feed-link", href: "https://github.com/modusensus/dsh-mneme/issues", target: "_blank", rel: "noopener noreferrer" }, t("memory.settings.feedback.browse"))
+          ),
+          h("div", { className: "mneme-featsubhint", style: { marginTop: 8 } }, t("memory.settings.feedback.hint"))
         )
       );
     }

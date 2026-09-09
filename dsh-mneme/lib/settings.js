@@ -89,6 +89,10 @@ const FEATURE_FLAG_STRINGS = [
   // /llm-providers 端点一起提供，留空 = 用巩固模型或当前模型。
   "sleepProvider",
   "sleepModel",
+  // 实体抽取侧专用路由（issue #109）：provider/model 显式指定，
+  // 留空 = 用当前默认模型。
+  "entityExtractionProvider",
+  "entityExtractionModel",
   "localEmbedModel",
   "ollamaModel"
 ];
@@ -100,7 +104,9 @@ const FEATURE_FLAG_ENUMS = {
   embedProvider: ["openai", "local", "ollama"],
   // Plan #1: recall fusion recipe. blend = legacy (default); rrf / minmax are
   // rank/scale-aware alternatives selected by the panel.
-  recallFusion: ["blend", "rrf", "minmax"]
+  recallFusion: ["blend", "rrf", "minmax"],
+  // 实体抽取思考强度（issue #109）：与 dreamReasoningEffort 枚举对齐。
+  entityExtractionReasoning: ["low", "medium", "high", "none"]
 };
 const FEATURE_FLAG_STRING_MAX = 200;
 

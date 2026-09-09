@@ -161,6 +161,16 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
     }
   });
 
+  // 反馈入口预填用的插件版本（面板「帮助与反馈」卡片拉取）。读取失败（打包
+  // 环境）返回 "unknown"，链接照常可用，纯展示信息不拦截。
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/info",
+    handler(req, res) {
+      sendJson(res, 200, { version: PACKAGE_VERSION });
+    }
+  });
+
   register({
     kind: "exact",
     path: "/api/dsh-mneme/list",

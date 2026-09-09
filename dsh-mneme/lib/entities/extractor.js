@@ -146,16 +146,23 @@ export async function extractEntities(memory, { store, config, callLLM, logger }
       return { ok: false, error: "Invalid memory: missing content" };
     }
     
-    const model = config.entityExtractionModel || null;
     const systemPrompt = buildSystemPrompt(config);
     const userText = buildUserMessage(memory.content);
-    
+
     const messages = [
       { role: "system", content: [{ type: "text", text: systemPrompt }] },
       { role: "user", content: [{ type: "text", text: userText }] }
     ];
-    
-    const options = model ? { model } : {};
+
+    // Issue #109: optional provider/model override + reasoning effort are
+    // passed through to callLLM's options; the index.js adapter maps them onto
+    // the route (or falls back to the caller's default model). Empty provider/
+    // model both mean "use the caller default".
+    const options = {};
+    if (config.entityExtractionProvider) options.provider = config.entityExtractionProvider;
+    if (config.entityExtractionModel) options.model = config.entityExtractionModel;
+    const reasoning = config.entityExtractionReasoning;
+    if (reasoning && reasoning !== "none") options.reasoningEffort = reasoning;
     const llmResponse = await callLLM(messages, options);
     
     if (!llmResponse) {
@@ -219,7 +226,7 @@ export async function extractEntities(memory, { store, config, callLLM, logger }
           to_entity: toId,
           relation_type: rel.type,
           memory_id: memory.id,
-          metadata: { model: model || "default" }
+          metadata: { model: options.model || "default" }
         });
         savedRelations.push(saved);
       } catch (err) {

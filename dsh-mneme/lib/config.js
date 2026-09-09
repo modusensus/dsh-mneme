@@ -220,9 +220,23 @@ export const Config = z.object({
   // The storage layer (entities/entity_attrs/entity_relations tables + CRUD)
   // is always available regardless of this flag.
   entityExtractionEnabled: z.boolean().default(false),
+  // Optional provider override for entity extraction; empty = use the caller's
+  // default provider/model. Combined with entityExtractionModel — provider
+  // without model (or vice versa) falls through to the caller default.
+  entityExtractionProvider: z.string().default(""),
   // Optional model override for entity extraction; empty = use the caller's
   // default provider/model.
   entityExtractionModel: z.string().default(""),
+  // Reasoning effort for entity extraction (issue #109), mirrors
+  // dreamReasoningEffort: 'none' (default) omits the field / provider default;
+  // low/medium/high passed through. A provider that rejects the effort retries
+  // once without it, so opting in is safe to experiment with.
+  entityExtractionReasoning: z.union([
+    z.const("low"),
+    z.const("medium"),
+    z.const("high"),
+    z.const("none")
+  ]).default("none"),
   // Cap on entities per extraction pass and attributes per entity.
   entityExtractionMaxEntities: z.natural().min(1).max(20).default(10),
   entityExtractionMaxAttrs: z.natural().min(1).max(50).default(20),

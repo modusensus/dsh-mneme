@@ -13,6 +13,7 @@ import { runSleep } from "../src/dream/sleep.js";
 import { createStore } from "../src/store.js";
 import { createService } from "../src/service.js";
 import { createVectorIndex } from "../src/vector-index.js";
+import { createEntityStreamAdapter } from "../src/index.js";
 
 const embedder = {
   embedSingle: async () => [1, 0, 0],
@@ -575,4 +576,80 @@ test("defaultEffort trap: sleep conflict pass remaps a poison effort too", async
     assert.equal(options.reasoningEffort, "medium", "poison 'low' remapped on sleep passes too");
   }
   store.close();
+});
+
+// ------------------------------------------------- entity extraction adapter (issue #108/#109)
+// The streamEntityText adapter lives in index.js; it maps the extractor's
+// options onto a dsh-llm stream route and retries once without the effort
+// when the first attempt is rejected. These tests drive the real exported
+// factory, not a mock of it.
+
+test("issue#109: entity extraction effort rejection retries once without the effort", async () => {
+  const calls = [];
+  const warnings = [];
+  const streamEntityText = createEntityStreamAdapter({
+    llm: {
+      async *stream(options) {
+        calls.push(options);
+        // First attempt carries the effort: the provider rejects it via an
+        // error finish chunk (the realistic stream-level rejection).
+        if (options.reasoningEffort) {
+          yield { type: "finish", reason: { kind: "error", message: "UNSUPPORTED_REASONING_EFFORT" } };
+          return;
+        }
+        yield { type: "text-delta", index: 0, text: "{\"entities\":[{\"name\":\"张三\",\"type\":\"person\",\"attrs\":[{\"key\":\"职业\",\"value\":\"工程师\",\"confidence\":0.9}]}],\"relations\":[]}" };
+        yield { type: "finish", reason: { kind: "stop" } };
+      }
+    },
+    agentDefaultModel: { currentSelection: () => ({ provider: "mock", model: "mock-model" }) },
+    logger: { warn: (m) => warnings.push(String(m)) }
+  });
+  const text = await streamEntityText(
+    [{ role: "user", content: [{ type: "text", text: "记忆内容" }] }],
+    { reasoningEffort: "low" }
+  );
+  assert.equal(calls.length, 2, "attempt (rejected) + retry without effort");
+  assert.equal(calls[0].reasoningEffort, "low", "first attempt forwards the effort");
+  assert.equal("reasoningEffort" in calls[1], false, "retry omits the rejected effort field");
+  assert.equal(calls[0].provider, "mock", "route resolved from agentDefaultModel");
+  assert.equal(calls[0].model, "mock-model", "route model from agentDefaultModel");
+  assert.equal(calls[0].maxTokens, 4096, "extraction caps its output");
+  assert.ok(text.includes("张三"), "retry stream text is returned");
+  assert.ok(warnings.some((w) => w.includes("rejected, retrying without it")), "rejection is logged");
+});
+
+test("issue#109: entity extraction never retries blindly without an effort configured", async () => {
+  const calls = [];
+  const streamEntityText = createEntityStreamAdapter({
+    llm: {
+      async *stream(options) {
+        calls.push(options);
+        yield { type: "finish", reason: { kind: "error", message: "overloaded" } };
+      }
+    },
+    agentDefaultModel: { currentSelection: () => ({ provider: "mock", model: "mock-model" }) },
+    logger: { warn: () => {} }
+  });
+  const text = await streamEntityText([{ role: "user", content: [] }], {});
+  assert.equal(text, undefined, "failure yields no text");
+  assert.equal(calls.length, 1, "no blind retry when no effort was requested");
+});
+
+test("issue#109: entity extraction explicit provider/model win over the default route", async () => {
+  const calls = [];
+  const streamEntityText = createEntityStreamAdapter({
+    llm: {
+      async *stream(options) {
+        calls.push(options);
+        yield { type: "text-delta", index: 0, text: "{}" };
+        yield { type: "finish", reason: { kind: "stop" } };
+      }
+    },
+    agentDefaultModel: { currentSelection: () => ({ provider: "default", model: "default-model" }) },
+    logger: { warn: () => {} }
+  });
+  await streamEntityText([{ role: "user", content: [] }], { provider: "volcano", model: "deepseek-v3" });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].provider, "volcano", "explicit provider beats the default");
+  assert.equal(calls[0].model, "deepseek-v3", "explicit model beats the default");
 });
