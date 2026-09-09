@@ -178,6 +178,19 @@ export const Config = z.object({
   searchSemanticDedup: z.boolean().default(false),
   searchSemanticDedupThreshold: z.number().min(0.5).max(1).default(0.95),
 
+  // Recall fusion recipe (plan #1): how the keyword/vector/BM25 ranked lists
+  // are combined into the final ranking. `blend` (default) is the legacy
+  // behavior — weighted sum for vector/hybrid, union backfill for auto —
+  // unchanged. `rrf` (Reciprocal Rank Fusion) and `minmax` (min-max normalized
+  // weighted sum) are rank/scale-aware recipes that fix the unit mismatch the
+  // issue describes (raw cosine vs keyword score vs normalized IDF are added
+  // directly). Off by default so existing behavior holds exactly.
+  recallFusion: z.union([z.const("blend"), z.const("rrf"), z.const("minmax")]).default("blend"),
+  // Attach a `signals` object { keyword, vector, bm25, final } to each search
+  // result for transparency/debugging (plan #2). Default off; when on it only
+  // decorates the returned rows, never changes the ranking.
+  signalTransparency: z.boolean().default(false),
+
   // --- semantic: rerank layer (v0.2) --------------------------------------
   // Opt-in by default (item ⑥): the local cross-encoder pulls in onnxruntime
   // (transformers.js) at init, so a bare install must not load it. Only an

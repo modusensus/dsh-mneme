@@ -416,6 +416,171 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     }
   }
 
+  /**
+   * Recall fusion (plan #1). Turns the three ranked signal lists (keyword,
+   * vector, BM25) into a single merged list. Three recipes, selected by
+   * config.recallFusion:
+   *  - blend (default): legacy behavior — weighted sum for vector/hybrid, union
+   *    backfill for auto. Byte-identical to pre-fusion code, so enabling the
+   *    config never regresses anybody.
+   *  - rrf: Reciprocal Rank Fusion — Σ 1/(k + rank + 1) over each list a row
+   *    appears in. Rank-based, so the unit mismatch (raw cosine vs keyword
+   *    score vs normalized IDF) is irrelevant.
+   *  - minmax: min-max normalize each source list's scores to [0,1] then take
+   *    the weighted sum — a scale-aware version of `blend`.
+   * Returns { merged, signals }, where signals is Map<id, {keyword, vector,
+   * bm25}> so searchMemories can decorate rows when signalTransparency is on.
+   */
+  function fuseRecall({ keyword, vector, bm25, lim, mode, wv, wk, wb }) {
+    const recipe = config?.recallFusion ?? "blend";
+
+    // Per-source scores are recorded for every recipe so signalTransparency
+    // works regardless of how the ranking was produced.
+    const signals = new Map();
+    const addSig = (id, field, sc) => {
+      const cur = signals.get(id) ?? {};
+      cur[field] = sc;
+      signals.set(id, cur);
+    };
+    for (const m of keyword) addSig(m.id, "keyword", m.score ?? 0);
+    for (const m of vector) addSig(m.id, "vector", m.score ?? 0);
+    for (const m of bm25) addSig(m.id, "bm25", m.score ?? 0);
+
+    const vectorIds = new Set(vector.map((m) => m.id));
+    const keywordIds = new Set(keyword.map((m) => m.id));
+
+    // Mode contract (aligns rrf/minmax with blend): keyword-only searches must
+    // stay keyword-only regardless of recipe, so enabling an opt-in recipe can
+    // never pull vector/BM25 rows into a mode="keyword" request. This mirrors
+    // the blend branch's `mode === "keyword"` short-circuit (byte-for-byte).
+    if (mode === "keyword") {
+      return { merged: keyword.slice(0, lim), signals };
+    }
+
+    let merged;
+    if (recipe === "rrf") {
+      // Rank-based: only the position of a row inside each surviving source
+      // list matters, so no cross-signal scale calibration is needed.
+      const k = 60; // standard RRF constant (plan #1 documents k=60)
+      const rows = new Map();
+      const addList = (list) => list.forEach((m, idx) => {
+        const s = 1 / (k + idx + 1);
+        const cur = rows.get(m.id);
+        if (cur) cur.score += s;
+        else rows.set(m.id, { ...m, score: s });
+      });
+      addList(keyword);
+      addList(vector);
+      addList(bm25);
+      merged = [...rows.values()].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, lim);
+    } else if (recipe === "minmax") {
+      // Scale-aware weighted sum: each source list is min-max normalized to
+      // [0,1] before blending, so raw cosine and keyword score live on the
+      // same footing.
+      const norm = (list) => {
+        if (!list.length) return new Map();
+        let min = Infinity, max = -Infinity;
+        for (const m of list) { const s = m.score ?? 0; if (s < min) min = s; if (s > max) max = s; }
+        const range = max - min;
+        const out = new Map();
+        for (const m of list) out.set(m.id, range > 0 ? ((m.score ?? 0) - min) / range : 0.5);
+        return out;
+      };
+      const kw = norm(keyword), ve = norm(vector), bm = norm(bm25);
+      const rows = new Map();
+      const seed = (m) => { if (!rows.has(m.id)) rows.set(m.id, { ...m, score: 0 }); };
+      for (const m of keyword) seed(m);
+      for (const m of vector) seed(m);
+      for (const m of bm25) seed(m);
+      for (const [id, row] of rows) {
+        const k = kw.get(id) ?? 0;
+        const v = ve.get(id) ?? 0;
+        const b = bm.get(id) ?? 0;
+        row.score = v * wv + k * wk + b * wb;
+      }
+      merged = [...rows.values()].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, lim);
+    } else {
+      // blend — the pre-existing per-mode behavior, extracted verbatim.
+      if (mode === "keyword") {
+        merged = keyword;
+      } else if (mode === "vector" || mode === "hybrid") {
+        const byId = new Map();
+        for (const m of vector) {
+          const rec = byId.get(m.id);
+          byId.set(m.id, rec ? { ...rec, score: Math.max(rec.score ?? 0, m.score ?? 0) } : m);
+        }
+        for (const m of keyword) {
+          const rec = byId.get(m.id);
+          if (rec) {
+            byId.set(m.id, { ...rec, score: (rec.score ?? 0) * wv + (m.score ?? 0) * wk });
+          } else {
+            byId.set(m.id, m);
+          }
+        }
+        for (const m of bm25) {
+          const rec = byId.get(m.id);
+          if (rec) {
+            if (keywordIds.has(m.id)) continue;
+            byId.set(m.id, { ...rec, score: (rec.score ?? 0) + wb * (m.score ?? 0) });
+          } else {
+            byId.set(m.id, { ...m, score: wb * (m.score ?? 0) });
+          }
+        }
+        const ranked = [...byId.values()].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+        merged = ranked.slice(0, lim);
+        if (merged.length < lim && !merged.length) {
+          merged = keyword.slice(0, lim);
+        }
+      } else {
+        // auto: keyword leads, vector + BM25 fill remaining slots.
+        merged = keyword.slice(0, lim);
+        const seen = new Set(merged.map((m) => m.id));
+        for (const m of vector) {
+          if (merged.length >= lim) break;
+          if (!seen.has(m.id)) { seen.add(m.id); merged.push(m); }
+        }
+        for (const m of bm25) {
+          if (merged.length >= lim) break;
+          if (!seen.has(m.id)) { seen.add(m.id); merged.push(m); }
+        }
+      }
+    }
+
+    // Mode contract, auto (aligns rrf/minmax with blend): keyword leads, the
+    // recipe fills the remaining slots. blend.auto already front-loads keyword;
+    // rrf/minmax rank across sources, so re-apply the same "keyword first"
+    // ordering here to preserve the pre-fusion auto contract — the keyword
+    // hit list keeps its power, and only slots it couldn't fill go to the
+    // recipe's ranking.
+    if (recipe !== "blend" && mode === "auto" && keyword.length) {
+      const head = keyword.slice(0, lim);
+      const seen = new Set(head.map((m) => m.id));
+      const tail = merged.filter((m) => !seen.has(m.id)).slice(0, Math.max(0, lim - head.length));
+      merged = head.concat(tail);
+    }
+
+    return { merged, signals };
+  }
+
+  /**
+   * Search memories for a query. Merges up to three recall sources (keyword,
+   * vector, BM25) according to config.recallFusion (blend/rrf/minmax — see
+   * fuseRecall), then optionally decorates rows with per-source signals
+   * (config.signalTransparency), applies semantic dedup (non-keyword modes),
+   * reranking, and epistemic trust re-weighting, and finally hands the merged
+   * list to the recall-layer recorder.
+   *
+   * options:
+   *   mode          — 'auto' (default) | 'keyword' | 'vector' | 'hybrid'
+   *   topK          — max rows (default 20)
+   *   threshold     — explicit vector score floor (overrides adaptive)
+   *   useRerank     — apply the reranker if available (default true)
+   *   recordRecall  — write a recall_runs audit row (default from config)
+   *
+   * Returns an array of memory rows { id, title, content, score, source, ... },
+   * with `signals` added when config.signalTransparency is on. Never throws:
+   * a vector/rerank failure degrades to keyword results.
+   */
   async function searchMemories(query, options = {}) {
     const { mode = "auto", topK = 20, threshold, useRerank = true, recordRecall = options.recordRecall ?? (config?.recallRecordDefault ?? true) } = options;
     const q = String(query ?? "").trim();
@@ -477,69 +642,17 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     // Loose blend weight: BM25 confirms and backfills, never dominates the
     // semantic signal. Same-memory overlap boosts, unseen ids backfill.
     const wb = 0.3;
-    // Path bookkeeping for the boost rule below: which ids each semantic
-    // recall path surfaced.
-    const vectorIds = new Set(vector.map((m) => m.id));
-    const keywordIds = new Set(keyword.map((m) => m.id));
 
     // Hybrid blending weights from config when provided.
     const wv = config?.hybridSearchVectorWeight ?? DEFAULT_HYBRID_WEIGHTS.vector;
     const wk = config?.hybridSearchKeywordWeight ?? DEFAULT_HYBRID_WEIGHTS.keyword;
 
-    let merged;
-    if (mode === "keyword") {
-      merged = keyword;
-    } else if (mode === "vector" || mode === "hybrid") {
-      // semantic-first: vector recalls lead, keyword + BM25 fill remaining
-      // slots. Weighted blend when sides scored the same memory; otherwise
-      // vector order leads (it is the semantic signal), lexical paths
-      // backfill.
-      const byId = new Map();
-      for (const m of vector) {
-        const rec = byId.get(m.id);
-        byId.set(m.id, rec ? { ...rec, score: Math.max(rec.score ?? 0, m.score ?? 0) } : m);
-      }
-      for (const m of keyword) {
-        const rec = byId.get(m.id);
-        if (rec) {
-          // Same memory from both sides: blend the scores.
-          byId.set(m.id, { ...rec, score: (rec.score ?? 0) * wv + (m.score ?? 0) * wk });
-        } else {
-          byId.set(m.id, m);
-        }
-      }
-      for (const m of bm25) {
-        const rec = byId.get(m.id);
-        if (rec) {
-          // Boost rule: a row the LIKE keyword path already hit carries the
-          // query as a substring, so BM25 tokens are trivially present —
-          // boosting it double-counts lexical evidence. Only vector-recalled
-          // rows (lexical hit is genuinely new information) get the boost.
-          if (keywordIds.has(m.id)) continue;
-          byId.set(m.id, { ...rec, score: (rec.score ?? 0) + wb * (m.score ?? 0) });
-        } else {
-          byId.set(m.id, { ...m, score: wb * (m.score ?? 0) });
-        }
-      }
-      const ranked = [...byId.values()].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-      merged = ranked.slice(0, lim);
-      if (merged.length < lim && !merged.length) {
-        // Vector unavailable entirely: fall back to plain keyword.
-        merged = keyword.slice(0, lim);
-      }
-    } else {
-      // auto: keyword leads, vector + BM25 fill remaining slots (legacy
-      // behavior, extended with the third path)
-      merged = keyword.slice(0, lim);
-      const seen = new Set(merged.map((m) => m.id));
-      for (const m of vector) {
-        if (merged.length >= lim) break;
-        if (!seen.has(m.id)) { seen.add(m.id); merged.push(m); }
-      }
-      for (const m of bm25) {
-        if (merged.length >= lim) break;
-        if (!seen.has(m.id)) { seen.add(m.id); merged.push(m); }
-      }
+    const { merged: fusedMerged, signals } = fuseRecall({ keyword, vector, bm25, lim, mode, wv, wk, wb });
+    let merged = fusedMerged;
+    // Signal transparency (#2): decorate each returned row with its per-source
+    // scores and the final fused score. Purely additive — never changes rank.
+    if (config?.signalTransparency === true) {
+      merged = merged.map((m) => ({ ...m, signals: { ...(signals.get(m.id) ?? {}), final: m.score ?? 0 } }));
     }
 
     // Search-time semantic dedup (v0.5.0 2.3): near-duplicate rows are

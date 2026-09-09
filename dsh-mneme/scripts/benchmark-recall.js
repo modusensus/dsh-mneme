@@ -37,7 +37,16 @@ const SEED = [
   { id: "mem_city_thesis", type: "project", title: "湿地论文", content: "毕业论文研究城市湿地公园周边开发案例，ArcGIS 空间分析", importance: 4, tags: ["thesis"] },
   { id: "mem_async_pattern", type: "decision", title: "异步并发模式", content: "async runtime 选用 tokio，任务用 spawn 管理，channel 通信", importance: 3, tags: ["rust"] },
   { id: "mem_python_etl", type: "project", title: "ETL 脚本", content: "夜间 ETL 用 Python 编写，pandas 清洗，SQLite 落地", importance: 3, tags: ["etl"] },
-  { id: "mem_ui_style", type: "preference", title: "界面审美", content: "喜欢编辑风 brutalism 排版，低饱和度配色，衬线标题", importance: 3, tags: ["design"] }
+  { id: "mem_ui_style", type: "preference", title: "界面审美", content: "喜欢编辑风 brutalism 排版，低饱和度配色，衬线标题", importance: 3, tags: ["design"] },
+  // Cross-topic distractors (plan #0): memories that share keywords with a
+  // target but belong to a different subject. They raise the recall bar — the
+  // fused ranking must keep the true positive ahead of the distractor, which
+  // is exactly what a scale-mixed blend (raw cosine + keyword score + IDF)
+  // tends to get wrong.
+  { id: "mem_ops_alert", type: "project", title: "存储告警", content: "Prometheus 存储告警走 zfs 池健康检查与磁盘替换流程", importance: 3, tags: ["ops"] },
+  { id: "mem_rust_dep", type: "project", title: "rust 依赖", content: "Rust 项目的 cargo 依赖管理与 workspace 组织", importance: 3, tags: ["rust"] },
+  { id: "mem_etl_csv", type: "project", title: "ETL CSV", content: "每日 CSV 导入脚本用 golang 而非 python，写 postgres", importance: 2, tags: ["etl"] },
+  { id: "mem_ux_toolbar", type: "preference", title: "工具栏", content: "偏好 IDE 顶栏简洁，避免深色浮层遮挡代码", importance: 2, tags: ["design"] }
 ];
 
 // Standard query set: each case is a query plus the ids that MUST appear in
@@ -53,10 +62,15 @@ export const TEST_CASES = [
   { query: "channel 通信 任务", expected: ["mem_async_pattern"], note: "scattered terms" },
   { query: "内存安全 语言", expected: ["mem_rust_switch"], note: "scattered terms" },
   { query: "配色 审美", expected: ["mem_ui_style"], note: "scattered CJK" },
-  { query: "HBA 固件", expected: ["mem_zfs_bug"], note: "scattered terms" }
+  { query: "HBA 固件", expected: ["mem_zfs_bug"], note: "scattered terms" },
+  // Plan #0 additions: a distractor-dominance case (the target shares the
+  // leading token with a cross-topic memory that must rank below it) and an
+  // exact-token case that leans on the BM25 path.
+  { query: "zfs 磁盘 替换", expected: ["mem_zfs_bug"], note: "shared-token distractor" },
+  { query: "tokio spawn channel", expected: ["mem_async_pattern"], note: "exact async tokens" }
 ];
 
-function seedService(overrides = {}) {
+export function seedService(overrides = {}) {
   const store = createStore(":memory:");
   const config = {
     bm25SearchEnabled: true,
@@ -74,7 +88,11 @@ function seedService(overrides = {}) {
     embedSingle: async (text) => hashVec(text)
   });
   for (const m of SEED) {
-    const row = store.save({ type: m.type, title: m.title, content: m.content, tags: m.tags, importance: m.importance, source: "seed" });
+    // store.save accepts a caller-supplied id (store.js: memory.id ?? randomUUID).
+    // Passing m.id keeps the seeded id stable so TEST_CASES.expected (which
+    // references mem_*) match — without it every row gets a UUID and the
+    // benchmark always reports 0% recall.
+    const row = store.save({ id: m.id, type: m.type, title: m.title, content: m.content, tags: m.tags, importance: m.importance, source: "seed" });
     store.setEmbedding(row.id, hashVec(`${m.title} ${m.content}`));
   }
   return service;
@@ -109,6 +127,52 @@ export async function runBenchmark({ topK = 5, mode = "auto" } = {}) {
   return { topK, mode, runs };
 }
 
+/**
+ * Fusion-recipe A/B (plan #1): runs the same seed + query set with
+ * config.recallFusion forced to each of blend / rrf / minmax, so the scale
+ * mismatch fix can be judged on identical data. `blend` is the legacy recipe
+ * and acts as the control — the pre-fusion behavior.
+ */
+export async function runFusionBenchmark({ topK = 5, mode = "auto" } = {}) {
+  const recipes = ["blend", "rrf", "minmax"];
+  const runs = [];
+  for (const recipe of recipes) {
+    const service = seedService({ recallFusion: recipe });
+    const rows = [];
+    let hits = 0;
+    let mrrSum = 0;
+    for (const tc of TEST_CASES) {
+      const results = await service.searchMemories(tc.query, { mode, topK, useRerank: false });
+      const ids = results.map((r) => r.id);
+      const metrics = service.computeRetrievalMetrics(ids, tc.expected);
+      if (metrics.recall === 1) hits++;
+      mrrSum += metrics.mrr;
+      rows.push({ query: tc.query, note: tc.note, expected: tc.expected, got: ids, ...metrics });
+    }
+    runs.push({
+      config: recipe,
+      recallAtK: +(hits / TEST_CASES.length).toFixed(3),
+      avgMrr: +(mrrSum / TEST_CASES.length).toFixed(3),
+      rows
+    });
+  }
+  return { topK, mode, runs };
+}
+
+function printFusionReport(report) {
+  for (const run of report.runs) {
+    console.log(`\n=== ${run.config} (topK=${report.topK}, mode=${report.mode}) ===`);
+    for (const r of run.rows) {
+      const ok = r.recall === 1 ? "PASS" : "MISS";
+      console.log(`  [${ok}] "${r.query}" (${r.note}) recall=${r.recall} mrr=${r.mrr}`);
+      if (r.recall < 1) console.log(`         expected ⊇ ${r.expected.join(", ")}  got: ${r.got.join(", ") || "—"}`);
+    }
+    console.log(`  → Recall@${report.topK}: ${(run.recallAtK * 100).toFixed(1)}%   avg MRR: ${run.avgMrr}`);
+  }
+  const summary = report.runs.map((r) => `${r.config}=${(r.recallAtK * 100).toFixed(1)}%`).join("  ");
+  console.log(`\n融合配方 A/B (Recall@${report.topK}, ${report.mode}): ${summary}`);
+}
+
 function printReport(report) {
   for (const run of report.runs) {
     console.log(`\n=== ${run.config} (topK=${report.topK}, mode=${report.mode}) ===`);
@@ -127,7 +191,9 @@ function printReport(report) {
 const invokedDirectly = process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/").split("/").pop() ?? "");
 if (invokedDirectly) {
   const asJson = process.argv.includes("--json");
-  const report = await runBenchmark({});
+  const asFusion = process.argv.includes("--fusion");
+  const report = asFusion ? await runFusionBenchmark({}) : await runBenchmark({});
   if (asJson) console.log(JSON.stringify(report, null, 2));
+  else if (asFusion) printFusionReport(report);
   else printReport(report);
 }
