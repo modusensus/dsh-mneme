@@ -507,6 +507,14 @@ test("consolidation/sleep model routing: provider dropdowns from /llm-providers,
     "the result duration must prefer the backend's durationMs and fall back to client timing"
   );
   assert.ok(
+    /detail: \[j\.modelId, j\.reply \? "「" \+ j\.reply \+ "」" : ""\]\.filter\(Boolean\)\.join\(" · "\)/.test(clientSource),
+    "the success line must surface the model's actual reply (backend caps it at 100 chars)"
+  );
+  assert.ok(
+    /detail: \[j\.modelId, j\.error \|\| "HTTP " \+ res\.status\]\.filter\(Boolean\)\.join\(" · "\)/.test(clientSource),
+    "the failure line must carry the tested modelId plus the backend error (502/400 bodies)"
+  );
+  assert.ok(
     clientSource.includes("memory.features.modelTestOk") && clientSource.includes("memory.features.modelTestFail"),
     "the result line must render success/failure with the localized labels"
   );

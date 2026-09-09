@@ -1698,7 +1698,8 @@ window.__ModuleLoader__.load({
       const modelValue = (m) => (typeof m === "string" ? m : String((m && m.id) ?? ""));
 
       // 连通性测试：POST /test-model，空 provider/model = 按巩固路由解析
-      // （agent 默认）。durationMs 优先取后端值，缺失时客户端兜底计时。
+      // （agent 默认）。durationMs 优先后端值，缺失时客户端兜底计时；成功行
+      // 附模型的实际回复（reply，后端截 100 字符）——「真的答了 ok」而非只报通。
       const runModelTest = async (provider, model) => {
         setTestState({ running: true });
         const started = Date.now();
@@ -1709,11 +1710,19 @@ window.__ModuleLoader__.load({
             body: JSON.stringify({ provider, model })
           });
           const j = await res.json().catch(() => ({}));
-          if (!res.ok || j.ok === false) throw new Error(j.error || "HTTP " + res.status);
+          const ms = typeof j.durationMs === "number" ? j.durationMs : Date.now() - started;
+          if (!res.ok || j.ok === false) {
+            setTestState({
+              ok: false,
+              ms,
+              detail: [j.modelId, j.error || "HTTP " + res.status].filter(Boolean).join(" · ")
+            });
+            return;
+          }
           setTestState({
             ok: true,
-            ms: typeof j.durationMs === "number" ? j.durationMs : Date.now() - started,
-            detail: j.modelId || ""
+            ms,
+            detail: [j.modelId, j.reply ? "「" + j.reply + "」" : ""].filter(Boolean).join(" · ")
           });
         } catch (err) {
           setTestState({ ok: false, ms: Date.now() - started, detail: String((err && err.message) ?? err) });
