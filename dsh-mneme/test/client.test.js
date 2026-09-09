@@ -554,3 +554,42 @@ test("consolidation/sleep model routing: provider dropdowns from /llm-providers,
     "the route selects must share the string-input width budget"
   );
 });
+
+// 帮助与反馈入口（v0.8）：设置页底部三个反馈链接——GitHub 新建 issue 预填
+// （环境信息）、邮件反馈、浏览已知问题。纯前端链接零后端成本；插件版本从
+// /info 拉取（version 只读，不铺任何 token/凭据）。公开链接不得带个人邮箱。
+test("settings feedback card: prefilled issue + mailto + browse, version from /info", () => {
+  // 1. 版本预填端点
+  assert.ok(
+    clientSource.includes('apiFetch("/api/dsh-mneme/info")'),
+    "the feedback card must fetch the plugin version from /info"
+  );
+  assert.ok(
+    clientSource.includes("setPkgVersion"),
+    "the fetched version must land in component state"
+  );
+  // 2. GitHub 新建 issue：issues/new?title=&body= 预填环境信息（当前仓库无模板）
+  assert.ok(
+    clientSource.includes("https://github.com/modusensus/dsh-mneme/issues/new?title="),
+    "the issue link must prefill title+body on issues/new"
+  );
+  assert.ok(
+    clientSource.includes("**插件版本**") && clientSource.includes("**平台**"),
+    "the prefill body must carry plugin version and platform"
+  );
+  // 3. 邮件反馈：官方邮箱（对外不写个人邮箱），mailto 预填 subject+body
+  assert.ok(
+    clientSource.includes("mailto:work@modusensus.space?subject="),
+    "the mailto link must point at the public support address"
+  );
+  // 4. 浏览已知问题：跳仓库 issues 列表页（去重前置步骤）
+  assert.ok(
+    clientSource.includes('href: "https://github.com/modusensus/dsh-mneme/issues"'),
+    "the browse link must open the repo issues list"
+  );
+  // 5. 双语 i18n
+  for (const key of ["feedback.title", "feedback.newIssue", "feedback.email", "feedback.browse", "feedback.hint"]) {
+    const occurrences = clientSource.split(`"memory.settings.${key}"`).length - 1;
+    assert.ok(occurrences >= 2, `i18n key memory.settings.${key} must exist in both zh and en (got ${occurrences})`);
+  }
+});

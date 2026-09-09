@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
 import { createStore } from "../src/store.js";
 import { createService } from "../src/service.js";
 import { createApi } from "../src/api.js";
@@ -515,6 +516,20 @@ test("Bug10: vector-reindex with an embed-only OpenAI-compatible embedder return
   assert.equal(vectorIndex.modelHash(), "text-embedding-3#abc", "model_hash written to vector_meta");
   assert.equal(vectorIndex.dimension(), 3, "dimension written to vector_meta");
   assert.equal(vectorIndex.getEmbedding(service.all()[0].id).length, 3, "embedding persisted");
+});
+
+// --- /info（反馈预填的插件版本）-----------------------------------------------
+
+test("GET /api/dsh-mneme/info returns the package version for feedback prefills", async () => {
+  const { routes } = setup(undefined);
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/info");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/info"), res);
+  assert.equal(res.statusCode, 200);
+  const data = JSON.parse(res.body);
+  // 与插件根 package.json 的版本一致（反馈 issue/邮件的预填环境信息依赖它）。
+  const expected = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
+  assert.equal(data.version, expected);
 });
 
 // --- feature flags（/features：overrides + effective）------------------------
