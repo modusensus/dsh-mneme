@@ -107,7 +107,7 @@ dsh web
 | **v0.7.22** | 恢复 skipInvalid 宽容校验（issue #89：弱模型整单拒绝→单条跳过 + 合法子集应用 + run 记 degraded）+ autoDream 最小触发间隔 | ✅ |
 | **v0.7.23** | 记忆沉淀「反复失败」根治（consolidation 合法空数组 [] → no-op）+ 空体修复第二段（dreamMaxTokens 默认 8192→32768）+ skipInvalid splice 残留 bug | ✅ |
 | **v0.7.25** | 工具兼容性加固（memory_get 工具 + 内容预览 + 巩固模型引导，718 测试全绿） | ✅ |
-| **v0.7.28** | 连通性测试三连修：maxTokens 16→1024（思考模型 reply 不再恒空）+ 测试状态按巩固/睡眠拆分（按钮不再串扰）+ 面板草稿补睡眠键（重挂载后睡眠路由不再显示回「跟随默认路由」，值一直有存） | ⏳ 待发版 |
+| **v0.7.28** | 连通性测试三连修：maxTokens 16→1024（思考模型 reply 不再恒空）+ 测试状态按巩固/睡眠拆分（按钮不再串扰）+ 面板草稿补睡眠键（重挂载后睡眠路由不再显示回「跟随默认路由」，值一直有存） | ✅ |
 | **v0.7.27** | v0.7.26 端点遗漏补齐（修复发版树缺 fix/dream-effort-trap 分支：llm-providers / test-model 落地，面板连通性测试可用，733 测试全绿） | ✅ |
 | **v0.7.26** | 记忆巩固 UNSUPPORTED_REASONING_EFFORT 根治（defaultEffort 陷阱 → resolveDreamEffort 能力探测）+ LLM 模型连通性测试（llm-providers / test-model，732 测试全绿） | ✅ |
 | **v0.8.0** | 图谱增强：兴趣漂移可视化 + scope 隔离（issue #17）+ 跨 workspace 共享 | 🚧 计划中（9 月末） |
@@ -217,7 +217,7 @@ Works out of the box. Enable these as needed:
 | **v0.7.22** | Restore skipInvalid tolerant validation (issue #89: weak-model whole-batch rejection → per-item skip + valid-subset apply + run marked degraded) + autoDream min trigger interval | ✅ |
 | **v0.7.23** | "Consolidation keeps failing" root cause (legal empty array [] → no-op) + empty-body part 2 (dreamMaxTokens default 8192→32768) + skipInvalid splice residue bug | ✅ |
 | **v0.7.25** | Tool-compat hardening (memory_get tool + render content preview + consolidation-model guide, 718 tests green) | ✅ |
-| **v0.7.28** | Connectivity test triple fix: maxTokens 16→1024 (thinking-model replies no longer empty) + per-route test state (dream/sleep buttons no longer cross-trigger) + mount draft includes sleep keys (sleep route no longer shows "follow default route" after remount — values were always saved) | ⏳ pending release |
+| **v0.7.28** | Connectivity test triple fix: maxTokens 16→1024 (thinking-model replies no longer empty) + per-route test state (dream/sleep buttons no longer cross-trigger) + mount draft includes sleep keys (sleep route no longer shows "follow default route" after remount — values were always saved) | ✅ |
 | **v0.7.27** | v0.7.26 endpoint backfill (release tree was missing the fix/dream-effort-trap branch: llm-providers / test-model now shipped, panel connectivity test works, 733 tests green) | ✅ |
 | **v0.7.26** | Consolidation UNSUPPORTED_REASONING_EFFORT root fix (defaultEffort trap → resolveDreamEffort capability probing) + LLM connectivity test (llm-providers / test-model, 732 tests green) | ✅ |
 | **v0.8.0** | Graph enhancement: interest-drift visualization + scope isolation (issue #17) + cross-workspace sharing | 🚧 Planned (late Sep) |
