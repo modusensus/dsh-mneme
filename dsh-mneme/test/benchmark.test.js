@@ -74,3 +74,21 @@ test("recallFusion recipes produce distinct fused scores for the same memory", a
   // so they must not all collapse onto the same numeric score.
   assert.ok(new Set(Object.values(scores)).size > 1, `recipes score differently: ${JSON.stringify(scores)}`);
 });
+
+// PR1 + CodeRabbit: an opt-in recipe must never change keyword-only behavior.
+// mode="keyword" is the documented text-only path; regardless of recipe, the
+// result must contain only keyword-sourced rows — no vector/BM25 bleed-in.
+// (Note: on a scattered-CJK query the keyword source can itself be empty, in
+// which case auto correctly falls back to BM25 — that is the pre-fusion blend
+// behavior and is NOT a regression. Only mode="keyword" is a hard text path.)
+test("opt-in recipes keep mode=keyword keyword-only (no vector/BM25 bleed)", async () => {
+  for (const recipe of ["blend", "rrf", "minmax"]) {
+    const svc = seedService({ recallFusion: recipe });
+    const rows = await svc.searchMemories("rust 异步", { mode: "keyword", topK: 5, useRerank: false });
+    const keywordOnly = rows.every((r) => r.source === "keyword");
+    assert.ok(
+      keywordOnly,
+      `${recipe} under mode=keyword must keep only keyword rows; got sources: ${[...new Set(rows.map((r) => r.source))].join(",")}`
+    );
+  }
+});

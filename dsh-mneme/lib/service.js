@@ -449,6 +449,14 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     const vectorIds = new Set(vector.map((m) => m.id));
     const keywordIds = new Set(keyword.map((m) => m.id));
 
+    // Mode contract (aligns rrf/minmax with blend): keyword-only searches must
+    // stay keyword-only regardless of recipe, so enabling an opt-in recipe can
+    // never pull vector/BM25 rows into a mode="keyword" request. This mirrors
+    // the blend branch's `mode === "keyword"` short-circuit (byte-for-byte).
+    if (mode === "keyword") {
+      return { merged: keyword.slice(0, lim), signals };
+    }
+
     let merged;
     if (recipe === "rrf") {
       // Rank-based: only the position of a row inside each surviving source
@@ -538,9 +546,41 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       }
     }
 
+    // Mode contract, auto (aligns rrf/minmax with blend): keyword leads, the
+    // recipe fills the remaining slots. blend.auto already front-loads keyword;
+    // rrf/minmax rank across sources, so re-apply the same "keyword first"
+    // ordering here to preserve the pre-fusion auto contract — the keyword
+    // hit list keeps its power, and only slots it couldn't fill go to the
+    // recipe's ranking.
+    if (recipe !== "blend" && mode === "auto" && keyword.length) {
+      const head = keyword.slice(0, lim);
+      const seen = new Set(head.map((m) => m.id));
+      const tail = merged.filter((m) => !seen.has(m.id)).slice(0, Math.max(0, lim - head.length));
+      merged = head.concat(tail);
+    }
+
     return { merged, signals };
   }
 
+  /**
+   * Search memories for a query. Merges up to three recall sources (keyword,
+   * vector, BM25) according to config.recallFusion (blend/rrf/minmax — see
+   * fuseRecall), then optionally decorates rows with per-source signals
+   * (config.signalTransparency), applies semantic dedup (non-keyword modes),
+   * reranking, and epistemic trust re-weighting, and finally hands the merged
+   * list to the recall-layer recorder.
+   *
+   * options:
+   *   mode          — 'auto' (default) | 'keyword' | 'vector' | 'hybrid'
+   *   topK          — max rows (default 20)
+   *   threshold     — explicit vector score floor (overrides adaptive)
+   *   useRerank     — apply the reranker if available (default true)
+   *   recordRecall  — write a recall_runs audit row (default from config)
+   *
+   * Returns an array of memory rows { id, title, content, score, source, ... },
+   * with `signals` added when config.signalTransparency is on. Never throws:
+   * a vector/rerank failure degrades to keyword results.
+   */
   async function searchMemories(query, options = {}) {
     const { mode = "auto", topK = 20, threshold, useRerank = true, recordRecall = options.recordRecall ?? (config?.recallRecordDefault ?? true) } = options;
     const q = String(query ?? "").trim();
