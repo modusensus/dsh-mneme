@@ -17,7 +17,7 @@
 import { randomUUID, createHash } from "node:crypto";
 import { validateDecisions, applyDecisions } from "./decisions.js";
 import { findPotentialConflicts } from "./clustering.js";
-import { buildReceipt, describeStreamFailure, withEffortFallback } from "../dream.js";
+import { buildReceipt, describeStreamFailure, resolveDreamEffort, withEffortFallback } from "../dream.js";
 import { computeHeat } from "../heat.js";
 
 const SUMMARY_MAX = 120;
@@ -190,7 +190,7 @@ async function phaseConflicts(ctx, service, config, logger, runId, semantic = nu
   const listText = selected.map((p) =>
     `候选冲突：\nid=${p.a.id} | type=${p.a.type} | title=${p.a.title}\n${p.a.content}\n---\nid=${p.b.id} | type=${p.b.type} | title=${p.b.title}\n${p.b.content}\n（相似度 ${p.similarity.toFixed(2)}）`
   ).join("\n\n");
-  const sleepEffort = config.sleepReasoningEffort && config.sleepReasoningEffort !== "none" ? config.sleepReasoningEffort : null;
+  const sleepEffort = await resolveDreamEffort(ctx, route, config.sleepReasoningEffort, logger);
   let conflictStreamFailure = "";
   const runConflict = (withEffort) => {
     conflictStreamFailure = "";
@@ -309,7 +309,7 @@ async function phasePatterns(ctx, service, config, logger, runId, signal = null)
     .map((m) => `id=${m.id} | type=${m.type} | importance=${m.importance} | updated=${m.updated_at} | title=${m.title} | content=${m.content}`)
     .join("\n");
   const maxPatterns = config.sleepMaxPatternPerRun ?? 3;
-  const sleepEffort = config.sleepReasoningEffort && config.sleepReasoningEffort !== "none" ? config.sleepReasoningEffort : null;
+  const sleepEffort = await resolveDreamEffort(ctx, route, config.sleepReasoningEffort, logger);
   let patternStreamFailure = "";
   const runPattern = (withEffort) => {
     patternStreamFailure = "";

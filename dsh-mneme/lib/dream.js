@@ -1,7 +1,7 @@
 import { validateDecisions, applyDecisions } from "./dream/decisions.js";
 import { clusterMemories, findPotentialConflicts } from "./dream/clustering.js";
 import { createHash, randomUUID } from "node:crypto";
-export { validateDecisions, applyDecisions, withEffortFallback, describeStreamFailure };
+export { validateDecisions, applyDecisions, withEffortFallback, describeStreamFailure, resolveDreamEffort };
 
 
 // Extract the first JSON array from LLM output, tolerating markdown fences,
@@ -374,6 +374,60 @@ async function withEffortFallback(ctx, effort, attempt, fallback, getStreamError
 }
 
 /**
+ * Resolve the reasoning effort to actually send for a dream/sleep route.
+ *
+ * Reasoning-effort config that the provider does not accept trips the harness's
+ * UNSUPPORTED_REASONING_EFFORT, and the defaultEffort trap makes retrying
+ * "without the field" useless: the harness substitutes `reasoning.defaultEffort`,
+ * which may itself be unsupported (DSH Desktop volcano-engine adapter declares
+ * defaultEffort=low that its model rejects). So instead of blind retries, ask
+ * the harness for the model's declared capability and pick a value that is
+ * actually accepted — or omit the field entirely when the model declares no
+ * reasoning capability at all.
+ *
+ * @returns a supported effort id, or null when no effort should be sent, or the
+ *   configured value unchanged when the capability query is unavailable.
+ */
+async function resolveDreamEffort(ctx, route, configuredEffort, logger) {
+  if (!configuredEffort || configuredEffort === "none") return null;
+  // Capability query unavailable (older harness / minimal mocks): forward the
+  // configured value as before — absence of the API proves nothing about the
+  // model, and withEffortFallback still guards against rejection.
+  if (typeof ctx?.llm?.resolveModelInfo !== "function") return configuredEffort;
+  try {
+    const info = await ctx.llm.resolveModelInfo(route.provider, route.model);
+    const reasoning = info?.reasoning;
+    if (!reasoning) {
+      // Model declares no reasoning capability: the harness rejects ANY
+      // explicit effort for such a model, and omitting the field is safe
+      // (no reasoning capability → no defaultEffort substitution).
+      logger?.warn?.(`dsh-mneme dream: model ${route.provider}:${route.model} declares no reasoning capability; ignoring configured effort "${configuredEffort}"`);
+      return null;
+    }
+    const supported = reasoning.efforts?.map((effort) => effort.id) ?? [];
+    if (supported.includes(configuredEffort)) return configuredEffort;
+    // Configured effort unsupported → pick defaultEffort if it is supported,
+    // else the first declared effort, so the run never trips
+    // UNSUPPORTED_REASONING_EFFORT (nor the defaultEffort trap: we always
+    // pass an explicit value, so the harness never falls back to a poison
+    // default).
+    const picked = reasoning.defaultEffort && supported.includes(reasoning.defaultEffort)
+      ? reasoning.defaultEffort
+      : supported[0];
+    if (picked) {
+      logger?.warn?.(`dsh-mneme dream: model ${route.provider}:${route.model} does not support effort "${configuredEffort}" (supported: ${supported.join(", ")}); using "${picked}"`);
+      return picked;
+    }
+    return null;
+  } catch (error) {
+    // Capability query failed — forward the configured value; withEffortFallback
+    // still retries on rejection as before.
+    logger?.warn?.(`dsh-mneme dream: resolveModelInfo failed (${String(error?.message ?? error)}); forwarding effort as configured`);
+    return configuredEffort;
+  }
+}
+
+/**
  * Resolve the LLM route (Issue #25): an explicit plugin config
  * (dreamProvider/dreamModel) is the user's declared override and wins; the
  * agent default model (deployment) is only a fallback when no config route is
@@ -665,7 +719,7 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     // （不带该字段），避免 thinking 模型配置 low/medium 直接整单失败。解析放
     // 在 auditError 检查器里、闭包交回主流程，避免二次解析；解析失败同时如实
     // 记 audit error 并在日志带原始输出前 300 字节，便于定位"推理吞预算返回空体"。
-    const effort = config.dreamReasoningEffort && config.dreamReasoningEffort !== "none" ? config.dreamReasoningEffort : null;
+    const effort = await resolveDreamEffort(ctx, route, config.dreamReasoningEffort, logger);
     let decisions = null;
     let streamFailure = "";
     const runConsolidation = (withEffort) => {

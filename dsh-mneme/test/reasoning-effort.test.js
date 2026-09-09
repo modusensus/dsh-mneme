@@ -413,3 +413,166 @@ test("sleep passes the stream failure accessor so a stream-level effort rejectio
   assert.equal("reasoningEffort" in captured[1], false, "conflict retry omits the rejected effort field");
   store.close();
 });
+
+// ------------------------------------------------------------------ defaultEffort trap
+// DSH Desktop's volcano-engine adapter declares reasoning.defaultEffort="low"
+// for a model that rejects "low", so omitting the field is NOT a safe retry —
+// the harness substitutes the poison default and fails again. resolveDreamEffort
+// queries resolveModelInfo up front and forwards a value that is actually in
+// the model's declared efforts, so the first attempt already carries a
+// supported effort and never trips UNSUPPORTED_REASONING_EFFORT.
+
+test("defaultEffort trap: configured 'low' remapped to the first supported effort when default is poison", async () => {
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config: {} });
+  const dream = createDreamScheduler({ onRun: () => Promise.resolve({ ok: true, skipped: true }) });
+  const { memory: a } = service.saveWithDedupe({ type: "project", title: "插件", content: "旧", importance: 3 });
+  const { memory: b } = service.saveWithDedupe({ type: "project", title: "插件2", content: "新细节", importance: 4 });
+  const captured = [];
+  const infoCalls = [];
+  const ctx = dreamCtx({
+    captured,
+    onConsolidation: () => JSON.stringify([
+      { action: "merge", ids: [a.id, b.id], keepSource: b.id, title: "合并标题", content: "合并内容", importance: 4 }
+    ])
+  });
+  // The adapter's capability report: defaultEffort "low" is NOT in efforts
+  // (the model rejects it) — exactly the volcano-engine/deepseek-v4-flash trap.
+  ctx.llm.resolveModelInfo = async (provider, model) => {
+    infoCalls.push([provider, model]);
+    return {
+      provider,
+      model,
+      reasoning: {
+        efforts: [{ id: "medium" }, { id: "high" }],
+        defaultEffort: "low"
+      }
+    };
+  };
+  const result = await dream.runDream(ctx, service, { dreamReasoningEffort: "low" });
+  assert.equal(result.ok, true, "run succeeds without ever tripping the poison default");
+  assert.ok(result.applied > 0, "consolidation lands changes");
+  assert.deepEqual(infoCalls[0], ["mock", "mock-model"], "capability queried for the exact dream route");
+  assert.equal(captured[0].reasoningEffort, "medium", "poison 'low' remapped to the first supported effort");
+  assert.equal(captured[1].reasoningEffort, "medium", "summary pass uses the same resolved effort");
+  store.close();
+});
+
+test("defaultEffort trap: model with no reasoning capability omits the field entirely", async () => {
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config: {} });
+  const dream = createDreamScheduler({ onRun: () => Promise.resolve({ ok: true, skipped: true }) });
+  const { memory: a } = service.saveWithDedupe({ type: "project", title: "插件", content: "旧", importance: 3 });
+  const { memory: b } = service.saveWithDedupe({ type: "project", title: "插件2", content: "新细节", importance: 4 });
+  const captured = [];
+  const ctx = dreamCtx({
+    captured,
+    onConsolidation: () => JSON.stringify([
+      { action: "merge", ids: [a.id, b.id], keepSource: b.id, title: "合并标题", content: "合并内容", importance: 4 }
+    ])
+  });
+  // Non-thinking model (e.g. deepseek-v4-flash): adapter reports no reasoning
+  // capability, so ANY explicit effort would be rejected — the helper must
+  // drop it, which is the harness's safe "no reasoning" path.
+  ctx.llm.resolveModelInfo = async () => ({ provider: "mock", model: "mock-model", reasoning: undefined });
+  const result = await dream.runDream(ctx, service, { dreamReasoningEffort: "high" });
+  assert.equal(result.ok, true);
+  for (const options of captured) {
+    assert.equal("reasoningEffort" in options, false, "no reasoning capability -> effort omitted, never rejected");
+  }
+  store.close();
+});
+
+test("defaultEffort trap: configured effort supported is forwarded verbatim", async () => {
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config: {} });
+  const dream = createDreamScheduler({ onRun: () => Promise.resolve({ ok: true, skipped: true }) });
+  const { memory: a } = service.saveWithDedupe({ type: "project", title: "插件", content: "旧", importance: 3 });
+  const { memory: b } = service.saveWithDedupe({ type: "project", title: "插件2", content: "新细节", importance: 4 });
+  const captured = [];
+  const ctx = dreamCtx({
+    captured,
+    onConsolidation: () => JSON.stringify([
+      { action: "merge", ids: [a.id, b.id], keepSource: b.id, title: "合并标题", content: "合并内容", importance: 4 }
+    ])
+  });
+  ctx.llm.resolveModelInfo = async () => ({
+    provider: "mock",
+    model: "mock-model",
+    reasoning: { efforts: [{ id: "high" }, { id: "low" }], defaultEffort: "low" }
+  });
+  const result = await dream.runDream(ctx, service, { dreamReasoningEffort: "high" });
+  assert.equal(result.ok, true);
+  for (const options of captured) {
+    assert.equal(options.reasoningEffort, "high", "supported configured value untouched");
+  }
+  store.close();
+});
+
+test("defaultEffort trap: capability query failure falls back to configured effort (retry still guards)", async () => {
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config: {} });
+  const dream = createDreamScheduler({ onRun: () => Promise.resolve({ ok: true, skipped: true }) });
+  const { memory: a } = service.saveWithDedupe({ type: "project", title: "插件", content: "旧", importance: 3 });
+  const { memory: b } = service.saveWithDedupe({ type: "project", title: "插件2", content: "新细节", importance: 4 });
+  const calls = [];
+  const warnings = [];
+  const ctx = {
+    logger: { warn: (m) => warnings.push(String(m)) },
+    agentDefaultModel: { currentSelection: () => ({ provider: "mock", model: "mock-model" }) },
+    llm: {
+      async *stream(options) {
+        calls.push(options);
+        if (options.reasoningEffort) {
+          throw new Error("UNSUPPORTED_REASONING_EFFORT: mock does not support reasoning effort \"high\"");
+        }
+        const userText = options.messages.find((m) => m.role === "user")?.content?.[0]?.text ?? "";
+        if (userText.startsWith("id=")) {
+          yield { type: "text-delta", index: 0, text: JSON.stringify([
+            { action: "merge", ids: [a.id, b.id], keepSource: b.id, title: "合并标题", content: "合并内容", importance: 4 }
+          ]) };
+        } else {
+          yield { type: "text-delta", index: 0, text: "记忆库总览：用户偏好中文。" };
+        }
+        yield { type: "finish", reason: { kind: "stop" } };
+      },
+      // Adapter knows nothing about the model — helper must not crash, and the
+      // configured effort flows through so withEffortFallback still retries.
+      resolveModelInfo: async () => { throw new Error("adapter not reachable"); }
+    }
+  };
+  const result = await dream.runDream(ctx, service, { dreamReasoningEffort: "high" });
+  assert.equal(result.ok, true, "run succeeds via the no-effort retry");
+  assert.equal(calls[0].reasoningEffort, "high", "configured effort forwarded when capability query fails");
+  assert.equal("reasoningEffort" in calls[1], false, "rejected effort retried without the field");
+  assert.ok(warnings.some((w) => w.includes("resolveModelInfo failed")), "capability-query failure is logged");
+  store.close();
+});
+
+test("defaultEffort trap: sleep conflict pass remaps a poison effort too", async () => {
+  const { store, service, vectorIndex } = sleepSetup();
+  const a = service.saveWithDedupe({ type: "project", title: "主题X", content: "内容A 关于主题X", importance: 3 }).memory;
+  const b = service.saveWithDedupe({ type: "project", title: "主题X副本", content: "内容B 关于主题X", importance: 3 }).memory;
+  vectorIndex.saveEmbedding(a.id, [1, 0, 0]);
+  vectorIndex.saveEmbedding(b.id, [1, 0, 0]);
+  const captured = [];
+  const ctx = sleepCtx(
+    (userText) => userText.startsWith("候选冲突")
+      ? JSON.stringify([{ action: "conflict", winner: a.id, loser: b.id, reason: "重复覆盖" }])
+      : "[]",
+    { provider: "mock", model: "sleep-model" },
+    captured
+  );
+  ctx.llm.resolveModelInfo = async (provider, model) => ({
+    provider,
+    model,
+    reasoning: { efforts: [{ id: "medium" }, { id: "high" }], defaultEffort: "low" }
+  });
+  const result = await runSleep(ctx, service, baseConfig({ sleepReasoningEffort: "low" }), ctx.logger, { embedder, vectorIndex }, null);
+  assert.equal(result.status, "ok");
+  assert.ok(captured.length >= 2, "conflict + pattern passes both hit the LLM");
+  for (const options of captured) {
+    assert.equal(options.reasoningEffort, "medium", "poison 'low' remapped on sleep passes too");
+  }
+  store.close();
+});
