@@ -520,3 +520,28 @@ test("extractor fails safe when callLLM rejects → {ok:false}", async () => {
   assert.ok(result.error);
   store.close();
 });
+
+// --- issue #109: provider/model override + reasoning effort pass-through -----
+
+test("extractor passes provider/model/reasoningEffort through to callLLM options", async () => {
+  const store = openStore();
+  let captured = null;
+  const callLLM = async (_messages, options) => {
+    captured = options;
+    return JSON.stringify({ entities: [{ name: "Vite", type: "technology", attrs: [] }], relations: [] });
+  };
+  const config = { entityExtractionProvider: "openai", entityExtractionModel: "gpt-x", entityExtractionReasoning: "high" };
+  const result = await extractEntities({ id: "m1", content: "Vite 是前端构建工具" }, { store, config, callLLM });
+  assert.equal(result.ok, true);
+  assert.deepEqual(captured, { provider: "openai", model: "gpt-x", reasoningEffort: "high" });
+  store.close();
+});
+
+test("extractor omits empty provider/model and 'none' reasoning from options", async () => {
+  const store = openStore();
+  let captured = "unset";
+  const callLLM = async (_m, options) => { captured = options; return JSON.stringify({ entities: [], relations: [] }); };
+  await extractEntities({ id: "m2", content: "空文本" }, { store, config: {}, callLLM });
+  assert.deepEqual(captured, {}, "no provider/model/reasoning keys when unset");
+  store.close();
+});

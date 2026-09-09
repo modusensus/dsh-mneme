@@ -320,36 +320,67 @@ export const apply = (ctx, config) => {
   // expects, reusing the same ctx.llm.stream consumption pattern as dream.js.
   // Explicit opt-in only (entityExtractionEnabled defaults to false); any LLM
   // failure degrades inside the extractor to { ok:false }, never a write error.
-  if (cfg.entityExtractionEnabled && ctx.llm) {
-    const streamEntityText = async (messages, options = {}) => {
-      let route = null;
-      if (options.model) {
-        route = { model: options.model };
-      } else {
-        try {
-          const sel = ctx.agentDefaultModel?.currentSelection?.();
-          if (sel?.provider && sel?.model) route = sel;
-        } catch { /* fall through to no route */ }
-      }
-      let text = "";
-      for await (const chunk of ctx.llm.stream({
-        ...(route ?? {}),
-        purpose: "entity-extract",
-        maxTokens: 4096,
-        messages
-      })) {
-        if (chunk.type === "text-delta" && typeof chunk.text === "string") text += chunk.text;
-        if (chunk.type === "finish" && (chunk.reason?.kind === "error" || chunk.reason?.kind === "aborted")) return undefined;
-      }
-      return text;
-    };
-    service.setEntityExtractor((memory) =>
-      extractEntities(memory, { store, config: cfg, callLLM: streamEntityText, logger: ctx.logger })
-        .catch((err) => {
-          ctx.logger?.warn?.(`[dsh-mneme] entity extraction failed: ${String(err)}`);
-          return { ok: false, error: String(err) };
-        })
-    );
+  if (cfg.entityExtractionEnabled) {
+    if (!ctx.llm) {
+      // Issue #108: an enabled-but-unwired extractor failed silently before —
+      // zero entities, zero llm_audit_logs, no log line anywhere. Make the
+      // missing dependency visible so a user can tell "extractor not installed"
+      // from "extraction failed".
+      ctx.logger?.warn?.("[dsh-mneme] entityExtractionEnabled=true but ctx.llm unavailable — entity extractor NOT installed");
+    } else {
+      const streamEntityText = async (messages, options = {}) => {
+        // Issue #109: explicit provider/model from the panel win; otherwise
+        // fall back to the caller's current default model. Either way the
+        // request always carries a real provider/model route (dsh-llm
+        // GenerateOptions requires both) — never a bare stream.
+        let route = {};
+        if (options.provider) route.provider = options.provider;
+        if (options.model) route.model = options.model;
+        if (!route.provider || !route.model) {
+          try {
+            const sel = ctx.agentDefaultModel?.currentSelection?.();
+            if (sel?.provider && sel?.model) {
+              route.provider ??= sel.provider;
+              route.model ??= sel.model;
+            }
+          } catch { /* fall through to whatever route we already have */ }
+        }
+        const effort = options.reasoningEffort;
+        const tryStream = (withEffort) => {
+          let text = "";
+          return (async () => {
+            for await (const chunk of ctx.llm.stream({
+              ...route,
+              maxTokens: 4096,
+              ...(withEffort && effort ? { reasoningEffort: effort } : {}),
+              messages
+            })) {
+              if (chunk.type === "text-delta" && typeof chunk.text === "string") text += chunk.text;
+              if (chunk.type === "finish" && (chunk.reason?.kind === "error" || chunk.reason?.kind === "aborted")) return undefined;
+            }
+            return text;
+          })().catch((err) => {
+            ctx.logger?.warn?.(`[dsh-mneme] entity extraction llm stream failed: ${String(err)}`);
+            return undefined;
+          });
+        };
+        let text = await tryStream(true);
+        if (text === undefined && effort) {
+          // Mirror dream's effort fallback: a provider rejecting the reasoning
+          // effort must not sink the whole extraction — retry once without it.
+          ctx.logger?.warn?.(`[dsh-mneme] entity extraction: reasoningEffort "${effort}" rejected, retrying without it`);
+          text = await tryStream(false);
+        }
+        return text;
+      };
+      service.setEntityExtractor((memory) =>
+        extractEntities(memory, { store, config: cfg, callLLM: streamEntityText, logger: ctx.logger })
+          .catch((err) => {
+            ctx.logger?.warn?.(`[dsh-mneme] entity extraction failed: ${String(err)}`);
+            return { ok: false, error: String(err) };
+          })
+      );
+    }
   }
 
   const disposers = [];
