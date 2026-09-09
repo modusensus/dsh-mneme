@@ -90,14 +90,14 @@ dsh web
 | 中等（1 万-5 万字） | `65536` |
 | 大型（5 万字以上） | `131072`（上限） |
 
-> 若使用**思考型模型**（如 deepseek-v4-flash / DeepSeek-R1 类），模型可能把全部预算花在 reasoning 上导致正文为空（日志出现 `no json array in llm output`）。处理顺序：① 把 `dreamReasoningEffort` 设为 `low` 显式压低思考（被方舟拒绝该参数时自动去掉重试一次，拒绝原因会记入 llm_audit）；② 重试走模型默认思考行为后正文仍为空的，调大 `dreamMaxTokens`（reasoning 与正文共享该预算）或配置 `dreamProvider`/`dreamModel` 指向非思考模型。sleep 侧对应 `sleepReasoningEffort`。
+> 若使用**思考型模型**（如 deepseek-v4-flash / DeepSeek-R1 类），模型可能把全部预算花在 reasoning 上导致正文为空（日志出现 `no json array in llm output`）。处理顺序：① 把 `dreamReasoningEffort` 设为 `low` 显式压低思考（v0.7.26+ 若模型不支持该档位，`resolveDreamEffort` 会自动换用模型支持的默认/首个档位或省略字段，拒绝原因会记入 llm_audit）；② 重试走模型默认思考行为后正文仍为空的，调大 `dreamMaxTokens`（reasoning 与正文共享该预算）或配置 `dreamProvider`/`dreamModel` 指向非思考模型。sleep 侧对应 `sleepReasoningEffort`。
 
 **巩固模型分类声明**（settings panel「巩固模型」= `dreamProvider`/`dreamModel`，睡眠侧对应 `sleepProvider`/`sleepModel`）：
 
 | 模型类别 | 例子 | 说明 |
 |---------|------|------|
 | **非思考模型（推荐）** | glm-5-2 类等 | 无 reasoning 声明；即使配了 effort 被 harness 拒绝，fallback 去掉字段重试即成功。空体风险最低 |
-| **思考模型（需实测）** | deepseek-v4-flash-ga 等 v4-flash-ga 系 | 默认开推理，可能烧光 token 预算返回空体；且部分型号（如 v4-flash-ga）在 harness 侧被声明为**不接受任何 reasoning effort** —— 去掉 effort 重试时 harness 的 `defaultEffort` 仍会顶上来再次拒绝（`UNSUPPORTED_REASONING_EFFORT`），插件侧 fallback 无法绕开。选用时建议配 `dreamReasoningEffort` 实测，不行就换非思考模型 |
+| **思考模型（需实测）** | deepseek-v4-flash-ga 等 v4-flash-ga 系 | 默认开推理，可能烧光 token 预算返回空体；部分型号（如 v4-flash-ga）在 harness 侧被声明为**不接受任何 reasoning effort**（去掉 effort 时 harness 的 `defaultEffort` 会顶上来再次拒绝）。v0.7.26+ 已根治：`resolveDreamEffort` 发流前探测模型支持的档位，不支持的配置档位自动换用模型默认/首个支持档位，声明无 reasoning 能力的型号则省略字段。选用时建议配 `dreamReasoningEffort` 实测，不行就换非思考模型 |
 
 ### Sleep Mode 系统级睡眠 💤（v0.4.0，opt-in）
 
@@ -380,7 +380,7 @@ dsh web
 | `dreamDelayMs` | `2000` | 整理异步延迟（去抖） |
 | `dreamProvider` / `dreamModel` | 空 | dream 的 LLM 路由覆盖（显式配置优先于 agent 默认模型；留空则回退到 agent 默认模型） |
 | `dreamMaxTokens` | `32768` | dream LLM 调用最大 token 数（上限 131072；思考型模型的 reasoning 与正文共享该预算，正文为空时优先调大，见下方调优指南） |
-| `dreamReasoningEffort` | `none` | dream LLM 推理强度透传：`low` / `medium` / `high` / `none`（`none`=不传该字段，沿用模型默认；思考型模型（如 deepseek-v4-flash）想压低思考可设 `low`；被方舟拒绝该参数时 v0.7.16 起自动去掉重试一次） |
+| `dreamReasoningEffort` | `none` | dream LLM 推理强度透传：`low` / `medium` / `high` / `none`（`none`=不传该字段，沿用模型默认；思考型模型（如 deepseek-v4-flash）想压低思考可设 `low`；v0.7.26+ 模型不支持配置档位时自动换用其支持的默认/首个档位，无 reasoning 能力的型号省略字段） |
 | `apiToken` | 空 | 可选 API 鉴权 token；设置后写操作与密钥接口要求 `Authorization: Bearer <apiToken>` |
 | `embedProvider` | `openai` | 语义后端：`openai`（默认，兼容 v0.1）/ `local`（ONNX 离线）/ `ollama` |
 | `localEmbedModel` | `Xenova/bge-small-zh-v1.5` | 本地 ONNX embedding 模型 |
