@@ -1085,3 +1085,139 @@ test("GET /api/dsh-mneme/list projects per-memory heat only when heatEnabled=tru
     assert.ok(typeof v === "number" && v >= 0 && v <= 1, "heat values stay within [0,1]");
   }
 });
+
+// ---------------------------------------------------------------- llm-providers / test-model
+// Settings-panel support: enumerate host-registered providers/models so the
+// panel can offer a dropdown over real models, and probe connectivity with a
+// minimal LLM call (same harness path the consolidation uses).
+
+function setupLlm(llm, apiToken = "") {
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config: {} });
+  const settings = createSettings(store.db);
+  const commands = { add: () => {}, remove: () => {}, list: () => [] };
+  const routes = [];
+  const ctx = {
+    webServer: { register(route) { routes.push(route); return () => {}; } },
+    llm
+  };
+  const api = createApi(ctx, service, settings, commands, undefined, undefined, apiToken);
+  return { routes };
+}
+
+const MOCK_LLM = {
+  listProviders: () => [
+    { id: "deepseek", name: "DeepSeek" },
+    { id: "broken", name: "Broken Adapter" }
+  ],
+  listModels: async (provider) => {
+    if (provider === "broken") throw new Error("provider not reachable");
+    return [{ id: "deepseek-chat", name: "DeepSeek Chat" }, { id: "deepseek-reasoner", name: "DeepSeek Reasoner" }];
+  },
+  async *stream(options) {
+    MOCK_LLM.lastOptions = options;
+    if (options.model === "bad-model") {
+      yield {
+        type: "finish",
+        reason: { kind: "error", failure: { code: "AUTH_FAILED", message: "invalid api key" } }
+      };
+      return;
+    }
+    if (options.reasoningEffort === "reject") {
+      throw new Error('UNSUPPORTED_REASONING_EFFORT: provider "mock" model "mock-model" does not support reasoning effort "reject"');
+    }
+    yield { type: "text-delta", index: 0, text: " ok " };
+    yield { type: "finish", reason: { kind: "stop" } };
+  }
+};
+
+test("GET /api/dsh-mneme/llm-providers lists host providers with models, per-provider best effort", async () => {
+  const { routes } = setupLlm(MOCK_LLM);
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/llm-providers");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/llm-providers"), res);
+  assert.equal(res.statusCode, 200);
+  const data = JSON.parse(res.body);
+  assert.equal(data.providers.length, 2);
+  const deepseek = data.providers.find((p) => p.id === "deepseek");
+  assert.deepEqual(deepseek.models.map((m) => m.id), ["deepseek-chat", "deepseek-reasoner"]);
+  const broken = data.providers.find((p) => p.id === "broken");
+  assert.deepEqual(broken.models, [], "a provider whose model list throws degrades to empty, not a hard fail");
+});
+
+test("GET /api/dsh-mneme/llm-providers without ctx.llm returns 501", async () => {
+  const { routes } = setup();
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/llm-providers");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/llm-providers"), res);
+  assert.equal(res.statusCode, 501);
+  assert.equal(JSON.parse(res.body).error, "llm-unavailable");
+});
+
+test("POST /api/dsh-mneme/test-model succeeds and reports reply + latency", async () => {
+  const { routes } = setupLlm(MOCK_LLM);
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/test-model");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/test-model", "POST", { provider: "deepseek", model: "deepseek-chat" }), res);
+  assert.equal(res.statusCode, 200);
+  const data = JSON.parse(res.body);
+  assert.equal(data.ok, true);
+  assert.equal(data.reply, "ok", "reply trimmed");
+  assert.ok(data.latencyMs >= 0);
+  assert.equal(MOCK_LLM.lastOptions.provider, "deepseek");
+  assert.equal(MOCK_LLM.lastOptions.purpose, "dsh-mneme-connectivity-test");
+  assert.equal("reasoningEffort" in MOCK_LLM.lastOptions, false, "no effort configured -> field omitted");
+});
+
+test("POST /api/dsh-mneme/test-model forwards reasoningEffort verbatim", async () => {
+  const { routes } = setupLlm(MOCK_LLM);
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/test-model");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/test-model", "POST", { provider: "deepseek", model: "deepseek-chat", reasoningEffort: "low" }), res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(MOCK_LLM.lastOptions.reasoningEffort, "low", "effort forwarded to the probe call");
+});
+
+test("POST /api/dsh-mneme/test-model reports stream-level failure with 502", async () => {
+  const { routes } = setupLlm(MOCK_LLM);
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/test-model");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/test-model", "POST", { provider: "deepseek", model: "bad-model" }), res);
+  assert.equal(res.statusCode, 502);
+  const data = JSON.parse(res.body);
+  assert.equal(data.ok, false);
+  assert.match(data.error, /AUTH_FAILED/, "stream failure reason surfaced like audit rows");
+});
+
+test("POST /api/dsh-mneme/test-model reports thrown failure with 502", async () => {
+  const { routes } = setupLlm(MOCK_LLM);
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/test-model");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/test-model", "POST", { provider: "mock", model: "mock-model", reasoningEffort: "reject" }), res);
+  assert.equal(res.statusCode, 502);
+  const data = JSON.parse(res.body);
+  assert.equal(data.ok, false);
+  assert.match(data.error, /UNSUPPORTED_REASONING_EFFORT/, "throw path surfaces the harness rejection");
+});
+
+test("POST /api/dsh-mneme/test-model validates input and llm availability", async () => {
+  const { routes } = setupLlm(MOCK_LLM);
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/test-model");
+  let res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/test-model", "POST", {}), res);
+  assert.equal(res.statusCode, 400, "missing provider+model rejected");
+
+  const { routes: routesNoLlm } = setup();
+  const routeNoLlm = routesNoLlm.find((r) => r.path === "/api/dsh-mneme/test-model");
+  res = new FakeRes();
+  await routeNoLlm.handler(req("/api/dsh-mneme/test-model", "POST", { provider: "deepseek", model: "deepseek-chat" }), res);
+  assert.equal(res.statusCode, 501, "no ctx.llm -> llm-unavailable");
+});
+
+test("POST /api/dsh-mneme/test-model is auth-gated like other expensive endpoints", async () => {
+  const { routes } = setupLlm(MOCK_LLM, "secret-token");
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/test-model");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/test-model", "POST", { provider: "deepseek", model: "deepseek-chat" }), res);
+  assert.equal(res.statusCode, 401, "probe spends the user's API quota, so it must require auth");
+});
