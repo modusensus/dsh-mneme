@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.7.29] - 2026-09-10
+
+## 🐛 修复
+
+- **实体抽取静默失败（#108/#109）**：实体抽取的 LLM 路由契约缺陷——`provider`/`model` 未显式配置时兜底读取默认路由选择有误，且 reasoning effort 被模型拒绝后无重试路径，导致抽取静默失败或结果为空。修复：`streamEntityText` 抽取为可测试导出的 `createEntityStreamAdapter` 工厂（显式 `provider`/`model` 优先，缺省兜底读 `agentDefaultModel.currentSelection`）；配置的 `reasoningEffort` 被模型拒绝时自动去掉重试一次（与 autoDream/sleep 同一降级策略）；新增实体抽取思考强度配置（`entityExtractionReasoning`）。
+
+## ✨ 新增
+
+- **面板实体抽取控件**：设置页新增实体抽取 `provider`/`model`/思考强度三个控件，与巩固/睡眠一致的级联下拉 + 连通性测试。
+- **「帮助与反馈」卡片**：设置页底部新增反馈入口——GitHub issue 预填（自动附插件版本 + 平台）+ 邮件 `work@modusensus.space` + 浏览已知问题去重；配套新增 `GET /api/dsh-mneme/info`（返回插件版本，供反馈环境信息）。
+
+## 🏗️ 工程
+
+- 744 测试全绿（新增 effort 拒绝重试 / 显式路由优先 / info 版本一致性 / 反馈卡片源码断言 用例）。
+
 ## [0.7.28] - 2026-09-09
 
 ## 🐛 修复

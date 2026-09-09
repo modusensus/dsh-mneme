@@ -10,7 +10,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-3E63DD?style=flat-square" alt="license"></a>
   <a href="https://github.com/modusensus/dsh-mneme/actions"><img src="https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/ci.yml?style=flat-square&label=CI" alt="CI"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-24%2B-3E63DD?style=flat-square&logo=nodedotjs&logoColor=white" alt="node"></a>
-  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-712%20passed-3E63DD?style=flat-square" alt="tests"></a>
+  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-744%20passed-3E63DD?style=flat-square" alt="tests"></a>
   <a href="https://codecov.io/gh/modusensus/dsh-mneme"><img src="https://img.shields.io/codecov/c/github/modusensus/dsh-mneme/main?style=flat-square" alt="coverage"></a>
   <a href="https://github.com/awesome-dsh-plugin/awesome-dsh-plugin"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="Awesome"></a>
 </p>
@@ -112,6 +112,7 @@ dsh web
 | **v0.7.26** | 记忆巩固 UNSUPPORTED_REASONING_EFFORT 根治（defaultEffort 陷阱 → resolveDreamEffort 能力探测）+ LLM 模型连通性测试（llm-providers / test-model，732 测试全绿） | ✅ |
 | **v0.7.27** | v0.7.26 端点遗漏补齐（修复发版树缺 fix/dream-effort-trap 分支：llm-providers / test-model 落地，面板连通性测试可用，733 测试全绿） | ✅ |
 | **v0.7.28** | 连通性测试三连修：maxTokens 16→1024（思考模型 reply 不再恒空）+ 测试状态按巩固/睡眠拆分（按钮不再串扰）+ 面板草稿补睡眠键（重挂载后睡眠路由不再显示回「跟随默认路由」，值一直有存） | ✅ |
+| **v0.7.29** | 实体抽取路由契约修复（#108/#109 静默失败 → createEntityStreamAdapter：显式 provider/model 优先 + 兜底默认路由 + effort 拒绝自动去重试）+ 面板实体抽取三控件 + 帮助与反馈卡片（issue 预填 / mailto / 浏览已知问题，744 测试全绿） | ✅ |
 | **v0.8.0** | 图谱增强：兴趣漂移可视化 + scope 隔离（issue #17）+ 跨 workspace 共享 | 🚧 计划中（9 月末） |
 
 > 完整逐小版本路线图见 [dsh-mneme/README.md](dsh-mneme/README.md#-进化路线图)（中）/ [dsh-mneme/README.en.md](dsh-mneme/README.en.md#-evolution-roadmap)（英）。
@@ -224,6 +225,7 @@ Works out of the box. Enable these as needed:
 | **v0.7.26** | Consolidation UNSUPPORTED_REASONING_EFFORT root fix (defaultEffort trap → resolveDreamEffort capability probing) + LLM connectivity test (llm-providers / test-model, 732 tests green) | ✅ |
 | **v0.7.27** | v0.7.26 endpoint backfill (release tree was missing the fix/dream-effort-trap branch: llm-providers / test-model now shipped, panel connectivity test works, 733 tests green) | ✅ |
 | **v0.7.28** | Connectivity test triple fix: maxTokens 16→1024 (thinking-model replies no longer empty) + per-route test state (dream/sleep buttons no longer cross-trigger) + mount draft includes sleep keys (sleep route no longer shows "follow default route" after remount — values were always saved) | ✅ |
+| **v0.7.29** | Entity-extraction routing contract fix (#108/#109 silent failure → createEntityStreamAdapter: explicit provider/model first, fallback to default route, effort-rejected auto-retry) + panel entity-extraction controls + help & feedback card (prefilled issue / mailto / browse issues, 744 tests green) | ✅ |
 | **v0.8.0** | Graph enhancement: interest-drift visualization + scope isolation (issue #17) + cross-workspace sharing | 🚧 Planned (late Sep) |
 
 > Full per-minor-version roadmap: [dsh-mneme/README.md](dsh-mneme/README.md#-进化路线图) (zh) / [dsh-mneme/README.en.md](dsh-mneme/README.en.md#-evolution-roadmap) (en).
