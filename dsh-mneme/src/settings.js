@@ -58,6 +58,9 @@ const FEATURE_FLAG_BOOLEANS = [
   "bm25SearchEnabled",
   "conflictFreezeEnabled",
   "trustEpistemicWeighting",
+  // Plan #2: attach per-source {keyword, vector, bm25, final} signals to each
+  // search result for transparency/debugging. Default off, purely decorative.
+  "signalTransparency",
   // Issue #89：宽容校验回归（默认开）+ 跨类型合并显式放宽（默认关）。
   "dreamSkipInvalid",
   "allowCrossTypeMerge",
@@ -94,7 +97,10 @@ const FEATURE_FLAG_STRINGS = [
 const FEATURE_FLAG_URLS = ["ollamaBaseUrl"];
 // 枚举开关（与 config.js 的 z.union(z.const(...)) 对齐）：仅允许列出的值。
 const FEATURE_FLAG_ENUMS = {
-  embedProvider: ["openai", "local", "ollama"]
+  embedProvider: ["openai", "local", "ollama"],
+  // Plan #1: recall fusion recipe. blend = legacy (default); rrf / minmax are
+  // rank/scale-aware alternatives selected by the panel.
+  recallFusion: ["blend", "rrf", "minmax"]
 };
 const FEATURE_FLAG_STRING_MAX = 200;
 
