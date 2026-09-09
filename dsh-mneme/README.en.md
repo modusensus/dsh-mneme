@@ -67,14 +67,14 @@ The default `32768` reserves headroom for reasoning models, where reasoning alon
 | Medium (10k–50k chars) | `65536` |
 | Large (>50k chars) | `131072` (cap) |
 
-> With **reasoning models** (e.g. DeepSeek-R1-like), the model may spend the entire budget on reasoning and return an empty body (the log shows `no json array in llm output`). Resolution order: ① set `dreamReasoningEffort` to `low` to suppress reasoning overhead (when the provider rejects the parameter it is stripped automatically and retried once — the rejection reason lands in `llm_audit`); ② if the retry still returns an empty body under the model's default reasoning behavior, raise `dreamMaxTokens` (reasoning and body share this budget) or route `dreamProvider`/`dreamModel` to a non-reasoning model. The sleep side has the corresponding `sleepReasoningEffort`.
+> With **reasoning models** (e.g. DeepSeek-R1-like), the model may spend the entire budget on reasoning and return an empty body (the log shows `no json array in llm output`). Resolution order: ① set `dreamReasoningEffort` to `low` to suppress reasoning overhead (v0.7.26+: if the model doesn't support that tier, `resolveDreamEffort` auto-falls back to the model's default/first supported tier or omits the field — the rejection reason lands in `llm_audit`); ② if the retry still returns an empty body under the model's default reasoning behavior, raise `dreamMaxTokens` (reasoning and body share this budget) or route `dreamProvider`/`dreamModel` to a non-reasoning model. The sleep side has the corresponding `sleepReasoningEffort`.
 
 **Consolidation model classification** (settings panel "consolidation model" = `dreamProvider`/`dreamModel`; sleep side: `sleepProvider`/`sleepModel`):
 
 | Model kind | Examples | Notes |
 |-----------|----------|-------|
 | **Non-reasoning (recommended)** | glm-5-2-class | No reasoning declaration; even if an effort is configured and the harness rejects it, the fallback strips the field and the retry succeeds. Lowest risk of empty-body runs |
-| **Reasoning (test first)** | deepseek-v4-flash-ga and other v4-flash-ga family | Reasons by default and may burn the whole token budget on an empty body; some SKUs (e.g. v4-flash-ga) are additionally declared by the harness as accepting **no reasoning effort at all** — the no-effort retry still gets rejected through the harness `defaultEffort` (`UNSUPPORTED_REASONING_EFFORT`), which the plugin fallback cannot bypass. If you use one, set `dreamReasoningEffort` and test; switch to a non-reasoning model otherwise |
+| **Reasoning (test first)** | deepseek-v4-flash-ga and other v4-flash-ga family | Reasons by default and may burn the whole token budget on an empty body; some SKUs (e.g. v4-flash-ga) are additionally declared by the harness as accepting **no reasoning effort at all** (the no-effort retry gets rejected through the harness `defaultEffort`, `UNSUPPORTED_REASONING_EFFORT`). Fixed in v0.7.26+: `resolveDreamEffort` probes the model's supported effort tiers before streaming — an unsupported configured tier auto-falls back to the model's default/first supported tier, and the field is omitted for models that declare no reasoning capability. If you use one, set `dreamReasoningEffort` and test; switch to a non-reasoning model otherwise |
 
 ### Sleep Mode: System-Level Sleep 💤 (v0.4.0, opt-in)
 
@@ -306,7 +306,7 @@ It works out of the box with the defaults. To adjust, override in `~/.dsh/profil
 | `dreamDelayMs` | `2000` | Asynchronous consolidation delay (debounce) |
 | `dreamProvider` / `dreamModel` | empty | Explicit dream LLM route — config wins over the agent's default model (config-first, v0.7.16); left empty, the agent's default model is used |
 | `dreamMaxTokens` | `32768` | Maximum tokens per dream LLM call (cap 131072; reasoning and body share this budget on reasoning models — raise it when the body comes back empty, see the tuning guide below) |
-| `dreamReasoningEffort` | `none` | Reasoning-effort passthrough for the dream LLM: `low` / `medium` / `high` / `none` (`none` = omit the field and use the model default; set `low` when a reasoning model exhausts its budget on reasoning and produces an empty body) |
+| `dreamReasoningEffort` | `none` | Reasoning-effort passthrough for the dream LLM: `low` / `medium` / `high` / `none` (`none` = omit the field and use the model default; set `low` when a reasoning model exhausts its budget on reasoning and produces an empty body; v0.7.26+ auto-falls back to the model's default/first supported tier when the configured tier is unsupported, and omits the field for models without reasoning capability) |
 | `apiToken` | empty | Optional API auth token; once set, write operations and key endpoints require `Authorization: Bearer <apiToken>` |
 | `embedProvider` | `openai` | Semantic backend: `openai` (default, v0.1-compatible) / `local` (ONNX offline) / `ollama` |
 | `localEmbedModel` | `Xenova/bge-small-zh-v1.5` | Local ONNX embedding model |
