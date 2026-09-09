@@ -35,6 +35,57 @@ export { Config };
 // value, so a `function apply` disposer would never run on unload. An arrow
 // has no prototype, is called normally, and its returned disposer is collected
 // and run by the fiber on unload.
+// Entity-extraction LLM adapter (issue #108/#109): maps the extractor's
+// options (provider/model override + reasoningEffort) onto a real dsh-llm
+// stream route and retries once without the effort when the first attempt is
+// rejected. Extracted from apply() so the effort-fallback branch is
+// unit-testable; the extractor only ever sees a callLLM(messages, options)
+// => Promise<string>. The route always carries a real provider/model (dsh-llm
+// GenerateOptions requires both) — never a bare stream.
+export function createEntityStreamAdapter({ llm, agentDefaultModel, logger }) {
+  return async function streamEntityText(messages, options = {}) {
+    let route = {};
+    if (options.provider) route.provider = options.provider;
+    if (options.model) route.model = options.model;
+    if (!route.provider || !route.model) {
+      try {
+        const sel = agentDefaultModel?.currentSelection?.();
+        if (sel?.provider && sel?.model) {
+          route.provider ??= sel.provider;
+          route.model ??= sel.model;
+        }
+      } catch { /* fall through to whatever route we already have */ }
+    }
+    const effort = options.reasoningEffort;
+    const tryStream = (withEffort) => {
+      let text = "";
+      return (async () => {
+        for await (const chunk of llm.stream({
+          ...route,
+          maxTokens: 4096,
+          ...(withEffort && effort ? { reasoningEffort: effort } : {}),
+          messages
+        })) {
+          if (chunk.type === "text-delta" && typeof chunk.text === "string") text += chunk.text;
+          if (chunk.type === "finish" && (chunk.reason?.kind === "error" || chunk.reason?.kind === "aborted")) return undefined;
+        }
+        return text;
+      })().catch((err) => {
+        logger?.warn?.(`[dsh-mneme] entity extraction llm stream failed: ${String(err)}`);
+        return undefined;
+      });
+    };
+    let text = await tryStream(true);
+    if (text === undefined && effort) {
+      // Mirror dream's effort fallback: a provider rejecting the reasoning
+      // effort must not sink the whole extraction — retry once without it.
+      logger?.warn?.(`[dsh-mneme] entity extraction: reasoningEffort "${effort}" rejected, retrying without it`);
+      text = await tryStream(false);
+    }
+    return text;
+  };
+}
+
 export const apply = (ctx, config) => {
   const rawCfg = Config(config);
 
@@ -328,51 +379,11 @@ export const apply = (ctx, config) => {
       // from "extraction failed".
       ctx.logger?.warn?.("[dsh-mneme] entityExtractionEnabled=true but ctx.llm unavailable — entity extractor NOT installed");
     } else {
-      const streamEntityText = async (messages, options = {}) => {
-        // Issue #109: explicit provider/model from the panel win; otherwise
-        // fall back to the caller's current default model. Either way the
-        // request always carries a real provider/model route (dsh-llm
-        // GenerateOptions requires both) — never a bare stream.
-        let route = {};
-        if (options.provider) route.provider = options.provider;
-        if (options.model) route.model = options.model;
-        if (!route.provider || !route.model) {
-          try {
-            const sel = ctx.agentDefaultModel?.currentSelection?.();
-            if (sel?.provider && sel?.model) {
-              route.provider ??= sel.provider;
-              route.model ??= sel.model;
-            }
-          } catch { /* fall through to whatever route we already have */ }
-        }
-        const effort = options.reasoningEffort;
-        const tryStream = (withEffort) => {
-          let text = "";
-          return (async () => {
-            for await (const chunk of ctx.llm.stream({
-              ...route,
-              maxTokens: 4096,
-              ...(withEffort && effort ? { reasoningEffort: effort } : {}),
-              messages
-            })) {
-              if (chunk.type === "text-delta" && typeof chunk.text === "string") text += chunk.text;
-              if (chunk.type === "finish" && (chunk.reason?.kind === "error" || chunk.reason?.kind === "aborted")) return undefined;
-            }
-            return text;
-          })().catch((err) => {
-            ctx.logger?.warn?.(`[dsh-mneme] entity extraction llm stream failed: ${String(err)}`);
-            return undefined;
-          });
-        };
-        let text = await tryStream(true);
-        if (text === undefined && effort) {
-          // Mirror dream's effort fallback: a provider rejecting the reasoning
-          // effort must not sink the whole extraction — retry once without it.
-          ctx.logger?.warn?.(`[dsh-mneme] entity extraction: reasoningEffort "${effort}" rejected, retrying without it`);
-          text = await tryStream(false);
-        }
-        return text;
-      };
+      const streamEntityText = createEntityStreamAdapter({
+        llm: ctx.llm,
+        agentDefaultModel: ctx.agentDefaultModel,
+        logger: ctx.logger
+      });
       service.setEntityExtractor((memory) =>
         extractEntities(memory, { store, config: cfg, callLLM: streamEntityText, logger: ctx.logger })
           .catch((err) => {

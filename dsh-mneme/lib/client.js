@@ -276,6 +276,14 @@ window.__ModuleLoader__.load({
         "memory.features.hotMemoryEnabled.hint": "最近几轮对话原文随注入携带，不写入长期记忆",
         "memory.features.entityExtractionEnabled": "实体抽取",
         "memory.features.entityExtractionEnabled.hint": "从记忆中提取人物/项目/概念，图谱随之生长",
+        "memory.features.entityExtractionProvider": "实体抽取 Provider",
+        "memory.features.entityExtractionModel": "实体抽取模型",
+        "memory.features.entityExtractionReasoning": "实体抽取思考强度",
+        "memory.features.entityExtractionReasoning.none": "跟随默认",
+        "memory.features.entityExtractionReasoning.low": "低",
+        "memory.features.entityExtractionReasoning.medium": "中",
+        "memory.features.entityExtractionReasoning.high": "高",
+        "memory.features.entityExtractionModelHint": "Provider/模型留空 = 跟随主对话模型；思考强度 none = 服务商默认",
         "memory.features.codingRetrospect": "编码记忆蒸馏",
         "memory.features.codingRetrospect.hint": "用完整转录（含工具调用与报错）提炼踩坑、约束与被否决方案",
         "memory.features.rerankEnabled": "结果重排",
@@ -565,6 +573,14 @@ window.__ModuleLoader__.load({
         "memory.features.hotMemoryEnabled.hint": "Carry the last few turns verbatim; never written to long-term memory",
         "memory.features.entityExtractionEnabled": "Entity extraction",
         "memory.features.entityExtractionEnabled.hint": "Extract people / projects / concepts so the graph grows by itself",
+        "memory.features.entityExtractionProvider": "Entity extraction provider",
+        "memory.features.entityExtractionModel": "Entity extraction model",
+        "memory.features.entityExtractionReasoning": "Entity extraction reasoning",
+        "memory.features.entityExtractionReasoning.none": "Follow default",
+        "memory.features.entityExtractionReasoning.low": "Low",
+        "memory.features.entityExtractionReasoning.medium": "Medium",
+        "memory.features.entityExtractionReasoning.high": "High",
+        "memory.features.entityExtractionModelHint": "Provider / model empty = follow the main conversation model; reasoning none = provider default",
         "memory.features.codingRetrospect": "Coding retrospection",
         "memory.features.codingRetrospect.hint": "Distill pitfalls, constraints and rejected solutions from full transcripts (tools and errors included)",
         "memory.features.rerankEnabled": "Reranking",
@@ -1592,8 +1608,10 @@ window.__ModuleLoader__.load({
     const FEATURE_ADVANCED_BOOLS = ["hybridInject", "selectiveInjectEnabled", "adaptiveThresholdEnabled", "reflectionUpdateEnabled", "reflectionFailureTracking", "conflictFreezeEnabled", "trustEpistemicWeighting"];
     // 字符串键（blur/Enter 提交，空串合法 = 跟随默认）：巩固模型与语义
     // 检索路线。embedProvider 是枚举，用下拉单独渲染。
-    const FEATURE_STRINGS = ["dreamProvider", "dreamModel", "sleepProvider", "sleepModel", "localEmbedModel", "ollamaBaseUrl", "ollamaModel"];
+    const FEATURE_STRINGS = ["dreamProvider", "dreamModel", "sleepProvider", "sleepModel", "entityExtractionProvider", "entityExtractionModel", "localEmbedModel", "ollamaBaseUrl", "ollamaModel"];
     const EMBED_PROVIDERS = ["openai", "local", "ollama"];
+    // 实体抽取思考强度（issue #109）：与后端 FEATURE_FLAG_ENUMS 枚举对齐。
+    const ENTITY_REASONING = ["none", "low", "medium", "high"];
 
     function FeatureRow({ name, hint, on, disabled, onToggle }) {
       return h("div", { className: "mneme-featrow" },
@@ -1623,9 +1641,10 @@ window.__ModuleLoader__.load({
       // 巩固/睡眠模型路由下拉的数据源：GET /llm-providers 探测（云端 v0.7.26+
       // 的插件侧端点）。null = 端点不可用（404/失败）→ 回退纯文本输入，不挡旧后端。
       const [routes, setRoutes] = useState(null);
-      // 连通性测试结果（巩固/睡眠各一份，互不串扰）：{ running: true } | { ok, ms, detail }
+      // 连通性测试结果（巩固/睡眠/实体抽取各一份，互不串扰）：{ running: true } | { ok, ms, detail }
       const [dreamTest, setDreamTest] = useState(null);
       const [sleepTest, setSleepTest] = useState(null);
+      const [entityTest, setEntityTest] = useState(null);
 
       useEffect(() => {
         let cancelled = false;
@@ -1825,6 +1844,26 @@ window.__ModuleLoader__.load({
         h("div", { className: "mneme-featsubhint" }, t("memory.features.sleepModelHint"))
       );
 
+      // 实体抽取路由与思考强度（issue #109）：entityExtractionEnabled 开着才
+      // 展开。provider/model 级联下拉 + 连通性测试（同巩固/睡眠），reasoning
+      // 枚举即时提交；旧后端（/llm-providers 404）回退纯文本输入。
+      const entitySub = eff.entityExtractionEnabled && h("div", { className: "mneme-featsub" },
+        Array.isArray(routes)
+          ? routeSelects("entityExtractionProvider", "entityExtractionModel", entityTest, setEntityTest)
+          : h(react.Fragment, null, strRow("entityExtractionProvider"), strRow("entityExtractionModel")),
+        h("div", { className: "mneme-featnum" },
+          h("span", { className: "mneme-featnumlabel" }, t("memory.features.entityExtractionReasoning")),
+          h("select", {
+            className: "mneme-select",
+            value: eff.entityExtractionReasoning || "none",
+            disabled: busy,
+            onChange: (e) => put({ entityExtractionReasoning: e.target.value })
+          },
+            ENTITY_REASONING.map((r) => h("option", { key: r, value: r }, t(`memory.features.entityExtractionReasoning.${r}`))))
+        ),
+        h("div", { className: "mneme-featsubhint" }, t("memory.features.entityExtractionModelHint"))
+      );
+
       if (error && !state) return h("section", { className: "mneme-set-card" },
         h("div", { className: "mneme-set-title" }, t("memory.features.title")),
         h("div", { className: "mneme-set-hint" }, error));
@@ -1841,7 +1880,7 @@ window.__ModuleLoader__.load({
               FEATURE_GROUPS.map((g) => h(react.Fragment, { key: g.key },
                 h("div", { className: "mneme-featgroup" }, t(`memory.features.${g.key}`)),
                 g.items.map(boolRow),
-                g.key === "group.enhance" && embedSub,
+                g.key === "group.enhance" && h(react.Fragment, null, embedSub, entitySub),
                 g.key === "group.dream" && h(react.Fragment, null, dreamSub, sleepSub)
               )),
               h("div", { className: "mneme-featgroup" },
