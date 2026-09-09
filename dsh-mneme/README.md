@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Awesome](https://awesome-dsh-plugin.com/badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
-[![tests](https://img.shields.io/badge/tests-714%20passed-success)](https://github.com/modusensus/dsh-mneme)
+[![tests](https://img.shields.io/badge/tests-744%20passed-success)](https://github.com/modusensus/dsh-mneme)
 [![CI](https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/ci.yml)](https://github.com/modusensus/dsh-mneme/actions)
 [![node](https://img.shields.io/badge/node-24%2B-blue)](https://nodejs.org)
 [![npm downloads](https://img.shields.io/npm/dm/@modusensus/dsh-mneme?color=blue&label=downloads)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
@@ -215,6 +215,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 
 | 版本 | 亮点 |
 |------|------|
+| **v0.7.29** | 实体抽取路由契约修复 + 面板控件 + 帮助与反馈：`streamEntityText` 抽取为可测试导出的 `createEntityStreamAdapter`——显式 `provider`/`model` 优先、缺省兜底读默认路由选择；实体抽取思考强度 `entityExtractionReasoning` 被模型拒绝时自动去 effort 重试（与 autoDream/sleep 同一降级策略）；设置面板新增实体抽取 `provider`/`model`/思考强度三控件；面板底部新增「帮助与反馈」卡片（GitHub issue 预填 + mailto `work@modusensus.space` + 浏览已知问题）+ 配套 `GET /api/dsh-mneme/info`；744 测试全绿 |
 | **v0.7.28** | 连通性测试三连修：`POST /api/dsh-mneme/test-model` 最小调用 `maxTokens` 16→1024——思考模型的推理过程足以耗尽 16 token 预算致 `reply` 恒为空（「真的答了 ok 而非只报通」对思考模型不成立；按实际用量计费，手动按钮无放大成本）；连通性测试状态按巩固/睡眠路由各持一份——此前共享单份，点任一「测试连通性」按钮两组同显「测试中/结果」且互相禁用；面板挂载草稿补 `sleepProvider`/`sleepModel`——后端一直保存正常，但重挂载（切页签/退出重进）后下拉恒显「跟随默认路由」，看起来像设置被重置，补键后正常回填（历史已存值无需重填）；733 测试全绿 |
 | **v0.7.27** | v0.7.26 端点遗漏补齐：v0.7.26 发版树未含 `fix/dream-effort-trap` 分支，CHANGELOG/Release 宣告的 `GET /api/dsh-mneme/llm-providers` + `POST /api/dsh-mneme/test-model` 两个端点实际不在包内（面板「级联下拉 + 测试连通性」会 404）；本版将分支 rebase 后合入（PR #100），端点落地，面板连通性测试可用；733 测试全绿 |
 | **v0.7.26** | 记忆巩固 `UNSUPPORTED_REASONING_EFFORT` 根治 + 巩固/睡眠模型连通性测试：根治 **defaultEffort 陷阱**——harness 在 effort 省略时注入 `reasoning.defaultEffort`，若该默认档位本身不被模型支持，则去 effort 重试也无济于事（换什么 effort 都会被拒绝）；修复：新增 `resolveDreamEffort` 经 `ctx.llm.resolveModelInfo()` 主动探测模型支持的档位再发送——配置档位不被支持时自动换用模型支持的默认/首个档位、模型声明无 reasoning 能力则省略字段；设置面板巩固/睡眠 6 字段补选型提示（引导非思考模型，避免再踩思考模型烧光 token 预算）；新增 `GET /api/dsh-mneme/llm-providers`（宿主侧 provider/model 发现，密钥不经插件侧）+ `POST /api/dsh-mneme/test-model`（模型连通性测试，空 body 按巩固路由解析返回 modelId）；732 测试全绿 |
@@ -313,6 +314,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 | **v0.7.26** | ✅ 完成 | 巩固 effort 陷阱根治 + LLM 连通性测试 | 记忆巩固 `UNSUPPORTED_REASONING_EFFORT` 根治（defaultEffort 陷阱：harness 省略 effort 时注入 `reasoning.defaultEffort`，默认档位不被模型支持则任何重试无效）→ 新增 `resolveDreamEffort` 经 `ctx.llm.resolveModelInfo()` 探测模型支持的档位（不支持的配置档位自动换用模型支持的默认/首个档位，无 reasoning 能力则省略字段）；设置面板巩固/睡眠 6 字段补选型提示（引导非思考模型）；新增 `GET /api/dsh-mneme/llm-providers`（宿主侧 provider/model 发现）+ `POST /api/dsh-mneme/test-model`（模型连通性测试，空 body 按巩固路由解析，密钥不经插件侧）；732 测试全绿 |
 | **v0.7.27** | ✅ 完成 | v0.7.26 端点遗漏补齐 | v0.7.26 发版树未含 `fix/dream-effort-trap` 分支：CHANGELOG/Release 宣告的 `GET /api/dsh-mneme/llm-providers` + `POST /api/dsh-mneme/test-model` 两个端点实际不在包内（面板「级联下拉 + 测试连通性」会 404）；本版将分支 rebase 合入（PR #100），端点落地、面板连通性测试可用；733 测试全绿 |
 | **v0.7.28** | ✅ 完成 | 连通性测试三连修 | `POST /api/dsh-mneme/test-model` 最小调用 `maxTokens` 16→1024（思考模型推理过程即可耗尽 16 token 预算，`reply` 恒空）；连通性测试状态按巩固/睡眠路由各持一份（按钮不再串扰）；面板挂载草稿补 `sleepProvider`/`sleepModel`（重挂载后睡眠路由不再显示回「跟随默认路由」，值一直有存）；733 测试全绿 |
+| **v0.7.29** | ✅ 完成 | 实体抽取路由契约修复 + 面板控件 + 反馈入口 | 实体抽取 LLM 路由契约修复（#108/#109）：`createEntityStreamAdapter` 显式 provider/model 优先 + 兜底默认路由 + effort 拒绝自动去重试；设置面板新增实体抽取 provider/model/思考强度三控件；「帮助与反馈」卡片（GitHub issue 预填 + mailto + 浏览已知问题）+ `GET /api/dsh-mneme/info`；744 测试全绿 |
 | **v0.8.0** | 🚧 计划中（9 月末） | 图谱增强 | 兴趣漂移可视化 + scope 隔离（issue #17）+ 跨 workspace 记忆共享 |
 
 > 新能力一律做成**可开关的功能**（配置启用/关闭），默认保守开启、不破坏现有行为。`failure_memories` 表与 autoDream 决策引擎已为后续反思性成长铺好路。
