@@ -1091,7 +1091,7 @@ test("GET /api/dsh-mneme/list projects per-memory heat only when heatEnabled=tru
 // panel can offer a dropdown over real models, and probe connectivity with a
 // minimal LLM call (same harness path the consolidation uses).
 
-function setupLlm(llm, apiToken = "") {
+function setupLlm(llm, apiToken = "", extraCtx = {}, config = null) {
   const store = createStore(":memory:");
   const service = createService({ store, mirror: null, config: {} });
   const settings = createSettings(store.db);
@@ -1099,9 +1099,10 @@ function setupLlm(llm, apiToken = "") {
   const routes = [];
   const ctx = {
     webServer: { register(route) { routes.push(route); return () => {}; } },
-    llm
+    llm,
+    ...extraCtx
   };
-  const api = createApi(ctx, service, settings, commands, undefined, undefined, apiToken);
+  const api = createApi(ctx, service, settings, commands, undefined, undefined, apiToken, config);
   return { routes };
 }
 
@@ -1139,9 +1140,9 @@ test("GET /api/dsh-mneme/llm-providers lists host providers with models, per-pro
   assert.equal(res.statusCode, 200);
   const data = JSON.parse(res.body);
   assert.equal(data.providers.length, 2);
-  const deepseek = data.providers.find((p) => p.id === "deepseek");
+  const deepseek = data.providers.find((p) => p.provider === "deepseek");
   assert.deepEqual(deepseek.models.map((m) => m.id), ["deepseek-chat", "deepseek-reasoner"]);
-  const broken = data.providers.find((p) => p.id === "broken");
+  const broken = data.providers.find((p) => p.provider === "broken");
   assert.deepEqual(broken.models, [], "a provider whose model list throws degrades to empty, not a hard fail");
 });
 
@@ -1163,7 +1164,8 @@ test("POST /api/dsh-mneme/test-model succeeds and reports reply + latency", asyn
   const data = JSON.parse(res.body);
   assert.equal(data.ok, true);
   assert.equal(data.reply, "ok", "reply trimmed");
-  assert.ok(data.latencyMs >= 0);
+  assert.ok(data.durationMs >= 0);
+  assert.equal(data.modelId, "deepseek:deepseek-chat", "modelId reports the probed route");
   assert.equal(MOCK_LLM.lastOptions.provider, "deepseek");
   assert.equal(MOCK_LLM.lastOptions.purpose, "dsh-mneme-connectivity-test");
   assert.equal("reasoningEffort" in MOCK_LLM.lastOptions, false, "no effort configured -> field omitted");
@@ -1200,12 +1202,37 @@ test("POST /api/dsh-mneme/test-model reports thrown failure with 502", async () 
   assert.match(data.error, /UNSUPPORTED_REASONING_EFFORT/, "throw path surfaces the harness rejection");
 });
 
+test("POST /api/dsh-mneme/test-model resolves empty body against the consolidation route", async () => {
+  // Empty provider/model = "test whatever consolidation uses now": the route
+  // falls back to agentDefaultModel (config dreamProvider/dreamModel absent),
+  // the probe runs against that model, and modelId reports what was tested.
+  const { routes } = setupLlm(MOCK_LLM, "", {
+    agentDefaultModel: { currentSelection: () => ({ provider: "sel-provider", model: "sel-model" }) }
+  });
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/test-model");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/test-model", "POST", {}), res);
+  assert.equal(res.statusCode, 200);
+  const data = JSON.parse(res.body);
+  assert.equal(data.ok, true);
+  assert.equal(data.modelId, "sel-provider:sel-model", "probe ran against the resolved consolidation route");
+  assert.equal(MOCK_LLM.lastOptions.provider, "sel-provider");
+  assert.equal(MOCK_LLM.lastOptions.model, "sel-model");
+});
+
 test("POST /api/dsh-mneme/test-model validates input and llm availability", async () => {
   const { routes } = setupLlm(MOCK_LLM);
   const route = routes.find((r) => r.path === "/api/dsh-mneme/test-model");
   let res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/test-model", "POST", { provider: "deepseek" }), res);
+  assert.equal(res.statusCode, 400, "partial input (provider without model) rejected");
+  assert.equal(JSON.parse(res.body).error, "missing-provider-or-model");
+
+  // empty body with no route (no agentDefaultModel, no config route) -> no-route
+  res = new FakeRes();
   await route.handler(req("/api/dsh-mneme/test-model", "POST", {}), res);
-  assert.equal(res.statusCode, 400, "missing provider+model rejected");
+  assert.equal(res.statusCode, 400, "empty body with no resolvable route rejected");
+  assert.equal(JSON.parse(res.body).error, "no-route");
 
   const { routes: routesNoLlm } = setup();
   const routeNoLlm = routesNoLlm.find((r) => r.path === "/api/dsh-mneme/test-model");

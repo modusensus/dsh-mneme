@@ -4,7 +4,7 @@ import { timingSafeEqual, randomBytes } from "node:crypto";
 import { FEATURE_FLAG_SPEC } from "./settings.js";
 import { TYPE_FILE, renderMirrorText, parseHumanEdits } from "./mirror.js";
 import { computeHeat } from "./heat.js";
-import { describeStreamFailure } from "./dream.js";
+import { describeStreamFailure, resolveRoute } from "./dream.js";
 
 // headers：少数端点（/export 附件下载）需要追加 Content-Disposition 等响应头。
 function sendJson(res, status, payload, headers = {}) {
@@ -287,6 +287,8 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
   // actually accepts the configured effort without tripping a full run.
   async function testLlmConnectivity(llm, provider, model, reasoningEffort) {
     const startedAt = Date.now();
+    const elapsed = () => Date.now() - startedAt;
+    const modelId = `${provider}:${model}`;
     try {
       let reply = "";
       let error = "";
@@ -304,11 +306,10 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
           break;
         }
       }
-      const latencyMs = Date.now() - startedAt;
-      if (error) return { ok: false, latencyMs, error };
-      return { ok: true, latencyMs, reply: reply.trim().slice(0, 100) };
+      if (error) return { ok: false, durationMs: elapsed(), error, modelId };
+      return { ok: true, durationMs: elapsed(), modelId, reply: reply.trim().slice(0, 100) };
     } catch (error) {
-      return { ok: false, latencyMs: Date.now() - startedAt, error: String(error?.message ?? error) };
+      return { ok: false, durationMs: elapsed(), error: String(error?.message ?? error), modelId };
     }
   }
 
@@ -331,8 +332,7 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
           let models = [];
           try { models = (await llm.listModels(p.id)) ?? []; } catch { models = []; }
           return {
-            id: p.id,
-            name: p.name ?? p.id,
+            provider: p.id,
             models: models.map((m) => ({ id: m.id, name: m.name ?? m.id }))
           };
         })).then((rows) => sendJson(res, 200, { providers: rows }));
@@ -354,9 +354,17 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
         if (!requireAuth(req, res, apiToken)) return;
         return readBody(req).then(async (text) => {
           const body = parseBody(text);
-          const provider = typeof body.provider === "string" ? body.provider.trim() : "";
-          const model = typeof body.model === "string" ? body.model.trim() : "";
-          if (!provider || !model) return sendJson(res, 400, { error: "missing-provider-or-model" });
+          let provider = typeof body.provider === "string" ? body.provider.trim() : "";
+          let model = typeof body.model === "string" ? body.model.trim() : "";
+          if ((!provider && model) || (provider && !model)) return sendJson(res, 400, { error: "missing-provider-or-model" });
+          if (!provider && !model) {
+            // 空 = 按巩固路由解析（dreamProvider/dreamModel > agent 默认模型），
+            // 让面板一键测"当前巩固模型"而无需手填。
+            const route = resolveRoute(ctx, config ?? {}, ctx.logger);
+            if (!route) return sendJson(res, 400, { error: "no-route" });
+            provider = route.provider;
+            model = route.model;
+          }
           const llm = ctx.llm;
           if (typeof llm?.stream !== "function") return sendJson(res, 501, { error: "llm-unavailable" });
           const result = await testLlmConnectivity(llm, provider, model, body.reasoningEffort);
