@@ -214,6 +214,8 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 
 | 版本 | 亮点 |
 |------|------|
+| **v0.7.26** | 记忆巩固 `UNSUPPORTED_REASONING_EFFORT` 根治 + 巩固/睡眠模型连通性测试：根治 **defaultEffort 陷阱**——harness 在 effort 省略时注入 `reasoning.defaultEffort`，若该默认档位本身不被模型支持，则去 effort 重试也无济于事（换什么 effort 都会被拒绝）；修复：新增 `resolveDreamEffort` 经 `ctx.llm.resolveModelInfo()` 主动探测模型支持的档位再发送——配置档位不被支持时自动换用模型支持的默认/首个档位、模型声明无 reasoning 能力则省略字段；设置面板巩固/睡眠 6 字段补选型提示（引导非思考模型，避免再踩思考模型烧光 token 预算）；新增 `GET /api/dsh-mneme/llm-providers`（宿主侧 provider/model 发现，密钥不经插件侧）+ `POST /api/dsh-mneme/test-model`（模型连通性测试，空 body 按巩固路由解析返回 modelId）；732 测试全绿 |
+| **v0.7.25** | 工具兼容性加固 + `memory_get`/render 内容预览 + 巩固模型引导：新增 `memory_get` 工具（第 8 个模型工具，按 id 读单条记忆全文）+ `memory_search`/`memory_list` render 嵌入标题/元数据/正文预览（宿主只透传 render 文本时模型也能直接读到记忆内容）+ 巩固模型选型引导（config 注释/README 分类声明，非思考 vs 思考模型差异）；修复 `memory_get` execute 嵌套进 output 的崩溃（`userExecute is not a function`，此前测试只数工具名从未执行该工具而掩盖）+ 工具重复注册去重（live patch reload）+ Standalone API 端口冲突重试（EADDRINUSE）+ client inject 声明对齐 + better-sidebar 集成加固；718 测试全绿 |
 | **v0.7.24** | 修复 DSH Desktop 插件树加载崩溃（v0.7.23 回归）：cordis 4 的 ctx 是 Proxy，访问未在 inject 声明的 `webServer` 会抛 `cannot get property without inject`（而非返回 undefined），且去掉 inject 后 cordis 不再等待宿主服务 → 桌面端重启即崩；修复：恢复 webServer 到 inject（cordis 等宿主就绪再 apply）+ apply/register 守卫改 `ctx.reflect.get`（免 inject 读取、未提供返回 undefined 不抛错）；真实 cordis + dsh-host-webserver 插件实测；714 测试全绿 |
 | **v0.7.23** | 记忆沉淀「反复失败」根治：consolidation 合法空数组 `[]` 不再误判 failed（CONSOLIDATION_PROMPT 允许「无问题无需输出」，模型无冗余时合法返回 `[]`——此前 `validateDecisions` 硬判 non-empty → 整单 failed、审计反复失败，且与模型无关，ChatGPT/Claude 同样踩中；修复：空数组显式短路 `ok:true` no-op）+ 空体修复第二段（`dreamMaxTokens` 默认 8192→32768，思考模型推理烧光预算的根治余量，设置面板可调）+ skipInvalid splice 残留 bug（长度相等≠内容一致，被跳决策残留）；712 测试全绿 |
 | **v0.7.22** | 恢复 v0.6.9 的 skipInvalid 宽容校验路径（issue #89 回归，v0.7.11 重写丢失）：`dreamSkipInvalid`（默认 true）单条非法决策跳过 + 合法子集应用 + run 记 degraded，`allowCrossTypeMerge`（默认 false）显式放宽跨类型合并——弱模型（如 qwen3.8-flash）决策合规抖动不再整单拒绝白烧 LLM 调用；严格模式/sleep 路径行为不变，全局上限/覆盖率下限仍整单拒绝（刷爆上限=模型坏了，非轻微 schema 漂移）；新增 `dreamMinIntervalMinutes`（0-10080，默认 0=不限）autoDream 最小触发间隔，失败/degraded run 也占用间隔（节流防失败调用连发）；feature_flags 白名单 34 键；696 测试全绿 |
@@ -301,6 +303,8 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 | **v0.7.18** | ✅ 完成 | 生态第一步 + 查询收敛 | better-sidebar 软集成（inject 声明 + optional peer `dsh-better-sidebar` + registerTab 复用四视图，未装安全跳过；窄容器 `@container` 适配）+ `/list?deposited=only` 沉淀视图（receipt_chain ∪ source=dream）+ 记忆库沉淀/已归档筛选 chip + 状态页仪表盘化（统计 + 查看全部跳转预置筛选）+ 抽屉归档记忆「恢复」；667 测试全绿 |
 | **v0.7.20** | ✅ 完成 | heat 回归 + 阶段二前端 + better-sidebar 修复 | heat 热度模型完整找回（issue #87，v0.7.10 移植：幂律衰减 + TYPE_DECAY + sleep 热联合双保护 + 实体热投影）+ 验收清单落地（heatEnabled 默认关 / feature_flags 31 键 / lightMode 联动 / sleep 降级审计暴露 / updated_at⊥last_accessed_at 契约）+ 阶段二前端（/list heat 投影、HeatBadge 三档、order=heat 页内排序）+ better-sidebar 修复（issue #88：内层动态子插件）；685 测试全绿 |
 | **v0.7.21** | ✅ 完成 | effort 回退流式修复 | autoDream/sleep 的 catch 式 effort 回退在流式路径是死代码（dsh-llm rc.1 把 adapter 异常转成终态 error finish chunk 不再抛出）→ `streamText` 捕获 finish-chunk 失败原因（`describeStreamFailure` 归一化）+ `withEffortFallback` 增加 `getStreamError` 访问器（effort 被拒去重试）+ `runAuditedLlm` 支持 `spec.streamError`（audit 记真实原因）；688 测试全绿 |
+| **v0.7.26** | ✅ 完成 | 巩固 effort 陷阱根治 + LLM 连通性测试 | 记忆巩固 `UNSUPPORTED_REASONING_EFFORT` 根治（defaultEffort 陷阱：harness 省略 effort 时注入 `reasoning.defaultEffort`，默认档位不被模型支持则任何重试无效）→ 新增 `resolveDreamEffort` 经 `ctx.llm.resolveModelInfo()` 探测模型支持的档位（不支持的配置档位自动换用模型支持的默认/首个档位，无 reasoning 能力则省略字段）；设置面板巩固/睡眠 6 字段补选型提示（引导非思考模型）；新增 `GET /api/dsh-mneme/llm-providers`（宿主侧 provider/model 发现）+ `POST /api/dsh-mneme/test-model`（模型连通性测试，空 body 按巩固路由解析，密钥不经插件侧）；732 测试全绿 |
+| **v0.7.25** | ✅ 完成 | 工具兼容性加固 + 内容预览 + 巩固模型引导 | 新增 `memory_get` 工具（第 8 个模型工具，按 id 读单条记忆全文）+ `memory_search`/`memory_list` render 嵌入标题/元数据/正文预览（宿主只透传 render 文本时模型也能读到内容）+ 巩固模型选型引导（config 注释/README 分类声明）；修复 memory_get execute 嵌套 output 的崩溃（userExecute is not a function）+ 工具重复注册去重（live patch reload）+ Standalone API 端口冲突重试 + client inject 声明对齐 + better-sidebar 集成加固；718 测试全绿 |
 | **v0.7.24** | ✅ 完成 | 桌面端崩溃紧急修复 | v0.7.23 把 webServer 移出 inject 致 cordis Proxy 抛 `cannot get property "webServer" without inject`（未注入属性直接访问抛错而非 undefined），桌面端重启插件树加载失败；修复：恢复 webServer 到 inject（cordis 等宿主就绪再 apply）+ apply/register 守卫改 `ctx.reflect.get`（免 inject 读取、未提供返回 undefined 不抛错，未来 headless 移出 inject 也安全）；真实 cordis + dsh-host-webserver 实测 API 路由 200 / 未知路径 404 / headless 静默不激活；714 测试全绿 |
 | **v0.7.23** | ✅ 完成 | 记忆沉淀「反复失败」根治 + 空体第二段 + skipInvalid splice 修复 | consolidation 合法空数组 `[]` no-op（CONSOLIDATION_PROMPT 允许无问题无需输出；此前 validateDecisions 硬判 non-empty → 整单 failed，模型无关、ChatGPT/Claude 同样踩中；修复：空数组显式短路 ok，不再触发隐式 keep 覆盖率误判）；`dreamMaxTokens` 默认 8192→32768（思考模型推理烧光预算根治余量）；skipInvalid splice 残留 bug（长度相等≠内容一致，被跳决策残留进 apply）；712 测试全绿 |
 | **v0.7.22** | ✅ 完成 | skipInvalid 宽容校验回归（issue #89）+ autoDream 节流 | 恢复 v0.6.9 的 skipInvalid 双轨结构（v0.7.11 重写丢失）：`dreamSkipInvalid` 单条非法决策跳过 + 合法子集应用 + run 记 degraded，`allowCrossTypeMerge` 显式放宽跨类型合并；弱模型（qwen3.8-flash）决策合规抖动不再整单拒绝；新增 `dreamMinIntervalMinutes`（0-10080，默认 0=不限）最小触发间隔，失败/degraded run 也占用间隔；严格模式/sleep 路径行为不变；feature_flags 白名单 34 键；696 测试全绿 |
@@ -508,7 +512,7 @@ dsh-mneme config show                                # 查看当前配置（toke
 │  服务层：saveWithDedupe / injectCandidates        │
 │         / mergeHumanEdits / onWrite 钩子          │
 ├─────────────────────────────────────────────────┤
-│  模型接口：7 个工具 + 自动注入 + 会话摘要          │
+│  模型接口：8 个工具 + 自动注入 + 会话摘要          │
 ├─────────────────────────────────────────────────┤
 │  autoDream：阈值调度 → LLM 决策清单               │
 │            → 校验（fail-safe）→ 应用 → 摘要       │
@@ -525,7 +529,7 @@ src/
 ├── mirror.js         # Markdown 镜像（渲染/解析，人工优先）
 ├── service.js        # 领域逻辑（去重合并、注入筛选、写入钩子）
 ├── config.js         # schemastery 配置 schema
-├── tools.js          # 7 个模型工具（defineTool）
+├── tools.js          # 8 个模型工具（defineTool）
 ├── inject.js         # systemPrompt.context 动态注入
 ├── summarize.js      # 会话结束 LLM 摘要
 ├── dream.js          # autoDream 调度 + runDream（LLM 决策 + 摘要）

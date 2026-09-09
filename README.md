@@ -106,6 +106,8 @@ dsh web
 | **v0.7.21** | 修复 autoDream/sleep 的 effort 回退在流式路径失效（catch 式回退死代码→流级捕获失败原因 + 去 effort 重试 + audit 记真实原因） | ✅ |
 | **v0.7.22** | 恢复 skipInvalid 宽容校验（issue #89：弱模型整单拒绝→单条跳过 + 合法子集应用 + run 记 degraded）+ autoDream 最小触发间隔 | ✅ |
 | **v0.7.23** | 记忆沉淀「反复失败」根治（consolidation 合法空数组 [] → no-op）+ 空体修复第二段（dreamMaxTokens 默认 8192→32768）+ skipInvalid splice 残留 bug | ✅ |
+| **v0.7.25** | 工具兼容性加固（memory_get 工具 + 内容预览 + 巩固模型引导，718 测试全绿） | ✅ |
+| **v0.7.26** | 记忆巩固 UNSUPPORTED_REASONING_EFFORT 根治（defaultEffort 陷阱 → resolveDreamEffort 能力探测）+ LLM 模型连通性测试（llm-providers / test-model，732 测试全绿） | ✅ |
 | **v0.8.0** | 图谱增强：兴趣漂移可视化 + scope 隔离（issue #17）+ 跨 workspace 共享 | 🚧 计划中（9 月末） |
 
 > 完整逐小版本路线图见 [dsh-mneme/README.md](dsh-mneme/README.md#-进化路线图)（中）/ [dsh-mneme/README.en.md](dsh-mneme/README.en.md#-evolution-roadmap)（英）。
@@ -211,6 +213,9 @@ Works out of the box. Enable these as needed:
 | **v0.7.0** | Self-evolving memory: heat decay + sleep dual-protection + entity heat projection | ✅ |
 | **v0.7.21** | Fix autoDream/sleep effort fallback dead on the stream path (catch-based retry → stream-level failure capture + effortless retry + real cause in audit) | ✅ |
 | **v0.7.22** | Restore skipInvalid tolerant validation (issue #89: weak-model whole-batch rejection → per-item skip + valid-subset apply + run marked degraded) + autoDream min trigger interval | ✅ |
+| **v0.7.23** | "Consolidation keeps failing" root cause (legal empty array [] → no-op) + empty-body part 2 (dreamMaxTokens default 8192→32768) + skipInvalid splice residue bug | ✅ |
+| **v0.7.25** | Tool-compat hardening (memory_get tool + render content preview + consolidation-model guide, 718 tests green) | ✅ |
+| **v0.7.26** | Consolidation UNSUPPORTED_REASONING_EFFORT root fix (defaultEffort trap → resolveDreamEffort capability probing) + LLM connectivity test (llm-providers / test-model, 732 tests green) | ✅ |
 | **v0.8.0** | Graph enhancement: interest-drift visualization + scope isolation (issue #17) + cross-workspace sharing | 🚧 Planned (late Sep) |
 
 > Full per-minor-version roadmap: [dsh-mneme/README.md](dsh-mneme/README.md#-进化路线图) (zh) / [dsh-mneme/README.en.md](dsh-mneme/README.en.md#-evolution-roadmap) (en).
