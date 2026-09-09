@@ -147,7 +147,7 @@ test("sidebar entry portals above the workspaces region with footer fallback", (
     "the portal entry persists across collapse (no footer jump); footer fallback only covers portal failure"
   );
   assert.ok(
-    clientSource.includes('className: `${nativeCls} mneme-topentry-native`'.replace("${nativeCls} mneme-topentry-native", "${nativeCls} mneme-topentry-native")),
+    clientSource.includes('className: `${nativeCls} mneme-topentry-native`'),
     "the entry must reuse the host New-Session button class for native geometry alignment"
   );
   assert.ok(
