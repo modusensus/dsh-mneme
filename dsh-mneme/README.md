@@ -49,13 +49,14 @@ dsh web
   - 逐 type 记录 `committed / failed / pending` 回执，健康端点区分 `ok / degraded / unknown`
   - 状态写失败不静默：同步失败落日志并留债务，重启自动收敛
 
-### 模型工具（7 个）
+### 模型工具（8 个）
 
 | 工具 | 功能 |
 |------|------|
 | `memory_save` | 记录一条记忆（自动按标题去重合并） |
 | `memory_search` | 全文搜索（中文子串友好，可启用向量语义搜索） |
 | `memory_list` | 按类型分页列出（`include_archived=true` 可查看已归档） |
+| `memory_get` | 读取单条记忆完整正文（v0.7.25，按 id；memory_search / memory_list 命中后读全文） |
 | `memory_update` | 修改已有记忆 |
 | `memory_delete` | 删除记忆（按记忆 ID 精确删除） |
 | `memory_forget` | 抑制注入（降权不删除，可恢复） |
