@@ -66,8 +66,6 @@ jobs:
           { echo "chore: v${{ inputs.version }} 发布准备（版本号 + 测试徽章 + CHANGELOG/路线图占位行）"
             echo
             echo "请在 CHANGELOG 与两个 README 的占位行补描述后再合并。"
-            echo
-            echo "Co-Authored-By: Anans-Ivresse <Anans-Ivresse@users.noreply.github.com>"
           } > commit-msg.txt
           git commit -F commit-msg.txt
           git push origin "release-prep/${{ inputs.version }}"
