@@ -424,10 +424,10 @@ window.__ModuleLoader__.load({
         "memory.status.memories": "记忆总数",
         "memory.status.entities": "实体",
         "memory.status.vector": "向量索引",
-        "memory.status.vectorOn": "已启用",
         "memory.status.vectorOff": "未启用",
         "memory.status.vectorInit": "初始化中",
         "memory.status.vectorInitHint": "embedder 不可达，正在重试",
+        "memory.status.vectorIndexed": "已索引 {n} / {m} 条",
         "memory.status.llm": "LLM 消耗",
         "memory.status.llmCalls": "近 7 天 · {n} 次调用",
         "memory.status.error": "加载失败"
@@ -729,10 +729,10 @@ window.__ModuleLoader__.load({
         "memory.status.memories": "Total memories",
         "memory.status.entities": "Entities",
         "memory.status.vector": "Vector index",
-        "memory.status.vectorOn": "Enabled",
         "memory.status.vectorOff": "Disabled",
         "memory.status.vectorInit": "Initializing",
         "memory.status.vectorInitHint": "embedder unreachable, retrying",
+        "memory.status.vectorIndexed": "Indexed {n} / {m} items",
         "memory.status.llm": "LLM Usage",
         "memory.status.llmCalls": "Last 7 days · {n} calls",
         "memory.status.error": "Failed to load"
@@ -2587,7 +2587,7 @@ window.__ModuleLoader__.load({
 
     // 向量索引 — whether semantic recall is switched on.
     function VectorStatusCard({ t }) {
-      const [state, setState] = useState({ loading: true, error: false, provider: null, ready: null, dimension: 0, embedded: 0 });
+      const [state, setState] = useState({ loading: true, error: false, provider: null, ready: null, dimension: 0, embedded: 0, total: 0 });
       useEffect(() => {
         let cancelled = false;
         // #118: /vector-config is secret-bearing (401 without a stored token →
@@ -2604,7 +2604,8 @@ window.__ModuleLoader__.load({
               provider: j?.embedProvider || null,
               ready: j?.ready ?? null,
               dimension: Number(j?.dimension ?? 0),
-              embedded: Number(j?.index?.embeddedCount ?? 0)
+              embedded: Number(j?.index?.embeddedCount ?? 0),
+              total: Number(j?.index?.totalCount ?? 0)
             });
           })
           .catch(() => { if (!cancelled) setState({ loading: false, error: true, provider: null, ready: null, dimension: 0, embedded: 0 }); });
@@ -2619,7 +2620,7 @@ window.__ModuleLoader__.load({
           : `${state.provider.replace(/Embedder$/, "")} · ${state.dimension}D`;
       const cap = pending
         ? t("memory.status.vectorInitHint")
-        : off ? "" : t("memory.settings.vectorReindexDone").replace("{n}", state.embedded);
+        : off ? "" : t("memory.status.vectorIndexed").replace("{n}", state.embedded).replace("{m}", state.total);
       return h(StatusCard, {
         t,
         title: t("memory.status.vector"),
