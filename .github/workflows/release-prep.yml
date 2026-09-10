@@ -1,0 +1,74 @@
+name: Release Prep
+
+# 发布准备自动化：bump 版本号（package.json + package-lock）+ 同步双 README 测试徽章
+# + CHANGELOG 顶部空节 + 双 README 版本历史/路线图占位行，推 release-prep/<版本> 分支并自动开 PR。
+# CHANGELOG/路线图的描述文字仍需人工在 PR 里补（机器写不了内容）。
+# 使用：手动触发填目标版本号 → 合并 PR → 推 v<版本> tag 即自动发布（release.yml）。
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '目标版本号（如 0.7.30，不带 v）'
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  prep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate version format
+        run: |
+          V="${{ inputs.version }}"
+          if ! [[ "$V" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::版本号格式应为 0.X.Y（如 0.7.30），当前: $V"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: dsh-mneme/package-lock.json
+
+      - name: Install dependencies
+        working-directory: dsh-mneme
+        run: npm ci
+
+      - name: Count passing tests
+        id: tests
+        working-directory: dsh-mneme
+        run: |
+          COUNT=$(node --test test/*.test.js 2>&1 | tail -10 | grep -oE 'pass [0-9]+' | grep -oE '[0-9]+')
+          echo "count=$COUNT"
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+
+      - name: Run release-prep (version bump + badge + placeholder rows)
+        run: node scripts/release-prep.mjs "${{ inputs.version }}" "${{ steps.tests.outputs.count }}"
+
+      - name: Create release-prep branch + PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "modusensus"
+          git config user.email "modusensus@users.noreply.github.com"
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "::warning::无改动（版本号/占位行已存在）——跳过提交与 PR"
+            exit 0
+          fi
+          git checkout -b "release-prep/${{ inputs.version }}"
+          git add dsh-mneme/package.json dsh-mneme/package-lock.json dsh-mneme/CHANGELOG.md README.md dsh-mneme/README.md
+          { echo "chore: v${{ inputs.version }} 发布准备（版本号 + 测试徽章 + CHANGELOG/路线图占位行）"
+            echo
+            echo "请在 CHANGELOG 与两个 README 的占位行补描述后再合并。"
+          } > commit-msg.txt
+          git commit -F commit-msg.txt
+          git push origin "release-prep/${{ inputs.version }}"
+          gh pr create --base main --head "release-prep/${{ inputs.version }}" \
+            --title "release: v${{ inputs.version }} 发布准备" \
+            --body "由 Release Prep 工作流生成：版本号（package.json + package-lock）、测试徽章（自动取当前测试数）已同步，CHANGELOG/路线图已加占位行。请在 CHANGELOG 与两个 README 的占位行补描述后再合并。合并后推 v${{ inputs.version }} tag 即自动发布。"

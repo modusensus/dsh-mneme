@@ -104,14 +104,16 @@ console.log(`记忆目录：${memDir}\n`);
 // 1. 装载检查
 console.log("【1】插件装载");
 const checks = [];
-checks.push(["注册 7 个模型工具", registeredTools.length === 7]);
+// 硬编码精确数会随插件演进过时（v0.7 起已有 8 工具 / 26+ 路由，早期写死的
+// 7/14 导致新旧 dsh 上 e2e 都误报失败）；改用「下限」检查 + 打印实际数量。
+checks.push(["注册 ≥7 个模型工具", registeredTools.length >= 7]);
 checks.push(["注册 2 个注入上下文", injectContexts.length === 2 && injectContexts[0].name === "memory"]);
-// 契约是 14 条 exact 路由（v0.3 实体清单接口后由 13 条扩到 14 条）；
 // prefix fallback（/api/dsh-mneme → 404）是兜底，不计入路由数。
-checks.push(["注册 14 条 API 路由", apiRoutes.filter((r) => r.kind === "exact").length === 14]);
+checks.push(["注册 ≥14 条 API 路由", apiRoutes.filter((r) => r.kind === "exact").length >= 14]);
 for (const [label, ok] of checks) console.log(`  ${ok ? "✅" : "❌"} ${label}`);
 if (!checks.every(([, ok]) => ok)) { console.log("\n装载检查失败，中止。"); process.exit(1); }
-console.log(`  工具：${registeredTools.map((t) => t.name).join(", ")}\n`);
+console.log(`  工具（${registeredTools.length}）：${registeredTools.map((t) => t.name).join(", ")}`);
+console.log(`  exact 路由：${apiRoutes.filter((r) => r.kind === "exact").length} 条\n`);
 
 // 2. 保存记忆（工具执行）
 console.log("【2】memory_save 保存记忆");

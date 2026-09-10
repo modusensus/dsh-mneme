@@ -169,7 +169,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.verify.outputs.version }}
         run: |
-          # 标题统一纯版本号（v0.7.9 基准，桉桉 9/8 拍板）；Release 正文由
+          # 标题统一纯版本号（v0.7.9 基准，9/8 决定）；Release 正文由
           # 上方抽取的 CHANGELOG 分类小节提供（## 🆕 新功能 / 🐛 修复 / 🏗️ 工程 / 📦 升级提示）
           if gh release view "v${VERSION}" >/dev/null 2>&1; then
             gh release edit "v${VERSION}" --title "v${VERSION}" --notes-file notes/body.md
