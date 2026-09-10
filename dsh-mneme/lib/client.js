@@ -957,10 +957,9 @@ window.__ModuleLoader__.load({
       ".mneme-heat--warm{color:var(--dsw-alias-label-secondary)}",
       ".mneme-heat--cold{color:var(--dsw-alias-label-tertiary)}",
       ".mneme-heat--cold .mneme-heatpct{display:none}",
-      // width:100% 与「新会话」同宽（同一弹性父容器）；文案对齐交给复制来的
-      // 原生类，不再用 flex:1/text-align:left 覆盖成左对齐。
-      ".mneme-topentry{display:contents}",
-      ".mneme-topentry-native{width:100%;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary)}",
+      // 纵向 flex 容器按原生按钮的宽度与外边距分配空间，保留展开和收起态的对齐。
+      ".mneme-topentry{display:flex;flex-direction:column}",
+      ".mneme-topentry-native{background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary)}",
       ".mneme-topentry-native:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}",
       ".mneme-topentry-native .mneme-topentry-label{white-space:nowrap}",
       // --- 功能开关：一行一开关，Claude 式安静排版 ---
@@ -3807,10 +3806,8 @@ window.__ModuleLoader__.load({
         };
       }, []);
       if (!host) return fallback;
-      // wrapper 用 display:contents 隐身：我们的按钮成为侧边栏弹性布局的
-      // 直接子元素，与「新会话」按钮同级同距；展开/收起只切换图标与文案。
       return reactDom.createPortal(
-        h("div", { className: "mneme-topentry", style: { display: "contents" } },
+        h("div", { className: "mneme-topentry" },
           h("button", {
             type: "button",
             className: `${nativeCls} mneme-topentry-native`.trim(),

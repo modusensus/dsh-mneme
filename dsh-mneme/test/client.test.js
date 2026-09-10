@@ -163,10 +163,10 @@ test("sidebar entry portals above the workspaces region with footer fallback", (
 // Three alignment/softness guarantees born from field feedback: (a) the
 // portalled entry keeps tracking the live New-Session class (host and skin
 // rewrite it asynchronously, so a mount-time snapshot goes stale), (b) it
-// fills the same width as that button and inherits its native centering,
+// inherits that button's width and margins along with its native centering,
 // (c) the toolbar dropdown escapes the transform stacking trap — the
 // container needs the z-index because transform creates the context.
-test("entry tracks native class, fills native width, and lifts the toolbar dropdown", () => {
+test("entry tracks native class, inherits native sizing, and lifts the toolbar dropdown", () => {
   assert.ok(
     clientSource.includes("new MutationObserver"),
     "the entry must re-sync the copied class via MutationObserver"
@@ -175,9 +175,14 @@ test("entry tracks native class, fills native width, and lifts the toolbar dropd
     clientSource.includes('attributeFilter: ["class"]'),
     "the observer must watch class attribute changes"
   );
+  assert.doesNotMatch(
+    clientSource,
+    /\.mneme-topentry-native\{(?:[^}]*;)?width:/,
+    "the entry must use the native button width, which reserves its horizontal margins"
+  );
   assert.ok(
-    /\.mneme-topentry-native\{width:100%;/.test(clientSource),
-    "the entry button must fill the same width as the New-Session row"
+    clientSource.includes(".mneme-topentry{display:flex;flex-direction:column}"),
+    "the entry wrapper must stretch the native button within a column flex layout"
   );
   assert.equal(
     clientSource.includes(".mneme-topentry-native .mneme-topentry-label{flex:1;min-width:0;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}"),
