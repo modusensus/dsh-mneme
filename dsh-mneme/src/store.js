@@ -1023,8 +1023,11 @@ export function createStore(path) {
   }
 
   function embeddedCount() {
+    // Active rows only — getStats pairs this with count() as the status card's
+    // "indexed N / M" denominator, and count() defaults exclude forgotten and
+    // archived memories. Unfiltered, archived rows inflate N past M.
     return db.prepare(
-      "SELECT count(*) AS c FROM memories WHERE embedding IS NOT NULL AND embedding != ''"
+      "SELECT count(*) AS c FROM memories WHERE embedding IS NOT NULL AND embedding != '' AND forgotten = 0 AND archived = 0"
     ).get().c;
   }
 

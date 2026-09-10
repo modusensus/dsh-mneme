@@ -462,6 +462,12 @@ test("GET /api/dsh-mneme/semantic reports ready state per embedder", async () =>
 
   // legacy OpenAI embedder has no `ready` prop → treated as ready
   assert.equal((await fetchSem({ embed() {} })).ready, true, "no ready prop → assumed ready");
+
+  // legacy embedder carries an explicit display name (constructor.name of a
+  // literal is "Object", which the status card must not render verbatim)
+  const named = await fetchSem({ name: "OpenAI", embed() {} });
+  assert.equal(named.embedProvider, "OpenAI", "explicit name beats constructor.name");
+  assert.equal(named.ready, true);
 });
 
 // --- Bug8: llm-audit API (pagination + stats) --------------------------------

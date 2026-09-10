@@ -242,6 +242,15 @@ test("setEmbedding, embeddedCount, needsEmbedding and threshold filtering", () =
   assert.equal(store.embeddedCount(), 0);
   store.setEmbedding(m2.id, [0, 1]);
   assert.equal(store.embeddedCount(), 1);
+  // Status-card denominator alignment: count() defaults exclude archived and
+  // forgotten rows, so embeddedCount must drop them too.
+  store.setArchived(m2.id, true);
+  assert.equal(store.embeddedCount(), 0, "archived rows leave the embedded count");
+  store.setArchived(m2.id, false);
+  store.setForget(m2.id, true);
+  assert.equal(store.embeddedCount(), 0, "forgotten rows leave the embedded count");
+  store.setForget(m2.id, false);
+  assert.equal(store.embeddedCount(), 1);
   const missing = store.needsEmbedding(10);
   assert.equal(missing.length, 1);
   assert.equal(missing[0].id, t1.id, "only the non-embedded row is listed");

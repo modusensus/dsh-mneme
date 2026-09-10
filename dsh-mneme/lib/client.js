@@ -2603,7 +2603,9 @@ window.__ModuleLoader__.load({
               error: false,
               provider: j?.embedProvider || null,
               ready: j?.ready ?? null,
-              dimension: Number(j?.dimension ?? 0),
+              // Legacy OpenAI embedder exposes dimension only after its first
+              // successful embed — fall back to the index stats' dimension.
+              dimension: Number(j?.dimension ?? j?.index?.dimension ?? 0),
               embedded: Number(j?.index?.embeddedCount ?? 0),
               total: Number(j?.index?.totalCount ?? 0)
             });

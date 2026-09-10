@@ -605,11 +605,13 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
       try {
         const stats = semantic?.vectorIndex?.getStats?.() ?? null;
         sendJson(res, 200, {
-          embedProvider: embedder ? (embedder.constructor?.name ?? "unknown") : null,
           // #118: expose readiness so the status card can tell "initializing /
           // unreachable" from "disabled". Legacy OpenAI embedder has no `ready`
           // prop and is immediately usable, so treat that as ready.
           ready: embedder ? ("ready" in embedder ? embedder.ready === true : true) : null,
+          // Explicit display name first: the legacy OpenAI-compatible embedder
+          // is an object literal, so constructor.name would be "Object".
+          embedProvider: embedder ? (embedder.name ?? embedder.constructor?.name ?? "unknown") : null,
           modelHash: embedder?.modelHash ?? null,
           dimension: embedder?.dimension ?? null,
           reranker: semantic?.reranker ? "ready" : null,

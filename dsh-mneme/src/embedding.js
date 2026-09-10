@@ -97,6 +97,9 @@ export function createEmbedder({ store, settings, logger, vectorIndex }) {
   }
 
   return {
+    // Display name for /semantic: a literal's constructor.name is "Object",
+    // which the status card would render verbatim.
+    name: "OpenAI",
     /** Fire-and-forget re-embed of a memory after any write. */
     schedule(memory) {
       if (!memory?.id) return;
