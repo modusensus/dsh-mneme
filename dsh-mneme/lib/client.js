@@ -426,6 +426,8 @@ window.__ModuleLoader__.load({
         "memory.status.vector": "向量索引",
         "memory.status.vectorOn": "已启用",
         "memory.status.vectorOff": "未启用",
+        "memory.status.vectorInit": "初始化中",
+        "memory.status.vectorInitHint": "embedder 不可达，正在重试",
         "memory.status.llm": "LLM 消耗",
         "memory.status.llmCalls": "近 7 天 · {n} 次调用",
         "memory.status.error": "加载失败"
@@ -729,6 +731,8 @@ window.__ModuleLoader__.load({
         "memory.status.vector": "Vector index",
         "memory.status.vectorOn": "Enabled",
         "memory.status.vectorOff": "Disabled",
+        "memory.status.vectorInit": "Initializing",
+        "memory.status.vectorInitHint": "embedder unreachable, retrying",
         "memory.status.llm": "LLM Usage",
         "memory.status.llmCalls": "Last 7 days · {n} calls",
         "memory.status.error": "Failed to load"
@@ -2583,22 +2587,46 @@ window.__ModuleLoader__.load({
 
     // 向量索引 — whether semantic recall is switched on.
     function VectorStatusCard({ t }) {
-      const [state, setState] = useState({ loading: true, error: false, enabled: false });
+      const [state, setState] = useState({ loading: true, error: false, provider: null, ready: null, dimension: 0, embedded: 0 });
       useEffect(() => {
         let cancelled = false;
-        apiFetch("/api/dsh-mneme/vector-config")
+        // #118: /vector-config is secret-bearing (401 without a stored token →
+        // "加载失败") and its `enabled` only reflects the OpenAI-compat external
+        // service, so ollama/local mode always showed "未启用". /semantic is open
+        // and covers every embedder provider + index stats.
+        apiFetch("/api/dsh-mneme/semantic")
           .then((res) => { if (!res.ok) throw new Error("http"); return res.json(); })
-          .then((j) => { if (!cancelled) setState({ loading: false, error: false, enabled: !!j.config?.enabled }); })
-          .catch(() => { if (!cancelled) setState({ loading: false, error: true, enabled: false }); });
+          .then((j) => {
+            if (cancelled) return;
+            setState({
+              loading: false,
+              error: false,
+              provider: j?.embedProvider || null,
+              ready: j?.ready ?? null,
+              dimension: Number(j?.dimension ?? 0),
+              embedded: Number(j?.index?.embeddedCount ?? 0)
+            });
+          })
+          .catch(() => { if (!cancelled) setState({ loading: false, error: true, provider: null, ready: null, dimension: 0, embedded: 0 }); });
         return () => { cancelled = true; };
       }, []);
+      const off = !state.provider;
+      const pending = !off && state.ready !== true;
+      const num = off
+        ? t("memory.status.vectorOff")
+        : pending
+          ? t("memory.status.vectorInit")
+          : `${state.provider.replace(/Embedder$/, "")} · ${state.dimension}D`;
+      const cap = pending
+        ? t("memory.status.vectorInitHint")
+        : off ? "" : t("memory.settings.vectorReindexDone").replace("{n}", state.embedded);
       return h(StatusCard, {
         t,
         title: t("memory.status.vector"),
         loading: state.loading,
         error: state.error,
-        num: state.enabled ? t("memory.status.vectorOn") : t("memory.status.vectorOff"),
-        cap: ""
+        num,
+        cap
       });
     }
 
