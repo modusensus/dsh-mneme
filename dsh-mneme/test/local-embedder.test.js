@@ -116,7 +116,9 @@ test("OllamaEmbedder init probes server and infers dimension", async () => {
   });
   try {
     const e = new OllamaEmbedder({ baseUrl: "http://localhost:11434", model: "nomic-embed-text" });
+    assert.equal(e.ready, false, "not ready before init");
     await e.init();
+    assert.equal(e.ready, true, "ready after init");
     assert.equal(e.dimension, 768);
   } finally {
     restore();

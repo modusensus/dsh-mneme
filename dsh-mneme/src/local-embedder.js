@@ -139,6 +139,9 @@ export class OllamaEmbedder {
     this.model = String(opts.model ?? "nomic-embed-text").trim();
     this.logger = opts.logger ?? null;
     this._dimension = null;
+    // #118: async-init embedders expose `ready` so the service queues re-embeds
+    // until init lands and the status card can show "initializing".
+    this.ready = false;
   }
 
   async _post(body) {
@@ -157,6 +160,7 @@ export class OllamaEmbedder {
     const body = await res.json();
     if (!Array.isArray(body?.embedding)) throw new Error(`Ollama ${this.model} returned no embedding`);
     this._dimension = body.embedding.length;
+    this.ready = true;
     this.logger?.info?.(
       `[dsh-mneme] ollama embedder ready: ${this.model} (dim=${this._dimension})`
     );

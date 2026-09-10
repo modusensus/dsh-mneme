@@ -199,6 +199,8 @@ export const apply = (ctx, config) => {
 
   let embedder = null;
   let reranker = null;
+  // #118: pending embedder-init retry timer, cleared on unload.
+  let embedRetryTimer = null;
   if (lightMode) {
     // Light mode: the whole vector pipeline stays off — no embedder (nothing
     // pulls in ONNX/transformers), no reranker, no boot backfill (the preset
@@ -226,13 +228,32 @@ export const apply = (ctx, config) => {
       service.setEmbedder(embedder);
       // issue #6: wait for extractor init before applying human edits, so
       // scheduled embeddings see a ready embedder.
-      embedder.init()
-        .then(() => applyHumanEdits())
-        .catch((error) => {
-          ctx.logger?.warn?.(`[dsh-mneme] embedder init failed, search degrades to keyword: ${String(error)}`);
-          service.setEmbedder(null);
-          applyHumanEdits();
-        });
+      const bootEmbedder = () => embedder.init()
+        .then(() => { applyHumanEdits(); return true; })
+        .catch(() => false);
+      // #118: the old one-shot probe permanently degraded search to keyword
+      // when Ollama was briefly unreachable at boot (recoverable only by
+      // restart). Retry briefly (5 attempts total: 1 initial + 4 × 15s);
+      // search degrades to keyword meanwhile because per-query embed failures
+      // are swallowed.
+      bootEmbedder().then((ok) => {
+        if (ok) return;
+        let tries = 4;
+        const retry = () => {
+          if (tries-- <= 0) {
+            ctx.logger?.warn?.("[dsh-mneme] embedder init retries exhausted, search degrades to keyword");
+            service.setEmbedder(null);
+            applyHumanEdits();
+            return;
+          }
+          embedRetryTimer = setTimeout(async () => {
+            if (await bootEmbedder()) return;
+            retry();
+          }, 15_000);
+        };
+        ctx.logger?.warn?.("[dsh-mneme] embedder init failed, retrying");
+        retry();
+      });
     } catch (error) {
       ctx.logger?.warn?.(`[dsh-mneme] embedder unavailable, search degrades to keyword: ${String(error)}`);
       applyHumanEdits();
@@ -395,6 +416,10 @@ export const apply = (ctx, config) => {
   }
 
   const disposers = [];
+
+  // #118: never let a pending embedder init retry fire after unload and touch
+  // a torn-down context.
+  disposers.push(() => { if (embedRetryTimer !== null) clearTimeout(embedRetryTimer); });
 
   ctx.inject(["systemPrompt"], (promptCtx) => {
     if (cfg.autoInject) disposers.push(createInjector(promptCtx, service, settings, cfg));

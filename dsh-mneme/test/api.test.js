@@ -435,6 +435,41 @@ test("no apiToken configured keeps all endpoints open", async () => {
   assert.equal(res.statusCode, 200, "open when apiToken is unset");
 });
 
+// --- #118: /semantic exposes embedder readiness for the status card ----------
+
+test("GET /api/dsh-mneme/semantic reports ready state per embedder", async () => {
+  const fetchSem = async (embedder) => {
+    const { routes } = setup(embedder);
+    const sem = routes.find((r) => r.path === "/api/dsh-mneme/semantic");
+    const res = new FakeRes();
+    await sem.handler(req("/api/dsh-mneme/semantic"), res);
+    assert.equal(res.statusCode, 200);
+    return JSON.parse(res.body);
+  };
+  // no embedder → everything null
+  assert.equal((await fetchSem(undefined)).embedProvider, null);
+  assert.equal((await fetchSem(undefined)).ready, null, "no embedder → ready null");
+
+  // Ollama-style embedder mid-init (ready:false) → ready false
+  class OllamaEmbedder { constructor() { this.ready = false; } }
+  const mid = await fetchSem(new OllamaEmbedder());
+  assert.equal(mid.embedProvider, "OllamaEmbedder");
+  assert.equal(mid.ready, false, "not-yet-ready embedder → ready false");
+
+  // ready after init
+  const ready = new OllamaEmbedder(); ready.ready = true;
+  assert.equal((await fetchSem(ready)).ready, true);
+
+  // legacy OpenAI embedder has no `ready` prop → treated as ready
+  assert.equal((await fetchSem({ embed() {} })).ready, true, "no ready prop → assumed ready");
+
+  // legacy embedder carries an explicit display name (constructor.name of a
+  // literal is "Object", which the status card must not render verbatim)
+  const named = await fetchSem({ name: "OpenAI", embed() {} });
+  assert.equal(named.embedProvider, "OpenAI", "explicit name beats constructor.name");
+  assert.equal(named.ready, true);
+});
+
 // --- Bug8: llm-audit API (pagination + stats) --------------------------------
 
 test("GET /api/dsh-mneme/semantic/llm-audit returns paginated rows", async () => {
