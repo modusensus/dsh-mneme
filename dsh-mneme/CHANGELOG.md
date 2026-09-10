@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.7.30] - 2026-09-10
+
+## 🐛 修复
+
+- **状态页「向量索引」卡片改读 `/semantic`（issue #118）**：旧实现读带鉴权的 `/vector-config`——无存储 token 时 401，卡片显示「加载失败」；且其 `enabled` 只反映 OpenAI 兼容外部服务，ollama/local 模式恒显「未启用」。改读开放的 `/semantic`（覆盖全部 embedder 提供方 + 索引统计），新增「初始化中（embedder 不可达，正在重试）」与「已索引 N / M 条」回填进度两种显示；清理不再使用的 `vectorOn` i18n 死键。
+- **legacy OpenAI 兼容 embedder 显示「Object · 0D」**：`createEmbedder` 返回对象字面量，`constructor.name` 为 "Object"，且进程首次嵌入成功前 `dimension` 为 undefined——卡片渲染成「Object · 0D」。embedder 显式携带 `name: "OpenAI"`，`/semantic` 的 `embedProvider` 优先读 `embedder.name`；客户端维度回退索引元数据 `index.dimension`。
+- **「已索引 N / M 条」分子大于分母**：`store.embeddedCount()` 不过滤归档/遗忘记忆（如实测库 269 条含 246 条归档），而 `count()` 默认只数活跃记忆（36）。embeddedCount 补齐 `forgotten = 0 AND archived = 0`，与分母同口径。
+- **embedder init 失败不再永久降级（issue #118）**：Ollama 等异步初始化 embedder 在启动时不可达（服务未就绪）原先一次性判死为关键词搜索、只能重启恢复。改为有界重试（共 5 次：初始 + 4×15s），期间搜索降级关键词，重试耗尽才降级并告警；插件卸载清理重试定时器。`OllamaEmbedder` 暴露 `ready` 生命周期位，`/semantic` 新增 `ready` 字段（无 embedder 为 null、初始化中 false、就绪 true；legacy 无 `ready` 属性视为就绪）。
+
+## 🏗️ 工程
+
+- 745 测试全绿（新增 `/semantic` ready 三态与显式显示名优先断言、embeddedCount 剔除归档/遗忘断言、`OllamaEmbedder.ready` 生命周期断言）。
+
 ## [0.7.29] - 2026-09-10
 
 ## 🐛 修复
