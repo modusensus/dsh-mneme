@@ -22,6 +22,9 @@ import { describeLocalRuntime, resolveRuntimeEntry } from "../lib/runtime/loader
 import { defaultModelCacheDir, defaultRuntimeDir, describePayload } from "../lib/runtime/layout.js";
 import { verifyPayload } from "../lib/runtime/verify.js";
 
+// 注意：下面是模板字面量，帮助正文里**不能出现反引号** —— 会把字面量提前截断。
+// 这个坑踩过一次，而且因为本文件原本不在任何测试覆盖里，CI 完全没抓到；
+// 现在由 test/runtime-cli.test.js 动态 import 本文件来兜底（语法错会在测试里直接炸）。
 const USAGE = `本地推理运行时管理（dsh-mneme / issue #131）
 
 用法：
@@ -44,23 +47,43 @@ const USAGE = `本地推理运行时管理（dsh-mneme / issue #131）
 
 class UsageError extends Error {}
 
+/** 必须带值的选项；缺值时是用法错误，不能把 "true" 当成路径用下去。 */
+const VALUE_OPTIONS = new Set(["runtime", "from", "cache-dir"]);
+/** 纯开关。 */
+const FLAG_OPTIONS = new Set(["json", "overwrite"]);
+
 /**
  * 参数解析：只支持 `--key value` 与 `--flag`。
  * 够用就不引库 —— 这个脚本要在「插件装不上」的场景下还能跑，依赖越少越好。
+ *
+ * 两个刻意的严格行为：
+ * - 缺值的 `--runtime` / `--from` / `--cache-dir` 直接报用法错误（exit 2）。宽松处理会让
+ *   它们变成 `true`，再被当作一个叫 "true" 的路径用下去，最后以 exit 1 收场 ——
+ *   真正的「你少打了一个值」被伪装成「运行时坏了」。
+ * - 未知选项也报用法错误，而不是静默忽略：打错字应当立刻可见。
  */
 function parseArgs(argv) {
   const options = {};
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i];
-    if (!token.startsWith("--")) throw new UsageError(`无法识别的参数：${token}`);
-    const key = token.slice(2);
-    const next = argv[i + 1];
-    if (next !== undefined && !next.startsWith("--")) {
-      options[key] = next;
-      i++;
-    } else {
-      options[key] = true;
+    const key = token.startsWith("--") ? token.slice(2) : null;
+    if (key === null || (!VALUE_OPTIONS.has(key) && !FLAG_OPTIONS.has(key))) {
+      const accepted = [
+        ...[...VALUE_OPTIONS].map((k) => `--${k} <值>`),
+        ...[...FLAG_OPTIONS].map((k) => `--${k}`)
+      ].join("、");
+      throw new UsageError(`无法识别的参数：${token}（可用：${accepted}）`);
     }
+    if (FLAG_OPTIONS.has(key)) {
+      options[key] = true;
+      continue;
+    }
+    const value = argv[i + 1];
+    if (value === undefined || value.startsWith("--")) {
+      throw new UsageError(`--${key} 需要带一个值`);
+    }
+    options[key] = value;
+    i++;
   }
   return options;
 }
@@ -205,16 +228,28 @@ async function main() {
   throw new UsageError(`未知命令：${command}\n\n${USAGE}`);
 }
 
-try {
-  process.exitCode = await main();
-} catch (error) {
-  if (error instanceof UsageError) {
-    process.stderr.write(`${error.message}\n`);
-    process.exitCode = 2;
-  } else {
-    // 验证/收编本身是 fail-safe 的；能走到这里的多半是环境问题（磁盘、权限），
-    // 如实打出来，别吞。
-    process.stderr.write(`失败：${error?.stack ?? error}\n`);
-    process.exitCode = 1;
+/**
+ * 只有被直接执行时才跑 CLI。这样测试可以安全地 `import` 本文件来验证它能被解析并求值
+ * —— 脚本不在任何其它测试覆盖里，一个模板字面量里的反引号就足以让它整体坏掉而 CI 全绿。
+ * 与 scripts/benchmark-recall.js 的 invokedDirectly 同一套写法。
+ */
+const invokedDirectly =
+  process.argv[1] != null && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/").split("/").pop() ?? "");
+
+if (invokedDirectly) {
+  try {
+    process.exitCode = await main();
+  } catch (error) {
+    if (error instanceof UsageError) {
+      process.stderr.write(`${error.message}\n`);
+      process.exitCode = 2;
+    } else {
+      // 验证/收编本身是 fail-safe 的；能走到这里的多半是环境问题（磁盘、权限），
+      // 如实打出来，别吞。
+      process.stderr.write(`失败：${error?.stack ?? error}\n`);
+      process.exitCode = 1;
+    }
   }
 }
+
+export { main, parseArgs, UsageError };
