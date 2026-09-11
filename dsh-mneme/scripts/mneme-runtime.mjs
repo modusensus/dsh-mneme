@@ -141,12 +141,28 @@ async function runAdopt({ runtimeDir, asJson, options }) {
     overwrite: options.overwrite === true
   });
 
+  // 收编失败时 adoptRuntime **不带 payloadDir**（入口包解析不到就是这条路径）。
+  // 必须先处理，否则下面拿 undefined 当路径喂给 describePayload，用户看到的是
+  // `TypeError: The "path" argument must be of type string` 的堆栈，
+  // 而不是「入口包不存在 + 下一步该做什么」——而这是文档里给用户的第一条命令。
+  if (result.ok === false) {
+    if (asJson) printJson(result);
+    else console.log(`收编失败：${result.reason}`);
+    return 1;
+  }
+
   // 搬运完立刻做结构检查：缺件现在就能发现，不必等到第一次推理才炸。
   const structural = describePayload(result.payloadDir);
 
+  // 两条判据都要过：describePayload 只点三个必需包，**不看闭包计划里的必需依赖缺口**。
+  // 只认 structural.ok 的话，「缺传递依赖、入口一 import 就炸」的收编会报 exit 0，
+  // 脚本化的 gate 就在最需要它的时候误报健康。
+  const gaps = result.plan.gaps;
+  const healthy = structural.ok && gaps.length === 0;
+
   if (asJson) {
-    printJson({ ...result, structural });
-    return structural.ok ? 0 : 1;
+    printJson({ ...result, structural, healthy });
+    return healthy ? 0 : 1;
   }
 
   console.log(`已收编到：${result.payloadDir}`);
@@ -157,17 +173,19 @@ async function runAdopt({ runtimeDir, asJson, options }) {
     console.log(`跳过（平台不适用）：${result.plan.skipped.map((s) => s.name).join("、")}`);
   }
   for (const warning of result.manifest.warnings) console.log(`警告：${warning}`);
-  // 缺件是硬失败：闭包不完整的运行时，功能验证必然也过不了，不该报成功。
-  for (const gap of result.plan.gaps) {
+  for (const gap of gaps) {
     console.log(`缺失依赖：${gap.name}（被 ${gap.from} 需要：${gap.reason}）`);
   }
   for (const item of structural.missing) console.log(`缺失文件：${item}`);
   for (const reason of structural.reasons) console.log(`结构问题：${reason}`);
   console.log(`结构检查：${structural.ok ? "通过" : "未通过"}`);
-  if (structural.ok) {
+  if (gaps.length > 0) {
+    console.log(`闭包完整性：未通过（${gaps.length} 个必需依赖缺失，入口加载时会失败）`);
+  }
+  if (healthy) {
     console.log(`\n下一步：node scripts/mneme-runtime.mjs verify   # 真跑一次推理确认可用`);
   }
-  return structural.ok ? 0 : 1;
+  return healthy ? 0 : 1;
 }
 
 async function runVerify({ runtimeDir, asJson, options }) {
@@ -252,4 +270,4 @@ if (invokedDirectly) {
   }
 }
 
-export { main, parseArgs, UsageError };
+export { main, parseArgs, runAdopt, UsageError };
