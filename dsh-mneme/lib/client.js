@@ -1020,6 +1020,8 @@ window.__ModuleLoader__.load({
       ".mneme-featsub{margin:2px 0 8px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;display:flex;flex-direction:column;gap:6px}",
       ".mneme-featsub .mneme-featnum{padding:6px 0;border-bottom:none}",
       ".mneme-featsubhint{font-size:12px;line-height:17px;color:var(--dsw-alias-label-tertiary)}",
+      // 运行时那一块的说明文字：比常规 hint 再小一档，它是背景信息而不是要读的正文。
+      ".mneme-runtimehint{font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary)}",
       // --- 交互式记忆库：工具栏 / 卡片网格 / 详情抽屉 / 更多菜单 ---
       // sheet 边距放宽：与窗口边缘保持呼吸距离，居中不顶满。
       // 视图切换（卡片/时间线）分段控件挂在子页栏右侧。
@@ -2677,17 +2679,24 @@ window.__ModuleLoader__.load({
         }
       };
 
+      // 配好之后就把整块收起来：设置页只在「需要用户知道或行动」时占地方，配好了就是纯噪音。
+      // （msg 例外：刚点完按钮要看结果，那一刻 ready 还没变，本来也不会命中这条。）
+      if (available && ready === true && msg === "") return null;
+
       return h(react.Fragment, null,
-        h("div", { className: "mneme-set-hint" },
+        h("div", { className: "mneme-runtimehint" },
           t("memory.runtime.title") + "：" + (available ? t("memory.runtime.available") : t("memory.runtime.missing"))),
-        h("div", { style: { opacity: 0.85 } }, t("memory.status.vectorRuntimeCost")),
-        available ? null : h("button", {
-          type: "button",
-          className: "mneme-footbtn",
-          disabled: busy,
-          onClick: provision
-        }, busy ? t("memory.status.vectorRuntimeFetchBusy") : t("memory.status.vectorRuntimeFetch")),
-        msg ? h("div", { className: "mneme-set-hint" }, msg) : null,
+        // 未就绪时才给代价说明与按钮；已就绪只留上面那行状态（以及在需要重启时下面那行提醒）。
+        available ? null : h(react.Fragment, null,
+          h("div", { className: "mneme-runtimehint" }, t("memory.status.vectorRuntimeCost")),
+          h("button", {
+            type: "button",
+            className: "mneme-footbtn",
+            disabled: busy,
+            onClick: provision
+          }, busy ? t("memory.status.vectorRuntimeFetchBusy") : t("memory.status.vectorRuntimeFetch"))
+        ),
+        msg ? h("div", { className: "mneme-runtimehint" }, msg) : null,
         needsRestart ? h("div", { className: "mneme-saved" }, t("memory.runtime.restart")) : null
       );
     }
