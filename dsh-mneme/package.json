@@ -31,6 +31,7 @@
     "src",
     "scripts",
     "test",
+    "runtime-manifest.json",
     "cordis.patch.yml"
   ],
   "dsh": {
