@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { gzipSync } from "node:zlib";
 import { sha512Base64, stripPackagePrefix, verifyIntegrity, walkTar, walkTgz } from "../lib/runtime/tarball.js";
+import { tarFile, tarHeader, tarMeta, tarPax } from "./helpers/tar-builder.js";
 
 // PR-C 下载通道的归档读取层。这里是整条链里最该被单独守住的一块：它读的是别人产出的字节，
 // 一旦读错，我们就会把「缺文件/文件截断」的运行时当成完整的搬进 payload，而那种错误
@@ -9,45 +10,6 @@ import { sha512Base64, stripPackagePrefix, verifyIntegrity, walkTar, walkTgz } f
 //
 // 合成归档在测试里现造（不引 tar 库），另外单独用 npm pack 产出的真实 .tgz 做过一次交叉核对
 // （见 PR 描述里的验证记录）——合成归档只能证明读取器与规范一致，真实产物才能证明它与 npm 一致。
-
-/** 造一个 ustar 头块。字段布局照 POSIX ustar；校验和按规范用八进制写回。 */
-function tarHeader({ name = "", prefix = "", size = 0, type = "0" }) {
-  const header = Buffer.alloc(512);
-  header.write(name, 0, 100, "utf8");
-  header.write("0000644\0", 100, 8, "utf8");
-  header.write("0000000\0", 108, 8, "utf8");
-  header.write("0000000\0", 116, 8, "utf8");
-  header.write(`${size.toString(8).padStart(11, "0")}\0`, 124, 12, "utf8");
-  header.write("00000000000\0", 136, 12, "utf8");
-  header.write("        ", 148, 8, "utf8");
-  header.write(type, 156, 1, "utf8");
-  header.write("ustar\0", 257, 6, "utf8");
-  header.write("00", 263, 2, "utf8");
-  header.write(prefix, 345, 155, "utf8");
-  let sum = 0;
-  for (const byte of header) sum += byte;
-  header.write(`${sum.toString(8).padStart(6, "0")}\0 `, 148, 8, "utf8");
-  return header;
-}
-
-/** 一个普通文件条目（数据按 512 对齐补齐）。 */
-function tarFile(name, body, { prefix = "" } = {}) {
-  const data = Buffer.from(body, "utf8");
-  const padded = Buffer.alloc(Math.ceil(data.length / 512) * 512);
-  data.copy(padded);
-  return [tarHeader({ name, prefix, size: data.length, type: "0" }), padded];
-}
-
-/** 目录 / 符号链接等无数据的条目。 */
-function tarMeta(name, type) {
-  return [tarHeader({ name, size: 0, type })];
-}
-
-/** pax 扩展头：`长度 path=值\n`。 */
-function tarPax(path) {
-  const record = `${Buffer.byteLength(`path=${path}\n`) + String(Buffer.byteLength(`path=${path}\n`)).length} path=${path}\n`;
-  return tarFile("PaxHeaders/x", record).map((b, i) => (i === 0 ? tarHeader({ name: "PaxHeaders/x", size: Buffer.byteLength(record), type: "x" }) : b));
-}
 
 const END = [Buffer.alloc(512), Buffer.alloc(512)];
 
