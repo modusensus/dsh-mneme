@@ -15,6 +15,7 @@ import { createEmbedderByProvider } from "./local-embedder.js";
 import { LocalReranker } from "./reranker.js";
 import { createVectorIndex } from "./vector-index.js";
 import { Config, applyLightModePreset } from "./config.js";
+import { langOf } from "./lang.js";
 import { extractEntities } from "./entities/extractor.js";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -148,7 +149,9 @@ export const apply = (ctx, config) => {
     cfg[objKey] = { ...(cfg[objKey] ?? {}), ...sub };
   }
 
-  const mirror = createMirror(memoryDir);
+  // 记忆语言（memory.language）：本实例逐层传入 inject / summarize / dream /
+  // sleep / mirror，多实例（如 agent preset 内挂载）互不影响。
+  const mirror = createMirror(memoryDir, langOf(cfg));
   const service = createService({ store, mirror, config: cfg, logger: ctx.logger });
 
   // F-NEW-03: if the mirror sync failed last run (persisted dirty state), retry
@@ -347,7 +350,7 @@ export const apply = (ctx, config) => {
   // on boot; add/remove re-register live through the API.
   let commands = null;
   if (ctx.commands) {
-    commands = createCommandManager({ ctx, settings, logger: ctx.logger });
+    commands = createCommandManager({ ctx, settings, logger: ctx.logger, language: langOf(cfg) });
     commands.sync();
   }
 

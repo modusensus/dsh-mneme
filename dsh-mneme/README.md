@@ -373,6 +373,7 @@ dsh web
   name: '@modusensus/dsh-mneme'
   config:
     memoryDir: ~/.dsh/memory
+    language: zh
     autoInject: true
     autoSummarize: true
     maxInjectedItems: 5
@@ -388,6 +389,7 @@ dsh web
 | 键 | 默认值 | 说明 |
 |----|--------|------|
 | `memoryDir` | `~/.dsh/memory` | 记忆存储目录（SQLite + Markdown） |
+| `language` | `zh` | 记忆语言：生成的记忆条目、注入标题与后台 LLM 提示词所用语言（`zh` / `en`） |
 | `autoInject` | `true` | 会话启动自动注入记忆 |
 | `autoSummarize` | `true` | 会话结束自动提炼摘要 |
 | `summarizeProvider` / `summarizeModel` | 空 | 摘要的 LLM 路由覆盖（空=使用当前会话模型）；推荐轻量模型节省主模型 token |

@@ -1,6 +1,7 @@
 import { validateDecisions, applyDecisions } from "./dream/decisions.js";
 import { clusterMemories, findPotentialConflicts } from "./dream/clustering.js";
 import { createHash, randomUUID } from "node:crypto";
+import { STR, langOf } from "./lang.js";
 export { validateDecisions, applyDecisions, withEffortFallback, describeStreamFailure, resolveDreamEffort, resolveRoute };
 
 
@@ -40,52 +41,6 @@ function extractJsonArray(text) {
   }
   return null;
 }
-const SUMMARY_PROMPT = `你是记忆库摘要助手。根据整理后的记忆，生成一段 150-200 字的记忆库总览，覆盖：用户偏好、活跃项目、关键决策。之后作为会话上下文注入。只输出摘要文本，不要其他内容。`;
-
-const CONSOLIDATION_PROMPT = `你是记忆库整理助手。下面是全部记忆条目（id、类型、标题、内容、重要性、更新时间）。
-请执行记忆巩固（consolidation），输出一个决策 JSON 数组。
-
-【决策格式（必须严格遵守）】
-每个决策必须是对象，字段固定：
-- "action"：必填。取值只能是 "keep" / "merge" / "archive" / "update" / "conflict" 之一（字段名必须是 action，严禁写成 type）
-- "ids"：必填，数组，本决策涉及的记忆 id 列表
-- "reason"：可选，字符串，决策理由
-- "importance"：可选，整数 1-5
-- merge 额外字段："keepSource"（单个 id 字符串，必须是 ids 之一）+ 合并后的 "title"、"content"
-- conflict 额外字段："winner" 与 "loser"，都是【单个 id 字符串，不是数组】
-- update 额外字段：修正后的 "title" 和/或 "content"；"ids" 只能包含一个 id
-
-【决策 JSON 示例】
-[
-  { "action": "merge", "ids": ["m1", "m2"], "keepSource": "m1", "title": "合并标题", "content": "合并后的摘要内容", "importance": 4, "reason": "主题相近" },
-  { "action": "conflict", "winner": "m3", "loser": "m4", "reason": "内容矛盾，保留更新的信息" },
-  { "action": "update", "ids": ["m5"], "content": "修正后的内容", "reason": "信息过时" },
-  { "action": "archive", "ids": ["m6"], "reason": "重复或过时" }
-]
-
-【任务】
-1. 识别主题相近的条目 → merge（合并为更精炼的摘要，保留信息最完整的 id 作为 keepSource）
-2. 识别重复/过时信息 → archive
-3. 识别内容矛盾的条目 → conflict（按时间新旧、来源完整性、信息具体程度判断 winner/loser）
-4. 发现单条记忆中的信息过时、错误或遗漏 → update（直接修正内容）
-   - update 的 ids 只能包含一个 id
-   - 必须提供修正后的 title 和/或 content
-   - 仅当内容确实需要修正时才使用，不要滥用
-   - 每次整理最多输出 2 个 update
-   - 24 小时内新建的记忆不可 update
-5. 无问题的条目无需输出（未提及的条目将自动保留 keep）
-
-【硬性规则】
-- 字段名必须精确为 "action"，严禁写成 "type"；字段名统一用双引号
-- conflict 的 winner/loser、merge 的 keepSource 都是【单个 id 字符串，绝不是数组】
-- 每条记忆最多被 claim 一次：同一个 id 不能出现在多个决策中（同一 id 不能被 merge 和 conflict/archive 等重复占用）
-- 未在决策中提及的记忆将自动保留（keep），无需为每条记忆输出 keep
-- merge 的 keepSource 必须是 ids 之一
-- 仅合并同类型条目（type 相同）
-- 不要编造 ids；只使用提供的 id
-- 重要性 1-5，合并后取最高
-- 只输出 JSON 数组，不要其他文字`;
-
 function totalChars(memories) {
   return memories.reduce((sum, m) => sum + (m.title?.length ?? 0) + (m.content?.length ?? 0), 0);
 }
@@ -594,6 +549,7 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
   }
 
   async function runDream(ctx, service, config) {
+    const language = langOf(config);
     const logger = ctx.logger;
     let memories = service.all().filter((m) => !m.archived && m.type !== "summary");
     if (memories.length === 0) return { ok: true, applied: 0, skipped: true, summary: false };
@@ -687,11 +643,11 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
           const conflictIds = new Set(conflicts.flatMap((c) => [c.a.id, c.b.id]));
           const parts = [];
           clusters.forEach((cluster, ci) => {
-            parts.push(`# 聚类 ${ci + 1}`);
+            parts.push(STR.clusterHeader[language](ci + 1));
             for (const m of cluster) {
               parts.push(
                 `id=${m.id} | type=${m.type} | importance=${m.importance} | updated=${m.updated_at} | title=${m.title} | content=${m.content}` +
-                (conflictIds.has(m.id) ? " | [潜在冲突]" : "")
+                (conflictIds.has(m.id) ? STR.conflictMark[language] : "")
               );
             }
           });
@@ -712,8 +668,8 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     // winner/loser (validation requires them) but they are treated as tentative
     // candidates — the human makes the final call, not the model.
     const consolidationPrompt = freezeEnabled
-      ? CONSOLIDATION_PROMPT + `\n\n当前为「冲突冻结」模式：检测到内容矛盾的条目时，仍请输出 conflict，并以 winner/loser 作为候选、reason 说明理由；冲突不会被自动裁决，而会冻结待人工确认。`
-      : CONSOLIDATION_PROMPT;
+      ? STR.prompts.consolidation[language] + STR.prompts.freezeSuffix[language]
+      : STR.prompts.consolidation[language];
     let decisionText;
     // 加固（v0.8.1）：配置的 reasoningEffort 被 provider 拒收时回退重试一次
     // （不带该字段），避免 thinking 模型配置 low/medium 直接整单失败。解析放
@@ -902,7 +858,7 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       maxTokens: config.dreamMaxTokens ?? 2048,
       ...(withEffort && effort ? { reasoningEffort: effort } : {}),
       messages: [
-        { role: "system", content: [{ type: "text", text: SUMMARY_PROMPT }] },
+        { role: "system", content: [{ type: "text", text: STR.prompts.dreamSummary[language] }] },
         { role: "user", content: [{ type: "text", text: service.all().filter((m) => !m.archived && m.type !== "summary").map((m) => `- ${m.title}: ${m.content}`).join("\n") }] }
       ]
     }, reportUsage, (reason) => { summaryStreamFailure = describeStreamFailure(reason); }));
@@ -920,7 +876,7 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       // must REPLACE the previous overview (not append — that would grow the
       // summary unboundedly). `_overwrite` still archives the old overview into
       // content_history before replacing it.
-      service.saveWithDedupe({ type: "summary", title: "记忆库总览", content: summaryText.trim(), importance: 5, source: "dream", _overwrite: true });
+      service.saveWithDedupe({ type: "summary", title: STR.summaryTitle[language], content: summaryText.trim(), importance: 5, source: "dream", _overwrite: true });
       summaryStored = true;
       // Re-embed the fresh summary so the index stays in sync with the store.
       if (semantic?.embedder && semantic?.vectorIndex) {

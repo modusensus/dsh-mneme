@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { timingSafeEqual, randomBytes } from "node:crypto";
 import { FEATURE_FLAG_SPEC } from "./settings.js";
 import { TYPE_FILE, renderMirrorText, parseHumanEdits } from "./mirror.js";
+import { langOf } from "./lang.js";
 import { computeHeat } from "./heat.js";
 import { describeStreamFailure, resolveRoute } from "./dream.js";
 import { describeLocalRuntime, publicRuntimeStatus } from "./runtime/loader.js";
@@ -860,7 +861,7 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
         }
         const sections = [];
         for (const type of Object.keys(TYPE_FILE)) {
-          if (byType[type]?.length) sections.push(renderMirrorText(type, byType[type]));
+          if (byType[type]?.length) sections.push(renderMirrorText(type, byType[type], langOf(config)));
         }
         sendAttachment(res, 200, "text/markdown; charset=utf-8", `dsh-mneme-export-${stamp}.md`, sections.join("\n"));
       } catch {

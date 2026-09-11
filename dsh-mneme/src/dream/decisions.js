@@ -1,3 +1,5 @@
+import { STR, langOf } from "../lang.js";
+
 const ACTIONS = new Set(["keep", "merge", "archive", "conflict", "update", "create"]);
 
 // Epistemic trust (v0.4.5): when config.trustEpistemicWeighting is on, merge
@@ -330,6 +332,7 @@ function pickBestKeeper(ids, preferred, service) {
  * memories. saveWithDedupe dedupes identical mints (idempotent replay-safe).
  */
 function applyCreate(d, service, config = {}) {
+  const language = langOf(config);
   const title = String(d.title ?? "").trim();
   const content = String(d.content ?? "").trim();
   const importance = Number.isInteger(d.importance) ? d.importance : 3;
@@ -338,7 +341,7 @@ function applyCreate(d, service, config = {}) {
     ? d.evidence.filter((id) => typeof id === "string")
     : [];
   const body = evidence.length > 0
-    ? `${content}\n\n[证据: ${evidence.join(", ")}]`
+    ? STR.evidenceSuffix[language](content, evidence)
     : content;
   const created = service.saveWithDedupe({ type, title, content: body, importance });
   const memory = created?.memory;
@@ -408,6 +411,7 @@ function applyMerge(d, service, snapshot, config = {}) {
 }
 
 function applyConflict(d, service, snapshot, config = {}) {
+  const language = langOf(config);
   // Epistemic trust (v0.4.5): when enabled, the observation side of a conflict
   // is preferred as winner over a subjective/inferred one.
   if (config.trustEpistemicWeighting === true) {
@@ -428,7 +432,7 @@ function applyConflict(d, service, snapshot, config = {}) {
     const loserNow = service.getById(d.loser);
     if (!winnerNow || !loserNow || loserNow.archived) return;
     service.update(d.winner, {
-      content: `${winnerNow.content}\n\n（已否决旧信息：${[...loserNow.content].slice(0, 100).join("")}）`
+      content: STR.supersededSuffix[language](winnerNow.content, [...loserNow.content].slice(0, 100).join(""))
     });
     service.setArchived(d.loser, true);
   });
