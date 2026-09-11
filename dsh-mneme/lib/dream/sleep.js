@@ -1,4 +1,4 @@
-import { STR, lang } from "../lang.js";
+import { STR, langOf } from "../lang.js";
 // System-level sleep (v0.4.0): an idle-triggered, LLM-assisted deep pass over
 // the memory store. Four independent, fail-safe phases:
 //   1. conflict resolution — high-similarity same-type pairs are either parked
@@ -90,6 +90,7 @@ function makeSummary(m) {
  * each pair → winner kept / loser archived. Returns a per-run summary.
  */
 async function phaseConflicts(ctx, service, config, logger, runId, semantic = null, signal = null) {
+  const language = langOf(config);
   const embedder = semantic?.embedder;
   const vectorIndex = semantic?.vectorIndex;
   if (!embedder || !vectorIndex || typeof embedder.embed !== "function") {
@@ -151,7 +152,7 @@ async function phaseConflicts(ctx, service, config, logger, runId, semantic = nu
     let frozen = 0;
     for (const p of selected) {
       try {
-        service.saveConflictPending({ run_id: runId, memory_a: p.a.id, memory_b: p.b.id, reason: STR.similarityReason[lang()](p.similarity.toFixed(2)) });
+        service.saveConflictPending({ run_id: runId, memory_a: p.a.id, memory_b: p.b.id, reason: STR.similarityReason[language](p.similarity.toFixed(2)) });
         frozen++;
       } catch (error) {
         logger?.warn?.(`dsh-mneme sleep: failed to freeze conflict ${p.a.id}/${p.b.id}: ${String(error)}`);
@@ -169,7 +170,7 @@ async function phaseConflicts(ctx, service, config, logger, runId, semantic = nu
     snapshot.set(p.b.id, p.b);
   }
   const listText = selected.map((p) =>
-    STR.candidateConflicts[lang()](p)
+    STR.candidateConflicts[language](p)
   ).join("\n\n");
   const sleepEffort = await resolveDreamEffort(ctx, route, config.sleepReasoningEffort, logger);
   let conflictStreamFailure = "";
@@ -182,7 +183,7 @@ async function phaseConflicts(ctx, service, config, logger, runId, semantic = nu
     maxTokens: 2048,
     ...(withEffort && sleepEffort ? { reasoningEffort: sleepEffort } : {}),
     messages: [
-      { role: "system", content: [{ type: "text", text: STR.prompts.conflict[lang()] }] },
+      { role: "system", content: [{ type: "text", text: STR.prompts.conflict[language] }] },
       { role: "user", content: [{ type: "text", text: listText }] }
     ]
   }, (reason) => { conflictStreamFailure = describeStreamFailure(reason); });
@@ -276,6 +277,7 @@ function phaseDemotion(service, config, logger, runId, signal = null) {
  * "every id claimed" invariant is trivially satisfied for pure-create lists.
  */
 async function phasePatterns(ctx, service, config, logger, runId, signal = null) {
+  const language = langOf(config);
   const route = resolveSleepRoute(ctx, config, logger);
   if (!route) return { status: "skipped", reason: "no llm route" };
   const limit = config.sleepPatternMinMemories ?? 100;
@@ -301,7 +303,7 @@ async function phasePatterns(ctx, service, config, logger, runId, signal = null)
     maxTokens: 2048,
     ...(withEffort && sleepEffort ? { reasoningEffort: sleepEffort } : {}),
     messages: [
-      { role: "system", content: [{ type: "text", text: STR.prompts.pattern[lang()].replace("N", String(maxPatterns)) }] },
+      { role: "system", content: [{ type: "text", text: STR.prompts.pattern[language].replace("N", String(maxPatterns)) }] },
       { role: "user", content: [{ type: "text", text: listText }] }
     ]
   }, (reason) => { patternStreamFailure = describeStreamFailure(reason); });

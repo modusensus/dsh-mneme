@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { STR, lang } from "./lang.js";
+import { STR, langOf } from "./lang.js";
 
 export const TYPE_FILE = {
   preference: "preferences.md",
@@ -22,7 +22,7 @@ function unescape(text) {
   return String(text).replace(UNESCAPE, "$1");
 }
 
-function renderMemory(m) {
+function renderMemory(m, language = "zh") {
   // last-rendered digest baseline: sha256(title \x00 content). service.js
   // compares the file hash against this to tell "untouched by a human" (machine
   // write wins) apart from a real human edit, so a not-yet-re-rendered store
@@ -34,7 +34,7 @@ function renderMemory(m) {
   lines.push(`## ${esc(m.title)}`);
   lines.push("");
   lines.push(`- **ID**: \`${m.id}\``);
-  const ML = STR.mirrorLabel[lang()];
+  const ML = STR.mirrorLabel[language];
   lines.push(`- **${ML.type}**: ${m.type}`);
   lines.push(`- **${ML.importance}**: ${m.importance}`);
   lines.push(`- **${ML.tags}**: ${m.tags.map((t) => `\`${esc(t)}\``).join(" ")}`);
@@ -56,14 +56,14 @@ function renderMemory(m) {
  * byte-compatible with a mirror file and can be fed straight back through
  * parseHumanEdits → mergeHumanEdits. Unknown type → undefined.
  */
-export function renderMirrorText(type, memories) {
+export function renderMirrorText(type, memories, language = "zh") {
   const name = TYPE_FILE[type];
   if (!name) return undefined;
   const items = (memories ?? [])
     .slice()
     .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1));
-    const header = STR.mirrorHeader[lang()](name);
-  const body = items.map(renderMemory).join("\n");
+    const header = STR.mirrorHeader[language](name);
+  const body = items.map((m) => renderMemory(m, language)).join("\n");
   return header + body;
 }
 
@@ -136,7 +136,7 @@ export function parseHumanEdits(text) {
   return edits;
 }
 
-export function createMirror(dir) {
+export function createMirror(dir, language = "zh") {
   mkdirSync(dir, { recursive: true });
 
   function filePath(type) {
@@ -184,7 +184,7 @@ export function createMirror(dir) {
         } else {
           // 渲染走 renderMirrorText（与 /export 共用同一条渲染路径），磁盘镜像
           // 与导出文本永远同构。
-          writeFileSync(file, renderMirrorText(type, items), "utf8");
+          writeFileSync(file, renderMirrorText(type, items, language), "utf8");
         }
         results[type] = { ok: true };
       } catch (error) {

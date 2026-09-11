@@ -1,5 +1,5 @@
 import { BlockAssembler, createUserMessage } from "@deepseek-ai/dsh-llm";
-import { STR, lang } from "./lang.js";
+import { STR, langOf } from "./lang.js";
 
 // 编码记忆蒸馏 prompt（codingRetrospect 开启时启用）：在通用记忆之外，额外提取
 // 三类编码专属记忆，专治重复踩坑 / 遗忘被否决方案 / 丢失工程约束。字段仍沿用
@@ -88,7 +88,7 @@ function toProtocolChunk(chunk) {
 // Privacy: assistant `reasoning` (private thought) blocks are deliberately NOT
 // collected — distilled memories must never sink private reasoning chains.
 // Only public text blocks (type "text") reach the summarizer.
-function collectMessages(session, maxChars = 8000) {
+function collectMessages(session, maxChars = 8000, language = "zh") {
   // DSH 0.1.2-rc.1 起 Session 改用 snapshotEvents()，兼容旧版 .events
   const events = session.snapshotEvents?.() ?? session.events ?? [];
   const lines = [];
@@ -110,14 +110,14 @@ function collectMessages(session, maxChars = 8000) {
       case "user/message": {
         if (kind !== undefined && kind !== "user") break;
         const text = textOf(data?.content);
-        if (text.trim()) lines.push(STR.transcriptUser[lang()](text));
+        if (text.trim()) lines.push(STR.transcriptUser[language](text));
         break;
       }
       case "assistant/message": {
         const msg = data?.message;
         const blocks = Array.isArray(msg?.content) ? msg.content : [];
         const text = textOf(blocks);
-        if (text.trim()) lines.push(STR.transcriptAssistant[lang()](text));
+        if (text.trim()) lines.push(STR.transcriptAssistant[language](text));
         // 私有推理块（reasoning）刻意不采集：蒸馏记忆不得沉淀模型私有思考链。
         break;
       }
@@ -125,19 +125,19 @@ function collectMessages(session, maxChars = 8000) {
         const args = typeof data.arguments === "string"
           ? data.arguments
           : data.arguments ? JSON.stringify(data.arguments) : "";
-        lines.push(STR.transcriptToolCall[lang()](data.name ?? "?", trim(args, 300)));
+        lines.push(STR.transcriptToolCall[language](data.name ?? "?", trim(args, 300)));
         break;
       }
       case "tool/result": {
         const out = typeof data.output === "string" ? data.output : data.output ? JSON.stringify(data.output) : "";
-        const status = data.ok === false ? STR.statusFail[lang()] : STR.statusOk[lang()];
-        lines.push(STR.transcriptToolResult[lang()](status, trim(out, 500)));
+        const status = data.ok === false ? STR.statusFail[language] : STR.statusOk[language];
+        lines.push(STR.transcriptToolResult[language](status, trim(out, 500)));
         break;
       }
       case "tool/code-dispatch": {
         const out = typeof data.output === "string" ? data.output : data.output ? JSON.stringify(data.output) : "";
-        const status = data.ok === false ? STR.statusFail[lang()] : STR.statusOk[lang()];
-        lines.push(STR.transcriptCode[lang()](status, trim(out, 500)));
+        const status = data.ok === false ? STR.statusFail[language] : STR.statusOk[language];
+        lines.push(STR.transcriptCode[language](status, trim(out, 500)));
         break;
       }
       default:
@@ -207,7 +207,7 @@ export function createSummarizer(ctx, service, config) {
       if (!route) return;
       // 完整转录（Codex 式）：蒸馏把整轮对话交给 LLM 提炼原子记忆，不再硬裁
       // 8000 字截断语义；上限由 distillMaxChars 控制（默认 24000，可调大）。
-      const messages = collectMessages(session, config.distillMaxChars ?? 24000);
+      const messages = collectMessages(session, config.distillMaxChars ?? 24000, langOf(config));
       if (!messages.length) return;
 
       if (config?.llmAudit?.enabled !== false && typeof service.saveLlmAudit === "function") {
@@ -227,7 +227,7 @@ export function createSummarizer(ctx, service, config) {
         model: route.model,
         purpose: "summarization",
         messages: [
-          { role: "system", content: [{ type: "text", text: config.codingRetrospect ? STR.prompts.codingSummary[lang()] : STR.prompts.summary[lang()] }] },
+          { role: "system", content: [{ type: "text", text: config.codingRetrospect ? STR.prompts.codingSummary[langOf(config)] : STR.prompts.summary[langOf(config)] }] },
           ...messages
         ],
         signal: controller.signal

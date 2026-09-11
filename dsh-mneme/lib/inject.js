@@ -1,5 +1,5 @@
 import { createHotMemory } from "./hot-memory.js";
-import { STR, lang } from "./lang.js";
+import { STR, langOf } from "./lang.js";
 
 // Best-effort extraction of the current user's latest message text from the
 // live session, for semantic-first injection (Bug4). The system-prompt
@@ -77,6 +77,7 @@ function extractRounds(ctx, maxRounds) {
 }
 
 export function createInjector(ctx, service, settings, config) {
+  const language = langOf(config);
   const maxItems = config.maxInjectedItems ?? 5;
   const threshold = config.importanceThreshold ?? 3;
 
@@ -113,12 +114,12 @@ export function createInjector(ctx, service, settings, config) {
     for (const r of rounds) hot.add(r);
     const body = hot.getContext();
     if (!body) return "";
-    return STR.hotHeader[lang()](rounds.length, body);
+    return STR.hotHeader[language](rounds.length, body);
   }
 
   function render(candidates) {
     if (!candidates.length) return "";
-    const header = STR.memoryHeader[lang()];
+    const header = STR.memoryHeader[language];
     const lines = [header];
     let budget = MAX_BLOCK - header.length;
     for (const m of candidates) {
@@ -127,9 +128,9 @@ export function createInjector(ctx, service, settings, config) {
       const verified = config.trustEpistemicWeighting === true && m.epistemic_status === "observation"
         ? "[verified] "
         : "";
-      const title = STR.entryTitle[lang()](m.title, m.importance);
+      const title = STR.entryTitle[language](m.title, m.importance);
       const content = injectMemory(m);
-      const full = STR.entryLine[lang()](m.type, verified, title, content);
+      const full = STR.entryLine[language](m.type, verified, title, content);
       if (budget - full.length >= 0) {
         lines.push(full);
         budget -= full.length;
@@ -168,9 +169,9 @@ export function createInjector(ctx, service, settings, config) {
     const profile = settings.getProfile().trim();
     const rules = settings.getRules();
     if (!profile && !rules.length) return "";
-    const lines = [STR.userSettingsHeader[lang()]];
-    if (profile) lines.push(STR.profileLine[lang()](profile));
-    for (const rule of rules) lines.push(STR.ruleLine[lang()](rule));
+    const lines = [STR.userSettingsHeader[language]];
+    if (profile) lines.push(STR.profileLine[language](profile));
+    for (const rule of rules) lines.push(STR.ruleLine[language](rule));
     return lines.join("\n");
   }
 

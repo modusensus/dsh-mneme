@@ -1,7 +1,7 @@
 import { validateDecisions, applyDecisions } from "./dream/decisions.js";
 import { clusterMemories, findPotentialConflicts } from "./dream/clustering.js";
 import { createHash, randomUUID } from "node:crypto";
-import { STR, lang } from "./lang.js";
+import { STR, langOf } from "./lang.js";
 export { validateDecisions, applyDecisions, withEffortFallback, describeStreamFailure, resolveDreamEffort, resolveRoute };
 
 
@@ -549,6 +549,7 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
   }
 
   async function runDream(ctx, service, config) {
+    const language = langOf(config);
     const logger = ctx.logger;
     let memories = service.all().filter((m) => !m.archived && m.type !== "summary");
     if (memories.length === 0) return { ok: true, applied: 0, skipped: true, summary: false };
@@ -642,11 +643,11 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
           const conflictIds = new Set(conflicts.flatMap((c) => [c.a.id, c.b.id]));
           const parts = [];
           clusters.forEach((cluster, ci) => {
-            parts.push(STR.clusterHeader[lang()](ci + 1));
+            parts.push(STR.clusterHeader[language](ci + 1));
             for (const m of cluster) {
               parts.push(
                 `id=${m.id} | type=${m.type} | importance=${m.importance} | updated=${m.updated_at} | title=${m.title} | content=${m.content}` +
-                (conflictIds.has(m.id) ? STR.conflictMark[lang()] : "")
+                (conflictIds.has(m.id) ? STR.conflictMark[language] : "")
               );
             }
           });
@@ -667,8 +668,8 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     // winner/loser (validation requires them) but they are treated as tentative
     // candidates — the human makes the final call, not the model.
     const consolidationPrompt = freezeEnabled
-      ? STR.prompts.consolidation[lang()] + STR.prompts.freezeSuffix[lang()]
-      : STR.prompts.consolidation[lang()];
+      ? STR.prompts.consolidation[language] + STR.prompts.freezeSuffix[language]
+      : STR.prompts.consolidation[language];
     let decisionText;
     // 加固（v0.8.1）：配置的 reasoningEffort 被 provider 拒收时回退重试一次
     // （不带该字段），避免 thinking 模型配置 low/medium 直接整单失败。解析放
@@ -857,7 +858,7 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       maxTokens: config.dreamMaxTokens ?? 2048,
       ...(withEffort && effort ? { reasoningEffort: effort } : {}),
       messages: [
-        { role: "system", content: [{ type: "text", text: STR.prompts.dreamSummary[lang()] }] },
+        { role: "system", content: [{ type: "text", text: STR.prompts.dreamSummary[language] }] },
         { role: "user", content: [{ type: "text", text: service.all().filter((m) => !m.archived && m.type !== "summary").map((m) => `- ${m.title}: ${m.content}`).join("\n") }] }
       ]
     }, reportUsage, (reason) => { summaryStreamFailure = describeStreamFailure(reason); }));
@@ -875,7 +876,7 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       // must REPLACE the previous overview (not append — that would grow the
       // summary unboundedly). `_overwrite` still archives the old overview into
       // content_history before replacing it.
-      service.saveWithDedupe({ type: "summary", title: STR.summaryTitle[lang()], content: summaryText.trim(), importance: 5, source: "dream", _overwrite: true });
+      service.saveWithDedupe({ type: "summary", title: STR.summaryTitle[language], content: summaryText.trim(), importance: 5, source: "dream", _overwrite: true });
       summaryStored = true;
       // Re-embed the fresh summary so the index stays in sync with the store.
       if (semantic?.embedder && semantic?.vectorIndex) {

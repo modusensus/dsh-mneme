@@ -15,7 +15,7 @@ import { createEmbedderByProvider } from "./local-embedder.js";
 import { LocalReranker } from "./reranker.js";
 import { createVectorIndex } from "./vector-index.js";
 import { Config, applyLightModePreset } from "./config.js";
-import { setMnemeLanguage } from "./lang.js";
+import { langOf } from "./lang.js";
 import { extractEntities } from "./entities/extractor.js";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -149,11 +149,9 @@ export const apply = (ctx, config) => {
     cfg[objKey] = { ...(cfg[objKey] ?? {}), ...sub };
   }
 
-  // 记忆语言（memory.language）：启动读入一次；dream / 注入 / 蒸馏等路径在
-  // 调用时经 lang() 取值。切换语言改配置重启即可。
-  setMnemeLanguage(cfg.language ?? "zh");
-
-  const mirror = createMirror(memoryDir);
+  // 记忆语言（memory.language）：本实例逐层传入 inject / summarize / dream /
+  // sleep / mirror，多实例（如 agent preset 内挂载）互不影响。
+  const mirror = createMirror(memoryDir, langOf(cfg));
   const service = createService({ store, mirror, config: cfg, logger: ctx.logger });
 
   // F-NEW-03: if the mirror sync failed last run (persisted dirty state), retry
