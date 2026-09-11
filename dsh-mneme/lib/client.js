@@ -3741,8 +3741,10 @@ window.__ModuleLoader__.load({
 
     // --- Sidebar entry: 工作区上方的记忆按钮 ---
     // 注册仍在 sidebar.footer.action（list 插槽）——它既是 React 树的挂载
-    // 锚点，也是 portal 失效时的原位回退。真实按钮 portal 插到 regionArea
-    // （工作区列表容器）之前，即「新会话」按钮下方、工作区上方。
+    // 锚点，也是 portal 失效时的原位回退。真实按钮 portal 插到「新会话」行
+    // 之后、插件入口组的最前：任务看板/技能中心等生态插件也把入口插在新会话
+    // 行后（它们的后插入者在上），若我们固定在 regionArea 之前就会被打成
+    // 入口组末尾的孤立位（issue #130），所以观察器发现错位就搬回锚点位。
     // 几何对齐方案：读取宿主「新会话」按钮的实时 className 原样套用，再用
     // 我们的修饰类覆盖配色（次级观感）。这样展开态与收起态（rail）都直接
     // 继承宿主自己的盒模型与间距——宿主改版/缩进动画零位移，无需硬编码。
@@ -3769,6 +3771,32 @@ window.__ModuleLoader__.load({
         const findNative = (region) =>
           region.parentElement.querySelector('[class*="newSession"]')
           || region.previousElementSibling;
+        // 占位锚点：新会话行（现役外壳里 newSession 按钮嵌在 logoRow 内，
+        // 旧外壳是根的直接子按钮）。判定与生态插件的 sidebar-entry-core
+        // 一致；锚点不可靠时回退到 regionArea 之前的旧位置。
+        const findAnchor = (region) => {
+          const parent = region.parentElement;
+          const btn = parent.querySelector('[class*="newSession"]');
+          if (!btn) return null;
+          const row = btn.closest('[class*="logoRow"]');
+          if (row && row.parentElement === parent) return row;
+          return btn.parentElement === parent ? btn : null;
+        };
+        // 占位规则：紧跟新会话行（插件入口组的顶部），幂等——已在锚点位就
+        // 不动 DOM。生态插件后插入时会把我们压下去一位，观察器里重排搬回；
+        // 它们只在自身节点被移除时才重插，不会与我们来回争抢。
+        // 注意 created 已紧跟锚点时 target 即 created 自身，必须直接返回：
+        // insertBefore(x, x) 在 Chromium 里不是 no-op，会触发 mutation 造成
+        // 观察器自激风暴、冻死整个 SPA。
+        const place = (region) => {
+          const parent = region.parentElement;
+          if (!parent) return;
+          const anchor = findAnchor(region);
+          const target = anchor ? anchor.nextSibling : region;
+          if (target === created) return;
+          if (created.parentElement === parent && created.nextSibling === target) return;
+          parent.insertBefore(created, target);
+        };
         const attempt = () => {
           const region = document.querySelector('[class*="regionArea"]');
           if (region && region.parentElement) {
@@ -3778,12 +3806,13 @@ window.__ModuleLoader__.load({
             // 否则 portal 按钮会停留在捕获时刻的旧类上（宽度/对齐失配）。
             created = document.createElement("div");
             created.dataset.pluginEntry = "@modusensus/dsh-mneme";
-            region.parentElement.insertBefore(created, region);
+            place(region);
             setHost(created);
             setNativeCls(findNative(region)?.className || "");
             mo = new MutationObserver(() => {
               const cur = document.querySelector('[class*="regionArea"]');
               if (!cur || !cur.parentElement) return;
+              place(cur);
               const cls = findNative(cur)?.className || "";
               setNativeCls((prev) => (prev === cls ? prev : cls));
             });
