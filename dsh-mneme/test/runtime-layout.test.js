@@ -1,0 +1,150 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import {
+  RUNTIME_MANIFEST,
+  TRANSFORMERS_ENTRY,
+  defaultRuntimeDir,
+  describePayload,
+  listPayloadDirs,
+  nodeModulesDir,
+  payloadDir,
+  payloadId,
+  runtimeManifestPath,
+  transformersVersionOk
+} from "../lib/runtime/layout.js";
+
+// 运行时目录契约（issue #131 / PR-A）：这里守住的是「结构检查能不能准确地
+// 指出缺了什么」。功能验证（真 import 并跑推理）不在本文件覆盖范围，
+// 由后续的 verify 模块负责。
+
+/**
+ * 造一份假的 payload。默认是一个「完整可用」的形态，各选项用来单独破坏一处，
+ * 这样每个用例只验证一条判据。
+ */
+function makePayload({
+  version = "4.2.0",
+  platform = "win32",
+  arch = "x64",
+  packages = ["@huggingface/transformers", "onnxruntime-node", "sharp"],
+  withEntry = true,
+  nodePlatform = platform,
+  withManifest = false
+} = {}) {
+  const runtimeDir = mkdtempSync(join(tmpdir(), "mneme-runtime-"));
+  const dir = payloadDir(runtimeDir, payloadId({ version, platform, arch }));
+  const nm = nodeModulesDir(dir);
+
+  for (const name of packages) {
+    const pkgDir = join(nm, name);
+    mkdirSync(pkgDir, { recursive: true });
+    writeFileSync(
+      join(pkgDir, "package.json"),
+      JSON.stringify({ name, version: name === "@huggingface/transformers" ? version : "1.0.0" })
+    );
+  }
+
+  if (withEntry) {
+    const entry = join(dir, TRANSFORMERS_ENTRY);
+    mkdirSync(dirname(entry), { recursive: true });
+    writeFileSync(entry, "// 占位：真实运行时这里是可被 import 的 ESM 入口\n");
+  }
+
+  if (nodePlatform && packages.includes("onnxruntime-node")) {
+    mkdirSync(join(nm, "onnxruntime-node", "bin", "napi-v6", nodePlatform), { recursive: true });
+  }
+
+  if (withManifest) {
+    writeFileSync(
+      runtimeManifestPath(dir),
+      JSON.stringify({ payloadId: payloadId({ version, platform, arch }), procedure: "adopted" })
+    );
+  }
+
+  return { runtimeDir, dir };
+}
+
+test("payloadId 带版本、平台与架构，多份可共存", () => {
+  assert.equal(payloadId({ version: "4.2.0", platform: "win32", arch: "x64" }), "transformers-4.2.0-node-win32-x64");
+  assert.equal(payloadId({ version: "4.3.1", platform: "darwin", arch: "arm64" }), "transformers-4.3.1-node-darwin-arm64");
+});
+
+test("运行时根目录默认挂在 ~/.dsh/mneme/runtime 下", () => {
+  assert.equal(defaultRuntimeDir("/home/u"), join("/home/u", ".dsh", "mneme", "runtime"));
+});
+
+test("transformersVersionOk 只认 >=4.2.0 <5", () => {
+  assert.equal(transformersVersionOk("4.2.0"), true);
+  assert.equal(transformersVersionOk("4.10.3"), true);
+  assert.equal(transformersVersionOk("4.2.0-rc.1"), true, "预发布后缀按主版本号判断即可");
+  assert.equal(transformersVersionOk("4.1.9"), false);
+  assert.equal(transformersVersionOk("5.0.0"), false);
+  assert.equal(transformersVersionOk("garbage"), false);
+  assert.equal(transformersVersionOk(undefined), false);
+});
+
+test("完整的 payload：结构检查通过，且不报任何缺件", () => {
+  const { dir } = makePayload({ withManifest: true });
+  const report = describePayload(dir, { platform: "win32" });
+  assert.equal(report.ok, true, `不应有失败：missing=${report.missing} reasons=${report.reasons}`);
+  assert.deepEqual(report.missing, []);
+  assert.deepEqual(report.reasons, []);
+  assert.equal(report.version, "4.2.0");
+  assert.equal(report.manifest?.procedure, "adopted");
+});
+
+test("目录不存在（没装过）时给出可读原因，而不是抛异常", () => {
+  const { runtimeDir } = makePayload();
+  const report = describePayload(join(runtimeDir, "transformers-9.9.9-node-win32-x64"), { platform: "win32" });
+  assert.equal(report.ok, false);
+  assert.equal(report.missing.length, 0);
+  assert.match(report.reasons.join("\n"), /node_modules 不存在/);
+});
+
+test("缺入口文件时点名入口本身", () => {
+  const { dir } = makePayload({ withEntry: false });
+  const report = describePayload(dir, { platform: "win32" });
+  assert.equal(report.ok, false);
+  assert.ok(report.missing.includes(TRANSFORMERS_ENTRY), `missing=${JSON.stringify(report.missing)}`);
+});
+
+test("缺必需包时逐个点名", () => {
+  const { dir } = makePayload({ packages: ["@huggingface/transformers"] });
+  const report = describePayload(dir, { platform: "win32" });
+  assert.equal(report.ok, false);
+  assert.deepEqual(report.missing.includes("onnxruntime-node"), true);
+  assert.deepEqual(report.missing.includes("sharp"), true);
+  // 包整个不在时，不应再额外抱怨平台子树——否则同一件事会被报两次。
+  assert.equal(report.reasons.some((r) => r.includes("平台")), false);
+});
+
+test("onnxruntime-node 在，但缺少当前平台的二进制子树：报平台原因（裁剪/搬运最常见的错）", () => {
+  const { dir } = makePayload({ nodePlatform: "darwin" });
+  const report = describePayload(dir, { platform: "win32" });
+  assert.equal(report.ok, false);
+  assert.equal(report.missing.length, 0, "包都在，不该算缺件");
+  assert.match(report.reasons.join("\n"), /win32 平台的二进制子树/);
+});
+
+test("版本落在认可区间之外：结构不缺件，但要报版本原因", () => {
+  const { dir } = makePayload({ version: "5.0.0" });
+  const report = describePayload(dir, { platform: "win32" });
+  assert.equal(report.ok, false);
+  assert.equal(report.missing.length, 0);
+  assert.match(report.reasons.join("\n"), /不在认可区间/);
+  assert.equal(report.version, "5.0.0");
+});
+
+test("listPayloadDirs 只列目录、名称排序，且对不存在的根目录返回空数组", () => {
+  const { runtimeDir } = makePayload();
+  makePayload();
+  assert.deepEqual(listPayloadDirs(join(runtimeDir, "nope")), []);
+  assert.deepEqual(listPayloadDirs(runtimeDir), ["transformers-4.2.0-node-win32-x64"]);
+});
+
+test("清单文件名与路径稳定（契约的一部分）", () => {
+  assert.equal(RUNTIME_MANIFEST, "mneme-runtime.json");
+  assert.equal(runtimeManifestPath("/rt/p"), join("/rt/p", "mneme-runtime.json"));
+});
