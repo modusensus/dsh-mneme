@@ -3,8 +3,8 @@
 // old embedding.js logic). All classes share one interface so the orchestrator
 // can pick a backend by provider name and degrade gracefully on failure.
 // Methods throw on error — the caller decides the fallback chain.
-import os from "node:os";
-import path from "node:path";
+import { defaultModelCacheDir, defaultRuntimeDir } from "./runtime/layout.js";
+import { loadTransformers } from "./runtime/loader.js";
 
 const DEFAULT_TIMEOUT_MS = 15000;
 
@@ -20,16 +20,28 @@ function modelHash(model) {
   return `${model}#${hashString(model)}`;
 }
 
-/** Lazy default loader: dynamic import keeps module load cheap. */
+/**
+ * Lazy default loader: dynamic import keeps module load cheap.
+ *
+ * 经 runtime/loader.js 的三层解析取运行时（自管 payload 优先，其次宿主裸 specifier）：
+ * 这样 PR-B 把 @huggingface/transformers 从 dependencies 摘掉、pnpm 把宿主那份 prune
+ * 掉之后，本地嵌入仍然可用；而在那之前，宿主那份照样能被第 ② 层兜住。
+ * runtimeDir 从 options 里取走后再传 pipeline，免得把插件自己的配置项混进
+ * transformers 的选项里。
+ */
 async function defaultPipelineLoader(task, model, options) {
-  const { env, pipeline } = await import("@huggingface/transformers");
+  const { runtimeDir, ...pipelineOptions } = options ?? {};
+  const { module } = await loadTransformers({
+    runtimeDir: runtimeDir || defaultRuntimeDir()
+  });
+  const { env, pipeline } = module;
   // issue #13: transformers.js's get_tokenizer_files() drops the caller's
   // cache_dir when it pre-checks tokenizer_config.json metadata, so the HEAD
   // request falls back to env.cacheDir and hits the network even when the
   // model is fully cached locally. Mirroring the cache_dir onto env.cacheDir
   // makes that pre-check resolve locally too — fully offline loading.
-  if (options?.cache_dir) env.cacheDir = options.cache_dir;
-  return pipeline(task, model, options);
+  if (pipelineOptions.cache_dir) env.cacheDir = pipelineOptions.cache_dir;
+  return pipeline(task, model, pipelineOptions);
 }
 
 /** Flatten a transformers.js Tensor [batch, dim] into number[][]. */
@@ -56,9 +68,9 @@ export class LocalEmbedder {
     this._dimension = opts.dimension || 512;
     this.device = opts.device || "cpu";
     this.batchSize = opts.batchSize || 8;
-    this.cacheDir =
-      String(opts.cacheDir ?? "").trim() ||
-      path.join(os.homedir(), ".dsh", "mneme", "models");
+    this.cacheDir = String(opts.cacheDir ?? "").trim() || defaultModelCacheDir();
+    // 自管运行时根目录（issue #131）：空表示用默认位置，具体解析交给 loader。
+    this.runtimeDir = String(opts.runtimeDir ?? "").trim();
     this.useDtype = opts.useDtype || "q8";
     this.logger = opts.logger ?? null;
     // Test hook: replace the pipeline factory without touching modules.
@@ -77,6 +89,8 @@ export class LocalEmbedder {
       device: this.device
     };
     if (this.cacheDir) options.cache_dir = this.cacheDir;
+    // 传给注入的 engineFactory，由 defaultPipelineLoader 取走后交给三层解析。
+    if (this.runtimeDir) options.runtimeDir = this.runtimeDir;
     this.extractor = await this.engineFactory("feature-extraction", this.model, options);
     this.ready = true; // service reads this to flush queued re-embeds
     this.logger?.info?.(

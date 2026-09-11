@@ -225,6 +225,7 @@ export const apply = (ctx, config) => {
         device: cfg.localEmbedDevice,
         batchSize: cfg.localEmbedBatchSize,
         cacheDir: cfg.embedModelCacheDir,
+        runtimeDir: cfg.runtimeDir,
         baseUrl: cfg.ollamaBaseUrl,
         logger: ctx.logger
       });
@@ -276,6 +277,7 @@ export const apply = (ctx, config) => {
         scoreThreshold: cfg.rerankScoreThreshold,
         device: cfg.localEmbedDevice,
         cacheDir: cfg.embedModelCacheDir,
+        runtimeDir: cfg.runtimeDir,
         logger: ctx.logger
       });
       service.setReranker(reranker);
