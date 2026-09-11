@@ -73,3 +73,15 @@ test("mirror render follows the instance language; parser accepts both", () => {
   );
   assert.equal(edits[1].content, "c");
 });
+
+test("dream summary keeps one row across a language switch (stable source identity)", () => {
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config: {} });
+  service.saveWithDedupe({ type: "summary", title: "记忆库总览", content: "zh overview", importance: 5, source: "dream", _overwrite: true });
+  service.saveWithDedupe({ type: "summary", title: "Memory library overview", content: "en overview", importance: 5, source: "dream", _overwrite: true });
+  const summaries = store.all().filter((m) => m.type === "summary" && !m.archived);
+  assert.equal(summaries.length, 1);
+  assert.equal(summaries[0].title, "Memory library overview");
+  assert.equal(summaries[0].content, "en overview");
+  store.close();
+});

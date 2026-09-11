@@ -62,7 +62,7 @@ export function renderMirrorText(type, memories, language = "zh") {
   const items = (memories ?? [])
     .slice()
     .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1));
-    const header = STR.mirrorHeader[language](name);
+  const header = STR.mirrorHeader[language](name);
   const body = items.map((m) => renderMemory(m, language)).join("\n");
   return header + body;
 }
@@ -109,7 +109,7 @@ export function parseHumanEdits(text) {
     let body = normalized
       .slice(blockStart, blockEnd)
       .replace(/^- \*\*ID\*\*: `[^`]+`\n?/, "")
-            .replace(/^(- \*\*(?:类型|重要性|标签|更新时间|来源|Type|Importance|Tags|Updated|Source)\*\*:.*\n?)+/, "")
+      .replace(/^(- \*\*(?:类型|重要性|标签|更新时间|来源|Type|Importance|Tags|Updated|Source)\*\*:.*\n?)+/, "")
       .replace(/^<!-- mirror-digest: [a-f0-9]+ -->\n?/m, "");
     const separators = [...body.matchAll(/^---\s*$/gm)];
     const lastSep = separators[separators.length - 1];

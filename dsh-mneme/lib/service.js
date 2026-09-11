@@ -902,9 +902,14 @@ export function createService({ store, mirror, config, onWrite, logger }) {
         });
       } catch { /* quality scoring is best-effort */ }
     }
-    const existing = store
-      .list({ type: memory.type, limit: 100 })
-      .find((m) => m.title.trim() === String(memory.title).trim());
+    // dream 总览按 source 身份去重，而非本地化标题：memory.language 切换后
+    // 标题变化，若仍按 (type, title) 匹配会出现两个活跃的 summary 同时注入。
+    // 其余类型维持 (type, title) 匹配不变。
+    const candidates = store.list({ type: memory.type, limit: 100 });
+    const existing = (memory.type === "summary" && memory.source === "dream")
+      ? (candidates.find((m) => m.source === "dream")
+        ?? candidates.find((m) => m.title.trim() === String(memory.title).trim()))
+      : candidates.find((m) => m.title.trim() === String(memory.title).trim());
     if (existing) {
       const newContent = String(memory.content ?? "");
       if (!newContent.trim()) {
