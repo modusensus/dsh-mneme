@@ -31,7 +31,12 @@ async function defaultPipelineLoader(task, model, options) {
   const { module } = await loadTransformers({
     runtimeDir: runtimeDir || defaultRuntimeDir()
   });
-  return module.pipeline(task, model, pipelineOptions);
+  const { env, pipeline } = module;
+  // issue #13 同款处理：transformers.js 在预检 tokenizer_config.json 元数据时会丢掉调用方
+  // 的 cache_dir，回退到 env.cacheDir —— 即使模型已完全缓存在本地也会去请求网络。
+  // embedder 侧早就镜像了，reranker 侧一直漏着，于是「已缓存 + 离线」时重排初始化会失败。
+  if (pipelineOptions.cache_dir) env.cacheDir = pipelineOptions.cache_dir;
+  return pipeline(task, model, pipelineOptions);
 }
 
 /** Flatten a transformers.js Tensor [batch, seq, dim] into number[][] rows. */

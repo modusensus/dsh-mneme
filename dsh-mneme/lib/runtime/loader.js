@@ -60,11 +60,15 @@ function effectiveRuntimeDir(runtimeDir) {
  * @returns {{dir: string, payloadId: string, entryUrl: string, version: string|null, manifest: any}|null}
  *   没有可用 payload 时返回 null（不是错误——第 ② 层还有机会）。
  */
-export function resolveRuntimeEntry({ runtimeDir = defaultRuntimeDir(), platform = process.platform } = {}) {
+export function resolveRuntimeEntry({
+  runtimeDir = defaultRuntimeDir(),
+  platform = process.platform,
+  arch = process.arch
+} = {}) {
   const dir = effectiveRuntimeDir(runtimeDir);
   for (const id of listPayloadDirs(dir).reverse()) {
     const payload = payloadDir(dir, id);
-    const report = describePayload(payload, { platform });
+    const report = describePayload(payload, { platform, arch });
     if (!report.ok) continue;
     return {
       dir: payload,
@@ -91,12 +95,13 @@ export function resolveRuntimeEntry({ runtimeDir = defaultRuntimeDir(), platform
  */
 export function describeLocalRuntime({
   runtimeDir = defaultRuntimeDir(),
-  platform = process.platform
+  platform = process.platform,
+  arch = process.arch
 } = {}) {
   let candidate = null;
   const dir = effectiveRuntimeDir(runtimeDir);
   try {
-    candidate = resolveRuntimeEntry({ runtimeDir: dir, platform });
+    candidate = resolveRuntimeEntry({ runtimeDir: dir, platform, arch });
   } catch (error) {
     // 配置里的 runtimeDir 是用户输入（可能是离奇的字符串让 pathToFileURL 抛错），
     // 这里是唯一的边界，收在这里比每个调用方各包一层稳。
@@ -131,7 +136,7 @@ export function describeLocalRuntime({
   }
   // 有目录但一份都没通过结构检查：把最新那份的缺件和原因带出来，别只说「坏了」。
   const id = ids[ids.length - 1];
-  const report = describePayload(payloadDir(dir, id), { platform });
+  const report = describePayload(payloadDir(dir, id), { platform, arch });
   return {
     status: "broken",
     runtimeDir: dir,
@@ -141,6 +146,31 @@ export function describeLocalRuntime({
     reasons: report.reasons,
     functional: "unknown",
     hint: RUNTIME_HINT
+  };
+}
+
+/**
+ * 把 describeLocalRuntime 的结果投影成「允许出现在免鉴权 HTTP 端点里」的形状。
+ *
+ * 为什么必须投影：`/api/dsh-mneme/semantic` 是刻意不鉴权的只读端点（与 list/search 同列），
+ * 而完整状态里有**绝对路径**（`runtimeDir`、`hint` 里嵌的脚本路径）和**原始错误文本**
+ * （`reason`/`reasons` 会带上完整文件路径，例如「node_modules 不存在：C:\...」）。
+ * 把它们发给任何能连上该端口的人，属于信息泄漏（CWE-200）。
+ *
+ * 完整诊断留给本机的 CLI（`status`）——那里本来就有文件系统权限，也才是真正需要这些细节的场景。
+ * 面板侧不需要这些：它只需要 status，其余文案用本地 i18n。
+ * @param {object} report - describeLocalRuntime 的返回值。
+ * @returns {{status: string, payloadId: string|null, version: string|null, procedure: string|null, materialize: string|null, integrity: string|null, functional: string|null}}
+ */
+export function publicRuntimeStatus(report) {
+  return {
+    status: report?.status ?? "unknown",
+    payloadId: report?.payloadId ?? null,
+    version: report?.version ?? null,
+    procedure: report?.procedure ?? null,
+    materialize: report?.materialize ?? null,
+    integrity: report?.integrity ?? null,
+    functional: report?.functional ?? null
   };
 }
 

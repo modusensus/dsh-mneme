@@ -11,7 +11,7 @@ import { TRANSFORMERS_ENTRY } from "../lib/runtime/layout.js";
 // 这些都必须变成一条可读的失败结论，而不是让调用方拿到一个假的 ok。
 
 /** 造一个结构上合法的 payload（只有形状，没有真东西）。 */
-function makePayload({ platform = "win32", withEntry = true } = {}) {
+function makePayload({ platform = "win32", arch = "x64", withEntry = true } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "mneme-verify-"));
   const write = (rel, body) => {
     const full = join(dir, rel);
@@ -22,7 +22,7 @@ function makePayload({ platform = "win32", withEntry = true } = {}) {
     write(join("node_modules", name, "package.json"), JSON.stringify({ name, version: name === "@huggingface/transformers" ? "4.2.0" : "1.0.0" }));
   }
   if (withEntry) write(TRANSFORMERS_ENTRY, "export const x = 1;\n");
-  mkdirSync(join(dir, "node_modules", "onnxruntime-node", "bin", "napi-v6", platform), { recursive: true });
+  mkdirSync(join(dir, "node_modules", "onnxruntime-node", "bin", "napi-v6", platform, arch), { recursive: true });
   return dir;
 }
 
@@ -98,6 +98,7 @@ test("三件套：结构不过就不再做功能验证（省掉一次无谓的�
   let engineCalled = false;
   const result = await verifyPayload(dir, {
     platform: "win32",
+    arch: "x64",
     engine: async () => {
       engineCalled = true;
       return async () => fakeRows(2, 8);
@@ -111,7 +112,11 @@ test("三件套：结构不过就不再做功能验证（省掉一次无谓的�
 
 test("三件套：结构 + 功能都过、完整性缺失时如实标 unverified 且不判定失败", async () => {
   const dir = makePayload();
-  const result = await verifyPayload(dir, { platform: "win32", engine: engineReturning(fakeRows(2, 8)) });
+  const result = await verifyPayload(dir, {
+    platform: "win32",
+    arch: "x64",
+    engine: engineReturning(fakeRows(2, 8))
+  });
   assert.equal(result.ok, true);
   assert.equal(result.integrity.status, "unverified");
   assert.equal(result.integrity.ok, true);
@@ -122,6 +127,7 @@ test("三件套：--strict 场景下哈希不匹配即整体不通过", async ()
   const dir = makePayload();
   const matched = await verifyPayload(dir, {
     platform: "win32",
+    arch: "x64",
     engine: engineReturning(fakeRows(2, 8)),
     integrity: { status: "sha512-matched", detail: "tarball 比对通过" }
   });
@@ -130,12 +136,38 @@ test("三件套：--strict 场景下哈希不匹配即整体不通过", async ()
 
   const mismatch = await verifyPayload(dir, {
     platform: "win32",
+    arch: "x64",
     engine: engineReturning(fakeRows(2, 8)),
     integrity: { status: "sha512-mismatch", detail: "与钉死的哈希不一致" }
   });
   assert.equal(mismatch.ok, false);
   assert.equal(mismatch.structural.ok, true, "结构仍然是对的，失败来自完整性");
   assert.equal(mismatch.functional.ok, true);
+});
+
+test("假通过防线 ①：行不是数组时返回失败，而不是抛异常", async () => {
+  // 契约是「任何失败都返回结果对象，不抛」；非数组行会让 .length/.some 直接抛。
+  const dir = makePayload();
+  const result = await verifyPayload(dir, {
+    platform: "win32",
+    arch: "x64",
+    engine: engineReturning([null, null])
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.functional.reason, /不是数组/);
+});
+
+test("假通过防线 ②：非有限数值必须判失败（NaN 的比较恒为 false，会静默通过）", async () => {
+  const dir = makePayload();
+  for (const bad of [[NaN, 0], [Infinity, 0], ["0.5", "0.5"]]) {
+    const result = await verifyPayload(dir, {
+      platform: "win32",
+      arch: "x64",
+      engine: engineReturning([bad, [0, 0]])
+    });
+    assert.equal(result.ok, false, `含 ${JSON.stringify(bad)} 的向量不该被判通过`);
+    assert.match(result.functional.reason, /非有限数值/);
+  }
 });
 
 test("默认 engine 是导出的函数，且探针文本固定（改它等于改验收标准）", () => {

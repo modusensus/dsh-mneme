@@ -121,7 +121,16 @@ export async function verifyFunctional(dir, {
   if (!Array.isArray(rows) || rows.length !== probeTexts.length) {
     return fail(`返回行数不符：期望 ${probeTexts.length}，实际 ${Array.isArray(rows) ? rows.length : typeof rows}`);
   }
-  const dim = rows[0]?.length ?? 0;
+  // 先逐行确认「是数组」且「全是有限数」。这一步不能省：non-finite（NaN/Infinity）会让
+  // 下面所有比较恒为 false —— `Math.abs(NaN - 1) > tol` 是 false，`Math.abs(NaN) > 阈值`
+  // 也是 false —— 于是一份坏掉的运行时会被判成「验证通过」。这是本模块最危险的失败模式
+  // （假通过），比抛异常糟得多。行不是数组时同样要先拦住，否则 .length 直接抛，
+  // 违背「任何失败都返回结果对象，不抛异常」的契约。
+  for (let i = 0; i < rows.length; i++) {
+    if (!Array.isArray(rows[i])) return fail(`第 ${i} 行不是数组（${typeof rows[i]}）`);
+    if (rows[i].some((v) => !Number.isFinite(v))) return fail(`第 ${i} 行含有非有限数值`);
+  }
+  const dim = rows[0].length;
   if (dim === 0) return fail("返回了空向量");
   if (rows.some((row) => row.length !== dim)) return fail("各行维度不一致");
 

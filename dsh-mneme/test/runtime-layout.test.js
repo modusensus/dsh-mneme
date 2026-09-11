@@ -31,6 +31,7 @@ function makePayload({
   packages = ["@huggingface/transformers", "onnxruntime-node", "sharp"],
   withEntry = true,
   nodePlatform = platform,
+  nodeArch = arch,
   withManifest = false
 } = {}) {
   const runtimeDir = mkdtempSync(join(tmpdir(), "mneme-runtime-"));
@@ -53,7 +54,8 @@ function makePayload({
   }
 
   if (nodePlatform && packages.includes("onnxruntime-node")) {
-    mkdirSync(join(nm, "onnxruntime-node", "bin", "napi-v6", nodePlatform), { recursive: true });
+    // 真实包结构是 bin/napi-v6/<平台>/<架构>/，夹具必须照做，否则测不到架构这一层。
+    mkdirSync(join(nm, "onnxruntime-node", "bin", "napi-v6", nodePlatform, nodeArch), { recursive: true });
   }
 
   if (withManifest) {
@@ -87,7 +89,7 @@ test("transformersVersionOk 只认 >=4.2.0 <5", () => {
 
 test("完整的 payload：结构检查通过，且不报任何缺件", () => {
   const { dir } = makePayload({ withManifest: true });
-  const report = describePayload(dir, { platform: "win32" });
+  const report = describePayload(dir, { platform: "win32", arch: "x64" });
   assert.equal(report.ok, true, `不应有失败：missing=${report.missing} reasons=${report.reasons}`);
   assert.deepEqual(report.missing, []);
   assert.deepEqual(report.reasons, []);
@@ -97,7 +99,7 @@ test("完整的 payload：结构检查通过，且不报任何缺件", () => {
 
 test("目录不存在（没装过）时给出可读原因，而不是抛异常", () => {
   const { runtimeDir } = makePayload();
-  const report = describePayload(join(runtimeDir, "transformers-9.9.9-node-win32-x64"), { platform: "win32" });
+  const report = describePayload(join(runtimeDir, "transformers-9.9.9-node-win32-x64"), { platform: "win32", arch: "x64" });
   assert.equal(report.ok, false);
   assert.equal(report.missing.length, 0);
   assert.match(report.reasons.join("\n"), /node_modules 不存在/);
@@ -105,14 +107,14 @@ test("目录不存在（没装过）时给出可读原因，而不是抛异常",
 
 test("缺入口文件时点名入口本身", () => {
   const { dir } = makePayload({ withEntry: false });
-  const report = describePayload(dir, { platform: "win32" });
+  const report = describePayload(dir, { platform: "win32", arch: "x64" });
   assert.equal(report.ok, false);
   assert.ok(report.missing.includes(TRANSFORMERS_ENTRY), `missing=${JSON.stringify(report.missing)}`);
 });
 
 test("缺必需包时逐个点名", () => {
   const { dir } = makePayload({ packages: ["@huggingface/transformers"] });
-  const report = describePayload(dir, { platform: "win32" });
+  const report = describePayload(dir, { platform: "win32", arch: "x64" });
   assert.equal(report.ok, false);
   assert.deepEqual(report.missing.includes("onnxruntime-node"), true);
   assert.deepEqual(report.missing.includes("sharp"), true);
@@ -122,15 +124,26 @@ test("缺必需包时逐个点名", () => {
 
 test("onnxruntime-node 在，但缺少当前平台的二进制子树：报平台原因（裁剪/搬运最常见的错）", () => {
   const { dir } = makePayload({ nodePlatform: "darwin" });
-  const report = describePayload(dir, { platform: "win32" });
+  const report = describePayload(dir, { platform: "win32", arch: "x64" });
   assert.equal(report.ok, false);
   assert.equal(report.missing.length, 0, "包都在，不该算缺件");
-  assert.match(report.reasons.join("\n"), /win32 平台的二进制子树/);
+  assert.match(report.reasons.join("\n"), /win32\/x64 的二进制子树/);
+});
+
+test("同平台但架构不符必须拒绝：linux-arm64 的 payload 不能在 linux-x64 上通过", () => {
+  // 真实包内是 bin/napi-v6/{darwin,linux,win32}/{arm64,x64}，只查平台会让架构不符的
+  // payload 通过结构检查、被 loader 选中，然后在 import 原生模块时才失败。
+  const { dir } = makePayload({ platform: "linux", arch: "arm64" });
+  assert.equal(describePayload(dir, { platform: "linux", arch: "arm64" }).ok, true, "同架构应当通过");
+  const mismatched = describePayload(dir, { platform: "linux", arch: "x64" });
+  assert.equal(mismatched.ok, false, "架构不符必须不通过");
+  assert.equal(mismatched.missing.length, 0, "包都在，不该算缺件");
+  assert.match(mismatched.reasons.join("\n"), /linux\/x64 的二进制子树/);
 });
 
 test("版本落在认可区间之外：结构不缺件，但要报版本原因", () => {
   const { dir } = makePayload({ version: "5.0.0" });
-  const report = describePayload(dir, { platform: "win32" });
+  const report = describePayload(dir, { platform: "win32", arch: "x64" });
   assert.equal(report.ok, false);
   assert.equal(report.missing.length, 0);
   assert.match(report.reasons.join("\n"), /不在认可区间/);

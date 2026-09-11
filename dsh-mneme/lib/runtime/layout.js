@@ -161,7 +161,7 @@ export function listPayloadDirs(runtimeDir) {
  * @param {{platform?: string, arch?: string}} [opts] - 目标平台。
  * @returns {{dir: string, ok: boolean, version: string|null, manifest: any, missing: string[], reasons: string[]}}
  */
-export function describePayload(dir, { platform = process.platform } = {}) {
+export function describePayload(dir, { platform = process.platform, arch = process.arch } = {}) {
   const report = {
     dir,
     ok: false,
@@ -194,15 +194,14 @@ export function describePayload(dir, { platform = process.platform } = {}) {
   // 3) 入口文件本身（前面只确认了包目录在）。
   if (!existsSync(join(dir, TRANSFORMERS_ENTRY))) report.missing.push(TRANSFORMERS_ENTRY);
 
-  // 4) onnxruntime-node 一个包内含三平台二进制，裁剪或跨机搬运时最容易只留下
-  //    别的平台；只检查「当前平台的子树在不在」，不检查具体架构目录，
-  //    免得绑定到包内部的路径细节。
-  if (
-    existsSync(join(nm, "onnxruntime-node")) &&
-    !existsSync(join(nm, "onnxruntime-node", "bin", "napi-v6", platform))
-  ) {
+  // 4) onnxruntime-node 一个包内含多平台 × 多架构的二进制，裁剪或跨机搬运时最容易只留下
+  //    别的平台/架构。必须点名到**平台 + 架构**：真实包结构是
+  //    bin/napi-v6/{darwin,linux,win32}/{arm64,x64}，只查平台的话 linux-arm64 的 payload
+  //    在 linux-x64 上也会通过结构检查，被 loader 选中后才在 import 原生模块时失败。
+  const nativeDir = join(nm, "onnxruntime-node", "bin", "napi-v6", platform, arch);
+  if (existsSync(join(nm, "onnxruntime-node")) && !existsSync(nativeDir)) {
     report.reasons.push(
-      `onnxruntime-node 缺少 ${platform} 平台的二进制子树（bin/napi-v6/${platform}）`
+      `onnxruntime-node 缺少 ${platform}/${arch} 的二进制子树（bin/napi-v6/${platform}/${arch}）`
     );
   }
 

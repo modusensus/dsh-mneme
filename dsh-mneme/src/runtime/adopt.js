@@ -14,9 +14,9 @@
 //    warnings，让上层的验证去发现「收编不完整」，而不是悄悄产出一份半对的运行时。
 //
 // @module dsh-mneme/runtime/adopt
-import { copyFileSync, existsSync, linkSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, linkSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { planClosure } from "./closure.js";
+import { DEFAULT_MAX_PACKAGES, planClosure } from "./closure.js";
 import { defaultRuntimeDir, nodeModulesDir, payloadDir, payloadId, runtimeManifestPath } from "./layout.js";
 
 /** 清单版本：将来字段变化时用来判断怎么读。 */
@@ -111,6 +111,24 @@ export function adoptRuntime({
   if (existsSync(dir) && !overwrite) {
     return { ok: false, reason: `目标已存在：${dir}（需要覆盖请传 overwrite: true）`, payloadDir: dir, payloadId: id, plan };
   }
+
+  // 截断的闭包必须拒绝。maxPackages 截断会静默丢掉传递依赖，而结构检查（describePayload）
+  // 只看必需包、版本和入口文件 —— 于是一份残缺的 payload 会被判为可用、被 loader 选中，
+  // 直到 import 原生模块时才炸，且错误现场离真正的原因很远。宁可在物化前明确失败。
+  if (plan.truncated) {
+    return {
+      ok: false,
+      reason: `依赖闭包被截断（上限 ${maxPackages ?? DEFAULT_MAX_PACKAGES} 个包），拒绝收编；请提高 maxPackages 后重试`,
+      payloadDir: dir,
+      payloadId: id,
+      plan
+    };
+  }
+
+  // 覆盖前必须先清空目标目录。不清的话，linkSync 对已存在的目标路径抛 EEXIST，
+  // 于是每个文件都落到复制分支：物化方式会假报成 "copy"、警告会错说「硬链接不可用」、
+  // 整份闭包真实占盘，而且上一次闭包留下的残留文件永远不会被清掉。
+  if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
 
   const warnings = [];
   const totals = { files: 0, bytes: 0, linked: 0, copied: 0, symlinks: 0 };

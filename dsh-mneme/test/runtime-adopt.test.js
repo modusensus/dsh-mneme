@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { adoptRuntime, materializePackage, RUNTIME_MANIFEST_VERSION } from "../lib/runtime/adopt.js";
@@ -30,7 +30,7 @@ function makeSource({ withSymlink = false } = {}) {
   write("@huggingface/transformers/dist/transformers.node.mjs", "export const real = true;\n");
 
   pkg("onnxruntime-node", { name: "onnxruntime-node", version: "1.24.3", dependencies: { "onnxruntime-common": "1.24.3" } });
-  write("onnxruntime-node/bin/napi-v6/win32/onnxruntime.dll", "dll-bytes\n");
+  write("onnxruntime-node/bin/napi-v6/win32/x64/onnxruntime.dll", "dll-bytes\n");
   write("onnxruntime-node/bin/napi-v6/darwin/arm64/libonnxruntime.dylib", "dylib-bytes\n");
 
   pkg("onnxruntime-common", { name: "onnxruntime-common", version: "1.24.3" });
@@ -60,7 +60,7 @@ test("收编：镜像源布局（含嵌套层），并写出清单", () => {
   assert.ok(manifest.packages.some((p) => p.rel === "onnxruntime-node"));
 
   // 收编产物必须能通过结构检查——这是「adopt 与 layout 契约一致」的整合判据。
-  const report = describePayload(result.payloadDir, { platform: "win32" });
+  const report = describePayload(result.payloadDir, { platform: "win32", arch: "x64" });
   assert.equal(report.ok, true, `missing=${report.missing} reasons=${report.reasons}`);
   assert.equal(report.manifest?.procedure, "adopted");
 });
@@ -76,7 +76,7 @@ test("收编：同卷走硬链接（不额外占盘），且文件内容一致",
   assert.equal(result.manifest.materialize.mode, "hardlink");
   assert.equal(result.manifest.materialize.linkError, null, "没回退就不该有 linkError");
 
-  const copied = join(nodeModulesDir(result.payloadDir), "onnxruntime-node", "bin", "napi-v6", "win32", "onnxruntime.dll");
+  const copied = join(nodeModulesDir(result.payloadDir), "onnxruntime-node", "bin", "napi-v6", "win32", "x64", "onnxruntime.dll");
   assert.equal(readJsonSafe(copied), undefined, "非 JSON 内容应当原样搬过来");
 });
 
@@ -102,7 +102,7 @@ test("收编：硬链接不可用时回退复制，并把原因如实记进清�
     "同一次收编只该记一条回退原因，不是每个文件记一条"
   );
   // 回退之后产物依然必须能通过结构检查——回退不能以正确性为代价。
-  assert.equal(describePayload(result.payloadDir, { platform: "win32" }).ok, true);
+  assert.equal(describePayload(result.payloadDir, { platform: "win32", arch: "x64" }).ok, true);
 });
 
 test("收编：跳过嵌套 node_modules，避免把同一份包搬两遍", () => {
@@ -116,7 +116,7 @@ test("收编：跳过嵌套 node_modules，避免把同一份包搬两遍", () =
   assert.equal(result.ok, true, result.reason);
 
   const orphan = join(nodeModulesDir(result.payloadDir), "@huggingface", "transformers", "node_modules", "orphan");
-  assert.equal(describePayload(result.payloadDir, { platform: "win32" }).ok, true);
+  assert.equal(describePayload(result.payloadDir, { platform: "win32", arch: "x64" }).ok, true);
   assert.equal(readJsonSafe(join(orphan, "package.json")), undefined, "不可达的嵌套包不该被搬进来");
 });
 
@@ -168,4 +168,39 @@ test("materializePackage：统计文件与字节数，返回自身可测", () =>
   assert.equal(stats.files, 2, "package.json + index.js");
   assert.ok(stats.bytes > 0);
   assert.equal(stats.symlinks, 0);
+});
+
+test("覆盖收编：先清空目标目录，否则硬链接全部退化成复制、残留文件也清不掉", () => {
+  const { nm } = makeSource();
+  const runtimeDir = mkdtempSync(join(tmpdir(), "mneme-adopt-dst-"));
+  const first = adoptRuntime({ fromModulesDir: nm, runtimeDir, platform: "win32", arch: "x64" });
+  assert.equal(first.ok, true, first.reason);
+  assert.equal(first.manifest.materialize.mode, "hardlink");
+
+  // 只可能来自上一次收编的残留文件：覆盖时必须被清掉。
+  const stale = join(first.payloadDir, "stale-from-previous-run");
+  writeFileSync(stale, "stale\n");
+
+  const second = adoptRuntime({ fromModulesDir: nm, runtimeDir, platform: "win32", arch: "x64", overwrite: true });
+  assert.equal(second.ok, true, second.reason);
+  // 不清空目标目录的话，linkSync 对已存在的目标路径抛 EEXIST，每个文件都掉进复制分支：
+  // 物化方式会假报成 copy，warnings 会错说「硬链接不可用」，整份闭包真实占盘。
+  assert.equal(second.manifest.materialize.mode, "hardlink", "覆盖不该把硬链接降级成复制");
+  assert.equal(second.manifest.materialize.linkError, null);
+  assert.equal(existsSync(stale), false, "上一次收编的残留文件必须被清掉");
+});
+
+test("截断的闭包必须拒绝：宁可明确失败，也不要产出一份看起来可用的运行时", () => {
+  const { nm } = makeSource();
+  const runtimeDir = mkdtempSync(join(tmpdir(), "mneme-adopt-dst-"));
+  // 上限 1 个包，必然截断传递依赖。结构检查只看必需包/版本/入口，所以这种残缺 payload
+  // 本来会被判为可用、被 loader 选中，然后在 import 原生模块时才炸。
+  const result = adoptRuntime({ fromModulesDir: nm, runtimeDir, platform: "win32", arch: "x64", maxPackages: 1 });
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /截断/);
+  assert.equal(
+    existsSync(payloadDir(runtimeDir, payloadId({ version: "4.2.0", platform: "win32", arch: "x64" }))),
+    false,
+    "拒绝时不该留下半份 payload"
+  );
 });

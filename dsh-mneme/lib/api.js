@@ -5,7 +5,7 @@ import { FEATURE_FLAG_SPEC } from "./settings.js";
 import { TYPE_FILE, renderMirrorText, parseHumanEdits } from "./mirror.js";
 import { computeHeat } from "./heat.js";
 import { describeStreamFailure, resolveRoute } from "./dream.js";
-import { describeLocalRuntime } from "./runtime/loader.js";
+import { describeLocalRuntime, publicRuntimeStatus } from "./runtime/loader.js";
 
 // headers：少数端点（/export 附件下载）需要追加 Content-Disposition 等响应头。
 function sendJson(res, status, payload, headers = {}) {
@@ -620,7 +620,9 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
           // issue #131 / PR-A：自管运行时的状态。无论当前 provider 是不是 local
           // 都报 —— 面板需要区分「已收编但没启用」和「要用本地却没收编」。
           // 这里只做结构检查（不跑推理），失败降级成状态对象，不会让本端点 500。
-          localRuntime: describeLocalRuntime({ runtimeDir: config?.runtimeDir ?? "" })
+          // 必须经 publicRuntimeStatus 投影：本端点是免鉴权的，绝对路径与原始错误
+          // 文本不能出去（CWE-200）。完整诊断走本机 CLI 的 status。
+          localRuntime: publicRuntimeStatus(describeLocalRuntime({ runtimeDir: config?.runtimeDir ?? "" }))
         });
       } catch {
         sendJson(res, 500, { error: "internal" });
