@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
+import { STR, lang } from "./lang.js";
 
 export const TYPE_FILE = {
   preference: "preferences.md",
@@ -33,11 +34,12 @@ function renderMemory(m) {
   lines.push(`## ${esc(m.title)}`);
   lines.push("");
   lines.push(`- **ID**: \`${m.id}\``);
-  lines.push(`- **类型**: ${m.type}`);
-  lines.push(`- **重要性**: ${m.importance}`);
-  lines.push(`- **标签**: ${m.tags.map((t) => `\`${esc(t)}\``).join(" ")}`);
-  lines.push(`- **更新时间**: ${m.updated_at}`);
-  if (m.source) lines.push(`- **来源**: ${esc(m.source)}`);
+  const ML = STR.mirrorLabel[lang()];
+  lines.push(`- **${ML.type}**: ${m.type}`);
+  lines.push(`- **${ML.importance}**: ${m.importance}`);
+  lines.push(`- **${ML.tags}**: ${m.tags.map((t) => `\`${esc(t)}\``).join(" ")}`);
+  lines.push(`- **${ML.updated}**: ${m.updated_at}`);
+  if (m.source) lines.push(`- **${ML.source}**: ${esc(m.source)}`);
   lines.push("");
   lines.push(`<!-- mirror-digest: ${digest} -->`);
   lines.push(m.content);
@@ -60,7 +62,7 @@ export function renderMirrorText(type, memories) {
   const items = (memories ?? [])
     .slice()
     .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1));
-  const header = `# ${name} — dsh-mneme 镜像\n\n<!-- 手工编辑此文件会被合并回记忆库（人工优先）。 -->\n\n`;
+    const header = STR.mirrorHeader[lang()](name);
   const body = items.map(renderMemory).join("\n");
   return header + body;
 }
@@ -88,7 +90,8 @@ export function parseHumanEdits(text) {
   // machine-rendered ID line is always followed by the "- **类型**:" line.
   // A body line like "- **ID**: `x`" is not, so it never splits the block
   // or produces a ghost entry.
-  const anchors = [...normalized.matchAll(/^- \*\*ID\*\*: `([^`]+)`\n- \*\*类型\*\*:/gm)];
+  // 解析同时接受两种语言的标签：切换语言前渲染的镜像文件仍能合并。
+  const anchors = [...normalized.matchAll(/^- \*\*ID\*\*: `([^`]+)`\n- \*\*(?:类型|Type)\*\*:/gm)];
   let prevEnd = 0;
   for (let i = 0; i < anchors.length; i++) {
     const anchor = anchors[i];
@@ -106,7 +109,7 @@ export function parseHumanEdits(text) {
     let body = normalized
       .slice(blockStart, blockEnd)
       .replace(/^- \*\*ID\*\*: `[^`]+`\n?/, "")
-      .replace(/^(- \*\*(类型|重要性|标签|更新时间|来源)\*\*:.*\n?)+/, "")
+            .replace(/^(- \*\*(?:类型|重要性|标签|更新时间|来源|Type|Importance|Tags|Updated|Source)\*\*:.*\n?)+/, "")
       .replace(/^<!-- mirror-digest: [a-f0-9]+ -->\n?/m, "");
     const separators = [...body.matchAll(/^---\s*$/gm)];
     const lastSep = separators[separators.length - 1];
@@ -117,7 +120,7 @@ export function parseHumanEdits(text) {
     // render time — the version token for detecting a concurrent store write
     // during a three-way merge of human edits (see service.syncMirror).
     const block = normalized.slice(blockStart, blockEnd);
-    const updatedMatch = block.match(/- \*\*更新时间\*\*: ([^\n]+)/);
+    const updatedMatch = block.match(/- \*\*(?:更新时间|Updated)\*\*: ([^\n]+)/);
     const digestMatch = block.match(/<!-- mirror-digest: ([a-f0-9]+) -->/);
     edits.push({
       id: anchor[1],

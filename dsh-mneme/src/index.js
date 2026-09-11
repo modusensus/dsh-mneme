@@ -15,6 +15,7 @@ import { createEmbedderByProvider } from "./local-embedder.js";
 import { LocalReranker } from "./reranker.js";
 import { createVectorIndex } from "./vector-index.js";
 import { Config, applyLightModePreset } from "./config.js";
+import { setMnemeLanguage } from "./lang.js";
 import { extractEntities } from "./entities/extractor.js";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -147,6 +148,10 @@ export const apply = (ctx, config) => {
   for (const [objKey, sub] of Object.entries(nestedFlags)) {
     cfg[objKey] = { ...(cfg[objKey] ?? {}), ...sub };
   }
+
+  // 记忆语言（memory.language）：启动读入一次；dream / 注入 / 蒸馏等路径在
+  // 调用时经 lang() 取值。切换语言改配置重启即可。
+  setMnemeLanguage(cfg.language ?? "zh");
 
   const mirror = createMirror(memoryDir);
   const service = createService({ store, mirror, config: cfg, logger: ctx.logger });

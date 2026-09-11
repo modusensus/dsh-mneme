@@ -1,3 +1,5 @@
+import { STR, lang } from "../lang.js";
+
 const ACTIONS = new Set(["keep", "merge", "archive", "conflict", "update", "create"]);
 
 // Epistemic trust (v0.4.5): when config.trustEpistemicWeighting is on, merge
@@ -338,7 +340,7 @@ function applyCreate(d, service, config = {}) {
     ? d.evidence.filter((id) => typeof id === "string")
     : [];
   const body = evidence.length > 0
-    ? `${content}\n\n[证据: ${evidence.join(", ")}]`
+    ? STR.evidenceSuffix[lang()](content, evidence)
     : content;
   const created = service.saveWithDedupe({ type, title, content: body, importance });
   const memory = created?.memory;
@@ -428,7 +430,7 @@ function applyConflict(d, service, snapshot, config = {}) {
     const loserNow = service.getById(d.loser);
     if (!winnerNow || !loserNow || loserNow.archived) return;
     service.update(d.winner, {
-      content: `${winnerNow.content}\n\n（已否决旧信息：${[...loserNow.content].slice(0, 100).join("")}）`
+      content: STR.supersededSuffix[lang()](winnerNow.content, [...loserNow.content].slice(0, 100).join(""))
     });
     service.setArchived(d.loser, true);
   });
