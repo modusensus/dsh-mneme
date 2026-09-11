@@ -348,7 +348,7 @@ export const apply = (ctx, config) => {
   // on boot; add/remove re-register live through the API.
   let commands = null;
   if (ctx.commands) {
-    commands = createCommandManager({ ctx, settings, logger: ctx.logger });
+    commands = createCommandManager({ ctx, settings, logger: ctx.logger, language: langOf(cfg) });
     commands.sync();
   }
 

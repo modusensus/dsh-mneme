@@ -118,6 +118,12 @@ export const STR = {
     en: (ts, content) => `\n\n> ⚠️ Concurrent conflict: human edit vs concurrent memory-library update (${ts})\n> memory-library version: ${content}`
   },
 
+  // --- commands.js：自定义指令缺省描述（进命令注册表，LLM 可见） -----------------
+  commandFallbackDesc: {
+    zh: (name) => `自定义指令 ${name}`,
+    en: (name) => `Custom command ${name}`
+  },
+
   // --- mirror.js：镜像文件标签（渲染随实例语言；解析两种语言都认） ----------------
   mirrorLabel: {
     zh: { type: "类型", importance: "重要性", tags: "标签", updated: "更新时间", source: "来源" },
