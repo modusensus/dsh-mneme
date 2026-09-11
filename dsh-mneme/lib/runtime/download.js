@@ -20,6 +20,9 @@ import { matchesPlatform } from "./closure.js";
 import { stripPackagePrefix, verifyIntegrity, walkTgz } from "./tarball.js";
 
 const DEFAULT_ATTEMPTS = 3;
+// 单次请求的总超时。连接僵住（对端不回也不断）时，没有它就会永远等着 —— 用户看到的是一个
+// 卡死的按钮，而没有任何错误可看。给得宽松：几百 MB 的包在慢网下也要能下完。
+const DEFAULT_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 
 /**
  * 把 registry 地址换成镜像地址：只换前缀，保留 `/name/-/file.tgz` 这段路径。
@@ -43,7 +46,8 @@ export function applyMirror(url, mirror) {
 
 /**
  * 本地 tarball 目录里的候选文件名。用 npm 的约定（`<basename>-<version>.tgz`），
- * 这样 `npm pack` 出来的东西直接丢进目录就能用，不需要改名字。
+ * 这样 
+pm pack` 出来的东西直接丢进目录就能用，不需要改名字。
  * @param {string} dir - 目录。
  * @param {{name: string, version: string}} pkg - 包。
  * @returns {string} 候选路径。
@@ -60,14 +64,17 @@ export function localTarballPath(dir, pkg) {
  * @param {object} [opts] - 选项。
  * @returns {Promise<{buffer: Buffer, attempts: number, resumed: boolean}>}
  */
-export async function fetchTarball(url, { attempts = DEFAULT_ATTEMPTS, fetchImpl = fetch, onProgress } = {}) {
+export async function fetchTarball(url, { attempts = DEFAULT_ATTEMPTS, fetchImpl = fetch, onProgress, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS } = {}) {
   let lastError = null;
   let chunks = [];
   let received = 0;
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
-      const res = await fetchImpl(url, received > 0 ? { headers: { Range: `bytes=${received}-` } } : undefined);
+      const options = received > 0 ? { headers: { Range: `bytes=${received}-` } } : {};
+      // AbortSignal.timeout 是**总时长**上限，不是空闲超时：宁可给得宽松，也不要掐断正常的慢速下载。
+      if (Number.isFinite(timeoutMs) && timeoutMs > 0) options.signal = AbortSignal.timeout(timeoutMs);
+      const res = await fetchImpl(url, Object.keys(options).length > 0 ? options : undefined);
       if (res.status === 206) {
         // 续传被接受：已有字节保留，接着追加。
       } else if (res.ok) {
@@ -216,6 +223,8 @@ export async function downloadRuntime({
     platform,
     arch,
     procedure: "downloaded",
+    // 每个 tarball 都与清单里的 sha512 比对过 —— 这是下载档独有的、可如实声明的来源完整性。
+    integrity: { status: "verified", checked: packages.length, detail: "每个 tarball 的 sha512 与 runtime-manifest.json 一致" },
     createdAt: new Date().toISOString(),
     materialize: { mode: "download", linkError: null },
     sources: { mirror: mirror || null, localTarballDir: localTarballDir || null, counts: { local: totals.fromLocal, network: totals.fromNetwork } },

@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyMirror, downloadRuntime, localTarballPath } from "../lib/runtime/download.js";
+import { applyMirror, downloadRuntime, fetchTarball, localTarballPath } from "../lib/runtime/download.js";
 import { describePayload } from "../lib/runtime/layout.js";
 import { sha512Base64 } from "../lib/runtime/tarball.js";
 import { makeTgz } from "./helpers/tar-builder.js";
@@ -262,3 +262,20 @@ test("downloadRuntime：本地 tarball 目录优先于网络，且目标已存�
 function readdirCount(dir) {
   return existsSync(dir) ? readdirSync(dir).length : 0;
 }
+
+test("fetchTarball：对端僵住时按 timeoutMs 失败，而不是永远挂着", async () => {
+  // 连接既不回也不断：没有超时的话，用户看到的是一个卡死的按钮、而且没有任何错误可看。
+  const server = createServer((req, res) => {
+    res.writeHead(200, { "Content-Length": "1000" });
+    res.write("x");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const url = `http://127.0.0.1:${server.address().port}/stall.tgz`;
+  try {
+    const started = Date.now();
+    await assert.rejects(() => fetchTarball(url, { attempts: 1, timeoutMs: 200 }), /取件失败/);
+    assert.ok(Date.now() - started < 5000, "应当因超时返回，而不是挂住");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

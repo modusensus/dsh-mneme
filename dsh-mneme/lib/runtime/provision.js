@@ -173,7 +173,19 @@ async function provisionOnce({
     ...(onProgress === undefined ? {} : { onProgress })
   });
 
-  if (downloaded.ok) return { ...downloaded, strategy: "download", adoptReason: adopted.reason };
+  if (downloaded.ok) {
+    // 归一化：收编那一档直接给 packages / files / bytes，而下载档给的是 totals —— 不统一的话
+    // 面板与 agent 工具会读到 undefined（评审判断得对，这条是真 bug）。
+    const totals = downloaded.totals ?? {};
+    return {
+      ...downloaded,
+      strategy: "download",
+      adoptReason: adopted.reason,
+      packages: totals.packages ?? 0,
+      files: totals.files ?? 0,
+      bytes: totals.bytes ?? 0
+    };
+  }
 
   return {
     ok: false,

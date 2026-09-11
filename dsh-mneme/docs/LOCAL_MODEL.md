@@ -30,7 +30,7 @@ node scripts/benchmark-embed.js --provider local --model Xenova/bge-small-zh-v1.
 # 首次运行会显示下载进度 → 加载模型 → 输出基准表格
 ```
 
-默认缓存目录：`~/.dsh/mneme/models`（用户级，重装/升级依赖不丢；`embedModelCacheDir` 留空时启用）。transformers.js 的 hub 模型存于其下 `hub/models--<org>--<name>`：
+默认缓存目录：`~/.dsh/mneme/models`（用户级，重装/升级依赖不丢；`embedModelCacheDir` 留空时启用）。transformers.js 把模型存成 `<cacheDir>/<org>/<name>/`（实测 4.2.0，例如 `~/.dsh/mneme/models/Xenova/bge-small-zh-v1.5/`）：
 
 - Linux/macOS：`~/.dsh/mneme/models/`
 - Windows：`%USERPROFILE%\.dsh\mneme\models\`
@@ -123,9 +123,15 @@ runtimeMirror: ""       # registry 镜像前缀，例如 https://npmmirror.com/m
 上面的面板按钮 / `provision` 已经能在没有可收编副本时自行下载。但如果你希望**完全掌控取件过程**（例如用自己的镜像、或先在一处统一缓存），仍然可以手工取一份再收编——不必逐个下载包：
 
 ```bash
+# Windows（PowerShell / cmd）
 mkdir %TEMP%\mneme-fetch && cd /d %TEMP%\mneme-fetch
 npm i @huggingface/transformers@^4.2.0
 node "<插件目录>\scripts\mneme-runtime.mjs" adopt --from "%TEMP%\mneme-fetch\node_modules"
+
+# Linux / macOS
+mkdir -p /tmp/mneme-fetch && cd /tmp/mneme-fetch
+npm i @huggingface/transformers@^4.2.0
+node "<插件目录>/scripts/mneme-runtime.mjs" adopt --from /tmp/mneme-fetch/node_modules
 ```
 
 - **安装脚本必须能执行**：npm 默认会执行生命周期脚本，而 `onnxruntime-node` / `sharp` 正是靠 postinstall 取原生二进制；加 `--ignore-scripts` 会得到一个装不起来的闭包。pnpm 10+ 默认拦截构建脚本，所以这里用 npm 更省事。
