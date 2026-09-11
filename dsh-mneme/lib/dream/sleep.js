@@ -1,3 +1,4 @@
+import { STR, langOf } from "../lang.js";
 // System-level sleep (v0.4.0): an idle-triggered, LLM-assisted deep pass over
 // the memory store. Four independent, fail-safe phases:
 //   1. conflict resolution — high-similarity same-type pairs are either parked
@@ -26,26 +27,6 @@ const SUMMARY_MAX = 120;
 //   normal     standard dream-level (0.85) — default
 //   aggressive low-confidence pairs too (0.75) — bloated stores
 const CONFLICT_THRESHOLDS = { gentle: 0.92, normal: 0.85, aggressive: 0.75 };
-
-const CONFLICT_PROMPT = `你是记忆库冲突仲裁助手。下面是检测到的高相似度记忆对，可能内容矛盾或重复。
-对每一对输出一个 decision 对象：
-- 两条确实矛盾/重复 → { "action": "conflict", "winner": <保留的id>, "loser": <归档的id>, "reason": "理由" }
-- 两条只是主题相近、并无矛盾 → { "action": "keep", "ids": [<两个id>] }
-规则：
-- winner 应为信息更完整、更新或更可信的一条
-- 只使用提供的 id，不要编造
-- 每对必须输出一个 decision
-- 只输出 JSON 数组，不要其他文字`;
-
-const PATTERN_PROMPT = `你是记忆库模式发现助手。下面是最近的记忆条目（id、类型、标题、内容）。
-请发现跨条目的稳定模式：用户偏好的规律、反复出现的主题、可复用的工作流或项目规律。
-对每个模式输出一个 create decision：
-{ "action": "create", "type": "pattern", "title": "模式一句话标题", "content": "模式详细描述（2-4句）", "importance": 1-5, "evidence": ["支持该模式的记忆id"] }
-规则：
-- 只输出有据可依的模式，宁缺毋滥
-- evidence 必须是列表中真实存在的 id
-- 最多输出 N 个模式
-- 只输出 JSON 数组，不要其他文字`;
 
 function parseJsonArray(text) {
   if (typeof text !== "string") return undefined;
@@ -109,6 +90,7 @@ function makeSummary(m) {
  * each pair → winner kept / loser archived. Returns a per-run summary.
  */
 async function phaseConflicts(ctx, service, config, logger, runId, semantic = null, signal = null) {
+  const language = langOf(config);
   const embedder = semantic?.embedder;
   const vectorIndex = semantic?.vectorIndex;
   if (!embedder || !vectorIndex || typeof embedder.embed !== "function") {
@@ -170,7 +152,7 @@ async function phaseConflicts(ctx, service, config, logger, runId, semantic = nu
     let frozen = 0;
     for (const p of selected) {
       try {
-        service.saveConflictPending({ run_id: runId, memory_a: p.a.id, memory_b: p.b.id, reason: `相似度 ${p.similarity.toFixed(2)}` });
+        service.saveConflictPending({ run_id: runId, memory_a: p.a.id, memory_b: p.b.id, reason: STR.similarityReason[language](p.similarity.toFixed(2)) });
         frozen++;
       } catch (error) {
         logger?.warn?.(`dsh-mneme sleep: failed to freeze conflict ${p.a.id}/${p.b.id}: ${String(error)}`);
@@ -188,7 +170,7 @@ async function phaseConflicts(ctx, service, config, logger, runId, semantic = nu
     snapshot.set(p.b.id, p.b);
   }
   const listText = selected.map((p) =>
-    `候选冲突：\nid=${p.a.id} | type=${p.a.type} | title=${p.a.title}\n${p.a.content}\n---\nid=${p.b.id} | type=${p.b.type} | title=${p.b.title}\n${p.b.content}\n（相似度 ${p.similarity.toFixed(2)}）`
+    STR.candidateConflicts[language](p)
   ).join("\n\n");
   const sleepEffort = await resolveDreamEffort(ctx, route, config.sleepReasoningEffort, logger);
   let conflictStreamFailure = "";
@@ -201,7 +183,7 @@ async function phaseConflicts(ctx, service, config, logger, runId, semantic = nu
     maxTokens: 2048,
     ...(withEffort && sleepEffort ? { reasoningEffort: sleepEffort } : {}),
     messages: [
-      { role: "system", content: [{ type: "text", text: CONFLICT_PROMPT }] },
+      { role: "system", content: [{ type: "text", text: STR.prompts.conflict[language] }] },
       { role: "user", content: [{ type: "text", text: listText }] }
     ]
   }, (reason) => { conflictStreamFailure = describeStreamFailure(reason); });
@@ -295,6 +277,7 @@ function phaseDemotion(service, config, logger, runId, signal = null) {
  * "every id claimed" invariant is trivially satisfied for pure-create lists.
  */
 async function phasePatterns(ctx, service, config, logger, runId, signal = null) {
+  const language = langOf(config);
   const route = resolveSleepRoute(ctx, config, logger);
   if (!route) return { status: "skipped", reason: "no llm route" };
   const limit = config.sleepPatternMinMemories ?? 100;
@@ -320,7 +303,7 @@ async function phasePatterns(ctx, service, config, logger, runId, signal = null)
     maxTokens: 2048,
     ...(withEffort && sleepEffort ? { reasoningEffort: sleepEffort } : {}),
     messages: [
-      { role: "system", content: [{ type: "text", text: PATTERN_PROMPT.replace("N", String(maxPatterns)) }] },
+      { role: "system", content: [{ type: "text", text: STR.prompts.pattern[language].replace("N", String(maxPatterns)) }] },
       { role: "user", content: [{ type: "text", text: listText }] }
     ]
   }, (reason) => { patternStreamFailure = describeStreamFailure(reason); });

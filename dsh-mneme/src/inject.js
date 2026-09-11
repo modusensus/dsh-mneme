@@ -1,4 +1,5 @@
 import { createHotMemory } from "./hot-memory.js";
+import { STR, langOf } from "./lang.js";
 
 // Best-effort extraction of the current user's latest message text from the
 // live session, for semantic-first injection (Bug4). The system-prompt
@@ -76,6 +77,7 @@ function extractRounds(ctx, maxRounds) {
 }
 
 export function createInjector(ctx, service, settings, config) {
+  const language = langOf(config);
   const maxItems = config.maxInjectedItems ?? 5;
   const threshold = config.importanceThreshold ?? 3;
 
@@ -112,23 +114,23 @@ export function createInjector(ctx, service, settings, config) {
     for (const r of rounds) hot.add(r);
     const body = hot.getContext();
     if (!body) return "";
-    return `[短期上下文] 最近对话（共 ${rounds.length} 轮）：\n${body}`;
+    return STR.hotHeader[language](rounds.length, body);
   }
 
   function render(candidates) {
     if (!candidates.length) return "";
-    const header = "[记忆库] 来自 dsh-mneme 的跨会话记忆（用户偏好与高优先级项目/决策）：";
+    const header = STR.memoryHeader[language];
     const lines = [header];
     let budget = MAX_BLOCK - header.length;
     for (const m of candidates) {
       // Epistemic trust (v0.4.5): when enabled, measured observations are
       // flagged so the agent can weigh them above guesses/opinions.
       const verified = config.trustEpistemicWeighting === true && m.epistemic_status === "observation"
-        ? "[verified] "
+        ? STR.verified[language]
         : "";
-      const title = `${m.title}（重要性 ${m.importance}）`;
+      const title = STR.entryTitle[language](m.title, m.importance);
       const content = injectMemory(m);
-      const full = `- [${m.type}] ${verified}${title}：${content}`;
+      const full = STR.entryLine[language](m.type, verified, title, content);
       if (budget - full.length >= 0) {
         lines.push(full);
         budget -= full.length;
@@ -167,9 +169,9 @@ export function createInjector(ctx, service, settings, config) {
     const profile = settings.getProfile().trim();
     const rules = settings.getRules();
     if (!profile && !rules.length) return "";
-    const lines = ["[用户设置] 来自 dsh-mneme 的用户画像与规则："];
-    if (profile) lines.push(`- 用户画像：${profile}`);
-    for (const rule of rules) lines.push(`- 规则：${rule}`);
+    const lines = [STR.userSettingsHeader[language]];
+    if (profile) lines.push(STR.profileLine[language](profile));
+    for (const rule of rules) lines.push(STR.ruleLine[language](rule));
     return lines.join("\n");
   }
 

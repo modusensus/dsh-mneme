@@ -1,10 +1,13 @@
+import { STR } from "./lang.js";
+
 // Custom slash-command manager: keeps the DSH command registry in sync with
 // user-defined commands persisted in SQLite. Commands are registered on boot
 // and (re)registered on add/remove through the API.
 //
 // Each custom command's handler returns the user-authored instruction as a
 // success result; the DSH UI surfaces it as a model-directed instruction.
-export function createCommandManager({ ctx, settings, logger }) {
+
+export function createCommandManager({ ctx, settings, logger, language = "zh" }) {
   const registered = new Map(); // name -> disposer
 
   function registerOne(command) {
@@ -13,7 +16,8 @@ export function createCommandManager({ ctx, settings, logger }) {
     try {
       dispose = ctx.commands.register({
         name: command.name,
-        description: command.description || `自定义指令 ${command.name}`,
+        // 缺省描述随实例语言（命令描述进命令注册表，对 LLM 可见）。
+        description: command.description || STR.commandFallbackDesc[language](command.name),
         handler: () => ({ kind: "success", text: command.instruction })
       });
     } catch (error) {

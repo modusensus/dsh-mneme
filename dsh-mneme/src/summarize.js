@@ -1,22 +1,9 @@
 import { BlockAssembler, createUserMessage } from "@deepseek-ai/dsh-llm";
-
-const SUMMARY_PROMPT = `你是记忆库提炼助手。根据下面的会话内容，提炼值得跨会话记住的原子记忆。
-原子记忆原则：每条记忆只装一个独立事实/偏好/决策，短小、自带完整上下文（把数字、名字、路径、结论等原始细节保留在 content 里，不要抽象概括）；宁可拆成多条也绝不合并丢细节。信息量一般提 2-4 条，信息密集的对话可提 4-8 条。
-只输出 JSON 数组，每项形如 {"type":"preference|project|decision|history","title":"简短标题","content":"保留原始细节的一句话","importance":1-5}。
-不要输出任何其他文字。`;
+import { STR, langOf } from "./lang.js";
 
 // 编码记忆蒸馏 prompt（codingRetrospect 开启时启用）：在通用记忆之外，额外提取
 // 三类编码专属记忆，专治重复踩坑 / 遗忘被否决方案 / 丢失工程约束。字段仍沿用
 // title/content 单列结构（store 无结构化字段），信息浓缩进 content。
-const CODING_SUMMARY_PROMPT = `你是记忆库提炼助手。根据下面的会话内容（含用户输入、助手回答、工具调用与结果），提炼值得跨会话记住的原子记忆。
-原子记忆原则：每条记忆只装一个独立事实/偏好/决策，短小、自带完整上下文（把数字、报错信息、命令、路径、结论等原始细节保留在 content 里，不要抽象概括）；宁可拆成多条也绝不合并丢细节。信息量一般提 2-4 条，信息密集的对话可提 4-8 条。
-只输出 JSON 数组，每项形如 {"type":"preference|project|decision|history|rejected_solution|pitfall|constraint","title":"简短标题","content":"保留原始细节的一句话","importance":1-5}。
-若对话涉及编码/调试，可额外提取编码类记忆：
-- rejected_solution：被否决/废弃的实现方案（content 含方案简述 + 被否决原因 + 最终采用方案）
-- pitfall：调试踩坑记录（content 含现象/报错 + 根因 + 解决/规避方法）
-- constraint：项目工程约束（content 含约束描述 + 来源）
-普通闲聊、临时无关对话一律不提取编码类记忆。不要输出任何其他文字。`;
-
 /** Extract a JSON array from LLM output that may contain prose around it. */
 export function parseSummaryJson(raw) {
   const text = String(raw ?? "");
@@ -101,7 +88,7 @@ function toProtocolChunk(chunk) {
 // Privacy: assistant `reasoning` (private thought) blocks are deliberately NOT
 // collected — distilled memories must never sink private reasoning chains.
 // Only public text blocks (type "text") reach the summarizer.
-function collectMessages(session, maxChars = 8000) {
+function collectMessages(session, maxChars = 8000, language = "zh") {
   // DSH 0.1.2-rc.1 起 Session 改用 snapshotEvents()，兼容旧版 .events
   const events = session.snapshotEvents?.() ?? session.events ?? [];
   const lines = [];
@@ -123,14 +110,14 @@ function collectMessages(session, maxChars = 8000) {
       case "user/message": {
         if (kind !== undefined && kind !== "user") break;
         const text = textOf(data?.content);
-        if (text.trim()) lines.push(`用户：${text}`);
+        if (text.trim()) lines.push(STR.transcriptUser[language](text));
         break;
       }
       case "assistant/message": {
         const msg = data?.message;
         const blocks = Array.isArray(msg?.content) ? msg.content : [];
         const text = textOf(blocks);
-        if (text.trim()) lines.push(`助手：${text}`);
+        if (text.trim()) lines.push(STR.transcriptAssistant[language](text));
         // 私有推理块（reasoning）刻意不采集：蒸馏记忆不得沉淀模型私有思考链。
         break;
       }
@@ -138,19 +125,19 @@ function collectMessages(session, maxChars = 8000) {
         const args = typeof data.arguments === "string"
           ? data.arguments
           : data.arguments ? JSON.stringify(data.arguments) : "";
-        lines.push(`工具调用：${data.name ?? "?"}(${trim(args, 300)})`);
+        lines.push(STR.transcriptToolCall[language](data.name ?? "?", trim(args, 300)));
         break;
       }
       case "tool/result": {
         const out = typeof data.output === "string" ? data.output : data.output ? JSON.stringify(data.output) : "";
-        const status = data.ok === false ? "失败" : "成功";
-        lines.push(`工具结果（${status}）：${trim(out, 500)}`);
+        const status = data.ok === false ? STR.statusFail[language] : STR.statusOk[language];
+        lines.push(STR.transcriptToolResult[language](status, trim(out, 500)));
         break;
       }
       case "tool/code-dispatch": {
         const out = typeof data.output === "string" ? data.output : data.output ? JSON.stringify(data.output) : "";
-        const status = data.ok === false ? "失败" : "成功";
-        lines.push(`代码执行（${status}）：${trim(out, 500)}`);
+        const status = data.ok === false ? STR.statusFail[language] : STR.statusOk[language];
+        lines.push(STR.transcriptCode[language](status, trim(out, 500)));
         break;
       }
       default:
@@ -220,7 +207,7 @@ export function createSummarizer(ctx, service, config) {
       if (!route) return;
       // 完整转录（Codex 式）：蒸馏把整轮对话交给 LLM 提炼原子记忆，不再硬裁
       // 8000 字截断语义；上限由 distillMaxChars 控制（默认 24000，可调大）。
-      const messages = collectMessages(session, config.distillMaxChars ?? 24000);
+      const messages = collectMessages(session, config.distillMaxChars ?? 24000, langOf(config));
       if (!messages.length) return;
 
       if (config?.llmAudit?.enabled !== false && typeof service.saveLlmAudit === "function") {
@@ -240,7 +227,7 @@ export function createSummarizer(ctx, service, config) {
         model: route.model,
         purpose: "summarization",
         messages: [
-          { role: "system", content: [{ type: "text", text: config.codingRetrospect ? CODING_SUMMARY_PROMPT : SUMMARY_PROMPT }] },
+          { role: "system", content: [{ type: "text", text: config.codingRetrospect ? STR.prompts.codingSummary[langOf(config)] : STR.prompts.summary[langOf(config)] }] },
           ...messages
         ],
         signal: controller.signal
