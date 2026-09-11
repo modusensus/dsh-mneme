@@ -7,7 +7,7 @@ import { langOf } from "./lang.js";
 import { computeHeat } from "./heat.js";
 import { describeStreamFailure, resolveRoute } from "./dream.js";
 import { describeLocalRuntime, publicRuntimeStatus } from "./runtime/loader.js";
-import { adoptHostRuntime, hostModulesDir } from "./runtime/adopt-service.js";
+import { hostModulesDir, provisionRuntime } from "./runtime/provision.js";
 
 // headers：少数端点（/export 附件下载）需要追加 Content-Disposition 等响应头。
 function sendJson(res, status, payload, headers = {}) {
@@ -652,10 +652,10 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
     }
   });
 
-  // --- 一键收编自管运行时（issue #131 / PR-C）---------------------------------
+  // --- 一键取回自管运行时（issue #131 / PR-C：三档来源）-------------------------
   // 写路径（requireAuth）：它会往 ~/.dsh/mneme/runtime/ 落一份依赖闭包。
   //
-  // 源固定取本 profile 的 node_modules（由插件自身路径推出），不接受客户端传源目录 ——
+  // 第一档源固定取本 profile 的 node_modules（由插件自身路径推出），不接受客户端传源目录 ——
   // 「从任意目录往运行时目录里搬东西」没有必要成为对外能力。
   //
   // 一律回 200：请求本身合法，成不成看 body 里的 ok/status/reason。让 HTTP 码只表达
@@ -663,7 +663,7 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
   // 中间状态，用一个 4xx 概括会把信息压掉。
   register({
     kind: "exact",
-    path: "/api/dsh-mneme/runtime/adopt",
+    path: "/api/dsh-mneme/runtime/provision",
     handler(req, res) {
       try {
         if (req.method !== "POST") {
@@ -671,12 +671,16 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
           return;
         }
         if (!requireAuth(req, res, apiToken)) return;
-        return readBody(req).then((text) => {
+        return readBody(req).then(async (text) => {
           const body = parseBody(text);
           const runtimeDir = config?.runtimeDir ?? "";
-          const result = adoptHostRuntime({
+          // 三档来源依次尝试（收编本机 node_modules → 本地 .tgz 目录 → registry）。
+          // 所以这个端点会**联网**：它可能拉一份几十到上百 MB 的闭包。
+          const result = await provisionRuntime({
             hostModulesDir: hostModulesDir(import.meta.url),
             runtimeDir,
+            localTarballDir: config?.runtimeTarballDir ?? "",
+            mirror: config?.runtimeMirror ?? "",
             overwrite: body?.overwrite === true
           });
           // 顺手带回最新状态，面板不必再打一次 /semantic（且它走的是免鉴权投影）。

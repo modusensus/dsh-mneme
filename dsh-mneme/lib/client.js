@@ -428,11 +428,13 @@ window.__ModuleLoader__.load({
         "memory.status.vectorInit": "初始化中",
         "memory.status.vectorInitHint": "embedder 不可达，正在重试",
         "memory.status.vectorRuntimeMissing": "缺少本地推理运行时",
-        "memory.status.vectorRuntimeHint": "本地推理运行时未就绪（{status}）：先运行 scripts/mneme-runtime.mjs adopt 收编，详见 LOCAL_MODEL.md §2.5",
-        "memory.status.vectorAdopt": "收编本机运行时",
-        "memory.status.vectorAdoptBusy": "正在收编…（数千个文件，请稍候）",
-        "memory.status.vectorAdoptDone": "已收编：{n} 个包 / {m} 个文件（{mode}）。若状态未更新请重启 DSH",
-        "memory.status.vectorAdoptFailed": "收编失败：{reason}",
+        "memory.status.vectorRuntimeHint": "本地推理运行时未就绪（{status}）",
+        "memory.status.vectorRuntimeCost": "本地向量化要额外一份本地推理运行时（transformers + onnxruntime 闭包，解包后约 247MB（实测））。下面的按钮会先尝试收编本机已有的那份（同盘则硬链接，不占额外空间），没有再按固定清单从 npm 取回（逐个校验 sha512）。也可以直接让 agent 处理，或在终端里自己跑：node scripts/mneme-runtime.mjs status / adopt [--from <node_modules>] / verify（详见 docs/LOCAL_MODEL.md §2.5）。",
+        "memory.status.vectorRuntimeFetch": "取回本地运行时",
+        "memory.status.vectorRuntimeFetchBusy": "正在取回…（先试收编，必要时下载，数千个文件，请稍候）",
+        "memory.status.vectorRuntimeFetchAdopted": "已收编本机已有的运行时：{n} 个包 / {m} 个文件（{mode}）。若状态未更新请重启 DSH",
+        "memory.status.vectorRuntimeFetchDownloaded": "已从 npm 取回运行时：{n} 个包 / {m} 个文件。若状态未更新请重启 DSH",
+        "memory.status.vectorRuntimeFetchFailed": "取回失败：{reason}",
         "memory.status.vectorIndexed": "已索引 {n} / {m} 条",
       "memory.status.vectorUnconfigured": "未配置",
       "memory.status.vectorUnconfiguredHint": "未填 embedding 端点/模型或未启用，语义召回不可用",
@@ -742,11 +744,13 @@ window.__ModuleLoader__.load({
         "memory.status.vectorInit": "Initializing",
         "memory.status.vectorInitHint": "embedder unreachable, retrying",
         "memory.status.vectorRuntimeMissing": "Local inference runtime missing",
-        "memory.status.vectorRuntimeHint": "Local inference runtime not ready ({status}): run scripts/mneme-runtime.mjs adopt first — see LOCAL_MODEL.md §2.5",
-        "memory.status.vectorAdopt": "Adopt local runtime",
-        "memory.status.vectorAdoptBusy": "Adopting… (thousands of files, please wait)",
-        "memory.status.vectorAdoptDone": "Adopted: {n} packages / {m} files ({mode}). Restart DSH if the status does not update",
-        "memory.status.vectorAdoptFailed": "Adopt failed: {reason}",
+        "memory.status.vectorRuntimeHint": "Local inference runtime not ready ({status})",
+        "memory.status.vectorRuntimeCost": "Local vectorization needs an extra local inference runtime (the transformers + onnxruntime closure, ~247 MB unpacked). The button below first tries to adopt an existing copy on this machine (hardlinked when on the same volume, so no extra disk), and otherwise fetches it from npm against a pinned manifest (every tarball checked against its sha512). You can also just ask the agent, or run it yourself: node scripts/mneme-runtime.mjs status / adopt [--from <node_modules>] / verify (see docs/LOCAL_MODEL.md §2.5).",
+        "memory.status.vectorRuntimeFetch": "Fetch local runtime",
+        "memory.status.vectorRuntimeFetchBusy": "Fetching… (tries adopt first, may download — thousands of files)",
+        "memory.status.vectorRuntimeFetchAdopted": "Adopted the runtime already on this machine: {n} packages / {m} files ({mode}). Restart DSH if the status does not update",
+        "memory.status.vectorRuntimeFetchDownloaded": "Fetched the runtime from npm: {n} packages / {m} files. Restart DSH if the status does not update",
+        "memory.status.vectorRuntimeFetchFailed": "Fetch failed: {reason}",
         "memory.status.vectorIndexed": "Indexed {n} / {m} items",
       "memory.status.vectorUnconfigured": "Not configured",
       "memory.status.vectorUnconfiguredHint": "No embedding endpoint/model configured — semantic recall is off",
@@ -2671,6 +2675,73 @@ window.__ModuleLoader__.load({
               : degraded
                 ? t("memory.status.vectorDegradedHint").replace("{m}", state.total)
                 : t("memory.status.vectorIndexed").replace("{n}", state.embedded).replace("{m}", state.total);
+      // 一键取回自管运行时（issue #131 / PR-C）：服务侧依次尝试三档来源 —— 收编本机已有的、
+      // 本地 .tgz 目录、registry 按固定清单下载。面板不需要用户输入任何路径。
+      //
+      // mneme 的取向是「本体保持完善但轻量；重的功能存在、默认不开、不被依赖，只留口子」。
+      // 所以这里的代价必须写在按钮旁边（见下面的 vectorRuntimeCost）：本地向量化的代价就是
+      // 这额外一份运行时 —— 瞒着用户，他会在「为什么装个插件这么慢」上再撞一次墙。
+      //
+      // 只有 payload 坏了才覆盖重建：只是缺就别覆盖，免得动到已经好用的文件。
+      const fetchRuntime = async () => {
+        setAdopting(true);
+        setAdoptMsg("");
+        try {
+          const res = await apiFetch("/api/dsh-mneme/runtime/provision", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ overwrite: state.localRuntime?.status === "broken" })
+          });
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          const j = await res.json();
+          if (j?.ok) {
+            // 按实际走的那一档给结果：收编（同盘硬链接、不占额外空间）与下载是两回事，
+            // 报成同一句话会让用户不知道自己的磁盘发生了什么。
+            const key = j.strategy === "download"
+              ? "memory.status.vectorRuntimeFetchDownloaded"
+              : "memory.status.vectorRuntimeFetchAdopted";
+            setAdoptMsg(
+              t(key)
+                .replace("{n}", j.packages ?? 0)
+                .replace("{m}", j.files ?? 0)
+                .replace("{mode}", j.materialize ?? "?")
+            );
+          } else {
+            setAdoptMsg(t("memory.status.vectorRuntimeFetchFailed").replace("{reason}", j?.reason ?? j?.status ?? "?"));
+          }
+          setReload((n) => n + 1);
+        } catch (error) {
+          setAdoptMsg(
+            t("memory.status.vectorRuntimeFetchFailed").replace("{reason}", String((error && error.message) || error))
+          );
+        } finally {
+          setAdopting(false);
+        }
+      };
+
+      return h(react.Fragment, null,
+        h(StatusCard, {
+          t,
+          title: t("memory.status.vector"),
+          loading: state.loading,
+          error: state.error,
+          num,
+          cap
+        }),
+        !state.loading && !state.error && localBlocked
+          ? h("div", { className: "mneme-statuscap", style: { marginTop: "6px" } },
+              // 代价与替代路径先于按钮出现：即便用户不点，也知道「本地向量化要额外一份运行时，
+              // 也可以交给 agent 或自己在终端跑」。
+              h("div", { style: { opacity: 0.85, marginBottom: "6px" } }, t("memory.status.vectorRuntimeCost")),
+              h("button", {
+                className: "mneme-chip",
+                disabled: adopting,
+                onClick: fetchRuntime
+              }, adopting ? t("memory.status.vectorRuntimeFetchBusy") : t("memory.status.vectorRuntimeFetch")),
+              adoptMsg ? h("div", { style: { marginTop: "4px" } }, adoptMsg) : null
+            )
+          : null
+      );
     }
 
     // LLM 消耗 — calls + tokens over the trailing 7 days.

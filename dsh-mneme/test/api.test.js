@@ -1378,27 +1378,29 @@ test("POST /api/dsh-mneme/test-model is auth-gated like other expensive endpoint
   assert.equal(res.statusCode, 401, "probe spends the user's API quota, so it must require auth");
 });
 
-test("POST /api/dsh-mneme/runtime/adopt：写路由必须鉴权，缺源时如实回报（PR-C）", async () => {
+test("POST /api/dsh-mneme/runtime/provision：写路由必须鉴权，两种来源都不可用时如实回报（PR-C）", async () => {
   // config.runtimeDir 指向临时目录，避免测试碰用户真实的 ~/.dsh/mneme/runtime。
   const runtimeDir = mkdtempSync(join(tmpdir(), "mneme-route-rt-"));
-  const { routes, apiToken } = setup(undefined, "secret-token", { runtimeDir });
-  const route = routes.find((r) => r.path === "/api/dsh-mneme/runtime/adopt");
+  const { routes, apiToken } = setup(undefined, "secret-token", { runtimeDir, runtimeMirror: "http://127.0.0.1:1/" });
+  // runtimeMirror 指向必然拒绝连接的本地端口：这条路由会依次尝试「收编」与「下载」，而清单是真的 ——
+  // 不钉住它，测试就会真的去 registry 拉整套闭包（几十到上百 MB）。测试联网不是测试。
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/runtime/provision");
   assert.ok(route, "应当注册 runtime/adopt 路由");
 
   // 方法不对：405，且不该有任何副作用。
   const wrongMethod = new FakeRes();
-  await route.handler(req("/api/dsh-mneme/runtime/adopt"), wrongMethod);
+  await route.handler(req("/api/dsh-mneme/runtime/provision"), wrongMethod);
   assert.equal(wrongMethod.statusCode, 405);
 
   // 未授权：401。它会往磁盘写一份运行时，所以这道门必须在动手之前。
   const unauth = new FakeRes();
-  await route.handler(req("/api/dsh-mneme/runtime/adopt", "POST", {}), unauth);
+  await route.handler(req("/api/dsh-mneme/runtime/provision", "POST", {}), unauth);
   assert.equal(unauth.statusCode, 401);
   assert.deepEqual(readdirSync(runtimeDir), [], "未授权的请求不该产生任何文件");
 
-  // 已授权：仓库布局下推导出的源不是 node_modules，于是如实回报 ok:false，
-  // 而不是抛异常、也不是假装成功。这条正是评审指出的那个 bug 的路由版本。
-  const authed = req("/api/dsh-mneme/runtime/adopt", "POST", {});
+  // 已授权：收编无源、下载被镜像钉死 —— 两条都失败，于是如实回报，
+  // 而不是抛异常、也不是假装成功。两条原因都必须给出来：只给一条就会被迫去猜另一半。
+  const authed = req("/api/dsh-mneme/runtime/provision", "POST", {});
   authed.headers = { "x-dsh-mneme-token": apiToken };
   const res = new FakeRes();
   await route.handler(authed, res);
@@ -1406,7 +1408,9 @@ test("POST /api/dsh-mneme/runtime/adopt：写路由必须鉴权，缺源时如�
   const body = JSON.parse(res.body);
   assert.equal(body.ok, false);
   assert.equal(body.status, "failed");
-  assert.match(body.reason, /入口包不存在/);
+  assert.equal(body.strategy, "none");
+  assert.match(body.reason, /收编失败：.*入口包/);
+  assert.match(body.reason, /下载失败：/);
   // 顺带带回的状态必须是投影过的形状：绝对路径与原始错误不进 HTTP。
   assert.deepEqual(
     Object.keys(body.localRuntime).sort(),

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { adoptHostRuntime, hostModulesDir } from "../lib/runtime/adopt-service.js";
+import { adoptHostRuntime, hostModulesDir, provisionRuntime } from "../lib/runtime/provision.js";
 import { makeEmptyModules, makeSourceModules } from "./helpers/runtime-source.js";
 
 // PR-C：面板「一键收编」的服务层。守两件事：
@@ -59,4 +59,19 @@ test("adoptHostRuntime：目标已存在默认不覆盖，带 overwrite 才重�
 
   const forced = adoptHostRuntime({ hostModulesDir: src.nm, runtimeDir: src.runtimeDir, overwrite: true });
   assert.equal(forced.ok, true, JSON.stringify(forced));
+});
+
+test("provisionRuntime：本机有可收编的源时走收编，不联网", async () => {
+  const src = makeSourceModules();
+  const result = await provisionRuntime({
+    hostModulesDir: src.nm,
+    runtimeDir: src.runtimeDir,
+    // 一旦它去下载就会命中这个必抛的 fetch —— 从而证明这次确实没有联网。
+    fetchImpl: () => {
+      throw new Error("不该联网");
+    }
+  });
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(result.strategy, "adopt", "有源时应当走收编而不是下载");
+  assert.ok(result.packages > 0);
 });

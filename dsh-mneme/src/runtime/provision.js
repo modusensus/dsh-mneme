@@ -1,4 +1,4 @@
-// 「一键收编」的服务侧实现（issue #131 / PR-C）
+// 运行时取件编排：三档来源依次尝试（issue #131 / PR-C / PR-C 追加下载档）
 //
 // 为什么单独一层：面板按钮需要一段「能被单测覆盖、又不必把绝对路径交给免鉴权端点」的
 // 逻辑。这里只做三件事——推源、收编、给结论；路由那侧只管鉴权与搬运。
@@ -16,10 +16,12 @@
 // 跨卷回退成复制时会明显更久。这是用户点按钮才触发的显式动作，短暂占用事件循环可接受；
 // 将来若成为常态路径，再考虑挪进 worker。
 //
-// @module dsh-mneme/runtime/adopt-service
+// @module dsh-mneme/runtime/provision
 import { dirname } from "node:path";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { adoptRuntime } from "./adopt.js";
+import { downloadRuntime } from "./download.js";
 import { describePayload } from "./layout.js";
 
 /**
@@ -90,5 +92,85 @@ export function adoptHostRuntime({ hostModulesDir: from, runtimeDir = "", overwr
     // reasons 里可能带绝对路径，但它只回给已鉴权的调用方（面板 / 本机 CLI）；
     // 免鉴权的 /semantic 走 publicRuntimeStatus 投影，不经过这里。
     reasons: structural.reasons
+  };
+}
+
+/**
+ * 读随包发布的 runtime-manifest.json。
+ *
+ * 路径：`src/runtime/` 与 `lib/runtime/` 往上两级都是包根，两种布局同深度，所以同一个相对路径
+ * 都成立。清单必须写进 package.json 的 files —— 否则装好的插件里根本没有它（这条真踩过）。
+ * 读不到返回 null：调用方据此给出「没有可下载的清单」这种可读原因，而不是抛栈。
+ * @param {string} [fromModuleUrl] - 调用方自己的 import.meta.url（测试可注入）。
+ * @returns {object|null} 清单内容。
+ */
+export function loadRuntimeManifest(fromModuleUrl = import.meta.url) {
+  try {
+    return JSON.parse(readFileSync(new URL("../../runtime-manifest.json", fromModuleUrl), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 依次尝试三档来源，给出一个统一形状的结论（面板 / CLI / agent 共用）：
+ *   ① 收编本机 node_modules（零网络）② 本地 .tgz 目录 ③ registry（可换镜像）
+ *
+ * 为什么三档都试、而不是先替调用方判断「本机有没有源」：那两种探测都是文件系统判断，
+ * 交给各自的实现更准，而且失败原因本身就是给人看的那句话 —— 判断逻辑重复一遍只会两边漂移。
+ *
+ * 两种来源都失败时，reason 里**两条原因都给**：用户和 agent 都需要知道「为什么收编不行」与
+ * 「为什么下载不行」，只给一条就会被迫去猜另一半。
+ * @param {object} opts - 选项。
+ * @returns {Promise<object>} {ok, strategy, ...}；strategy ∈ adopt | download | none。
+ */
+export async function provisionRuntime({
+  hostModulesDir: from,
+  runtimeDir = "",
+  localTarballDir = "",
+  mirror = "",
+  overwrite = false,
+  manifest,
+  platform = process.platform,
+  arch = process.arch,
+  fetchImpl,
+  onProgress
+}) {
+  const adopted = adoptHostRuntime({ hostModulesDir: from, runtimeDir, overwrite });
+  if (adopted.ok) return { ...adopted, strategy: "adopt" };
+
+  const loaded = manifest === undefined ? loadRuntimeManifest() : manifest;
+  if (loaded === null || loaded === undefined) {
+    return {
+      ok: false,
+      strategy: "none",
+      status: "failed",
+      reason: `没有可用的 runtime-manifest.json，无法下载；收编也失败：${adopted.reason}`,
+      adoptReason: adopted.reason
+    };
+  }
+
+  const downloaded = await downloadRuntime({
+    manifest: loaded,
+    // 空串要变成 undefined：downloadRuntime 的默认值只在「未传」时生效，传空串会得到相对路径。
+    runtimeDir: runtimeDir || undefined,
+    localTarballDir,
+    mirror,
+    overwrite,
+    platform,
+    arch,
+    ...(fetchImpl === undefined ? {} : { fetchImpl }),
+    ...(onProgress === undefined ? {} : { onProgress })
+  });
+
+  if (downloaded.ok) return { ...downloaded, strategy: "download", adoptReason: adopted.reason };
+
+  return {
+    ok: false,
+    strategy: "none",
+    status: "failed",
+    reason: `收编失败：${adopted.reason}；下载失败：${downloaded.reason}`,
+    adoptReason: adopted.reason,
+    downloadReason: downloaded.reason
   };
 }

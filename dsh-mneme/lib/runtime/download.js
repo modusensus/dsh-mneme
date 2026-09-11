@@ -85,7 +85,8 @@ export async function fetchTarball(url, { attempts = DEFAULT_ATTEMPTS, fetchImpl
           const chunk = Buffer.from(value);
           chunks.push(chunk);
           received += chunk.length;
-          onProgress?.({ received, attempt });
+          // 事件带 type：同一个回调同时承载「字节级」与「包级」两种进度，不标类型调用方就只能猜。
+          onProgress?.({ type: "bytes", received, attempt });
         }
       }
       return { buffer: Buffer.concat(chunks, received), attempts: attempt, resumed: attempt > 1 };
@@ -177,7 +178,7 @@ export async function downloadRuntime({
       totals.bytes += stats.bytes;
       totals.packages++;
       packages.push({ name: pkg.name, version: pkg.version, rel: pkg.rel, optional: pkg.optional === true });
-      onProgress?.({ package: pkg.name, done: totals.packages, total: entry.packages.length });
+      onProgress?.({ type: "package", package: pkg.name, done: totals.packages, total: entry.packages.length });
     }
   } catch (error) {
     // 半份 payload 比没有更糟：清掉，让「没装成」这件事在磁盘上也成立。
