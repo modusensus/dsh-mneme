@@ -121,10 +121,10 @@ test("trigger renders a wide row or a rail icon from the wide flag", () => {
   );
 });
 
-// The entry lives ABOVE the workspaces region: the real button is portalled
-// just before the host's regionArea container (below New Session, above the
-// workspace list), while the sidebar.footer.action registration remains as
-// the React anchor and the in-place fallback when the host markup changes.
+// The entry lives at the top of the plugin-entry group: the real button is
+// portalled right after the host's New-Session row (above the entries other
+// plugins inject there), while the sidebar.footer.action registration remains
+// as the React anchor and the in-place fallback when the host markup changes.
 test("sidebar entry portals above the workspaces region with footer fallback", () => {
   assert.ok(
     clientSource.includes('ctx.slots.inject("sidebar.footer.action"'),
@@ -139,8 +139,8 @@ test("sidebar entry portals above the workspaces region with footer fallback", (
     "the portal must anchor at the host's regionArea container"
   );
   assert.ok(
-    clientSource.includes("insertBefore(created, region)"),
-    "the entry must sit immediately above the workspaces region"
+    clientSource.includes("insertBefore(created, target)"),
+    "the entry must be placed through the idempotent place() helper"
   );
   assert.ok(
     clientSource.includes("if (!host) return fallback;"),
@@ -157,6 +157,33 @@ test("sidebar entry portals above the workspaces region with footer fallback", (
   assert.ok(
     clientSource.includes('"memory.view.label"'),
     "the sheet aria-label must come from the memory.view.label dictionary key"
+  );
+});
+
+// Issue #130: ecosystem plugins (task board, skill explorer, …) inject their
+// own entries right after the New-Session row, and late inserters land above
+// earlier ones — a fixed "before regionArea" slot degrades into the tail of
+// that group, detaching the memory button from its familiar top spot. The
+// entry therefore (a) resolves the same anchor as the ecosystem's shared
+// sidebar-entry-core (logoRow row, legacy direct-child button), (b) re-asserts
+// its slot from the existing observer, and (c) stays idempotent — the anchor
+// check short-circuits before any DOM write, so observers never ping-pong.
+test("entry re-asserts the New-Session-adjacent slot against ecosystem entries", () => {
+  assert.ok(
+    clientSource.includes(`btn.closest('[class*="logoRow"]')`),
+    "the anchor must resolve the New-Session logo row like the ecosystem core"
+  );
+  assert.ok(
+    clientSource.includes("const target = anchor ? anchor.nextSibling : region;"),
+    "the entry must sit right after the New-Session row, falling back before regionArea"
+  );
+  assert.ok(
+    clientSource.includes("if (created.parentElement === parent && created.nextSibling === target) return;"),
+    "placement must be idempotent so the observer never writes on steady state"
+  );
+  assert.ok(
+    /place\(cur\);\s*\n\s*const cls = findNative\(cur\)/.test(clientSource),
+    "the observer must re-place the entry on childList churn, not just re-sync the class"
   );
 });
 
