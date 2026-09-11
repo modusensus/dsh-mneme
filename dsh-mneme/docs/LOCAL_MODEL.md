@@ -81,7 +81,7 @@ rm -rf ~/.dsh/mneme/models/hub/models--Xenova--bge-small-zh-v1.5
 | ② | `runtimeTarballDir` 指向的本地 `.tgz` 目录 | 某个包网络下不到时用（文件名按 npm 约定 `<basename>-<version>.tgz`） |
 | ③ | npm registry（`runtimeMirror` 可换镜像） | 按随包发布的 `runtime-manifest.json` 逐个取，**每个 tarball 先校验 sha512 再落盘** |
 
-走 ③ 时体积是 **47 个包、2502 个文件、约 247MB**（本机实测）——比①少，因为清单剔除了 `onnxruntime-web`（127.7MB，占全量三分之一）：transformers 的 Node 构建从不 import 它（把一个空的 `onnxruntime-web` 打桩进去，嵌入结果逐字节相同），风险由 `verify` 的真实推理兜底。
+走 ③ 时体积是 **win32-x64 实测约 33 个包、2142 个文件、数百 MB**（各平台不同，故不写死数值）——比①少，因为清单剔除了 `onnxruntime-web`（127.7MB，占全量三分之一）：transformers 的 Node 构建从不 import 它（把一个空的 `onnxruntime-web` 打桩进去，嵌入结果逐字节相同），风险由 `verify` 的真实推理兜底。清单本身**平台无关**（数据源是 `package-lock.json` 里所有平台的条目），下载时按各包的 `os`/`cpu` 过滤，所以 win32 / darwin / linux × x64 / arm64 都被覆盖 —— 不需要谁在某个系统上先跑一次生成脚本。
 
 ```bash
 # 在插件目录下运行（例如 node_modules/@modusensus/dsh-mneme）
@@ -105,7 +105,7 @@ node scripts/mneme-runtime.mjs verify --cache-dir ~/.dsh/mneme/models
 
 #### 不用命令行也可以
 
-- **面板**：记忆面板的「向量索引」卡片在本地 provider 且运行时不就绪时，会显示**代价说明**（要额外一份运行时、解包后约 247MB）、先试收编、没有再下载，并按实际走的那一档分开报结果。卡片下面还有一个「取回本地运行时」按钮，点一下即完成。
+- **面板**：记忆面板的「向量索引」卡片在本地 provider 且运行时不就绪时，会显示**代价说明**（要额外一份运行时、解包后数百 MB）、先试收编、没有再下载，并按实际走的那一档分开报结果。卡片下面还有一个「取回本地运行时」按钮，点一下即完成。
 - **让 agent 代做**：`memory_runtime` 工具提供三个动作——`status`（只读，**返回里带代价说明**，便于 agent 先告知你再动手）、`provision`（走上面三档来源）、`verify`（真跑一次推理）。所以即便你不看面板，也可以直接让 agent 处理。
 
 ```yaml

@@ -2,6 +2,7 @@ import { defineTool } from "@deepseek-ai/dsh-tools";
 import { describeLocalRuntime, resolveRuntimeEntry } from "./runtime/loader.js";
 import { defaultRuntimeDir } from "./runtime/layout.js";
 import { hostModulesDir, loadRuntimeManifest, provisionRuntime } from "./runtime/provision.js";
+import { matchesPlatform } from "./runtime/closure.js";
 import { verifyPayload } from "./runtime/verify.js";
 
 const TEXT_OUTPUT = (text) => [{ type: "text", text }];
@@ -340,7 +341,7 @@ export function createTools(ctx, service, config, embedder) {
     // 运行时口子（issue #131 / PR-C）。
     //
     // 为什么要有这个工具：mneme 的取向是「本体保持完善但轻量；重的功能存在、默认不开、不被依赖」。
-    // 本地向量化就是那个重功能 —— 它需要额外一份运行时（实测解包后约 247MB）。面板上有按钮，但用户
+    // 本地向量化就是那个重功能 —— 它需要额外一份运行时（解包后数百 MB）。面板上有按钮，但用户
     // 可能根本不看面板；这时 agent 需要一个入口，能先查状态、把代价告诉用户，再按需取回。
     //
     // 关于「要不要直接 provision」：它会联网、可能传几十到上百 MB、耗时数分钟。所以工具描述里
@@ -349,7 +350,7 @@ export function createTools(ctx, service, config, embedder) {
       name: "memory_runtime",
       description:
         "Inspect or provision the LOCAL inference runtime that dsh-mneme's local (offline) embedding and rerank need: " +
-        "the transformers + onnxruntime dependency closure, ~247 MB unpacked. It is deliberately NOT a default " +
+        "the transformers + onnxruntime dependency closure, hundreds of MB unpacked. It is deliberately NOT a default " +
         "dependency — mneme's core stays lightweight and local vectorization is opt-in — so this tool is the hook that " +
         "makes the heavy capability available on demand. Use action=status first: it is read-only and reports whether " +
         "the runtime is ready plus what provisioning would cost. action=provision tries, in order: (1) adopting an " +
@@ -384,10 +385,10 @@ export function createTools(ctx, service, config, embedder) {
       async execute(args) {
         const runtimeDir = config?.runtimeDir ?? "";
         const manifest = loadRuntimeManifest();
-        const entry = manifest?.platforms?.[`${process.platform}-${process.arch}`];
+        const forPlatform = Array.isArray(manifest?.packages) ? manifest.packages.filter((pkg) => matchesPlatform(pkg, process.platform, process.arch)) : null;
         const cost =
           `Local vectorization needs an extra local inference runtime (transformers + onnxruntime closure, ` +
-          `~247 MB unpacked${entry ? `, ${entry.packages.length} packages in the pinned manifest` : ""}). ` +
+          `hundreds of MB unpacked${forPlatform ? `, ${forPlatform.length} packages for this platform` : ""}). ` +
           `It is not a default dependency: provisioning adopts an existing copy when possible, otherwise downloads it.`;
 
         if (args.action === "provision") {
@@ -445,7 +446,7 @@ export function createTools(ctx, service, config, embedder) {
           status: report.status,
           cost,
           ...(report.payloadId ? { payloadId: report.payloadId } : {}),
-          ...(entry ? { packages: entry.packages.length } : {}),
+          ...(forPlatform ? { packages: forPlatform.length } : {}),
           ...(report.reason ? { reason: report.reason } : {})
         };
       }

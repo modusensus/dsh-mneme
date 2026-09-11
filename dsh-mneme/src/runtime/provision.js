@@ -77,10 +77,18 @@ export function adoptHostRuntime({ hostModulesDir: from, runtimeDir = "", overwr
   const structural = describePayload(result.payloadDir);
   const gaps = result.plan.gaps.map((gap) => gap.name);
   const healthy = structural.ok && gaps.length === 0;
+  // 不健康时**也必须**带 reason：调用方（面板 / 工具 / provisionRuntime）会把它拼进给用户看的
+  // 那句话里，缺了就会显示成「收编失败：undefined」——评审指出的正是这个。
+  const why = [
+    ...structural.missing.map((item) => `缺 ${item}`),
+    ...gaps.map((gap) => `缺依赖 ${gap}`),
+    ...structural.reasons
+  ];
 
   return {
     ok: healthy,
     status: healthy ? "adopted" : "incomplete",
+    ...(healthy ? {} : { reason: `收编结果不完整：${why.join("；") || "结构与闭包检查未通过"}` }),
     payloadId: result.payloadId,
     version: result.version,
     packages: result.plan.packages.length,
@@ -124,7 +132,7 @@ export function loadRuntimeManifest(fromModuleUrl = import.meta.url) {
  * @param {object} opts - 选项。
  * @returns {Promise<object>} {ok, strategy, ...}；strategy ∈ adopt | download | none。
  */
-export async function provisionRuntime({
+async function provisionOnce({
   hostModulesDir: from,
   runtimeDir = "",
   localTarballDir = "",
@@ -156,7 +164,9 @@ export async function provisionRuntime({
     runtimeDir: runtimeDir || undefined,
     localTarballDir,
     mirror,
-    overwrite,
+    // 收编留下的是「不完整」的那份（缺件 / 缺依赖），它已经不可用：下载这一档必须覆盖它，
+    // 否则会因「目标已存在」失败 —— 用户拿到两份坏消息，却没有任何出路。
+    overwrite: overwrite || adopted.status === "incomplete",
     platform,
     arch,
     ...(fetchImpl === undefined ? {} : { fetchImpl }),
@@ -174,3 +184,22 @@ export async function provisionRuntime({
     downloadReason: downloaded.reason
   };
 }
+
+/**
+ * 同一运行时目录同时只允许一次取件。
+ *
+ * 面板按钮与 agent 工具可能并发调用（用户也可能连点两下），而取件是直接往**最终目录**写：
+ * 两路并发会互相覆盖成半份 payload。与其让第二次白跑一遍 200MB，不如把它接到正在进行的那次上 ——
+ * 结果一致，而且不会把目录写坏。
+ */
+const IN_FLIGHT = new Map();
+
+export async function provisionRuntime(options) {
+  const key = String(options?.runtimeDir ?? "").trim() || "default";
+  const running = IN_FLIGHT.get(key);
+  if (running !== undefined) return running;
+  const task = provisionOnce(options).finally(() => IN_FLIGHT.delete(key));
+  IN_FLIGHT.set(key, task);
+  return task;
+}
+

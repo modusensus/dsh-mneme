@@ -15,7 +15,8 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, sep } from "node:path";
 import { RUNTIME_MANIFEST_VERSION } from "./adopt.js";
-import { defaultRuntimeDir, nodeModulesDir, payloadDir, runtimeManifestPath } from "./layout.js";
+import { REQUIRED_PACKAGES, defaultRuntimeDir, nodeModulesDir, payloadDir, payloadId, runtimeManifestPath } from "./layout.js";
+import { matchesPlatform } from "./closure.js";
 import { stripPackagePrefix, verifyIntegrity, walkTgz } from "./tarball.js";
 
 const DEFAULT_ATTEMPTS = 3;
@@ -30,9 +31,13 @@ const DEFAULT_ATTEMPTS = 3;
 export function applyMirror(url, mirror) {
   const base = String(mirror ?? "").trim().replace(/\/+$/, "");
   if (base === "") return url;
+  // 只换 registry.npmjs.org 的地址：别的来源（自建 registry、file:、清单里已是镜像的地址）一律
+  // 原样返回。这里曾经用 indexOf(...) 直接加偏移量拼字符串 —— 地址里没有那个域名时 indexOf 返回
+  // -1，slice 出的是垃圾名字，把一条本来可用的地址改坏。
+  const prefix = "https://registry.npmjs.org/";
   const marker = url.indexOf("/-/");
-  if (marker === -1) return url;
-  const name = url.slice(url.indexOf("registry.npmjs.org/") + "registry.npmjs.org/".length, marker);
+  if (marker === -1 || !url.startsWith(prefix)) return url;
+  const name = url.slice(prefix.length, marker);
   return name === "" ? url : `${base}/${name}${url.slice(marker)}`;
 }
 
@@ -75,8 +80,15 @@ export async function fetchTarball(url, { attempts = DEFAULT_ATTEMPTS, fetchImpl
 
       if (res.body?.getReader === undefined) {
         const whole = Buffer.from(await res.arrayBuffer());
-        chunks = [whole];
-        received = whole.length;
+        // 206 的响应体只是**剩余**那段，必须追加；200 才是完整的一份 —— 覆盖会丢掉前半段，
+        // 于是 sha512 校验必挂（而这次失败看起来像「来源不可信」，与真实原因不符）。
+        if (res.status === 206) {
+          chunks.push(whole);
+          received += whole.length;
+        } else {
+          chunks = [whole];
+          received = whole.length;
+        }
       } else {
         const reader = res.body.getReader();
         for (;;) {
@@ -136,19 +148,29 @@ export async function downloadRuntime({
   fetchImpl = fetch,
   onProgress
 }) {
-  const key = `${platform}-${arch}`;
-  const entry = manifest?.platforms?.[key];
-  if (entry === undefined) {
-    return { ok: false, reason: `清单里没有 ${key} 的条目 —— 本机平台不在 runtime-manifest.json 覆盖范围内` };
+  // v2 清单是**平台无关**的：里面是所有平台的包（各带 os / cpu），这里按本机平台过滤。
+  // 这样一份随包发布的静态清单就覆盖 win32 / darwin / linux × x64 / arm64 —— 不需要
+  // 「谁在哪个系统上跑一次生成脚本」，也就不会让 macOS 用户卡在「清单里没有我的平台」。
+  const all = Array.isArray(manifest?.packages) ? manifest.packages : null;
+  if (all === null) return { ok: false, reason: "运行时清单不可用（缺少 packages 列表）" };
+
+  const wanted = all.filter((pkg) => matchesPlatform(pkg, platform, arch));
+  const missingRequired = REQUIRED_PACKAGES.filter((name) => !wanted.some((pkg) => pkg.rel === name));
+  if (missingRequired.length > 0) {
+    // 目标平台在清单里就缺必需包时，现在失败好过装出一份「结构看着全、import 原生模块才炸」的
+    // 运行时 —— 那时错误现场离原因已经很远。
+    return { ok: false, reason: `清单里 ${platform}-${arch} 缺少必需包：${missingRequired.join("、")}` };
   }
 
-  const dir = payloadDir(runtimeDir, entry.payloadId);
+  const id = payloadId({ version: manifest.transformersVersion, platform, arch });
+
+  const dir = payloadDir(runtimeDir, id);
   if (existsSync(dir) && !overwrite) {
     return {
       ok: false,
       reason: `目标已存在：${dir}（需要覆盖请传 overwrite: true）`,
       payloadDir: dir,
-      payloadId: entry.payloadId
+      payloadId: id
     };
   }
   // 覆盖前先清空：否则上一次的残留文件会让结构检查看到「完整」，掩盖这一次的缺件。
@@ -160,7 +182,7 @@ export async function downloadRuntime({
   const skipped = [];
 
   try {
-    for (const pkg of entry.packages) {
+    for (const pkg of wanted) {
       const local = localTarballDir ? localTarballPath(localTarballDir, pkg) : "";
       const useLocal = local !== "" && existsSync(local);
       const url = applyMirror(pkg.tarball, mirror);
@@ -178,7 +200,7 @@ export async function downloadRuntime({
       totals.bytes += stats.bytes;
       totals.packages++;
       packages.push({ name: pkg.name, version: pkg.version, rel: pkg.rel, optional: pkg.optional === true });
-      onProgress?.({ type: "package", package: pkg.name, done: totals.packages, total: entry.packages.length });
+      onProgress?.({ type: "package", package: pkg.name, done: totals.packages, total: wanted.length });
     }
   } catch (error) {
     // 半份 payload 比没有更糟：清掉，让「没装成」这件事在磁盘上也成立。
@@ -188,9 +210,9 @@ export async function downloadRuntime({
 
   const written = {
     manifestVersion: RUNTIME_MANIFEST_VERSION,
-    payloadId: entry.payloadId,
+    payloadId: id,
     entry: manifest.entry ?? "@huggingface/transformers",
-    version: entry.transformersVersion,
+    version: manifest.transformersVersion,
     platform,
     arch,
     procedure: "downloaded",
@@ -207,8 +229,8 @@ export async function downloadRuntime({
   return {
     ok: true,
     payloadDir: dir,
-    payloadId: entry.payloadId,
-    version: entry.transformersVersion,
+    payloadId: id,
+    version: manifest.transformersVersion,
     totals,
     manifest: written
   };

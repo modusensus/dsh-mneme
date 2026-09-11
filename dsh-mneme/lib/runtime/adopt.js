@@ -133,15 +133,22 @@ export function adoptRuntime({
   const warnings = [];
   const totals = { files: 0, bytes: 0, linked: 0, copied: 0, symlinks: 0 };
   let linkError = null;
-  for (const pkg of plan.packages) {
-    const stats = materializePackage({
-      srcDir: pkg.srcDir,
-      destDir: join(nodeModulesDir(dir), pkg.rel),
-      warnings,
-      link
-    });
-    for (const key of Object.keys(totals)) totals[key] += stats[key];
-    if (linkError === null && stats.linkError !== null) linkError = stats.linkError;
+  try {
+    for (const pkg of plan.packages) {
+      const stats = materializePackage({
+        srcDir: pkg.srcDir,
+        destDir: join(nodeModulesDir(dir), pkg.rel),
+        warnings,
+        link
+      });
+      for (const key of Object.keys(totals)) totals[key] += stats[key];
+      if (linkError === null && stats.linkError !== null) linkError = stats.linkError;
+    }
+  } catch (error) {
+    // 契约是「失败时 ok=false 且带 reason，不抛」。物化到一半失败更要清干净：半份 payload 会被
+    // 结构检查看成「差不多能用」，然后在 import 原生模块时才炸，错误现场离原因很远。
+    rmSync(dir, { recursive: true, force: true });
+    return { ok: false, reason: `物化失败：${String(error?.message ?? error)}` };
   }
   // 物化方式如实记进清单：收编「本该不占盘却占了盘」时，用户和面板都能看到原因。
   const mode = totals.copied === 0 ? "hardlink" : totals.linked === 0 ? "copy" : "mixed";

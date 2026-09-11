@@ -75,3 +75,13 @@ test("provisionRuntime：本机有可收编的源时走收编，不联网", asyn
   assert.equal(result.strategy, "adopt", "有源时应当走收编而不是下载");
   assert.ok(result.packages > 0);
 });
+
+test("adoptHostRuntime：收编结果不完整时也必须带 reason（不能是 undefined）", () => {
+  const src = makeSourceModules({ withMissingDep: true });
+  const result = adoptHostRuntime({ hostModulesDir: src.nm, runtimeDir: src.runtimeDir });
+  assert.equal(result.ok, false);
+  assert.equal(result.status, "incomplete");
+  // 评审指出的正是这条：缺 reason 时，给用户的话会变成「收编失败：undefined」。
+  assert.match(result.reason, /收编结果不完整/);
+  assert.match(result.reason, /缺依赖/);
+});

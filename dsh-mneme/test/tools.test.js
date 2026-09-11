@@ -329,7 +329,7 @@ test("memory_runtime：status 只读且带代价说明；两条来源都不可�
   const status = await tool.execute({ action: "status" });
   assert.deepEqual(validateJsonSchemaValue(tool.output.schema, status), []);
   assert.equal(status.status, "missing", "临时目录里没有 payload");
-  assert.match(status.cost, /247/, "代价说明要带上实测体积");
+  assert.match(status.cost, /hundreds of MB/, "代价说明要带上体积量级（刻意不写死具体数值：各平台不同、也会漂移）");
   assert.ok(status.summary.length > 0);
 
   // provision：仓库布局下推导出的源不是 node_modules，下载又被钉死 —— 如实回报，不抛异常。

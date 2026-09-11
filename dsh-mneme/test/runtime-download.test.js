@@ -41,20 +41,17 @@ function entryFor(name, rel, tgz, version = "1.0.0") {
   return { name, version, rel, integrity: `sha512-${sha512Base64(tgz)}`, tarball: "" };
 }
 
-function manifestFor(packages, { platform = process.platform, arch = process.arch } = {}) {
+/**
+ * v2 清单是**平台无关**的：包列表只有一份，下载器按 os/cpu 过滤。
+ * 夹具里的包不带 os/cpu = 所有平台都适用；要造「本平台不适用」就给包加上 os。
+ */
+function manifestFor(packages, { transformersVersion = "4.2.0" } = {}) {
   return {
-    manifestVersion: 1,
+    manifestVersion: 2,
     entry: "@huggingface/transformers",
+    transformersVersion,
     excluded: {},
-    platforms: {
-      [`${platform}-${arch}`]: {
-        payloadId: `transformers-4.2.0-node-${platform}-${arch}`,
-        transformersVersion: "4.2.0",
-        platform,
-        arch,
-        packages
-      }
-    }
+    packages
   };
 }
 
@@ -118,6 +115,10 @@ test("applyMirror：只换前缀，保留 /name/-/file.tgz；空镜像与非 reg
   assert.equal(applyMirror(url, ""), url);
   assert.equal(applyMirror(url, "https://npmmirror.com/mirrors/npm/"), "https://npmmirror.com/mirrors/npm/onnxruntime-node/-/onnxruntime-node-1.24.3.tgz");
   assert.equal(applyMirror("https://example.com/x.tgz", "https://mirror/"), "https://example.com/x.tgz");
+  // 含 /-/ 但不是 registry.npmjs.org 的地址（自建 registry、或清单里已经指向镜像）必须原样返回：
+  // 这里曾经用 indexOf 的返回值直接加偏移量，域名不存在时 slice 出垃圾名字、把地址改坏。
+  const foreign = "https://my.registry.local/foo/-/foo-1.0.0.tgz";
+  assert.equal(applyMirror(foreign, "https://mirror/"), foreign);
 });
 
 test("downloadRuntime：走网络取件、校验、按 rel 落盘，产出能通过结构检查的 payload", async () => {
@@ -179,52 +180,67 @@ test("downloadRuntime：首次被掐断后用 Range 续传成功（不从头再�
 });
 
 test("downloadRuntime：归档里的 ../ 越界路径必须整次失败，且不能写出目录之外", async () => {
+  // 越界的那份伪装成 sharp（必需包之一）—— 否则会被「缺必需包」先挡住，走不到解包那一步。
   const evil = makeTgz([
-    { path: "package.json", body: JSON.stringify({ name: "evil", version: "1.0.0" }) },
+    { path: "package.json", body: JSON.stringify({ name: "sharp", version: "1.0.0" }) },
     { path: "../../escaped.txt", body: "pwned\n" }
-  ], { prefix: "package/" });
-  const srv = await serve({ "/evil.tgz": evil });
-  const port = new URL(srv.base).port;
+  ]);
+  const transformers = makePackageTgz("@huggingface/transformers");
+  const onnx = makePackageTgz("onnxruntime-node");
+  const srv = await serve({ "/transformers.tgz": transformers, "/onnx.tgz": onnx, "/sharp.tgz": evil });
   const runtimeDir = mkdtempSync(join(tmpdir(), "mneme-dl-"));
   const manifest = manifestFor([
-    { name: "evil", version: "1.0.0", rel: "evil", integrity: `sha512-${sha512Base64(evil)}`, tarball: `${srv.base}/evil.tgz` }
+    { ...entryFor("@huggingface/transformers", "@huggingface/transformers", transformers, "4.2.0"), tarball: `${srv.base}/transformers.tgz` },
+    { ...entryFor("onnxruntime-node", "onnxruntime-node", onnx, "1.24.3"), tarball: `${srv.base}/onnx.tgz` },
+    { ...entryFor("sharp", "sharp", evil), tarball: `${srv.base}/sharp.tgz` }
   ]);
   try {
     const result = await downloadRuntime({ manifest, runtimeDir });
     assert.equal(result.ok, false);
-    assert.match(result.reason, /越出包目录|sha512|校验|失败/);
+    assert.match(result.reason, /越出包目录/);
     assert.equal(existsSync(join(runtimeDir, "..", "escaped.txt")), false, "不能把外来归档的越界路径写出去");
     assert.equal(readdirCount(runtimeDir), 0, "失败后不该留下半份 payload");
   } finally {
     await srv.close();
-    void port;
   }
 });
 
-test("downloadRuntime：清单里没有本机平台条目时给出可读原因", async () => {
+test("downloadRuntime：清单里本平台缺必需包时明确失败（不装出一份看似完整的运行时）", async () => {
+  const set = standardSet("http://127.0.0.1:0");
+  // 把所有包都标成只适用于 plan9：本机 win32-x64 过滤后一个都不剩，必须失败并说清缺什么。
+  const onlyPlan9 = set.packages.map((pkg) => ({ ...pkg, os: ["plan9"], cpu: ["mips"] }));
   const result = await downloadRuntime({
-    manifest: manifestFor([], { platform: "plan9", arch: "mips" }),
+    manifest: manifestFor(onlyPlan9),
     runtimeDir: mkdtempSync(join(tmpdir(), "mneme-dl-")),
     platform: "win32",
     arch: "x64"
   });
   assert.equal(result.ok, false);
-  assert.match(result.reason, /没有 win32-x64 的条目/);
+  assert.match(result.reason, /缺少必需包：/);
 });
 
 test("downloadRuntime：本地 tarball 目录优先于网络，且目标已存在时默认拒绝", async () => {
-  const tgz = makePackageTgz("sharp");
+  const transformers = makePackageTgz("@huggingface/transformers");
+  const onnx = makePackageTgz("onnxruntime-node");
+  const sharp = makePackageTgz("sharp");
   const localDir = mkdtempSync(join(tmpdir(), "mneme-tgz-"));
-  const rel = "sharp";
-  // 名字用 npm 约定：<basename>-<version>.tgz —— npm pack 出来的东西直接丢进去就能用。
+  // 名字用 npm 约定 <basename>-<version>.tgz —— `npm pack` 出来的东西直接丢进去就能用。
   assert.equal(localTarballPath(localDir, { name: "sharp", version: "1.0.0" }), join(localDir, "sharp-1.0.0.tgz"));
-  writeFileSync(join(localDir, "sharp-1.0.0.tgz"), tgz);
+  assert.equal(
+    localTarballPath(localDir, { name: "@huggingface/transformers", version: "4.2.0" }),
+    join(localDir, "transformers-4.2.0.tgz")
+  );
+  writeFileSync(join(localDir, "transformers-4.2.0.tgz"), transformers);
+  writeFileSync(join(localDir, "onnxruntime-node-1.24.3.tgz"), onnx);
+  writeFileSync(join(localDir, "sharp-1.0.0.tgz"), sharp);
 
-  const runtimeDir = mkdtempSync(join(tmpdir(), "mneme-dl-"));
   const manifest = manifestFor([
-    { name: "sharp", version: "1.0.0", rel, integrity: `sha512-${sha512Base64(tgz)}`, tarball: "https://registry.npmjs.org/sharp/-/sharp-1.0.0.tgz" }
+    entryFor("@huggingface/transformers", "@huggingface/transformers", transformers, "4.2.0"),
+    entryFor("onnxruntime-node", "onnxruntime-node", onnx, "1.24.3"),
+    entryFor("sharp", "sharp", sharp)
   ]);
-  // 不给 fetch：只要它去联网就会炸，从而证明这次确实走的是本地文件。
+  const runtimeDir = mkdtempSync(join(tmpdir(), "mneme-dl-"));
+  // 注入一个一被调用就抛的 fetch：只要它去联网就会炸，从而证明这次确实走的是本地文件。
   const first = await downloadRuntime({
     manifest,
     runtimeDir,
@@ -232,7 +248,7 @@ test("downloadRuntime：本地 tarball 目录优先于网络，且目标已存�
     fetchImpl: () => { throw new Error("不该联网"); }
   });
   assert.equal(first.ok, true, first.reason);
-  assert.equal(first.totals.fromLocal, 1);
+  assert.equal(first.totals.fromLocal, 3);
   assert.equal(first.totals.fromNetwork, 0);
 
   const again = await downloadRuntime({ manifest, runtimeDir, localTarballDir: localDir });
