@@ -153,7 +153,8 @@ v0.2 起新增**完全离线的语义记忆引擎**（本地模型 + 精排 + �
 - **Rerank 精排**：`Xenova/bge-reranker-base` 对召回候选交叉编码精排，提升 Top-K 准确率
 - **autoDream 语义增强**：对记忆向量聚类（`clusterMemories`），自动发现主题相近 / 疑似矛盾的记忆，巩固更精准
 - **搜索流水线**：混合召回（关键词 + 向量）→ Rerank → Top-K
-- **自管运行时**：本地推理的依赖闭包（`@huggingface/transformers` + `onnxruntime-node` + `sharp`，本机实测 49 个包 / 约 393MB）可收编到 `~/.dsh/mneme/runtime/`，与 profile 的依赖图解耦——由于 profile 是所有插件共用的依赖图，这份闭包留在此前的位置会让「安装任何插件」都替它重走一遍整条依赖链；收编优先硬链接，同盘时几乎不额外占盘。`@huggingface/transformers` 已从 `dependencies` 降为**可选 peer**，因此安装插件不再携带它；正在使用本地嵌入的用户请先按文档收编，否则升级后本地嵌入不可用（读写信道不受影响）
+- **自管运行时**：本地推理的依赖闭包（`@huggingface/transformers` + `onnxruntime-node` + `sharp`，从宿主收编时本机实测 49 个包 / 约 393MB）可收编到 `~/.dsh/mneme/runtime/`，与 profile 的依赖图解耦——由于 profile 是所有插件共用的依赖图，这份闭包留在此前的位置会让「安装任何插件」都替它重走一遍整条依赖链；收编优先硬链接，同盘时几乎不额外占盘。`@huggingface/transformers` 已从 `dependencies` 降为**可选 peer**，因此安装插件不再携带它；正在使用本地嵌入的用户请先按文档收编，否则升级后本地嵌入不可用（读写信道不受影响）
+- **取回运行时的三条来源**：① 收编本机已有（零网络、同盘硬链接）→ ② 本地 `.tgz` 目录（`runtimeTarballDir`，某个包网络下不到时用）→ ③ npm registry（`runtimeMirror` 可换镜像），按随包发布的 `runtime-manifest.json` 逐个取并**先校验 sha512 再落盘**（本机实测 47 个包 / 2502 个文件 / 约 247MB；清单剔除 `onnxruntime-web`——Node 构建从不 import 它）。面板「向量索引」卡片在不就绪时会给出这段代价说明并提供一个按钮；不想开面板也可以让 agent 用 `memory_runtime` 工具（`status` / `provision` / `verify`）代做
 
 配置只需在 `cordis.patch.yml` 里设置 `embedProvider`（默认 `openai`，保持 v0.1 行为；改为 `local` 即离线）。升级无需迁移数据。
 

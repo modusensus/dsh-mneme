@@ -69,9 +69,19 @@ rm -rf ~/.dsh/mneme/models/hub/models--Xenova--bge-small-zh-v1.5
 
 ### 2.5 自管运行时（收编 / 校验 / 排查）
 
-本地推理真正要用的是一整套依赖闭包：`@huggingface/transformers` + `onnxruntime-node` + `sharp`（本机实测 49 个包、3203 个文件、约 393MB）。插件支持把它收编到自管目录 `~/.dsh/mneme/runtime/`，与宿主 profile 的依赖图解耦；收编**优先使用硬链接**，同盘时几乎不额外占盘。
+本地推理真正要用的是一整套依赖闭包：`@huggingface/transformers` + `onnxruntime-node` + `sharp`（本机实测从宿主 node_modules 收编时是 **49 个包、3203 个文件、约 393MB**）。插件支持把它收编到自管目录 `~/.dsh/mneme/runtime/`，与宿主 profile 的依赖图解耦；收编**优先使用硬链接**，同盘时几乎不额外占盘。
 
-**为什么值得提前做**：这份闭包此前留在插件 `dependencies` 里，而 profile 是所有插件共用的依赖图，于是「装任何插件」都要替它重走一遍整条链，弱网下极慢。摘掉该声明后，运行时由自管目录承接——所以要**先收编、再升级**，否则升级后本地嵌入不可用。
+**为什么要独立出来**：这份闭包此前留在插件 `dependencies` 里，而 profile 是所有插件共用的依赖图，于是「装任何插件」都要替它重走一遍整条链，弱网下极慢。摘掉该声明后，运行时由自管目录承接——所以要**先收编、再升级**，否则升级后本地嵌入不可用。
+
+**三条取件来源，按可用性依次尝试**（面板按钮、`memory_runtime` 工具、CLI 三者共用同一套编排）：
+
+| 顺序 | 来源 | 特点 |
+|---|---|---|
+| ① | 收编本机 profile 的 `node_modules` | **零网络**；同盘硬链接，几乎不占额外空间 |
+| ② | `runtimeTarballDir` 指向的本地 `.tgz` 目录 | 某个包网络下不到时用（文件名按 npm 约定 `<basename>-<version>.tgz`） |
+| ③ | npm registry（`runtimeMirror` 可换镜像） | 按随包发布的 `runtime-manifest.json` 逐个取，**每个 tarball 先校验 sha512 再落盘** |
+
+走 ③ 时体积是 **47 个包、2502 个文件、约 247MB**（本机实测）——比①少，因为清单剔除了 `onnxruntime-web`（127.7MB，占全量三分之一）：transformers 的 Node 构建从不 import 它（把一个空的 `onnxruntime-web` 打桩进去，嵌入结果逐字节相同），风险由 `verify` 的真实推理兜底。
 
 ```bash
 # 在插件目录下运行（例如 node_modules/@modusensus/dsh-mneme）
@@ -93,13 +103,24 @@ node scripts/mneme-runtime.mjs verify --cache-dir ~/.dsh/mneme/models
 - 运行时不可用时插件不会崩：检索降级为关键词/BM25，读写在任何情况下都不受影响；错误信息会带上 `adopt` 的具体命令。
 - 同一份状态也能从 `GET /api/dsh-mneme/semantic` 的 `localRuntime` 字段读到（面板与 CLI 同源）。
 
+#### 不用命令行也可以
+
+- **面板**：记忆面板的「向量索引」卡片在本地 provider 且运行时不就绪时，会显示**代价说明**（要额外一份运行时、解包后约 247MB）、先试收编、没有再下载，并按实际走的那一档分开报结果。卡片下面还有一个「取回本地运行时」按钮，点一下即完成。
+- **让 agent 代做**：`memory_runtime` 工具提供三个动作——`status`（只读，**返回里带代价说明**，便于 agent 先告知你再动手）、`provision`（走上面三档来源）、`verify`（真跑一次推理）。所以即便你不看面板，也可以直接让 agent 处理。
+
+```yaml
+# 两个可选配置键（默认留空 = 不改变任何行为）
+runtimeTarballDir: ""   # 本地 .tgz 目录：有它就优先于联网
+runtimeMirror: ""       # registry 镜像前缀，例如 https://npmmirror.com/mirrors/npm/
+```
+
 #### 升级前必做（否则本地嵌入会断）
 
 如果你正在使用本地嵌入（`embedProvider: local`），**在升级到已摘掉 `dependencies` 声明的版本之前**先执行一次 `adopt` + `verify`。顺序不能反：升级时 pnpm 会 prune 掉宿主里那份依赖，那之后就没有可收编的源了，只剩联网下载一条路。
 
-#### 本机没有可收编的副本时
+#### 自己取一份来收编（相对上面的手动路径）
 
-全新机器、或从没装过这份依赖时，可以用 npm 自己取一份来收编——不必手工逐个下载包：
+上面的面板按钮 / `provision` 已经能在没有可收编副本时自行下载。但如果你希望**完全掌控取件过程**（例如用自己的镜像、或先在一处统一缓存），仍然可以手工取一份再收编——不必逐个下载包：
 
 ```bash
 mkdir %TEMP%\mneme-fetch && cd /d %TEMP%\mneme-fetch
