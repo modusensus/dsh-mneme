@@ -112,6 +112,12 @@ export const STR = {
     en: (content, oldInfo) => `${content}\n\n(superseded outdated info: ${oldInfo})`
   },
 
+  // --- service.js：三方合并冲突批注（写入记忆内容） -----------------------------
+  serviceConflictMarker: {
+    zh: (ts, content) => `\n\n> ⚠️ 并发冲突：人工编辑 vs 记忆库并发更新（${ts}）\n> 记忆库版本：${content}`,
+    en: (ts, content) => `\n\n> ⚠️ Concurrent conflict: human edit vs concurrent memory-library update (${ts})\n> memory-library version: ${content}`
+  },
+
   // --- mirror.js：镜像文件标签（渲染随实例语言；解析两种语言都认） ----------------
   mirrorLabel: {
     zh: { type: "类型", importance: "重要性", tags: "标签", updated: "更新时间", source: "来源" },

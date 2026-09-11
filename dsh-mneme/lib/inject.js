@@ -126,7 +126,7 @@ export function createInjector(ctx, service, settings, config) {
       // Epistemic trust (v0.4.5): when enabled, measured observations are
       // flagged so the agent can weigh them above guesses/opinions.
       const verified = config.trustEpistemicWeighting === true && m.epistemic_status === "observation"
-        ? "[verified] "
+        ? STR.verified[language]
         : "";
       const title = STR.entryTitle[language](m.title, m.importance);
       const content = injectMemory(m);

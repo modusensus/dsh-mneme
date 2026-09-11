@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { TYPE_FILE } from "./mirror.js";
+import { STR, langOf } from "./lang.js";
 import { computeHeat } from "./heat.js";
 import { evaluateMemoryQuality } from "./quality-filter.js";
 import { createBM25Index } from "./search/bm25.js";
@@ -78,6 +79,7 @@ export function computeRetrievalMetrics(actualIds, expectedIds) {
 }
 
 export function createService({ store, mirror, config, onWrite, logger }) {
+  const language = langOf(config);
   // Optional dream scheduler hook, installed via setDreamHook after creation
   // (the scheduler holds a reference back to the service, so it cannot be
   // passed in the constructor). Fired on the same write events as onWrite.
@@ -1195,7 +1197,8 @@ export function createService({ store, mirror, config, onWrite, logger }) {
         // （保留现有 storeChanged 逻辑）
         const storeChanged = edit.updated_at !== undefined && m.updated_at !== edit.updated_at;
         if (storeChanged) {
-          const marker = `\n\n> ⚠️ 并发冲突：人工编辑 vs 记忆库并发更新（${m.updated_at}）\n> 记忆库版本：${m.content}`;
+          // 三方合并保留双方时的冲突批注：随实例语言，写进记忆正文。
+          const marker = STR.serviceConflictMarker[language](m.updated_at, m.content);
           store.update(m.id, { title: edit.title, content: `${edit.content}${marker}` });
         } else {
           store.update(m.id, { title: edit.title, content: edit.content });

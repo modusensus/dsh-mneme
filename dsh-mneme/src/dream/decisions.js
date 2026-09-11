@@ -295,7 +295,6 @@ export function applyDecisions(decisions, service, logger = null, snapshot = nul
 }
 
 function applyOne(d, service, snapshot, config = {}) {
-  const language = langOf(config);
   switch (d.action) {
     case "archive": return applyArchive(d, service, snapshot);
     case "merge": return applyMerge(d, service, snapshot, config);
