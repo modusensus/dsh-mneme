@@ -13,7 +13,11 @@
 | GPU（可选） | 显存 ≥ 2GB | 开启 `localEmbedDevice: "gpu"`（onnxruntime 需要额外安装 cuda 后端） |
 | 网络 | 仅首次下载模型需要 | 已下载后可完全离线（默认走 Hugging Face，可换镜像源） |
 
-> 依赖：`@huggingface/transformers`（transformers.js）已声明在插件 `package.json` 的 `dependencies`；`onnxruntime-node` 作为可选原生后端列在 `allowScripts`（首次安装需确认脚本），无需手动额外安装。
+> 依赖解析分三层：① **插件自管运行时目录**（`~/.dsh/mneme/runtime/`，见 §2.5，优先）；② 宿主 profile 里已装的 `@huggingface/transformers`；③ 都没有则本地推理不可用，检索自动降级为关键词/BM25（读写在任何情况下都不受影响）。
+>
+> 目前插件仍把 `@huggingface/transformers` 声明在 `dependencies`，所以第 ② 层恒可用；后续版本会摘掉该声明、改由自管运行时承接。**建议提前按 §2.5 收编一份**，否则升级后本地嵌入会不可用。
+>
+> `onnxruntime-node` 作为可选原生后端列在 `allowScripts`（首次安装需确认脚本），无需手动额外安装。
 
 ## 2. 模型安装 / 下载
 
@@ -30,6 +34,8 @@ node scripts/benchmark-embed.js --provider local --model Xenova/bge-small-zh-v1.
 
 - Linux/macOS：`~/.dsh/mneme/models/`
 - Windows：`%USERPROFILE%\.dsh\mneme\models\`
+
+> 实测 transformers.js 4.2.0 在离线加载（`allowRemoteModels=false`）时按 `<cacheDir>/<org>/<model>/` 解析模型文件，例如 `<cacheDir>/Xenova/bge-small-zh-v1.5/config.json`。与本段上面描述的 `hub/models--…` 布局不一致时，以实际报错里给出的路径为准；缓存不在默认位置时按 §2.5 用 `--cache-dir` 指过去。
 
 ### 2.2 手动指定缓存目录
 
@@ -60,6 +66,32 @@ Ollama Embedder 走 `/api/embeddings`，**不下载任何文件到插件缓存**
 ```bash
 rm -rf ~/.dsh/mneme/models/hub/models--Xenova--bge-small-zh-v1.5
 ```
+
+### 2.5 自管运行时（收编 / 校验 / 排查）
+
+本地推理真正要用的是一整套依赖闭包：`@huggingface/transformers` + `onnxruntime-node` + `sharp`（本机实测 49 个包、3203 个文件、约 393MB）。插件支持把它收编到自管目录 `~/.dsh/mneme/runtime/`，与宿主 profile 的依赖图解耦；收编**优先使用硬链接**，同盘时几乎不额外占盘。
+
+**为什么值得提前做**：这份闭包此前留在插件 `dependencies` 里，而 profile 是所有插件共用的依赖图，于是「装任何插件」都要替它重走一遍整条链，弱网下极慢。摘掉该声明后，运行时由自管目录承接——所以要**先收编、再升级**，否则升级后本地嵌入不可用。
+
+```bash
+# 在插件目录下运行（例如 node_modules/@modusensus/dsh-mneme）
+
+# 1) 看状态：在哪、来源、结构完不完整（不加载模型，秒回）
+node scripts/mneme-runtime.mjs status
+
+# 2) 收编宿主里已有的那份（只读源、只写自管目录，不安装任何东西）
+node scripts/mneme-runtime.mjs adopt --from ~/.dsh/profiles/<profile>/node_modules
+
+# 3) 真加载运行时并跑一次推理，确认可用
+node scripts/mneme-runtime.mjs verify --cache-dir ~/.dsh/mneme/models
+```
+
+- 退出码：`0` 健康 / `1` 不健康或失败 / `2` 用法错误（便于脚本直接 gate，区分「没装」和「装坏了」看输出里的 `status`）。加 `--json` 得到机器可读结果。
+- `verify` 的功能验证**不触网**（`allowRemoteModels=false`）：模型必须已在缓存目录里，否则会明确失败——这是有意的，验证不该偷偷触网。缓存不在默认位置时用 `--cache-dir` 指到与 `embedModelCacheDir` 一致的位置。
+- 收编来的目录没有可比对的原始产物，完整性如实标 `unverified`，不假装验过；结构检查通过 ≠ 功能可用，两者分开报。
+- `status` 只做结构检查，所以 `functional` 恒为 `unknown`——要看真实推理结果就跑 `verify`。
+- 运行时不可用时插件不会崩：检索降级为关键词/BM25，读写在任何情况下都不受影响；错误信息会带上 `adopt` 的具体命令。
+- 同一份状态也能从 `GET /api/dsh-mneme/semantic` 的 `localRuntime` 字段读到（面板与 CLI 同源）。
 
 ## 3. 配置
 

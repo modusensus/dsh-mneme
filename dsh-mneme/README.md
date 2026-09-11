@@ -153,8 +153,17 @@ v0.2 起新增**完全离线的语义记忆引擎**（本地模型 + 精排 + �
 - **Rerank 精排**：`Xenova/bge-reranker-base` 对召回候选交叉编码精排，提升 Top-K 准确率
 - **autoDream 语义增强**：对记忆向量聚类（`clusterMemories`），自动发现主题相近 / 疑似矛盾的记忆，巩固更精准
 - **搜索流水线**：混合召回（关键词 + 向量）→ Rerank → Top-K
+- **自管运行时**：本地推理的依赖闭包（`@huggingface/transformers` + `onnxruntime-node` + `sharp`，本机实测 49 个包 / 约 393MB）可收编到 `~/.dsh/mneme/runtime/`，与 profile 的依赖图解耦——由于 profile 是所有插件共用的依赖图，这份闭包留在此前的位置会让「安装任何插件」都替它重走一遍整条依赖链；收编优先硬链接，同盘时几乎不额外占盘
 
 配置只需在 `cordis.patch.yml` 里设置 `embedProvider`（默认 `openai`，保持 v0.1 行为；改为 `local` 即离线）。升级无需迁移数据。
+
+```bash
+node scripts/mneme-runtime.mjs status    # 运行时在哪、来源、结构是否完整（不加载模型）
+node scripts/mneme-runtime.mjs adopt --from ~/.dsh/profiles/<profile>/node_modules
+node scripts/mneme-runtime.mjs verify    # 真加载运行时并跑一次推理
+```
+
+> 三个命令的退出码为 `0` 健康 / `1` 不健康 / `2` 用法错误，便于脚本 gate；`--json` 输出机器可读结果。运行时不可用时不会崩——检索降级为关键词/BM25，读写不受影响。详见 [本地模型部署指南 §2.5](docs/LOCAL_MODEL.md)。
 
 ### 实体结构化记忆（Entity Gene）🧬
 
