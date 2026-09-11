@@ -85,6 +85,18 @@ export function defaultRuntimeDir(home = homedir()) {
 }
 
 /**
+ * 本地模型的默认缓存目录。
+ *
+ * 收在这里是因为它必须**唯一**：embedder、reranker、verify 三方若各写一份字面量，
+ * 一旦漂移，verify 就会拿另一份模型去验证，验证结果不再是运行时的真实证据。
+ * @param {string} [home] - 家目录，测试时可注入。
+ * @returns {string} 模型缓存目录。
+ */
+export function defaultModelCacheDir(home = homedir()) {
+  return join(home, ".dsh", "mneme", "models");
+}
+
+/**
  * 一个 payload 的目录名。带平台与架构，因此多份可以共存，
  * 加载器按平台挑一份可用的即可。
  * @param {{version: string, platform?: string, arch?: string}} opts - 版本与平台。

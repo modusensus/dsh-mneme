@@ -3,9 +3,7 @@
 // old embedding.js logic). All classes share one interface so the orchestrator
 // can pick a backend by provider name and degrade gracefully on failure.
 // Methods throw on error — the caller decides the fallback chain.
-import os from "node:os";
-import path from "node:path";
-import { defaultRuntimeDir } from "./runtime/layout.js";
+import { defaultModelCacheDir, defaultRuntimeDir } from "./runtime/layout.js";
 import { loadTransformers } from "./runtime/loader.js";
 
 const DEFAULT_TIMEOUT_MS = 15000;
@@ -70,9 +68,7 @@ export class LocalEmbedder {
     this._dimension = opts.dimension || 512;
     this.device = opts.device || "cpu";
     this.batchSize = opts.batchSize || 8;
-    this.cacheDir =
-      String(opts.cacheDir ?? "").trim() ||
-      path.join(os.homedir(), ".dsh", "mneme", "models");
+    this.cacheDir = String(opts.cacheDir ?? "").trim() || defaultModelCacheDir();
     // 自管运行时根目录（issue #131）：空表示用默认位置，具体解析交给 loader。
     this.runtimeDir = String(opts.runtimeDir ?? "").trim();
     this.useDtype = opts.useDtype || "q8";

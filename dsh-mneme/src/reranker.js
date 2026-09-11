@@ -1,6 +1,4 @@
-import os from "node:os";
-import path from "node:path";
-import { defaultRuntimeDir } from "./runtime/layout.js";
+import { defaultModelCacheDir, defaultRuntimeDir } from "./runtime/layout.js";
 import { loadTransformers } from "./runtime/loader.js";
 
 // Cross-encoder re-ranker for dsh-mneme recall candidates. Uses
@@ -79,9 +77,7 @@ export class LocalReranker {
     this.maxCandidates = opts.maxCandidates || 30;
     this.scoreThreshold = opts.scoreThreshold ?? 0.1;
     this.device = opts.device || "cpu";
-    this.cacheDir =
-      String(opts.cacheDir ?? "").trim() ||
-      path.join(os.homedir(), ".dsh", "mneme", "models");
+    this.cacheDir = String(opts.cacheDir ?? "").trim() || defaultModelCacheDir();
     // 自管运行时根目录（issue #131）：空表示用默认位置，解析交给 loader。
     this.runtimeDir = String(opts.runtimeDir ?? "").trim();
     this.logger = opts.logger ?? null;

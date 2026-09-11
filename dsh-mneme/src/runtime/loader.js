@@ -17,7 +17,7 @@
 // 那条错误要带出来——它是「这份 payload 坏了」和「本机根本没有」的区别。
 //
 // @module dsh-mneme/runtime/loader
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { join } from "node:path";
 import {
   TRANSFORMERS_ENTRY,
@@ -31,6 +31,27 @@ import {
 const defaultImport = (specifier) => import(specifier);
 
 /**
+ * 给用户看的可操作提示。用插件自身的相对位置推出绝对路径 —— src/ 与 lib/ 都在
+ * 包根下一层，所以 `../../scripts` 在两处都解析到同一个文件，提示不会因为跑源码
+ * 还是跑构建产物而指错。
+ */
+const RUNTIME_HINT =
+  "本地推理运行时不可用。查看状态：" +
+  `node "${fileURLToPath(new URL("../../scripts/mneme-runtime.mjs", import.meta.url))}" status` +
+  "；宿主里已有这份依赖时可用 `adopt --from <宿主 node_modules 目录>` 收编，再用 `verify` 验证。" +
+  "检索会自动降级为关键词/BM25，不影响记忆读写。";
+
+/**
+ * 空/空白 runtimeDir 视为「用默认目录」。配置项 runtimeDir 的默认值就是空串，
+ * 原样传下去会变成相对路径（`readdirSync("")` 直接失败），把「没配」误报成「坏了」。
+ * 收在这一处，省得每个调用方各写一遍 `|| defaultRuntimeDir()`。
+ */
+function effectiveRuntimeDir(runtimeDir) {
+  const value = String(runtimeDir ?? "").trim();
+  return value === "" ? defaultRuntimeDir() : value;
+}
+
+/**
  * 在运行时根目录里挑一份可用的 payload。
  *
  * 多份并存时取目录名倒序的第一个通过结构检查的（同平台通常只会有一份；
@@ -40,19 +61,87 @@ const defaultImport = (specifier) => import(specifier);
  *   没有可用 payload 时返回 null（不是错误——第 ② 层还有机会）。
  */
 export function resolveRuntimeEntry({ runtimeDir = defaultRuntimeDir(), platform = process.platform } = {}) {
-  for (const id of listPayloadDirs(runtimeDir).reverse()) {
-    const dir = payloadDir(runtimeDir, id);
-    const report = describePayload(dir, { platform });
+  const dir = effectiveRuntimeDir(runtimeDir);
+  for (const id of listPayloadDirs(dir).reverse()) {
+    const payload = payloadDir(dir, id);
+    const report = describePayload(payload, { platform });
     if (!report.ok) continue;
     return {
-      dir,
+      dir: payload,
       payloadId: id,
-      entryUrl: pathToFileURL(join(dir, TRANSFORMERS_ENTRY)).href,
+      entryUrl: pathToFileURL(join(payload, TRANSFORMERS_ENTRY)).href,
       version: report.version,
       manifest: report.manifest
     };
   }
   return null;
+}
+
+/**
+ * 只读地报告自管运行时的当前状态，供状态接口 / 面板 / CLI 展示。
+ *
+ * 刻意只做结构检查，不做功能验证：这是被 GET 端点按次调用的探针，而真跑一次
+ * 推理要加载原生模块、还会碰模型缓存。所以 `functional` 如实返回 "unknown"，
+ * 并给出去哪验证的提示 —— 宁可说「没验过」，也不假装验过。
+ *
+ * 挑选口径直接复用 resolveRuntimeEntry，避免出现「状态接口报的那份」和
+ * 「真正加载的那份」不是同一个。
+ * @param {{runtimeDir?: string, platform?: string}} [opts] - 选项。
+ * @returns {{status: string, runtimeDir: string, hint: string}} 状态；任何异常都降级成状态对象，不抛。
+ */
+export function describeLocalRuntime({
+  runtimeDir = defaultRuntimeDir(),
+  platform = process.platform
+} = {}) {
+  let candidate = null;
+  const dir = effectiveRuntimeDir(runtimeDir);
+  try {
+    candidate = resolveRuntimeEntry({ runtimeDir: dir, platform });
+  } catch (error) {
+    // 配置里的 runtimeDir 是用户输入（可能是离奇的字符串让 pathToFileURL 抛错），
+    // 这里是唯一的边界，收在这里比每个调用方各包一层稳。
+    return {
+      status: "unreadable",
+      runtimeDir: dir,
+      reason: String(error?.message ?? error),
+      functional: "unknown",
+      hint: RUNTIME_HINT
+    };
+  }
+
+  if (candidate !== null) {
+    return {
+      status: "available",
+      runtimeDir: dir,
+      payloadId: candidate.payloadId,
+      version: candidate.version,
+      procedure: candidate.manifest?.procedure ?? null,
+      materialize: candidate.manifest?.materialize?.mode ?? null,
+      // 历史 payload（收编来的）清单里没有 integrity 字段，如实报 unverified；
+      // 下载通道会把校验结果写进清单，这里不改代码就能读到。
+      integrity: candidate.manifest?.integrity ?? "unverified",
+      functional: "unknown",
+      hint: RUNTIME_HINT
+    };
+  }
+
+  const ids = listPayloadDirs(dir);
+  if (ids.length === 0) {
+    return { status: "missing", runtimeDir: dir, functional: "unknown", hint: RUNTIME_HINT };
+  }
+  // 有目录但一份都没通过结构检查：把最新那份的缺件和原因带出来，别只说「坏了」。
+  const id = ids[ids.length - 1];
+  const report = describePayload(payloadDir(dir, id), { platform });
+  return {
+    status: "broken",
+    runtimeDir: dir,
+    payloadId: id,
+    version: report.version,
+    missing: report.missing,
+    reasons: report.reasons,
+    functional: "unknown",
+    hint: RUNTIME_HINT
+  };
 }
 
 /**
@@ -105,10 +194,7 @@ export async function loadTransformers({
   }
 
   // ③ 都没有：给出可操作的下一步，而不是一句 module not found
-  const hint =
-    "本地推理运行时不可用。可在设置面板「本地推理运行时」里安装，或把已有的运行时收编：" +
-    "dsh-mneme runtime adopt --from <node_modules 目录>。检索会自动降级为关键词/BM25，不影响记忆读写。";
-  const error = new Error(`${hint}\n${failures.map((f) => `  - ${f}`).join("\n")}`);
+  const error = new Error(`${RUNTIME_HINT}\n${failures.map((f) => `  - ${f}`).join("\n")}`);
   error.code = "MNEME_RUNTIME_UNAVAILABLE";
   error.failures = failures;
   throw error;
