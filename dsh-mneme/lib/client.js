@@ -430,6 +430,8 @@ window.__ModuleLoader__.load({
         "memory.status.vectorRuntimeMissing": "缺少本地推理运行时",
         "memory.status.vectorRuntimeHint": "本地推理运行时未就绪（{status}）",
         "memory.status.vectorRuntimeCost": "本地向量化要额外一份本地推理运行时（transformers + onnxruntime 闭包，解包后约 247MB（实测））。下面的按钮会先尝试收编本机已有的那份（同盘则硬链接，不占额外空间），没有再按固定清单从 npm 取回（逐个校验 sha512）。也可以直接让 agent 处理，或在终端里自己跑：node scripts/mneme-runtime.mjs status / adopt [--from <node_modules>] / verify（详见 docs/LOCAL_MODEL.md §2.5）。",
+        "memory.status.vectorRuntimeReady": "运行时已就绪",
+        "memory.status.vectorRuntimeReadyHint": "本地嵌入尚未初始化（进程里的 embedder 在运行时缺失时已经失败过一次）：若一直停在这里，重启 DSH 即可。",
         "memory.status.vectorRuntimeFetch": "取回本地运行时",
         "memory.status.vectorRuntimeFetchBusy": "正在取回…（先试收编，必要时下载，数千个文件，请稍候）",
         "memory.status.vectorRuntimeFetchAdopted": "已收编本机已有的运行时：{n} 个包 / {m} 个文件（{mode}）。若状态未更新请重启 DSH",
@@ -746,6 +748,8 @@ window.__ModuleLoader__.load({
         "memory.status.vectorRuntimeMissing": "Local inference runtime missing",
         "memory.status.vectorRuntimeHint": "Local inference runtime not ready ({status})",
         "memory.status.vectorRuntimeCost": "Local vectorization needs an extra local inference runtime (the transformers + onnxruntime closure, ~247 MB unpacked). The button below first tries to adopt an existing copy on this machine (hardlinked when on the same volume, so no extra disk), and otherwise fetches it from npm against a pinned manifest (every tarball checked against its sha512). You can also just ask the agent, or run it yourself: node scripts/mneme-runtime.mjs status / adopt [--from <node_modules>] / verify (see docs/LOCAL_MODEL.md §2.5).",
+        "memory.status.vectorRuntimeReady": "Runtime ready",
+        "memory.status.vectorRuntimeReadyHint": "Local embedder is not initialized yet (the in-process embedder already failed while the runtime was missing): restart DSH if this persists.",
         "memory.status.vectorRuntimeFetch": "Fetch local runtime",
         "memory.status.vectorRuntimeFetchBusy": "Fetching… (tries adopt first, may download — thousands of files)",
         "memory.status.vectorRuntimeFetchAdopted": "Adopted the runtime already on this machine: {n} packages / {m} files ({mode}). Restart DSH if the status does not update",
@@ -2656,25 +2660,33 @@ window.__ModuleLoader__.load({
       // 本地 provider 缺运行时：绝不能显示「初始化中」——它永远不会初始化，只会一直重试，
       // 而那正是那份运行时（数百 MB）缺位的真实原因。这里必须说真话并给出下一步。
       const localBlocked = /^Local/.test(state.provider || "") && state.localRuntime?.status !== "available" && state.localRuntime != null;
+      // 运行时已就绪但 embedder 还没起来 —— 这就是「刚取回运行时、但进程里的 embedder 早已失败」的过渡态。
+      // 这时候继续说「embedder 不可达，正在重试」会让人以为永远好不了；要说的是可操作的那句：重启 DSH。
+      const runtimeReadyPending = pending && state.localRuntime?.status === "available";
       const num = off
         ? t("memory.status.vectorOff")
         : localBlocked
           ? t("memory.status.vectorRuntimeMissing")
           : unconfigured
             ? t("memory.status.vectorUnconfigured")
-            : pending
-              ? t("memory.status.vectorInit")
-              : `${state.provider.replace(/Embedder$/, "")} · ${state.dimension}D`;
+            : runtimeReadyPending
+              ? t("memory.status.vectorRuntimeReady")
+              : pending
+                ? t("memory.status.vectorInit")
+                : `${state.provider.replace(/Embedder$/, "")} · ${state.dimension}D`;
       const cap = localBlocked
         ? t("memory.status.vectorRuntimeHint").replace("{status}", state.localRuntime.status)
         : unconfigured
           ? t("memory.status.vectorUnconfiguredHint")
-          : pending
-            ? t("memory.status.vectorInitHint")
-            : off ? ""
-              : degraded
-                ? t("memory.status.vectorDegradedHint").replace("{m}", state.total)
-                : t("memory.status.vectorIndexed").replace("{n}", state.embedded).replace("{m}", state.total);
+          : runtimeReadyPending
+            ? t("memory.status.vectorRuntimeReadyHint")
+            : pending
+              ? t("memory.status.vectorInitHint")
+              : off ? ""
+                : degraded
+                  ? t("memory.status.vectorDegradedHint").replace("{m}", state.total)
+                  : t("memory.status.vectorIndexed").replace("{n}", state.embedded).replace("{m}", state.total);
+
       // 一键取回自管运行时（issue #131 / PR-C）：服务侧依次尝试三档来源 —— 收编本机已有的、
       // 本地 .tgz 目录、registry 按固定清单下载。面板不需要用户输入任何路径。
       //
