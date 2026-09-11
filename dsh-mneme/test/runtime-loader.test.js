@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describeLocalRuntime, loadTransformers, resolveRuntimeEntry } from "../lib/runtime/loader.js";
 import { TRANSFORMERS_ENTRY, defaultRuntimeDir, payloadDir, payloadId } from "../lib/runtime/layout.js";
 
@@ -41,7 +42,13 @@ test("第 ① 层：自管运行时可用时优先用它，并报出来源与 pa
   assert.equal(loaded.payloadId, "transformers-4.2.0-node-win32-x64");
   assert.equal(loaded.version, "4.2.0");
   assert.ok(loaded.entryUrl.startsWith("file:///"), "必须是绝对 file URL，否则内部裸导入解析不到同目录的包");
-  assert.ok(loaded.entryUrl.includes(dir.replace(/\\/g, "/").replace(/^/, "")), "entryUrl 应指向该 payload");
+  // 断言「URL 反解回来就是那个入口文件」，而不是拿 URL 字符串去 includes 一个 OS 路径字符串：
+  // 后者会被 pathToFileURL 的百分号编码打败（路径含空格等字符时必误报，实测 CI Windows 上就挂了）。
+  assert.equal(
+    fileURLToPath(loaded.entryUrl),
+    join(dir, TRANSFORMERS_ENTRY),
+    `entryUrl=${loaded.entryUrl} dir=${dir}`
+  );
 });
 
 test("第 ② 层：没有自管运行时时退回宿主裸 specifier（PR-A 期间老用户靠这层不断线）", async () => {
