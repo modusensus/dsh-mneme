@@ -1,5 +1,7 @@
 import os from "node:os";
 import path from "node:path";
+import { defaultRuntimeDir } from "./runtime/layout.js";
+import { loadTransformers } from "./runtime/loader.js";
 
 // Cross-encoder re-ranker for dsh-mneme recall candidates. Uses
 // bge-reranker-base through transformers.js: tries the native `rerank` task
@@ -19,10 +21,19 @@ function modelHash(model) {
   return `${model}#${hashString(model)}`;
 }
 
-/** Lazy default pipeline factory: dynamic import keeps module load cheap. */
+/**
+ * Lazy default pipeline factory: dynamic import keeps module load cheap.
+ *
+ * 与 local-embedder 一样经 runtime/loader.js 的三层解析取运行时（自管 payload 优先，
+ * 其次宿主裸 specifier），这样 PR-B 把依赖从 profile 摘掉后 rerank 也还能用。
+ * runtimeDir 取走后不混进 transformers 的选项。
+ */
 async function defaultPipelineLoader(task, model, options) {
-  const { pipeline } = await import("@huggingface/transformers");
-  return pipeline(task, model, options);
+  const { runtimeDir, ...pipelineOptions } = options ?? {};
+  const { module } = await loadTransformers({
+    runtimeDir: runtimeDir || defaultRuntimeDir()
+  });
+  return module.pipeline(task, model, pipelineOptions);
 }
 
 /** Flatten a transformers.js Tensor [batch, seq, dim] into number[][] rows. */
@@ -71,6 +82,8 @@ export class LocalReranker {
     this.cacheDir =
       String(opts.cacheDir ?? "").trim() ||
       path.join(os.homedir(), ".dsh", "mneme", "models");
+    // 自管运行时根目录（issue #131）：空表示用默认位置，解析交给 loader。
+    this.runtimeDir = String(opts.runtimeDir ?? "").trim();
     this.logger = opts.logger ?? null;
     this.engineFactory = opts.engineFactory || defaultPipelineLoader;
     // Injectable seam: async (query, passage) => number. When set, init()
@@ -107,6 +120,7 @@ export class LocalReranker {
   _engineOptions() {
     const options = { device: this.device };
     if (this.cacheDir) options.cache_dir = this.cacheDir;
+    if (this.runtimeDir) options.runtimeDir = this.runtimeDir;
     return options;
   }
 

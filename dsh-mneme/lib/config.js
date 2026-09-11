@@ -134,6 +134,12 @@ export const Config = z.object({
   embedModelCacheDir: z.string().default(""),
   embedModelMirror: z.string().default("https://hf-mirror.com"),
 
+  // 自管运行时目录（issue #131）。空 = ~/.dsh/mneme/runtime：里面放收编或下载来的
+  // transformers + onnxruntime 闭包，插件经 src/runtime/loader.js 的三层解析加载它。
+  // 目的就是让这条重依赖不必留在宿主 profile 的依赖图里——profile 是所有插件共用的
+  // 依赖图，留在里面会让「装任何插件都要替它重走一遍这条链」。
+  runtimeDir: z.string().default(""),
+
   // Vector search tuning.
   vectorSearchTopK: z.natural().min(1).max(100).default(20),
   vectorSearchThreshold: z.number().min(0).max(1).default(0.65),

@@ -46,5 +46,21 @@ test("startup probe: the reranker module never statically imports transformers/o
     !src.includes('from "@huggingface/transformers"'),
     "no static transformers.js import in reranker.js"
   );
-  assert.match(src, /await import\("@huggingface\/transformers"\)/, "transformers.js loads lazily via dynamic import");
+  // issue #131 之后，懒加载的落点从 reranker 内部搬到了 src/runtime/loader.js
+  // （三层解析：自管 payload → 宿主裸 specifier）。判据随之改成两条，意图不变：
+  // reranker 不得静态导入，且必须经由 loader 间接加载；动态 import 只允许出现在
+  // loader 里（它是唯一知道「运行时从哪来」的模块）。
+  assert.match(src, /from "\.\/runtime\/loader\.js"/, "reranker 经 runtime/loader.js 取运行时");
+  assert.match(src, /loadTransformers\(/, "reranker 必须走三层解析，而不是自己拼 import");
+  assert.ok(
+    !/^\s*import[^\n]*@huggingface\/transformers/m.test(src),
+    "reranker 不允许任何形式的静态 transformers 导入"
+  );
+
+  const loaderSrc = readFileSync(new URL("../src/runtime/loader.js", import.meta.url), "utf8");
+  assert.match(loaderSrc, /import\(specifier\)/, "loader 用动态 import 保持懒加载");
+  assert.ok(
+    !/^\s*import[^\n]*@huggingface\/transformers/m.test(loaderSrc),
+    "loader 不得静态导入 transformers，否则惰性加载就失效了"
+  );
 });
