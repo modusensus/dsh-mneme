@@ -105,16 +105,52 @@ test("Bug6: injected block stays within the ~1500 char budget, later entries col
 // DSH ≥0.1.2-rc removed Session.events; events are only reachable via
 // snapshotEvents(). Regression for #59: the hot block must still render from
 // a session object that has no .events property.
+// 注意：assistant/message 的消息体在 data.message 下（见 Issue #129），夹具必须用这个
+// 真实形状 —— 原先的夹具写的是 data.content，与当时有 bug 的实现是同一个错误假设，
+// 所以它永远抓不到这个回归。
 test("extracts hot rounds from snapshotEvents() when Session.events is absent", () => {
   const { contexts } = setup();
   const session = {
     snapshotEvents: () => [
       { type: "user/message", data: { source: { kind: "user" }, content: [{ type: "text", text: "怎么修图谱面板" }] } },
-      { type: "assistant/message", data: { content: [{ type: "text", text: "用 viewBox 单位跑模拟" }] } }
+      { type: "assistant/message", data: { message: { content: [{ type: "text", text: "用 viewBox 单位跑模拟" }] } } }
     ]
   };
   const text = contexts[0].text({ agent: { session } });
   assert.ok(text.includes("[短期上下文]"), "hot block rendered");
   assert.ok(text.includes("怎么修图谱面板"), "round query present");
   assert.ok(text.includes("用 viewBox 单位跑模拟"), "round response present");
+});
+
+// Issue #129 的复现：assistant 轮的正文取自 data.message.content。修复前 textOf 只读
+// data.content，于是每一轮的 response 都落成空串 —— 表现为「N 轮 A 全空」。
+test("Issue #129: response 取自 data.message.content，N 轮不再出现空 A", () => {
+  const { contexts } = setup();
+  const session = {
+    snapshotEvents: () => [
+      { type: "user/message", data: { source: { kind: "user" }, content: [{ type: "text", text: "第一个问题" }] } },
+      { type: "assistant/message", data: { message: { content: [{ type: "text", text: "第一个回答" }] } } },
+      { type: "user/message", data: { source: { kind: "user" }, content: [{ type: "text", text: "第二个问题" }] } },
+      { type: "assistant/message", data: { message: { content: [{ type: "text", text: "第二个回答" }] } } }
+    ]
+  };
+  const text = contexts[0].text({ agent: { session } });
+  for (const s of ["第一个问题", "第一个回答", "第二个问题", "第二个回答"]) {
+    assert.ok(text.includes(s), `hot block 应包含 ${s}`);
+  }
+});
+
+// 修复用的是 ?? 兜底而非破坏性替换：扁平的 data.content 形状（user 消息一贯如此，
+// 历史事件也可能如此）必须继续可用。
+test("Issue #129: 扁平的 data.content 形状仍被兼容", () => {
+  const { contexts } = setup();
+  const session = {
+    snapshotEvents: () => [
+      { type: "user/message", data: { source: { kind: "user" }, content: [{ type: "text", text: "问题" }] } },
+      { type: "assistant/message", data: { content: [{ type: "text", text: "扁平形状的回答" }] } }
+    ]
+  };
+  const text = contexts[0].text({ agent: { session } });
+  assert.ok(text.includes("问题"), "query present");
+  assert.ok(text.includes("扁平形状的回答"), "flat content shape still supported");
 });

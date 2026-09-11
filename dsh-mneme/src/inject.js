@@ -44,7 +44,12 @@ function extractRounds(ctx, maxRounds) {
     const rounds = [];
     let pendingQuery = null;
     const textOf = (event) => {
-      const parts = event?.data?.content;
+      // user/message 的正文就在 data 上，而 assistant/message（以及 tool/result）的消息体
+      // 嵌在 data.message 下 —— DSH 侧由 @deepseek-ai/dsh-session 的
+      // assertMessageEventShape 一行写死：const message = type === "user/message" ? record : record?.["message"]。
+      // 只读 data.content 会让每一轮的 response 恒为空（Issue #129）。
+      // 这里用 ?? 兜底而不是直接改成 data.message.content：user 消息与旧的扁平形状都照旧可用。
+      const parts = event?.data?.content ?? event?.data?.message?.content;
       if (!Array.isArray(parts)) return "";
       return parts
         .map((p) => (typeof p === "string" ? p : p?.text ?? ""))
