@@ -13,7 +13,8 @@ const EPISTEMIC_PRIORITY = { observation: 3, inferred: 2, subjective: 1 };
  *   entries are spliced out of this array in place (the caller reuses the same
  *   reference downstream for apply/audit); implicit keeps are appended here too.
  * @param snapshot - Map<id, memory> of eligible (non-archived, non-summary) entries.
- * @returns {{ok: boolean, errors: string[], skipped?: Array<{index, action, ids, error}>}}
+ * @returns {{ok: boolean, errors: string[], skipped?: Array<{index, action, ids, error}>,
+ *   resolvedShortIds?: number}}
  */
 export function validateDecisions(decisions, snapshot, options = {}) {
   const errors = [];
@@ -28,14 +29,47 @@ export function validateDecisions(decisions, snapshot, options = {}) {
   const maxUpdatePerRun = options.maxUpdatePerRun ?? 2;
   const minAgeHours = options.minAgeHours ?? 24;
   if (!Array.isArray(decisions)) {
-    return { ok: false, errors: ["decision list must be an array"] };
+    return { ok: false, errors: ["decision list must be an array"], resolvedShortIds: 0 };
   }
   // 空决策 = 模型完整评估后确认无需操作（CONSOLIDATION_PROMPT 明确允许"无问题的
   // 条目无需输出"）。合法 JSON [] 不是空体（那是无输出/截断），也不是"残缺输出"
   // ——显式短路直接 ok，避免隐式 keep 的覆盖率检查把 0% 误判为模型坏了。与
   // sleep 的空模式（skipped no-op）语义对齐：下游 applied=0、audit 记 ok。
   if (decisions.length === 0) {
-    return { ok: true, errors: [], skipped: [] };
+    return { ok: true, errors: [], skipped: [], resolvedShortIds: 0 };
+  }
+  // Issue #135：模型常把 36 位 UUID 回填成前缀（实测 78/78 个 8 位前缀都能唯一
+  // 对应窗口内真实记忆，且 few-shot 示例的 "m1"/"m2" 占位符在诱导这种缩写），而
+  // 下方校验用 snapshot.get(id) 整串精确匹配 → 全部 unknown id → claimed=0 →
+  // 覆盖率闸整单拒绝，一整轮语义成果被丢。校验前先把「唯一前缀」解析回完整 id
+  // （git 短哈希式）：仅在 snapshot 内解析，有歧义或匹配不到就原样保留，仍由下
+  // 方 unknown id 校验如实报错。就地改写 ids / keepSource / winner / loser，下
+  // 游 applyDecisions 与审计拿到的同样是完整 id。
+  let resolvedShortIds = 0;
+  const resolveShortId = (value) => {
+    if (typeof value !== "string" || snapshot.has(value)) return value;
+    // 太短不猜（歧义概率高）；长度 ≥36 说明不是前缀缩写，交给校验如实报错。
+    if (value.length < 8 || value.length >= 36) return value;
+    let hit = null;
+    let matches = 0;
+    for (const id of snapshot.keys()) {
+      if (id.startsWith(value)) {
+        hit = id;
+        if (++matches > 1) return value; // 有歧义，不解析
+      }
+    }
+    if (matches === 1) {
+      resolvedShortIds++;
+      return hit;
+    }
+    return value;
+  };
+  for (const d of decisions) {
+    if (!d || typeof d !== "object") continue;
+    if (Array.isArray(d.ids)) d.ids = d.ids.map(resolveShortId);
+    if (typeof d.keepSource === "string") d.keepSource = resolveShortId(d.keepSource);
+    if (typeof d.winner === "string") d.winner = resolveShortId(d.winner);
+    if (typeof d.loser === "string") d.loser = resolveShortId(d.loser);
   }
   const claimed = new Set();
   for (const [index, d] of decisions.entries()) {
@@ -172,14 +206,14 @@ export function validateDecisions(decisions, snapshot, options = {}) {
   // snapshot（claimed.size / snapshot.size < dreamMinExplicitCoverage）时整单拒绝，
   // 而不是用 keep 把绝大部分 snapshot 全部"通过"。
   if (errors.length > 0) {
-    return { ok: false, errors, skipped };
+    return { ok: false, errors, skipped, resolvedShortIds };
   }
   const minCoverage = options.dreamMinExplicitCoverage ?? 0.5;
   if (options.dreamImplicitKeep !== false) {
     const coverage = snapshot.size > 0 ? claimed.size / snapshot.size : 1;
     if (coverage < minCoverage) {
       errors.push(`explicit decision coverage ${Math.round(coverage * 100)}% < minimum ${Math.round(minCoverage * 100)}%`);
-      return { ok: false, errors, skipped };
+      return { ok: false, errors, skipped, resolvedShortIds };
     }
     for (const id of snapshot.keys()) {
       if (!claimed.has(id)) survivors.push({ action: "keep", ids: [id] });
@@ -188,7 +222,7 @@ export function validateDecisions(decisions, snapshot, options = {}) {
     for (const id of snapshot.keys()) {
       if (!claimed.has(id)) errors.push(`memory ${JSON.stringify(id)} missing from decisions`);
     }
-    if (errors.length > 0) return { ok: false, errors, skipped };
+    if (errors.length > 0) return { ok: false, errors, skipped, resolvedShortIds };
   }
   // 调用方下游（apply/audit）复用同一 decisions 引用：就地同步为 survivors——
   // 在 skipInvalid 模式下去掉被跳过的非法决策；在隐式 keep 下追加补齐的 keep。
@@ -196,7 +230,7 @@ export function validateDecisions(decisions, snapshot, options = {}) {
   // 当"被跳过的非法决策数 == 隐式补齐的 keep 数"时长度回到相等但内容已变，
   // 被跳过的决策会残留进 apply/audit。一律无条件 splice 最安全。
   decisions.splice(0, decisions.length, ...survivors);
-  return { ok: true, errors, skipped };
+  return { ok: true, errors, skipped, resolvedShortIds };
 }
 
 /** Marker thrown when a decision target changed since the run snapshot. */
