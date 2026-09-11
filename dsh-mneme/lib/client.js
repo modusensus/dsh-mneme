@@ -429,6 +429,10 @@ window.__ModuleLoader__.load({
         "memory.status.vectorInitHint": "embedder 不可达，正在重试",
         "memory.status.vectorRuntimeMissing": "缺少本地推理运行时",
         "memory.status.vectorRuntimeHint": "本地推理运行时未就绪（{status}）：先运行 scripts/mneme-runtime.mjs adopt 收编，详见 LOCAL_MODEL.md §2.5",
+        "memory.status.vectorAdopt": "收编本机运行时",
+        "memory.status.vectorAdoptBusy": "正在收编…（数千个文件，请稍候）",
+        "memory.status.vectorAdoptDone": "已收编：{n} 个包 / {m} 个文件（{mode}）。若状态未更新请重启 DSH",
+        "memory.status.vectorAdoptFailed": "收编失败：{reason}",
         "memory.status.vectorIndexed": "已索引 {n} / {m} 条",
       "memory.status.vectorUnconfigured": "未配置",
       "memory.status.vectorUnconfiguredHint": "未填 embedding 端点/模型或未启用，语义召回不可用",
@@ -739,6 +743,10 @@ window.__ModuleLoader__.load({
         "memory.status.vectorInitHint": "embedder unreachable, retrying",
         "memory.status.vectorRuntimeMissing": "Local inference runtime missing",
         "memory.status.vectorRuntimeHint": "Local inference runtime not ready ({status}): run scripts/mneme-runtime.mjs adopt first — see LOCAL_MODEL.md §2.5",
+        "memory.status.vectorAdopt": "Adopt local runtime",
+        "memory.status.vectorAdoptBusy": "Adopting… (thousands of files, please wait)",
+        "memory.status.vectorAdoptDone": "Adopted: {n} packages / {m} files ({mode}). Restart DSH if the status does not update",
+        "memory.status.vectorAdoptFailed": "Adopt failed: {reason}",
         "memory.status.vectorIndexed": "Indexed {n} / {m} items",
       "memory.status.vectorUnconfigured": "Not configured",
       "memory.status.vectorUnconfiguredHint": "No embedding endpoint/model configured — semantic recall is off",
@@ -2596,8 +2604,12 @@ window.__ModuleLoader__.load({
 
     // 向量索引 — whether semantic recall is switched on.
     function VectorStatusCard({ t }) {
-      const [state, setState] = useState({ loading: true, error: false, provider: null, ready: null, dimension: 0, embedded: 0, total: 0, localRuntime: null });
       const [state, setState] = useState({ loading: true, error: false, provider: null, ready: null, configured: null, degraded: false, dimension: 0, embedded: 0, total: 0, localRuntime: null });
+      // 收编是写操作、耗时数秒，所以要有忙碌态与就地结果；reload 只是用来让上面的
+      // 加载 useEffect 重跑一次，从而把最新状态拉回来。
+      const [reload, setReload] = useState(0);
+      const [adopting, setAdopting] = useState(false);
+      const [adoptMsg, setAdoptMsg] = useState("");
       useEffect(() => {
         let cancelled = false;
         // #118: /vector-config is secret-bearing (401 without a stored token →
@@ -2628,24 +2640,8 @@ window.__ModuleLoader__.load({
           })
           .catch(() => { if (!cancelled) setState({ loading: false, error: true, provider: null, ready: null, dimension: 0, embedded: 0, localRuntime: null }); });
         return () => { cancelled = true; };
-      }, []);
+      }, [reload]);
       const off = !state.provider;
-      const pending = !off && state.ready !== true;
-      // 本地 provider 缺运行时：绝不能显示「初始化中」——它永远不会初始化，只会一直重试，
-      // 而那正是 393MB 那份运行时缺位的真实原因。这里必须说真话并给出下一步。
-      const localBlocked = /^Local/.test(state.provider || "") && state.localRuntime?.status !== "available" && state.localRuntime != null;
-      const num = off
-        ? t("memory.status.vectorOff")
-        : localBlocked
-          ? t("memory.status.vectorRuntimeMissing")
-          : pending
-            ? t("memory.status.vectorInit")
-            : `${state.provider.replace(/Embedder$/, "")} · ${state.dimension}D`;
-      const cap = localBlocked
-        ? t("memory.status.vectorRuntimeHint").replace("{status}", state.localRuntime.status)
-        : pending
-          ? t("memory.status.vectorInitHint")
-          : off ? "" : t("memory.status.vectorIndexed").replace("{n}", state.embedded).replace("{m}", state.total);
       // issue #135: 先把「没配」和「配了但在初始化」分开。此前两者都落到
       // ready !== true，于是未配置的 legacy embedder（ready 恒 true）反而
       // 一路显示成正常状态。
@@ -2675,14 +2671,6 @@ window.__ModuleLoader__.load({
               : degraded
                 ? t("memory.status.vectorDegradedHint").replace("{m}", state.total)
                 : t("memory.status.vectorIndexed").replace("{n}", state.embedded).replace("{m}", state.total);
-      return h(StatusCard, {
-        t,
-        title: t("memory.status.vector"),
-        loading: state.loading,
-        error: state.error,
-        num,
-        cap
-      });
     }
 
     // LLM 消耗 — calls + tokens over the trailing 7 days.
