@@ -158,7 +158,7 @@ dsh web
 
 ```bash
 cd dsh-mneme && npm install
-npm test        # 745 个测试
+npm test        # 916 个测试
 npm run stress  # 三轴线压测
 npm run sync    # src → lib 同步
 ```
@@ -304,7 +304,7 @@ It works out of the box. To feel its value in five minutes:
 
 ```bash
 cd dsh-mneme && npm install
-npm test        # 745 tests
+npm test        # 916 tests
 npm run stress  # three-axis stress test
 npm run sync    # src → lib sync
 ---
