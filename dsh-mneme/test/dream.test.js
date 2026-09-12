@@ -1109,6 +1109,49 @@ test("issue#89: dream run with a skipped invalid decision lands the valid subset
   store.close();
 });
 
+// Issue #104（跟进 #137 失败路径）：degraded（合法子集已应用）轮的跳过明细此前只进
+// logger.warn，splice 之后就地从 decisions 里消失，落库的已是幸存列表——离线回放
+// dream_runs 无法判断被跳的是跨类型 merge、update 保护期还是 unknown id。这里断言
+// 明细进了独立的 skipped 列（而非内联进 decisions），且携带可定位的逐条原因。
+test("issue#104: degraded run persists the skipped decision detail into dream_runs.skipped", async () => {
+  const { store, service } = dreamSetup();
+  const a = service.saveWithDedupe({ type: "project", title: "旧A", content: "过时A" }).memory;
+  const b = service.saveWithDedupe({ type: "project", title: "旧B", content: "过时B" }).memory;
+  const pref = service.saveWithDedupe({ type: "preference", title: "语言", content: "中文" }).memory;
+  const c = service.saveWithDedupe({ type: "project", title: "旧C", content: "过时C" }).memory;
+  const ctx = {
+    logger: { warn: () => {}, info: () => {} },
+    llm: {
+      async *stream(options) {
+        const userText = options.messages.find((m) => m.role === "user")?.content?.[0]?.text ?? "";
+        if (userText.startsWith("id=")) {
+          // 一条跨类型 merge（非法 → 跳过）+ 两条合法 archive（显式覆盖 2/4，过 50% 下限）
+          yield { type: "text-delta", index: 0, text: JSON.stringify([
+            { action: "merge", ids: [pref.id, a.id], keepSource: pref.id, title: "跨类型", content: "不应合并", importance: 4 },
+            { action: "archive", ids: [b.id], reason: "stale" },
+            { action: "archive", ids: [c.id], reason: "stale" }
+          ]) };
+        } else {
+          yield { type: "text-delta", index: 0, text: "记忆库总览：degraded 轮的跳过明细可从审计行回放。" };
+        }
+        yield { type: "finish", reason: { kind: "stop" } };
+      }
+    }
+  };
+  const dream = createDreamScheduler({ thresholdCount: 1, thresholdChars: 0, delayMs: 0 });
+  const result = await dream.runDream(ctx, service, { dreamProvider: "mock", dreamModel: "mock-model" });
+  assert.equal(result.status, "degraded", "run degrades on the skipped decision");
+  // 落库验证：skipped 列不再是 NULL，逐条带 index/action/error，事后无需重跑即可定位成因。
+  const run = store.getDreamRun(result.runId);
+  assert.ok(Array.isArray(run?.skipped) && run.skipped.length === 1, "skipped detail persisted in dream_runs.skipped");
+  assert.equal(run.skipped[0].index, 0, "the skipped entry is the cross-type merge");
+  assert.equal(run.skipped[0].action, "merge");
+  assert.match(run.skipped[0].error, /multiple types/, "per-item skip reason is kept");
+  // 独立字段，不污染按「决策数组」消费 decisions 的下游读者。
+  assert.ok(!run.decisions.some((d) => d && d._skipped !== undefined), "decisions stays free of inline markers");
+  store.close();
+});
+
 test("issue#89: dreamSkipInvalid:false restores the whole-batch strict rejection", async () => {
   const { store, service } = dreamSetup();
   const a = service.saveWithDedupe({ type: "project", title: "旧A", content: "过时A" }).memory;

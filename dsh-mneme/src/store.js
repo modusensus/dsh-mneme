@@ -43,7 +43,8 @@ CREATE TABLE IF NOT EXISTS dream_runs (
   summary_stored INTEGER NOT NULL DEFAULT 0,
   receipt        TEXT NOT NULL,
   policy_epoch   INTEGER NOT NULL DEFAULT 0,  -- 裁决规则版本：规则升级后旧裁决降级为历史证据
-  run_type       TEXT NOT NULL DEFAULT 'auto'  -- auto | sleep：睡眠周期的审计区分
+  run_type       TEXT NOT NULL DEFAULT 'auto', -- auto | sleep：睡眠周期的审计区分
+  skipped        TEXT                     -- JSON: degraded 轮被跳过的逐条明细（index/action/ids/error）
 );
 CREATE INDEX IF NOT EXISTS idx_dream_runs_created ON dream_runs(created_at);
 
@@ -371,7 +372,9 @@ function toDreamRun(row) {
     summary_stored: row.summary_stored === 1,
     receipt: row.receipt,
     policy_epoch: row.policy_epoch ?? 0,
-    run_type: row.run_type ?? "auto"
+    run_type: row.run_type ?? "auto",
+    // Issue #104：degraded 轮的逐条跳过明细（JSON 列，NULL = 该轮无跳过项）。
+    skipped: row.skipped ? JSON.parse(row.skipped) : undefined
   };
 }
 
@@ -597,6 +600,9 @@ export function createStore(path) {
   // Legacy dream_runs without policy_epoch → backfill with the default epoch.
   addColumn("dream_runs", "policy_epoch", "ALTER TABLE dream_runs ADD COLUMN policy_epoch INTEGER NOT NULL DEFAULT 0");
   addColumn("dream_runs", "run_type", "ALTER TABLE dream_runs ADD COLUMN run_type TEXT NOT NULL DEFAULT 'auto'");
+  // Issue #104：degraded（合法子集已应用）轮被跳过的决策明细。此前只进 logger.warn，
+  // 离线回放 dream_runs 无法定位 degraded 成因（跨类型 merge / update 保护期 / unknown id）。
+  addColumn("dream_runs", "skipped", "ALTER TABLE dream_runs ADD COLUMN skipped TEXT");
 
   // Legacy mirror_state without v0.3.6 generation columns → add each missing
   // column idempotently (old DBs open cleanly, no data loss).
@@ -1126,16 +1132,20 @@ export function createStore(path) {
     const now = nowIso();
     const policyEpoch = Number.isInteger(run.policy_epoch) ? run.policy_epoch : 0;
     const runType = run.run_type ?? "auto";
+    // Issue #104：degraded 轮的跳过明细（JSON）。与 decisions/outcome 同为可选
+    // 载荷，未提供时落 NULL（而不是 "[]"），审计行只记真实发生过的跳过。
+    const skipped = run.skipped !== undefined ? JSON.stringify(run.skipped) : null;
     db.prepare(
       `INSERT INTO dream_runs (id, created_at, status, error, provider, model, snapshot_hash,
-        input_count, input, decisions, outcome, applied, summary_stored, receipt, policy_epoch, run_type)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        input_count, input, decisions, outcome, applied, summary_stored, receipt, policy_epoch, run_type, skipped)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          created_at=excluded.created_at, status=excluded.status, error=excluded.error,
          provider=excluded.provider, model=excluded.model, snapshot_hash=excluded.snapshot_hash,
          input_count=excluded.input_count, input=excluded.input, decisions=excluded.decisions,
          outcome=excluded.outcome, applied=excluded.applied, summary_stored=excluded.summary_stored,
-         receipt=excluded.receipt, policy_epoch=excluded.policy_epoch, run_type=excluded.run_type`
+         receipt=excluded.receipt, policy_epoch=excluded.policy_epoch, run_type=excluded.run_type,
+         skipped=excluded.skipped`
     ).run(
       id,
       run.created_at ?? now,
@@ -1152,7 +1162,8 @@ export function createStore(path) {
       run.summary_stored ? 1 : 0,
       run.receipt,
       policyEpoch,
-      runType
+      runType,
+      skipped
     );
     return getDreamRun(id);
   }

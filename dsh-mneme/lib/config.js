@@ -18,6 +18,17 @@ export const Config = z.object({
   // 蒸馏把完整对话上下文交给 LLM 提炼，不硬裁到 8000 字就截断语义；默认
   // 24000 字符（约覆盖一整轮中等对话），需要更完整可调大。
   distillMaxChars: z.natural().min(1000).max(200000).default(24000),
+  // autoSummarize 节流、产出上限与写入端同会话去重（Issue #127，默认全 0/off =
+  // 零行为变化）。此前每个 turn/end 必跑、产出条数由模型输出决定、写入端只按
+  // 「同类型 + 标题 trim 全等」去重——本机实测单日 84 次、单会话一天 198 条、
+  // 同一事实 6 小时铸出 28+ 条。阀门交给用户按需拧，升级本身不改行为。
+  summarizeMinIntervalMinutes: z.natural().min(0).max(10080).default(0),
+  summarizeMaxEntriesPerRun: z.natural().min(0).max(50).default(0),
+  // 落库前去重档位：off（默认，等同现状）/ title（零成本，仅拦完全同名）/
+  // vector（复用已有 embedding 列做同会话语义近邻，无 LLM 调用）。
+  summarizeDedupeMode: z.union([z.const("off"), z.const("title"), z.const("vector")]).default("off"),
+  summarizeDedupeMinSim: z.number().min(0.5).max(0.99).default(0.92),
+  summarizeDedupeWindowHours: z.natural().min(0).max(168).default(24),
   // 智能调速器（429 保护，默认开）：蒸馏 LLM 调用全局串行排队，相邻请求
   // 间隔 distillRateLimitIntervalMs（默认 1s 一次）；命中 429 限流时按
   // distillRateLimitBaseDelayMs 指数退避（1s→2s→4s…）自动重试

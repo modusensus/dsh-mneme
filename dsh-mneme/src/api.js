@@ -116,6 +116,7 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
   const flagKeys = [
     ...FEATURE_FLAG_SPEC.booleans,
     ...Object.keys(FEATURE_FLAG_SPEC.ints),
+    ...Object.keys(FEATURE_FLAG_SPEC.numbers),
     ...FEATURE_FLAG_SPEC.strings,
     ...FEATURE_FLAG_SPEC.urls,
     ...Object.keys(FEATURE_FLAG_SPEC.enums)

@@ -873,6 +873,60 @@ export function createService({ store, mirror, config, onWrite, logger }) {
   }
 
   /**
+   * 写入端同会话语义去重（Issue #127，opt-in，默认 off）：落库前把新条目与
+   * 「同会话 + 时间窗」内已落库的记忆比对，命中即并入既有条目，不再新造一行。
+   *
+   * 分层：title 档走零成本的标题归一化；vector 档复用已有 embedding 列做近邻，
+   * 新条目的向量由 embedder 现算（embedQuery），全程无 LLM 调用。embedder 不可用
+   * 或向量缺失一律返回 undefined 回落正常写入——去重是增强，绝不能成为写入依赖。
+   *
+   * 作用域刻意限定「同会话」：跨会话的同类事实仍交给 autoDream / sleep 的批量裁决。
+   * 比对逻辑与并入动作分别复用 cosineVec 与 saveWithDedupe 的 _mergeInto 分支。
+   *
+   * @returns {{action: "merged", memory: object, sim: number}|undefined} 命中则返回
+   *          并入目标与相似度；未命中（含任何异常）返回 undefined。
+   */
+  async function findSessionDuplicate(memory, { mode = "off", minSim = 0.92, windowHours = 24, source } = {}) {
+    if (mode === "off" || !source || !memory?.title) return undefined;
+    try {
+      const sinceMs = windowHours > 0 ? Date.now() - windowHours * 3600000 : 0;
+      const inWindow = (m) => {
+        if (sinceMs <= 0) return true;
+        const t = Date.parse(m.created_at ?? "");
+        return !Number.isFinite(t) || t >= sinceMs; // 时间戳损坏时不误杀
+      };
+      const candidates = store
+        .list({ type: memory.type, source, limit: 200 })
+        .filter((m) => !m.archived && inWindow(m));
+      if (!candidates.length) return undefined;
+
+      if (mode === "title") {
+        const norm = (s) => String(s ?? "").toLowerCase().replace(/[\s\p{P}]+/gu, "");
+        const key = norm(memory.title);
+        if (!key) return undefined;
+        const hit = candidates.find((m) => norm(m.title) === key);
+        return hit ? { action: "merged", memory: hit, sim: 1 } : undefined;
+      }
+      if (mode !== "vector") return undefined;
+
+      const vecs = store.getEmbeddings(candidates.map((m) => m.id));
+      if (!vecs.size) return undefined;
+      const probe = await embedQuery([memory.title, memory.content].filter(Boolean).join("\n"));
+      if (!probe) return undefined;
+      let best;
+      for (const m of candidates) {
+        const v = vecs.get(m.id);
+        if (!v) continue; // 无向量的既有行不参与比对（无信号 = 不判定）
+        const sim = cosineVec(probe, v);
+        if (sim >= minSim && (!best || sim > best.sim)) best = { action: "merged", memory: m, sim };
+      }
+      return best;
+    } catch {
+      return undefined; // 去重失败绝不阻塞写入
+    }
+  }
+
+  /**
    * Save a memory, merging into an existing one when title matches within the same type.
    *
    * Bug5: a same-title merge no longer overwrites — the new content is appended
@@ -911,10 +965,15 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     // 标题变化，若仍按 (type, title) 匹配会出现两个活跃的 summary 同时注入。
     // 其余类型维持 (type, title) 匹配不变。
     const candidates = store.list({ type: memory.type, limit: 100 });
-    const existing = (memory.type === "summary" && memory.source === "dream")
-      ? (candidates.find((m) => m.source === "dream")
-        ?? candidates.find((m) => m.title.trim() === String(memory.title).trim()))
-      : candidates.find((m) => m.title.trim() === String(memory.title).trim());
+    // Issue #127：写入端语义去重命中时，调用方用 _mergeInto 指定并入目标——复用
+    // 下面这段并入逻辑（appendContent + content_history + 质量处置），不另写第二份
+    // 实现。目标已被并发删除时回落到常规匹配。
+    const existing = memory._mergeInto
+      ? store.getById(memory._mergeInto)
+      : (memory.type === "summary" && memory.source === "dream")
+        ? (candidates.find((m) => m.source === "dream")
+          ?? candidates.find((m) => m.title.trim() === String(memory.title).trim()))
+        : candidates.find((m) => m.title.trim() === String(memory.title).trim());
     if (existing) {
       const newContent = String(memory.content ?? "");
       if (!newContent.trim()) {
@@ -1493,6 +1552,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     setRecallRecorder(fn) { recallRecorder = fn; },
     searchMemories,
     embedQuery,
+    findSessionDuplicate,
     evaluateRetrieval,
     computeRetrievalMetrics,
     // passthroughs used by tools and api layers; mutations keep the mirror in sync
