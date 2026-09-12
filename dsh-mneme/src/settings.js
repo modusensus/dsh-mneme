@@ -64,6 +64,10 @@ const FEATURE_FLAG_BOOLEANS = [
   // Issue #89：宽容校验回归（默认开）+ 跨类型合并显式放宽（默认关）。
   "dreamSkipInvalid",
   "allowCrossTypeMerge",
+  // Issue #17（v0.8.0 A1）：scope 隔离存储层总开关。开启后写入标注
+  // agent_scope/workspace_scope、去重键扩展（含 sensitivity）；检索侧过滤在
+  // A2/A3。默认关=行为与 A1 前逐字节一致。
+  "scopeEnabled",
   // 嵌套对象开关：config.js 里是 memoryQualityFilter / llmAudit 对象的 enabled
   // 子字段。kv 按点号键平铺存（"memoryQualityFilter.enabled": false），index.js
   // 合并时展开回嵌套对象，api.js 的 effective 从对象子字段取值。
