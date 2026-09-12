@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createStore } from "../src/store.js";
 import { createService } from "../src/service.js";
 import { createSummarizer, parseSummaryJson } from "../src/summarize.js";
+import { createSettings } from "../src/settings.js";
 
 function setup(over = {}, opts = {}) {
   const store = createStore(":memory:");
@@ -348,4 +349,156 @@ test("codingRetrospect stores coding memory types in the coding memory type set"
   assert.deepEqual(m.tags, []);
   // 编码模式用编码 prompt（含 rejected_solution 类型说明）。
   assert.ok(calls[0].messages[0].content[0].text.includes("rejected_solution"));
+});
+
+// ── Issue #127：节流 / 条数上限 / 同会话去重 ────────────────────────────────
+
+/** A distill stream that always returns exactly these entries. */
+function streamOf(entries) {
+  return () => (async function* () {
+    yield { type: "block-start", block: { type: "text" } };
+    yield { type: "text-delta", delta: JSON.stringify(entries) };
+    yield { type: "finish", kind: "ok" };
+  })();
+}
+
+function sessionFor(id) {
+  return {
+    id,
+    requestHeader: () => ({ config: { provider: "deepseek", model: "deepseek-chat" } }),
+    events: [userMessage("继续"), { seq: 2, type: "turn/end" }]
+  };
+}
+
+test("issue#127: min-interval gate suppresses the second turn/end and audits it as skipped", async () => {
+  const { events, store, calls } = setup({ summarizeMinIntervalMinutes: 30 });
+  const handler = events.find((e) => e.name === "session/event").fn;
+  const session = sessionFor("t1");
+  await handler(session, { seq: 2, type: "turn/end" });
+  assert.equal(calls.length, 1, "the first turn/end distills");
+  assert.equal(store.count(), 2);
+  await handler(session, { seq: 3, type: "turn/end" });
+  assert.equal(calls.length, 1, "the second turn/end inside the window makes no LLM call");
+  assert.equal(store.count(), 2, "nothing new is stored");
+  // 可观测性：被节流不再静默——留一行 status='skipped'，一条 SQL 可自查。
+  const audits = store.listLlmAudits({ source: "autoSummarize" });
+  assert.ok(
+    audits.some((a) => a.status === "skipped" && a.error_message === "min-interval"),
+    "the suppression is visible as a status='skipped' audit row"
+  );
+});
+
+test("issue#127: min-interval 0 keeps the historical every-turn behavior", async () => {
+  const { events, calls } = setup({ summarizeMinIntervalMinutes: 0 });
+  const handler = events.find((e) => e.name === "session/event").fn;
+  const session = sessionFor("t2");
+  await handler(session, { seq: 2, type: "turn/end" });
+  await handler(session, { seq: 3, type: "turn/end" });
+  assert.equal(calls.length, 2, "0 = no gate (zero behavior change)");
+});
+
+test("issue#127: the interval gate is per-session (one session never throttles another)", async () => {
+  const { events, calls } = setup({ summarizeMinIntervalMinutes: 30 });
+  const handler = events.find((e) => e.name === "session/event").fn;
+  await handler(sessionFor("ta"), { seq: 2, type: "turn/end" });
+  await handler(sessionFor("tb"), { seq: 2, type: "turn/end" });
+  assert.equal(calls.length, 2, "a different session is not throttled by another's lastRunAt");
+});
+
+test("issue#127: summarizeMaxEntriesPerRun caps the stored entries and audits parsed/capped", async () => {
+  const { events, store } = setup({ summarizeMaxEntriesPerRun: 1 }, {
+    stream: streamOf([
+      { type: "decision", title: "选型", content: "确定用 node:sqlite", importance: 4 },
+      { type: "preference", title: "语言", content: "用户喜欢中文交流", importance: 5 }
+    ])
+  });
+  const handler = events.find((e) => e.name === "session/event").fn;
+  await handler(sessionFor("t3"), { seq: 2, type: "turn/end" });
+  assert.equal(store.count(), 1, "only the first capped entry is stored");
+  const audit = store.listLlmAudits({ source: "autoSummarize" })[0];
+  assert.equal(audit.metadata?.parsed, 2, "the raw parsed count is kept for tuning the cap");
+  assert.equal(audit.metadata?.capped, 1);
+});
+
+test("issue#127: title dedupe absorbs a normalized-same title", async () => {
+  const { events, store, service } = setup({ summarizeDedupeMode: "title" }, {
+    stream: streamOf([{ type: "pitfall", title: "Win7  OpenSSH  失效", content: "第二次记录", importance: 4 }])
+  });
+  // 既有条目：同会话、标题归一化后全等（大小写与空白差异）
+  const seeded = service.saveWithDedupe({
+    type: "pitfall", title: "win7 openssh 失效", content: "第一次记录", source: "session:t5"
+  }).memory;
+  const handler = events.find((e) => e.name === "session/event").fn;
+  await handler(sessionFor("t5"), { seq: 2, type: "turn/end" });
+  assert.equal(store.count(), 1, "the normalized-same title merged instead of creating a row");
+  assert.ok(store.getById(seeded.id).content.includes("第二次记录"), "content appended to the existing row");
+});
+
+test("issue#127: title dedupe leaves a rephrase alone (it only catches an exact same title)", async () => {
+  // 同一事实的另一种措辞 → title 档不命中，正常新建。这条界定了 title 档的边界，
+  // 避免被误当成 vector 档的替代（cos≥0.85 的簇里「归一化标题全同」为 0 个）。
+  const { events, store, service } = setup({ summarizeDedupeMode: "title" }, {
+    stream: streamOf([{ type: "pitfall", title: "Win7 下 OpenSSH 官方脚本装不上", content: "新记录", importance: 4 }])
+  });
+  service.saveWithDedupe({
+    type: "pitfall", title: "OpenSSH 官方脚本在 Win7 失效", content: "旧记录", source: "session:other"
+  });
+  const handler = events.find((e) => e.name === "session/event").fn;
+  await handler(sessionFor("t7"), { seq: 2, type: "turn/end" });
+  assert.equal(store.count(), 2, "a rephrase (different title) is not merged by the title tier");
+});
+
+test("issue#127: vector dedupe merges a same-fact rephrase and keeps content_history", async () => {
+  const embedder = {
+    ready: true,
+    embedSingle: async (text) => (String(text).includes("OpenSSH") ? [1, 0, 0] : [0, 1, 0])
+  };
+  const { events, store, service } = setup(
+    { summarizeDedupeMode: "vector", summarizeDedupeMinSim: 0.92 },
+    { stream: streamOf([{ type: "pitfall", title: "Win7 下 OpenSSH 官方脚本装不上", content: "重复踩坑", importance: 4 }]) }
+  );
+  service.setEmbedder(embedder);
+  // 同一事实的另一种措辞，已有向量 → 余弦 1.0 ≥ 0.92
+  const seeded = service.saveWithDedupe({
+    type: "pitfall", title: "OpenSSH 官方脚本在 Win7 失效", content: "第一次记录", source: "session:t8"
+  }).memory;
+  store.setEmbedding(seeded.id, [1, 0, 0]);
+  const handler = events.find((e) => e.name === "session/event").fn;
+  await handler(sessionFor("t8"), { seq: 2, type: "turn/end" });
+  assert.equal(store.count(), 1, "no new row: the rephrase was absorbed by cosine");
+  const merged = store.getById(seeded.id);
+  assert.ok(merged.content.includes("重复踩坑"), "content appended into the existing row");
+  assert.ok((merged.content_history ?? []).length >= 1, "content_history keeps the prior version");
+  const audit = store.listLlmAudits({ source: "autoSummarize" })[0];
+  assert.equal(audit.metadata?.deduped, 1);
+  assert.equal(audit.metadata?.mode, "vector");
+});
+
+test("issue#127: no embedder means vector dedupe silently falls back to a normal write", async () => {
+  const { events, store } = setup(
+    { summarizeDedupeMode: "vector" },
+    { stream: streamOf([{ type: "pitfall", title: "无关的一条", content: "内容", importance: 4 }]) }
+  );
+  const handler = events.find((e) => e.name === "session/event").fn;
+  await handler(sessionFor("t9"), { seq: 2, type: "turn/end" });
+  assert.equal(store.count(), 1, "dedupe failure never blocks the write");
+});
+
+test("issue#127: the five summarize knobs are whitelisted and range-checked", () => {
+  const store = createStore(":memory:");
+  const settings = createSettings(store.db);
+  const merged = settings.setFeatureFlags({
+    summarizeMinIntervalMinutes: 30,
+    summarizeMaxEntriesPerRun: 5,
+    summarizeDedupeMode: "vector",
+    summarizeDedupeMinSim: 0.9,
+    summarizeDedupeWindowHours: 12
+  });
+  assert.equal(merged.summarizeMinIntervalMinutes, 30);
+  assert.equal(merged.summarizeDedupeMode, "vector");
+  assert.equal(merged.summarizeDedupeMinSim, 0.9, "float thresholds round-trip (new numbers whitelist)");
+  // 面板/API 写入走同一套逐键校验：越界与非法枚举必须被拒。
+  assert.throws(() => settings.setFeatureFlags({ summarizeDedupeMinSim: 0.3 }), /number in \[0.5, 0.99\]/);
+  assert.throws(() => settings.setFeatureFlags({ summarizeDedupeMode: "semantic" }), /one of: off, title, vector/);
+  store.close();
 });

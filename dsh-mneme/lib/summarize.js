@@ -184,10 +184,54 @@ export function createSummarizer(ctx, service, config) {
   if (!config.autoSummarize) return { dispose: () => {} };
 
   const inFlight = new Map();
+  // Issue #127：per-session 上一次实际开跑时刻（最小间隔闸门用）。与 inFlight
+  // 同生命周期，dispose 时一并清空。
+  const lastRunAt = new Map();
   let disposed = false;
+
+  /** 写一条 autoSummarize 的 LLM 审计行（审计失败绝不阻塞蒸馏本身）。 */
+  function writeAudit(entry) {
+    if (config?.llmAudit?.enabled === false || typeof service.saveLlmAudit !== "function") return;
+    try {
+      service.saveLlmAudit({
+        trigger_source: "autoSummarize",
+        operation_type: "summarize_compress",
+        related_memory_ids: [],
+        ...entry
+      });
+    } catch (auditError) {
+      ctx.logger?.warn?.(`dsh-mneme: llm audit write failed: ${String(auditError)}`);
+    }
+  }
 
   async function summarize(session) {
     if (disposed || inFlight.has(session.id)) return;
+
+    const header = session.requestHeader?.()?.config;
+    // Config override takes priority, then session header, then nothing.
+    const route = (config.summarizeProvider && config.summarizeModel)
+      ? { provider: config.summarizeProvider, model: config.summarizeModel }
+      : (header?.provider && header?.model)
+        ? { provider: header.provider, model: header.model }
+        : undefined;
+
+    // Issue #127 间隔门：同一会话两次蒸馏之间的最小间隔（0 = 现状，不限）。进入
+    // 即打点——失败/degraded 的 run 也占用间隔，与 dreamMinIntervalMinutes 语义
+    // 一致，防止失败连发。被挡下的 turn/end 静默跳过，但留一行 status='skipped'
+    // 审计，否则「这一轮为什么没蒸馏」对用户完全不可观测。
+    const gapMs = (config.summarizeMinIntervalMinutes ?? 0) * 60000;
+    const prevClaim = lastRunAt.get(session.id);
+    if (gapMs > 0 && Date.now() - (prevClaim ?? 0) < gapMs) {
+      writeAudit({
+        timestamp: new Date().toISOString(),
+        model_id: route ? `${route.provider}:${route.model}` : "unknown",
+        status: "skipped",
+        error_message: "min-interval"
+      });
+      return;
+    }
+    lastRunAt.set(session.id, Date.now());
+
     const controller = new AbortController();
     inFlight.set(session.id, controller);
     // audit state for the compression call. null = no audit for this run
@@ -196,14 +240,8 @@ export function createSummarizer(ctx, service, config) {
     // so a failed/aborted stream still leaves a status='error' trail without
     // ever blocking the summarization itself.
     let audit = null;
+    let abortedRun = false;
     try {
-      const header = session.requestHeader?.()?.config;
-      // Config override takes priority, then session header, then nothing.
-      const route = (config.summarizeProvider && config.summarizeModel)
-        ? { provider: config.summarizeProvider, model: config.summarizeModel }
-        : (header?.provider && header?.model)
-          ? { provider: header.provider, model: header.model }
-          : undefined;
       if (!route) return;
       // 完整转录（Codex 式）：蒸馏把整轮对话交给 LLM 提炼原子记忆，不再硬裁
       // 8000 字截断语义；上限由 distillMaxChars 控制（默认 24000，可调大）。
@@ -301,8 +339,19 @@ export function createSummarizer(ctx, service, config) {
           }
         }
       }, intervalMs);
-      if (aborted) return;
-      const entries = parseSummaryJson(text || assembledText);
+      if (aborted) {
+        abortedRun = true;
+        return;
+      }
+      const parsed = parseSummaryJson(text || assembledText);
+      // Issue #127 条数上限：0 = 不限（现状）。被截断的条数与去重命中数一并进
+      // 审计 metadata——此前产出条数完全由模型输出决定，用户无从自查。
+      const cap = config.summarizeMaxEntriesPerRun ?? 0;
+      const entries = cap > 0 ? parsed.slice(0, cap) : parsed;
+      const capped = parsed.length - entries.length;
+      const dedupeMode = config.summarizeDedupeMode ?? "off";
+      let deduped = 0;
+      let dedupeMaxSim = 0;
       for (const entry of entries) {
         // Provenance: the summarizer runs on a real session (turn/end hook), so
         // session.id is always available here — it rides the human-readable
@@ -310,12 +359,45 @@ export function createSummarizer(ctx, service, config) {
         // 编码记忆类型（codingRetrospect）不带 tag：读取侧门控/加权靠 m.type
         // （rejected_solution/pitfall/constraint）区分即可，tag 体系
         // sanitizeTags 不认 `type:` 前缀反而会清空 tags 列（额外一次 UPDATE）。
+        const source = `session:${session.id}`;
+        // Issue #127 落库前去重（opt-in，默认 off = 现状）：命中则并入既有条目
+        // （saveWithDedupe 的 _mergeInto 分支），不再新造一行。作用域 = 同会话 +
+        // 时间窗；跨会话的同类事实仍交给 autoDream / sleep 的批量裁决。
+        const dup = (dedupeMode !== "off" && typeof service.findSessionDuplicate === "function")
+          ? await service.findSessionDuplicate(
+            { ...entry, source },
+            {
+              mode: dedupeMode,
+              minSim: config.summarizeDedupeMinSim ?? 0.92,
+              windowHours: config.summarizeDedupeWindowHours ?? 24,
+              source
+            }
+          )
+          : undefined;
+        if (dup) {
+          deduped++;
+          dedupeMaxSim = Math.max(dedupeMaxSim, dup.sim ?? 0);
+        }
         service.saveWithDedupe({
           ...entry,
-          source: `session:${session.id}`
+          source,
+          ...(dup ? { _mergeInto: dup.memory.id } : {})
         });
       }
+      if (audit && (capped > 0 || deduped > 0)) {
+        audit.metadata = {
+          parsed: parsed.length,
+          ...(capped > 0 ? { capped } : {}),
+          ...(deduped > 0 ? { deduped, mode: dedupeMode, maxSim: Number(dedupeMaxSim.toFixed(4)) } : {})
+        };
+      }
     } finally {
+      // Issue #127：aborted（会话关闭 / 插件 dispose）不占间隔，避免误伤该会话的
+      // 下一次蒸馏；其余情况（含失败）的打点保留，与 dreamMinIntervalMinutes 一致。
+      if (abortedRun || controller.signal.aborted) {
+        if (prevClaim === undefined) lastRunAt.delete(session.id);
+        else lastRunAt.set(session.id, prevClaim);
+      }
       if (audit) {
         try {
           service.saveLlmAudit({
@@ -330,7 +412,10 @@ export function createSummarizer(ctx, service, config) {
             duration_ms: Date.now() - audit.startedAt,
             status: audit.status,
             error_message: audit.errorMessage,
-            related_memory_ids: []
+            related_memory_ids: [],
+            // Issue #127：parsed / capped / deduped 的观测数据。零 schema 变更
+            // （llm_audit_logs.metadata 已存在），一条 SQL 即可验证节流是否生效。
+            metadata: audit.metadata
           });
         } catch (auditError) {
           ctx.logger?.warn?.(`dsh-mneme: llm audit write failed: ${String(auditError)}`);
@@ -358,6 +443,7 @@ export function createSummarizer(ctx, service, config) {
       unsubscribe?.();
       for (const controller of inFlight.values()) controller.abort();
       inFlight.clear();
+      lastRunAt.clear();
     }
   };
 }

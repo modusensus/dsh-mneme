@@ -78,7 +78,17 @@ const FEATURE_FLAG_INT_RANGES = {
   distillMaxChars: [1000, 200000],
   codingBoostFactor: [1, 5],
   dreamMinIntervalMinutes: [0, 10080],
-  dreamMaxTokens: [256, 131072]
+  dreamMaxTokens: [256, 131072],
+  // Issue #127：autoSummarize 节流三键（0 = 零行为变化，等同现状）。
+  summarizeMinIntervalMinutes: [0, 10080],
+  summarizeMaxEntriesPerRun: [0, 50],
+  summarizeDedupeWindowHours: [0, 168]
+};
+// 浮点开关的闭区间（与 config.js 的 z.number().min().max() 对齐）。与整数开关
+// 分开：面板的整数控件要求 Number.isInteger，而余弦相似度阈值必须允许小数。
+const FEATURE_FLAG_NUMBER_RANGES = {
+  // Issue #127：vector 去重档的并入阈值。
+  summarizeDedupeMinSim: [0.5, 0.99]
 };
 // 自由字符串开关（与 config.js 的 z.string() 同名同型）：trim 后 ≤200 字符，
 // 空串合法（= 跟随主对话模型/默认路径，面板显示 placeholder）。
@@ -106,7 +116,9 @@ const FEATURE_FLAG_ENUMS = {
   // rank/scale-aware alternatives selected by the panel.
   recallFusion: ["blend", "rrf", "minmax"],
   // 实体抽取思考强度（issue #109）：与 dreamReasoningEffort 枚举对齐。
-  entityExtractionReasoning: ["low", "medium", "high", "none"]
+  entityExtractionReasoning: ["low", "medium", "high", "none"],
+  // Issue #127：落库前去重档位（off 默认，等同现状）。
+  summarizeDedupeMode: ["off", "title", "vector"]
 };
 const FEATURE_FLAG_STRING_MAX = 200;
 
@@ -114,6 +126,7 @@ const FEATURE_FLAG_STRING_MAX = 200;
 export const FEATURE_FLAG_SPEC = {
   booleans: FEATURE_FLAG_BOOLEANS,
   ints: FEATURE_FLAG_INT_RANGES,
+  numbers: FEATURE_FLAG_NUMBER_RANGES,
   strings: FEATURE_FLAG_STRINGS,
   urls: FEATURE_FLAG_URLS,
   enums: FEATURE_FLAG_ENUMS
@@ -142,6 +155,14 @@ function validateFlag(key, value) {
     const [min, max] = range;
     if (!Number.isInteger(value) || value < min || value > max) {
       throw new TypeError(`feature flag "${key}" must be an integer in [${min}, ${max}]`);
+    }
+    return value;
+  }
+  const numRange = FEATURE_FLAG_NUMBER_RANGES[key];
+  if (numRange) {
+    const [min, max] = numRange;
+    if (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max) {
+      throw new TypeError(`feature flag "${key}" must be a number in [${min}, ${max}]`);
     }
     return value;
   }
@@ -184,6 +205,11 @@ function sanitizeFlags(raw) {
   }
   for (const [key, [min, max]] of Object.entries(FEATURE_FLAG_INT_RANGES)) {
     if (Number.isInteger(raw[key]) && raw[key] >= min && raw[key] <= max) out[key] = raw[key];
+  }
+  for (const [key, [min, max]] of Object.entries(FEATURE_FLAG_NUMBER_RANGES)) {
+    if (typeof raw[key] === "number" && Number.isFinite(raw[key]) && raw[key] >= min && raw[key] <= max) {
+      out[key] = raw[key];
+    }
   }
   for (const key of FEATURE_FLAG_STRINGS) {
     if (typeof raw[key] === "string" && raw[key].trim().length <= FEATURE_FLAG_STRING_MAX) {
