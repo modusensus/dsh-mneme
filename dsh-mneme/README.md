@@ -433,7 +433,7 @@ dsh web
 | `entitySearchEnabled` | `true` | `entity:` / `attr:` 前缀搜索开关 |
 | `trustEpistemicWeighting` | `false` | 记忆可信度加权（v0.4.5，opt-in 默认关）：记忆按来源分级 `observation`> `inferred` > `subjective`，开启后检索排序优先高可信记忆、注入对 observation 标注 `[verified]`、dream merge/conflict 偏向高可信一方；关闭时 `epistemic_status` 仅随保存落库、不参与行为 |
 | `evalPersistTestResults` | `false` | 检索评估落库（v0.4.5，opt-in 默认关）：开启后 `evaluateRetrieval` 把 precision/recall/mrr 快照写入 `recall_evals`；默认关时仅返回调用方不落库。生产 `searchMemories` 审计始终走 `recall_runs`，无条件不触碰 `recall_evals` |
-| `autoReindexOnBoot` | `true` | 存量记忆缺 embedding 时，向量已配置则启动后延迟后台按批次限速自动回填重建（设为 `false` 仅手动重建） |
+| `autoReindexOnBoot` | `true` | 存量记忆缺 embedding 时，向量已配置则启动后延迟后台按批次限速自动回填重建（设为 `false` 仅手动重建）。只补**活跃**记忆（归档/遗忘行不参与召回，#128）；模型指纹一致时照常补缺失行、不再短路（#128） |
 | `hybridInject` | `true` | 注入语义召回优先（v0.4.6，Bug4）：`injectCandidates` 带非空 query 时先走向量索引语义召回候选，规则筛选补足/去重；空 query / 无向量回退旧逻辑 |
 | `bm25SearchEnabled` | `true` | BM25 稀疏第三路召回（v0.5.0）：ASCII 词元 + CJK bigram，IDF 加权，散词/ID/代码片段查询不再依赖子串命中 |
 | `adaptiveThresholdEnabled` | `true` | 自适应相似度阈值（v0.5.0）：按查询形态动态截断（前缀 0.5 / 短查询 0.7 / 长查询 0.6 / 头部分差大放宽 0.5），显式传 `threshold` 走旧行为 |

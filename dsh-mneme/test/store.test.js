@@ -367,3 +367,17 @@ test("conflict_pending table persists across store reopen", () => {
   assert.equal(pending[0].reason, "x");
   s2.close();
 });
+
+// Issue #128：回填候选只取活跃行——归档/遗忘行不参与召回与聚类，不该吃掉
+// 回填配额（报告实测 50 个 reindex 名额全部落在归档行，88 条活跃记忆永远轮不到）。
+test("Issue #128: needsEmbedding skips archived and forgotten rows", () => {
+  const store = openMemory();
+  const active = store.save({ type: "preference", title: "活跃", content: "内容" });
+  const archived = store.save({ type: "preference", title: "归档", content: "内容" });
+  const forgotten = store.save({ type: "preference", title: "遗忘", content: "内容" });
+  store.setArchived(archived.id, true);
+  store.setForget(forgotten.id, true);
+  const ids = store.needsEmbedding(50).map((r) => r.id);
+  assert.deepEqual(ids, [active.id], "only the active row is a backfill candidate");
+  store.close();
+});

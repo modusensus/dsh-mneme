@@ -87,6 +87,44 @@ export function createEntityStreamAdapter({ llm, agentDefaultModel, logger }) {
   };
 }
 
+/**
+ * Issue #128: bounded backfill of rows still missing an embedding (active rows
+ * only — needsEmbedding filters archived/forgotten). Exported for tests.
+ *
+ * Runs regardless of the model fingerprint: the old call-site gate returned
+ * early when vector_meta already held the embedder's hash, permanently
+ * orphaning rows whose embed failed at write time (embedder not ready /
+ * provider rate limit) — one successful embed was enough to never backfill
+ * again. markModel is idempotent when the fingerprint already matches, so
+ * re-running costs nothing beyond the actually-missing rows.
+ */
+export async function backfillMissingEmbeddings({
+  store, embedder, vectorIndex, logger,
+  maxTotal = 500, batchSize = 10, rateLimitMs = 200
+}) {
+  let indexed = 0;
+  for (let done = 0; done < maxTotal;) {
+    const rows = store.needsEmbedding(batchSize);
+    if (!rows.length) break;
+    for (const row of rows) {
+      try {
+        const text = [row.title, row.content].filter(Boolean).join("\n");
+        const vector = await embedder.embedSingle(text);
+        if (vector?.length) {
+          store.setEmbedding(row.id, vector);
+          indexed++;
+        }
+      } catch { /* skip the bad row */ }
+    }
+    done += rows.length;
+    // Rate limit: space out batches so the provider is not hammered.
+    if (store.needsEmbedding(1).length) await new Promise((r) => setTimeout(r, rateLimitMs));
+  }
+  if (indexed > 0 && embedder.modelHash) vectorIndex.markModel?.(embedder.modelHash, embedder.dimension);
+  logger?.info?.(`[dsh-mneme] auto-reindex backfilled ${indexed} embeddings on boot`);
+  return indexed;
+}
+
 export const apply = (ctx, config) => {
   const rawCfg = Config(config);
 
@@ -303,10 +341,10 @@ export const apply = (ctx, config) => {
 
   // Bug2: lazy auto-backfill of missing embeddings on boot. When the vector API
   // is configured and rows still lack an embedding (e.g. written before vector
-  // search was enabled) AND the vector_meta fingerprint is absent or stale, the
-  // index is rebuilt in the background after a short delay. Gated on
-  // cfg.autoReindexOnBoot; rate-limited in small batches so a large backlog
-  // never floods the provider. Failures degrade silently — search stays keyword.
+  // search was enabled), the backfill runs in the background after a short
+  // delay. Gated on cfg.autoReindexOnBoot; rate-limited in small batches so a
+  // large backlog never floods the provider. Failures degrade silently —
+  // search stays keyword.
   function scheduleAutoReindex() {
     if (cfg.autoReindexOnBoot === false) return;
     const attempt = (tries) => {
@@ -319,36 +357,13 @@ export const apply = (ctx, config) => {
           return;
         }
         if (!store.needsEmbedding(1).length) return; // nothing to backfill
-        // Model fingerprint gate: vectors already produced by the same model
-        // mean there is no drift and no rebuild needed.
-        const current = embedder.modelHash;
-        if (current && vectorIndex.modelHash?.() === current) return;
-        const BATCH = 10;
-        const MAX_TOTAL = 500; // bound boot-time work
-        (async () => {
-          let indexed = 0;
-          for (let done = 0; done < MAX_TOTAL;) {
-            const rows = store.needsEmbedding(BATCH);
-            if (!rows.length) break;
-            for (const row of rows) {
-              try {
-                const text = [row.title, row.content].filter(Boolean).join("\n");
-                const vector = await embedder.embedSingle(text);
-                if (vector?.length) {
-                  store.setEmbedding(row.id, vector);
-                  indexed++;
-                }
-              } catch { /* skip the bad row */ }
-            }
-            done += rows.length;
-            // Rate limit: space out batches so the provider is not hammered.
-            if (store.needsEmbedding(1).length) await new Promise((r) => setTimeout(r, 200));
-          }
-          if (indexed > 0 && current) vectorIndex.markModel?.(current, embedder.dimension);
-          ctx.logger?.info?.(`[dsh-mneme] auto-reindex backfilled ${indexed} embeddings on boot`);
-        })().catch((error) => {
-          ctx.logger?.warn?.(`[dsh-mneme] auto-reindex failed: ${String(error)}`);
-        });
+        // Issue #128: no fingerprint gate here anymore — a matching fingerprint
+        // used to return early and permanently orphan rows whose embed failed
+        // at write time. See backfillMissingEmbeddings().
+        backfillMissingEmbeddings({ store, embedder, vectorIndex, logger: ctx.logger })
+          .catch((error) => {
+            ctx.logger?.warn?.(`[dsh-mneme] auto-reindex failed: ${String(error)}`);
+          });
       } catch (error) {
         ctx.logger?.warn?.(`[dsh-mneme] auto-reindex failed: ${String(error)}`);
       }
