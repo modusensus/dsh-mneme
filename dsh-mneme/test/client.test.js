@@ -279,6 +279,14 @@ test("better-sidebar tab mounts via an inner sub-plugin, standalone mode intact"
     "the tab must reuse the MemoryExplorer views"
   );
   assert.ok(
+    /reg\.registerTab\(\{ \.\.\.descriptor, kind: TAB_ID \}\)/.test(clientSource),
+    "the first register attempt must include kind for better-sidebar/native bridge compatibility"
+  );
+  assert.ok(
+    /catch \(errWithKind\) \{[\s\S]{0,140}reg\.registerTab\(descriptor\)/.test(clientSource),
+    "if kind is rejected, registration must fall back to the legacy descriptor"
+  );
+  assert.ok(
     clientSource.includes('"dsh-mneme: better-sidebar tab"'),
     "the registration effect must carry a named label for scope cleanup"
   );

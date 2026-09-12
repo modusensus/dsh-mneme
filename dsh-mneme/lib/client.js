@@ -4062,17 +4062,23 @@ window.__ModuleLoader__.load({
                     console.warn(`[dsh-mneme] better-sidebar tab "${TAB_ID}" already registered, skipping duplicate`);
                     return;
                   }
+                const descriptor = {
+                  id: TAB_ID,
+                  title: () => t("memory.view.label"),
+                  icon: (size) => h(IconArchiveOutline20, { size }),
+                  order: 60,
+                  component: () => h(MemoryExplorer, { t })
+                };
                 try {
-                  reg.registerTab({
-                    id: TAB_ID,
-                    title: () => t("memory.view.label"),
-                    icon: (size) => h(IconArchiveOutline20, { size }),
-                    order: 60,
-                    component: () => h(MemoryExplorer, { t })
-                  });
-                } catch (err) {
-                  // id 重复等注册失败不应拖垮其余功能，留一条线索即可
-                  console.warn("[dsh-mneme] better-sidebar registerTab failed, falling back to native sidebar entry:", err);
+                  // 0.19.x 原生右侧栏桥接链路读取 kind；旧版 registerTab 不认该字段。
+                  reg.registerTab({ ...descriptor, kind: TAB_ID });
+                } catch (errWithKind) {
+                  try {
+                    reg.registerTab(descriptor);
+                  } catch (err) {
+                    // id 重复等注册失败不应拖垮其余功能，留一条线索即可
+                    console.warn("[dsh-mneme] better-sidebar registerTab failed, falling back to native sidebar entry:", errWithKind, err);
+                  }
                 }
               }, "dsh-mneme: better-sidebar tab");
             }
