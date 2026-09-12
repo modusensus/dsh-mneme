@@ -124,13 +124,9 @@ const FEATURE_FLAG_ENUMS = {
   // Issue #127：落库前去重档位（off 默认，等同现状）。
   summarizeDedupeMode: ["off", "title", "vector"],
   // Issue #126：sleep 冲突阶段的动作集（conflict 默认 = 现状；full = 六分支）。
-<<<<<<< HEAD
   sleepActionSet: ["conflict", "full"],
   // Issue #125：dream 候选集构造方式（window 默认 = 现状；hybrid 并入向量组）。
   dreamCandidateMode: ["window", "hybrid"]
-=======
-  sleepActionSet: ["conflict", "full"]
->>>>>>> main
 };
 const FEATURE_FLAG_STRING_MAX = 200;
 
