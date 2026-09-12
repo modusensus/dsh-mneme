@@ -141,6 +141,18 @@ export const STR = {
     zh: (name) => `自定义指令 ${name}`,
     en: (name) => `Custom command ${name}`
   },
+  commandInputHint: {
+    zh: "可选：追加给模型的补充说明",
+    en: "Optional: extra note to append for the model"
+  },
+  commandSubmitted: {
+    zh: (name) => `已提交指令：${name}`,
+    en: (name) => `Submitted command: ${name}`
+  },
+  commandSubmitFailed: {
+    zh: (name) => `指令 ${name} 提交失败，详见日志`,
+    en: (name) => `Failed to submit command ${name}; see logs`
+  },
 
   // --- mirror.js：镜像文件标签（渲染随实例语言；解析两种语言都认） ----------------
   mirrorLabel: {
