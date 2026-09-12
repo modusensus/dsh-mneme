@@ -502,3 +502,54 @@ test("issue#127: the five summarize knobs are whitelisted and range-checked", ()
   assert.throws(() => settings.setFeatureFlags({ summarizeDedupeMode: "semantic" }), /one of: off, title, vector/);
   store.close();
 });
+
+// ── Issue #127 补测：fail-safe 与打点回滚的边界路径 ────────────────────────
+
+test("issue#127: a throwing audit writer never breaks the min-interval skip path", async () => {
+  const { events, store, service } = setup({ summarizeMinIntervalMinutes: 30 });
+  const handler = events.find((e) => e.name === "session/event").fn;
+  const session = sessionFor("t10");
+  await handler(session, { seq: 2, type: "turn/end" });
+  assert.equal(store.count(), 2);
+  // 审计写入器抛错：跳过路径必须吞掉异常——审计是观测手段，绝不能反过来打断蒸馏。
+  service.saveLlmAudit = () => { throw new Error("audit sink down"); };
+  await handler(session, { seq: 3, type: "turn/end" });
+  assert.equal(store.count(), 2, "the throttled turn stays a no-op instead of rejecting");
+});
+
+test("issue#127: an aborted run restores the previous interval claim", async () => {
+  let call = 0;
+  const { events } = setup({ summarizeMinIntervalMinutes: 0, distillRateLimitIntervalMs: 0 }, {
+    stream() {
+      call++;
+      if (call === 1) {
+        return (async function* () {
+          yield { type: "block-start", block: { type: "text" } };
+          yield { type: "text-delta", delta: JSON.stringify([{ type: "decision", title: "甲", content: "内容甲", importance: 3 }]) };
+          yield { type: "finish", kind: "ok" };
+        })();
+      }
+      return (async function* () {
+        yield { type: "block-start", block: { type: "text" } };
+        yield { type: "text-delta", delta: "[]" };
+        yield { type: "finish", kind: "aborted" };
+      })();
+    }
+  });
+  const handler = events.find((e) => e.name === "session/event").fn;
+  const session = sessionFor("t11");
+  await handler(session, { seq: 2, type: "turn/end" });
+  assert.equal(call, 1, "the first turn distills");
+  // 第二次 aborted，且该会话已有上一次的打点 → 走恢复的 else 分支（回写旧值而非删除）。
+  await handler(session, { seq: 3, type: "turn/end" });
+  assert.equal(call, 2, "the aborted turn still reached the LLM call");
+});
+
+test("issue#127: a throwing candidate lookup degrades dedupe to a normal write", async () => {
+  const { service } = setup({ summarizeDedupeMode: "vector" });
+  // 候选查询在 try 内抛错 → findSessionDuplicate 必须吞掉并返回 undefined，
+  // 让调用方回落到正常写入（去重是增强，不是写入依赖）。
+  const hostile = { get type() { throw new Error("store down"); }, title: "标题", content: "内容" };
+  const hit = await service.findSessionDuplicate(hostile, { mode: "vector", source: "session:z" });
+  assert.equal(hit, undefined, "dedupe failure falls back to the normal write path");
+});
