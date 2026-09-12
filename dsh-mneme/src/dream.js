@@ -340,11 +340,48 @@ async function withEffortFallback(ctx, effort, attempt, fallback, getStreamError
  * actually accepted — or omit the field entirely when the model declares no
  * reasoning capability at all.
  *
+ * Unset vs explicit 'none' (Issue #135 建议 4/5): these are different intents.
+ * Explicit 'none' = the user asked to omit the field (provider default
+ * applies). Unset is the out-of-the-box state — dream/sleep calls must produce
+ * JSON, and omission lets the harness substitute the model's defaultEffort
+ * (thinking-type models often default to high), which drains the token budget
+ * and returns an empty body. So unset resolves to the LOWEST effort the model
+ * declares instead of omitting; when the capability query is unavailable the
+ * field stays omitted (fail-safe, retry guard unchanged).
+ *
  * @returns a supported effort id, or null when no effort should be sent, or the
  *   configured value unchanged when the capability query is unavailable.
  */
+
+// 常识档位排序（越靠前推理开销越低）；未知档位排最后（宁可交给显式配置）。
+const EFFORT_RANK = { minimal: 0, off: 0, low: 1, medium: 2, high: 3, max: 4 };
+
+function lowestSupportedEffort(reasoning) {
+  const ids = (reasoning?.efforts ?? []).map((e) => e?.id).filter(Boolean);
+  if (ids.length === 0) return null;
+  return [...ids].sort((a, b) => (EFFORT_RANK[a] ?? 99) - (EFFORT_RANK[b] ?? 99))[0];
+}
+
 async function resolveDreamEffort(ctx, route, configuredEffort, logger) {
-  if (!configuredEffort || configuredEffort === "none") return null;
+  // 显式 'none'：用户要求省略字段（服务商自带默认生效），照旧。
+  if (configuredEffort === "none") return null;
+  if (!configuredEffort) {
+    // 未配置（开箱默认）：取模型声明的最低档，避免 defaultEffort 顶上（建议 4/5）。
+    if (typeof ctx?.llm?.resolveModelInfo !== "function") return null;
+    try {
+      const info = await ctx.llm.resolveModelInfo(route.provider, route.model);
+      const reasoning = info?.reasoning;
+      if (!reasoning) return null; // 无推理声明：省略即安全（无 defaultEffort 可顶上）
+      const lowest = lowestSupportedEffort(reasoning);
+      if (!lowest) return null;
+      logger?.info?.(`dsh-mneme dream: no reasoningEffort configured for ${route.provider}:${route.model}; using lowest supported "${lowest}" instead of the model default "${reasoning.defaultEffort ?? "n/a"}"`);
+      return lowest;
+    } catch (error) {
+      // 能力查询失败：省略字段（fail-safe），withEffortFallback 照旧兜底。
+      logger?.warn?.(`dsh-mneme dream: resolveModelInfo failed (${String(error?.message ?? error)}); omitting reasoningEffort`);
+      return null;
+    }
+  }
   // Capability query unavailable (older harness / minimal mocks): forward the
   // configured value as before — absence of the API proves nothing about the
   // model, and withEffortFallback still guards against rejection.

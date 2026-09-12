@@ -90,14 +90,14 @@ dsh web
 | 中等（1 万-5 万字） | `65536` |
 | 大型（5 万字以上） | `131072`（上限） |
 
-> 若使用**思考型模型**（如 deepseek-v4-flash / DeepSeek-R1 类），模型可能把全部预算花在 reasoning 上导致正文为空（日志出现 `no json array in llm output`）。处理顺序：① 把 `dreamReasoningEffort` 设为 `low` 显式压低思考（v0.7.26+ 若模型不支持该档位，`resolveDreamEffort` 会自动换用模型支持的默认/首个档位或省略字段，拒绝原因会记入 llm_audit）；② 重试走模型默认思考行为后正文仍为空的，调大 `dreamMaxTokens`（reasoning 与正文共享该预算）或配置 `dreamProvider`/`dreamModel` 指向非思考模型。sleep 侧对应 `sleepReasoningEffort`。
+> 若使用**思考型模型**（如 deepseek-v4-flash / DeepSeek-R1 类），模型可能把全部预算花在 reasoning 上导致正文为空（日志出现 `no json array in llm output`）。#135 修复后：未配置 `dreamReasoningEffort` 时会**自动取模型支持的最低档**发流（不再省略字段让模型自带默认档——v4-flash 系默认 high——顶上烧光预算），默认配置即生效；显式 `none` = 不发送字段用服务商默认，`off`/`low`/`medium`/`high` 原样传递，模型不支持的档位自动换用（拒绝原因记入 llm_audit）。正文仍为空时再调大 `dreamMaxTokens`（默认已抬至 131072）或配置 `dreamProvider`/`dreamModel` 指向非思考模型。sleep 侧对应 `sleepReasoningEffort`。
 
 **巩固模型分类声明**（settings panel「巩固模型」= `dreamProvider`/`dreamModel`，睡眠侧对应 `sleepProvider`/`sleepModel`）：
 
 | 模型类别 | 例子 | 说明 |
 |---------|------|------|
 | **非思考模型（推荐）** | glm-5-2 类等 | 无 reasoning 声明；即使配了 effort 被 harness 拒绝，fallback 去掉字段重试即成功。空体风险最低 |
-| **思考模型（需实测）** | deepseek-v4-flash-ga 等 v4-flash-ga 系 | 默认开推理，可能烧光 token 预算返回空体；部分型号（如 v4-flash-ga）在 harness 侧被声明为**不接受任何 reasoning effort**（去掉 effort 时 harness 的 `defaultEffort` 会顶上来再次拒绝）。v0.7.26+ 已根治：`resolveDreamEffort` 发流前探测模型支持的档位，不支持的配置档位自动换用模型默认/首个支持档位，声明无 reasoning 能力的型号则省略字段。选用时建议配 `dreamReasoningEffort` 实测，不行就换非思考模型 |
+| **思考模型（需实测）** | deepseek-v4-flash-ga 等 v4-flash-ga 系 | 默认开推理，可能烧光 token 预算返回空体；部分型号（如 v4-flash-ga）在 harness 侧被声明为**不接受任何 reasoning effort**（去掉 effort 时 harness 的 `defaultEffort` 会顶上来再次拒绝）。v0.7.26+ 已根治：`resolveDreamEffort` 发流前探测模型支持的档位，不支持的配置档位自动换用模型默认/首个支持档位，声明无 reasoning 能力的型号则省略字段。选用时建议配 `dreamReasoningEffort` 实测（未配置时自动取最低档），不行就换非思考模型 |
 
 ### Sleep Mode 系统级睡眠 💤（v0.4.0，opt-in）
 
