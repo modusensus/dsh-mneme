@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_PROBE_TEXTS, defaultEngine, verifyFunctional, verifyPayload } from "../lib/runtime/verify.js";
-import { TRANSFORMERS_ENTRY } from "../lib/runtime/layout.js";
+import { DEFAULT_PROBE_TEXTS, defaultEngine, verifyFunctional, verifyPayload } from "../src/runtime/verify.js";
+import { TRANSFORMERS_ENTRY } from "../src/runtime/layout.js";
+import { pathToFileURL } from "node:url";
 
 // 验证三件套（issue #131 / PR-A）。重点不是「能跑通」，而是「坏的那几种能被抓住」：
 // 结构对但原生二进制与本机不匹配、返回非归一化向量、向量退化、加载直接抛——
@@ -173,4 +174,41 @@ test("假通过防线 ②：非有限数值必须判失败（NaN 的比较恒为
 test("默认 engine 是导出的函数，且探针文本固定（改它等于改验收标准）", () => {
   assert.equal(typeof defaultEngine, "function");
   assert.deepEqual(DEFAULT_PROBE_TEXTS, ["猫咪喜欢晒太阳", "the quick brown fox"]);
+});
+
+// ── defaultEngine：注入假 transformers 模块，钉住「真 import + 行切分」的契约 ──
+
+/** 造一个假 transformers 入口：export env + pipeline，把收到的参数记到 globalThis。 */
+function fakeEntry(dims) {
+  const dir = mkdtempSync(join(tmpdir(), "mneme-engine-"));
+  const entry = join(dir, "entry.mjs");
+  writeFileSync(entry, `
+export const env = {};
+export async function pipeline(kind, model, opts) {
+  globalThis.__engineSeen = { kind, model, opts, cacheDir: env.cacheDir, remote: env.allowRemoteModels };
+  const d = ${JSON.stringify(dims)};
+  const data = Float32Array.from({ length: d[0] * d[1] }, (_, i) => i + 1);
+  return async () => ({ dims: d, data });
+}
+`);
+  return pathToFileURL(entry).href;
+}
+
+test("defaultEngine: 假 transformers 入口可驱动嵌入，并按输出维度做行切分", async () => {
+  const entry = fakeEntry([2, 4]);
+  const embed = await defaultEngine(entry, { cacheDir: "/tmp/mneme-cache" });
+  const rows = await embed(["猫咪", "fox"]);
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows[0], [1, 2, 3, 4]);
+  assert.deepEqual(rows[1], [5, 6, 7, 8]);
+  // 缓存目录与离线开关必须落到 env：验证过程绝不能偷偷下载模型。
+  assert.equal(globalThis.__engineSeen.cacheDir, "/tmp/mneme-cache");
+  assert.equal(globalThis.__engineSeen.remote, false);
+  assert.equal(globalThis.__engineSeen.kind, "feature-extraction");
+});
+
+test("defaultEngine: 输出宽度为 0 时明确抛错（防止调用方死循环）", async () => {
+  const entry = fakeEntry([2, 0]);
+  const embed = await defaultEngine(entry, {});
+  await assert.rejects(() => embed(["x"]), /维度不可用/);
 });

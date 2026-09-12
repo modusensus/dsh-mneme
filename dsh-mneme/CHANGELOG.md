@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.7.32] - 2026-09-12
+
+## 🆕 新增
+
+- **记忆/提示语言选项（#124）**：新增 `memory.language`（zh/en）配置，prompt 提示词、注入与镜像语言可选，中文用户不必再依赖默认英文镜像。
+- **自管本地推理运行时（#131：PR #132 + #133）**：transformers 改为可选 peerDependencies + 三档取件（收编 / 本地 .tgz / registry）——运行时依赖不再强制捆绑安装，宿主可按需选择自管或沿用插件内置。
+- **summarize 节流、产出上限与同会话去重（#127，PR #143）**：新增最小触发间隔（节流）+ 每会话产出上限 + 同会话写入端去重，长会话不再反复蒸馏同一主题。
+- **sleep 冲突动作集扩展（#126，PR #146）**：`sleepActionSet` 新增 `full` 档——supersede（取代：赢家正文干净、输家归档并附「已被取代」注记）/ differentiate（双留 + 差异注记）/ update / merge / conflict / keep 六分支；默认 `conflict`，**零行为变化**；被跳决策带 phase 名落库 `dream_runs.skipped`（审计可见）。
+- **sleep 校验路径接入 skipInvalid 宽容策略**：sleep 冲突校验现遵循 `dreamSkipInvalid`（默认 true），从「一票否决」变宽容——与 autoDream/consolidation（#104 方向）对齐；需严格一票否决可设 `dreamSkipInvalid: false`。
+
+## 🐛 修复
+
+- **注入助手内容读取（#129，PR #136）**：assistant 正文改从 `data.message.content` 读取，适配宿主消息结构。
+- **决策前缀唯一解析 + 失败路径校验明细落库（#135，PR #137）**：8 位 UUID 前缀与整串校验对齐；失败轮次校验明细不再静默丢弃。
+- **effort 未配置自动最低档 + `dreamMaxTokens` 默认抬至 131072（#135，PR #138）**：默认档位不被模型支持时自动降最低档，思考模型不再因预算不足产生空体。
+- **质量过滤 importance 豁免 + 系统信号标签不被 update 抹掉（#135，PR #139）**：低 importance 豁免与信号标签保留，避免合法记忆被质量门误伤。
+- **semantic ready 区分「未配置」与「初始化中」+ 索引覆盖度降级告警（#135，PR #140）**：embedder 不可达不再与「未配置」混淆，覆盖度不足时降级并告警。
+- **vector boot 回填不被模型指纹短路 + 只补活跃行（#128，PR #141）**：重启回填不再因指纹不匹配整体跳过，且只补活跃记忆行。
+- **degraded 轮跳过明细落库 `dream_runs.skipped`（#104，PR #142）**：降级轮被跳的决策带原因落库，审计不再只记「run degraded」一个笼统状态。
+
+## 🏗️ 工程
+
+- **#127 fail-safe 边界补覆盖（#144）**：审计写入器抛错不打断蒸馏、aborted run 回滚间隔打点（下一次被接纳）、候选查询异常降级 undefined、去重不可用时仍落库不丢条目。
+- **runtime 测试 import 归一 src/ + 覆盖补齐**：runtime 测试从 `lib/` 切到 `src/`（c8 排除 `lib/**`，原统计把 runtime 覆盖低估到 65%），并补 embedding 成功/降级路径、`reindexMissing`、`defaultEngine` 假 transformers 驱动等 9 项用例——`src/runtime` 65.7% → 96.0%，总覆盖回到 **92.7%**（embedding 100%、verify 97.9%、index 71.6%）。
+- 916 测试全绿（新增 sleep 冲突动作集 15 项 + summarize fail-safe 4 项 + embedding/runtime 覆盖补齐 9 项）。
+
 ## [0.7.31] - 2026-09-11
 
 ## 🐛 修复

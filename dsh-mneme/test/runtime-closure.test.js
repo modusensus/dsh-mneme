@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { DEFAULT_MAX_PACKAGES, matchesPlatform, planClosure, resolvePackageDir } from "../lib/runtime/closure.js";
+import { DEFAULT_MAX_PACKAGES, matchesPlatform, planClosure, resolvePackageDir } from "../src/runtime/closure.js";
 
 // 依赖闭包遍历（issue #131 / PR-A）：守住四条判据——按源布局镜像、平台过滤、
 // 可选依赖缺失不算错、peer 不进闭包。它是 adopt / export 的共同地基，

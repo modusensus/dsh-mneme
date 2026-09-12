@@ -4,7 +4,7 @@ import { Context } from "@deepseek-ai/cordis";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import * as mneme from "../lib/index.js";
+import * as mneme from "../src/index.js";
 
 // webServer 可选依赖回归（v0.7.24 修复）：v0.7.23 曾把 webServer 从 inject 声明
 // 中去掉想支持 headless，但 apply 里 `if (ctx.webServer)` 在 cordis 4 的 Proxy

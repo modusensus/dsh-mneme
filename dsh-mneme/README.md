@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Awesome](https://awesome-dsh-plugin.com/badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
-[![tests](https://img.shields.io/badge/tests-745%20passed-success)](https://github.com/modusensus/dsh-mneme)
+[![tests](https://img.shields.io/badge/tests-916%20passed-success)](https://github.com/modusensus/dsh-mneme)
 [![CI](https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/ci.yml)](https://github.com/modusensus/dsh-mneme/actions)
 [![node](https://img.shields.io/badge/node-24%2B-blue)](https://nodejs.org)
 [![npm downloads](https://img.shields.io/npm/dm/@modusensus/dsh-mneme?color=blue&label=downloads)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
@@ -225,7 +225,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 
 | 版本 | 亮点 |
 |------|------|
-| **v0.7.31** | peerDependencies 宿主版本声明修复（#121）：原 `^0.1.0-rc.6` 按 node-semver 预发布元组规则不匹配 `0.1.5-rc.1` 等中间预发布版本（当前 dsh 用户安装会 ERESOLVE），也违反 awesome-dsh-plugin 的 peer-range 预发布分支规范；改显式三段式预发布分支 `>=0.1.0-rc.6 <0.2.0 \|\| >=0.1.5-rc.0 <0.3.0 \|\| >=0.2.0-rc.0 <0.3.0`——覆盖全部已发布 0.1.x（含 `0.1.5-rc.1`）、0.2 预发布留显式分支、0.3+ 待验证后放开；745 测试全绿 |
+| **v0.7.32** | 冲突动作集扩展 + 运行时自管化 + 记忆/提示语言 + 一批修复：`sleepActionSet` 新增 `full` 档（supersede/differentiate/update/merge/conflict/keep 六分支，默认 `conflict` 零行为变化）——supersede 赢家正文干净、输家归档附「已被取代」注记，differentiate 双留+差异注记；sleep 校验接入 `dreamSkipInvalid` 宽容策略（默认 true，一票否决变宽容，严格可关）；运行时三档取件（收编/本地 .tgz/registry）+ transformers 转可选 peer（#131）；`memory.language`（zh/en）提示/注入/镜像语言可选（#124）；summarize 节流 + 产出上限 + 同会话去重（#127）；inject 正文读取修复（#129）、#135 五连修（前缀解析/effort 最低档/importance 豁免/ready 语义/覆盖度降级告警）、boot 回填指纹短路修复（#128）、degraded 轮跳过明细落库（#104）；916 测试全绿、总覆盖 92.7%（runtime 96%、embedding 100%） |
 | **v0.7.30** | 状态页向量卡修复（issue #118）：改读开放的 `/semantic`——不再吃 `/vector-config` 的 401「加载失败」，ollama/local 模式不再恒显「未启用」；新增「初始化中（embedder 不可达，正在重试）」与「已索引 N / M 条」回填进度显示；legacy OpenAI 兼容 embedder「Object · 0D」显示修复（embedder 显式 `name: "OpenAI"` + 维度回退 `index.dimension`）；「已索引 N / M」分子分母同口径（`embeddedCount` 剔除归档/遗忘，与 `count()` 默认过滤对齐）；embedder init 失败有界重试（共 5 次，不再一次性永久降级，unload 清理定时器）+ `OllamaEmbedder.ready` 生命周期位 + `/semantic` 新增 `ready` 字段；745 测试全绿 |
 | **v0.7.29** | 实体抽取路由契约修复 + 面板控件 + 帮助与反馈：`streamEntityText` 抽取为可测试导出的 `createEntityStreamAdapter`——显式 `provider`/`model` 优先、缺省兜底读默认路由选择；实体抽取思考强度 `entityExtractionReasoning` 被模型拒绝时自动去 effort 重试（与 autoDream/sleep 同一降级策略）；设置面板新增实体抽取 `provider`/`model`/思考强度三控件；面板底部新增「帮助与反馈」卡片（GitHub issue 预填 + mailto `work@modusensus.space` + 浏览已知问题）+ 配套 `GET /api/dsh-mneme/info`；744 测试全绿 |
 | **v0.7.28** | 连通性测试三连修：`POST /api/dsh-mneme/test-model` 最小调用 `maxTokens` 16→1024——思考模型的推理过程足以耗尽 16 token 预算致 `reply` 恒为空（「真的答了 ok 而非只报通」对思考模型不成立；按实际用量计费，手动按钮无放大成本）；连通性测试状态按巩固/睡眠路由各持一份——此前共享单份，点任一「测试连通性」按钮两组同显「测试中/结果」且互相禁用；面板挂载草稿补 `sleepProvider`/`sleepModel`——后端一直保存正常，但重挂载（切页签/退出重进）后下拉恒显「跟随默认路由」，看起来像设置被重置，补键后正常回填（历史已存值无需重填）；733 测试全绿 |
@@ -329,6 +329,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 | **v0.7.29** | ✅ 完成 | 实体抽取路由契约修复 + 面板控件 + 反馈入口 | 实体抽取 LLM 路由契约修复（#108/#109）：`createEntityStreamAdapter` 显式 provider/model 优先 + 兜底默认路由 + effort 拒绝自动去重试；设置面板新增实体抽取 provider/model/思考强度三控件；「帮助与反馈」卡片（GitHub issue 预填 + mailto + 浏览已知问题）+ `GET /api/dsh-mneme/info`；744 测试全绿 |
 | **v0.7.30** | ✅ 完成 | 状态页向量卡修复 + embedder 有界重试 | 卡片改读 `/semantic`（不再 401「加载失败」、ollama/local 不再恒显「未启用」）+「初始化中 / 已索引 N / M 条」显示（issue #118）；legacy OpenAI 兼容 embedder 显式 `name: "OpenAI"` + 维度回退 `index.dimension`（「Object · 0D」修复）；`embeddedCount` 对齐 `count()` 默认口径、剔除归档/遗忘（「已索引 269 / 36」修复）；embedder init 失败 5 次有界重试不再一次性永久降级 + `OllamaEmbedder.ready` + `/semantic` `ready` 字段；745 测试全绿 |
 | **v0.7.31** | ✅ 完成 | peerDependencies 宿主版本声明修复 | 原 `^0.1.0-rc.6` 按 node-semver 预发布元组规则不匹配 `0.1.5-rc.1` 等中间预发布版本（当前 dsh 用户安装 ERESOLVE），也违反 awesome-dsh-plugin 的 peer-range 预发布分支规范；改显式三段式预发布分支（覆盖 0.1.0-rc.6 至 0.1.5-rc.1 全部已发布 0.1.x 含预发布 + 0.2 预发布留显式分支 + 0.3+ 待验证后放开）；745 测试全绿 |
+| **v0.7.32** | ✅ 完成 | sleep 冲突动作集扩展 + 运行时自管化 + 一批修复 | `sleepActionSet` 新增 `full` 档（supersede/differentiate/update/merge/conflict/keep 六分支，默认 `conflict` 零行为变化）+ sleep 校验接入 `dreamSkipInvalid` 宽容策略 + 被跳决策带 phase 落库 `dream_runs.skipped`；运行时三档取件 + transformers 转可选 peer（#131）；`memory.language` 提示/注入/镜像语言可选（#124）；summarize 节流 + 产出上限 + 同会话去重（#127）；inject 正文读取修复（#129）+ #135 五连修 + boot 回填指纹短路修复（#128）+ degraded 轮跳过明细落库（#104）；runtime 覆盖统计归一 + 补齐（总覆盖 92.7%）；916 测试全绿 |
 | **v0.8.0** | 🚧 计划中（9 月末） | 图谱增强 | 兴趣漂移可视化 + scope 隔离（issue #17）+ 跨 workspace 记忆共享 |
 
 > 新能力一律做成**可开关的功能**（配置启用/关闭），默认保守开启、不破坏现有行为。`failure_memories` 表与 autoDream 决策引擎已为后续反思性成长铺好路。

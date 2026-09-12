@@ -14,7 +14,7 @@ import {
   payloadId,
   runtimeManifestPath,
   transformersVersionOk
-} from "../lib/runtime/layout.js";
+} from "../src/runtime/layout.js";
 
 // 运行时目录契约（issue #131 / PR-A）：这里守住的是「结构检查能不能准确地
 // 指出缺了什么」。功能验证（真 import 并跑推理）不在本文件覆盖范围，

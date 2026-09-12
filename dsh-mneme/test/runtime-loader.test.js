@@ -4,8 +4,8 @@ import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describeLocalRuntime, loadTransformers, publicRuntimeStatus, resolveRuntimeEntry } from "../lib/runtime/loader.js";
-import { TRANSFORMERS_ENTRY, defaultRuntimeDir, payloadDir, payloadId } from "../lib/runtime/layout.js";
+import { describeLocalRuntime, loadTransformers, publicRuntimeStatus, resolveRuntimeEntry } from "../src/runtime/loader.js";
+import { TRANSFORMERS_ENTRY, defaultRuntimeDir, payloadDir, payloadId } from "../src/runtime/layout.js";
 
 // 三层解析（issue #131 / PR-A）。这里守的是两条容易出错的承诺：
 //   ① 自管运行时优先，且能用绝对 file URL 真的加载起来；

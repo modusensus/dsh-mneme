@@ -4,9 +4,9 @@ import { createServer } from "node:http";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyMirror, downloadRuntime, fetchTarball, localTarballPath } from "../lib/runtime/download.js";
-import { describePayload } from "../lib/runtime/layout.js";
-import { sha512Base64 } from "../lib/runtime/tarball.js";
+import { applyMirror, downloadRuntime, fetchTarball, localTarballPath } from "../src/runtime/download.js";
+import { describePayload } from "../src/runtime/layout.js";
+import { sha512Base64 } from "../src/runtime/tarball.js";
 import { makeTgz } from "./helpers/tar-builder.js";
 
 // 取件层（PR-C 第三层）。整条链都在本地 http 服务器上测：重试、Range 续传、sha512 校验、
