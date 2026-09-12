@@ -174,6 +174,10 @@ async function phaseConflicts(ctx, service, config, logger, runId, semantic = nu
   ).join("\n\n");
   const sleepEffort = await resolveDreamEffort(ctx, route, config.sleepReasoningEffort, logger);
   let conflictStreamFailure = "";
+  // Issue #126：动作集档位决定 prompt。默认档（"conflict"）保持只有 conflict/keep
+  // 的窄 prompt（零行为变化）；"full" 才开放六分支，让互补型/演进型重复有正确出口。
+  const actionSet = config.sleepActionSet ?? "conflict";
+  const conflictPrompt = actionSet === "full" ? STR.prompts.conflictFull[language] : STR.prompts.conflict[language];
   const runConflict = (withEffort) => {
     conflictStreamFailure = "";
     return streamText(ctx, {
@@ -183,7 +187,7 @@ async function phaseConflicts(ctx, service, config, logger, runId, semantic = nu
     maxTokens: 2048,
     ...(withEffort && sleepEffort ? { reasoningEffort: sleepEffort } : {}),
     messages: [
-      { role: "system", content: [{ type: "text", text: STR.prompts.conflict[language] }] },
+      { role: "system", content: [{ type: "text", text: conflictPrompt }] },
       { role: "user", content: [{ type: "text", text: listText }] }
     ]
   }, (reason) => { conflictStreamFailure = describeStreamFailure(reason); });
@@ -210,15 +214,27 @@ async function phaseConflicts(ctx, service, config, logger, runId, semantic = nu
   for (const id of snapshot.keys()) {
     if (!covered.has(id)) decisions.push({ action: "keep", ids: [id] });
   }
-  const { ok, errors } = validateDecisions(decisions, snapshot, {});
-  if (!ok) return { status: "failed", error: `invalid decisions: ${errors.join("; ")}` };
+  // Issue #126：sleep 是多对批量裁决，严格模式"一票否决"太脆（一对非法就丢掉整轮
+  // 成果）→ 与 dream 对齐透传 skipInvalid：非法的那一对只跳过自己，合法子集照常
+  // 应用，run 记 degraded。update 上限与保护期同样取 dream 的同一组配置，保证两个
+  // 模块对"什么算合法"的判据一致。
+  const { ok, errors, skipped } = validateDecisions(decisions, snapshot, {
+    maxUpdatePerRun: config.reflectionUpdateMaxPerRun,
+    minAgeHours: config.reflectionUpdateMinAgeHours,
+    skipInvalid: config.dreamSkipInvalid !== false,
+    allowCrossTypeMerge: config.allowCrossTypeMerge === true
+  });
+  if (!ok) return { status: "failed", error: `invalid decisions: ${errors.join("; ")}`, skipped };
   const { applied, failures, conflicts } = applyDecisions(decisions, service, logger, snapshot, config);
   return {
     status: applied > 0 ? "ok" : failures.length ? "failed" : "noop",
     pairs: selected.length,
     applied,
     failures,
-    conflicts
+    conflicts,
+    // Issue #126：#104 同向——被跳过的逐对明细要进审计行，否则事后无法判断
+    // 是哪一对、因何被跳过（此前只进 logger.warn，splice 后就地消失）。
+    skipped
   };
 }
 
@@ -432,6 +448,12 @@ export async function runSleep(ctx, service, config, logger, semantic = null, si
   const status = deriveStatus(phases);
   const route = resolveSleepRoute(ctx, config, logger);
   const totalApplied = Object.values(phases).reduce((n, p) => n + (Number.isInteger(p?.applied) ? p.applied : 0), 0);
+  // Issue #126（与 #104 同向）：把各 phase 的跳过明细汇总成一行审计数据，带 phase
+  // 名（同一次 run 里 conflicts 与 patterns 都可能产出 skipped）。全空时写 NULL，
+  // 不落空数组——审计行只记真实发生过的跳过。
+  const skippedDetail = Object.entries(phases).flatMap(([phase, p]) =>
+    Array.isArray(p?.skipped) ? p.skipped.map((s) => ({ phase, ...s })) : []
+  );
   const snapshotHash = createHash("sha256").update(JSON.stringify(phases)).digest("hex");
   const receipt = buildReceipt({
     runId,
@@ -456,7 +478,8 @@ export async function runSleep(ctx, service, config, logger, semantic = null, si
       summary_stored: false,
       receipt,
       policy_epoch: config.policyEpoch ?? 0,
-      run_type: "sleep"
+      run_type: "sleep",
+      skipped: skippedDetail.length ? skippedDetail : undefined
     });
   } catch (error) {
     logger?.warn?.(`dsh-mneme sleep: failed to record audit run: ${String(error)}`);

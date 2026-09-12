@@ -181,6 +181,32 @@ function buildRecordReceipts({ runId, committed, snapshot, policyEpoch }) {
         kind: "update",
         input_digest: hashDecisionInput([at(c.ids[0])].filter(Boolean))
       });
+    } else if (c.action === "supersede") {
+      // Issue #126：演进型裁决——record 记被取代的一方。winner 正文未被改动，
+      // 不需要自己的 receipt；loser 归档并追加"已被取代"注记。
+      receipts.push({
+        ...base,
+        receipt_id: randomUUID(),
+        record_id: c.loser,
+        kind: "supersede",
+        input_digest: hashDecisionInput([at(c.winner), at(c.loser)].filter(Boolean)),
+        winner_id: c.winner,
+        loser_id: c.loser
+      });
+    } else if (c.action === "differentiate") {
+      // Issue #126：互补型裁决——两条都保留，各记一条 receipt。数量没有变化，
+      // count_before/after 固定 1/1（该记录只是被追加了差异注记）。
+      for (const id of c.ids ?? []) {
+        receipts.push({
+          ...base,
+          receipt_id: randomUUID(),
+          record_id: id,
+          kind: "differentiate",
+          input_digest: hashDecisionInput([at(id)].filter(Boolean)),
+          count_before: 1,
+          count_after: 1
+        });
+      }
     }
   }
   return receipts;
