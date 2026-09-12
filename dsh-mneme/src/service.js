@@ -33,6 +33,11 @@ const EPISTEMIC_WEIGHTS = { observation: 1.0, inferred: 0.85, subjective: 0.7 };
 // how the version was superseded (auto_merge | human_override | overwrite).
 const CONTENT_HISTORY_MAX = 20;
 
+// Issue #135 附属发现 2：质量过滤器写下的系统信号标签（「为什么被降权/归档」的
+// 唯一审计线索）。更新路径整组替换 tags 会把它们抹掉——更新时按此清单并集保留。
+// 清单必须与 quality-filter.js 的写入端对齐（6 个，含 type 自指的 self_referential）。
+const SIGNAL_TAGS = ["low_quality", "duplicate", "meta", "repetitive", "short_content", "self_referential"];
+
 /** Prepend the previous content to a memory's content_history (FIFO capped). */
 function pushContentHistory(existing, source) {
   const history = Array.isArray(existing?.content_history) ? existing.content_history : [];
@@ -963,6 +968,12 @@ export function createService({ store, mirror, config, onWrite, logger }) {
    * (importance × score/100). Best-effort: a disposition write failure must
    * never fail the save. Returns the (possibly refreshed) memory row so callers
    * see the archived/tagged state, not the pre-disposition snapshot.
+   *
+   * Issue #135 附属发现 1：importance ≥ memoryQualityFilter.exemptImportance
+   * （默认 4）的记忆不参与静默自动归档——评分与信号标签照常写入（可观测），
+   * 注入排序照常按 importance × score/100 降权，但 setArchived 跳过。报告实测
+   * 150 条低分归档里 128 条 importance ≥ 4（51 条 = 5）：一条被显式标为重要的
+   * 记忆不该被规则分静默归档、无感知无豁免。
    */
   function applyQualityDisposition(memory, quality, qf) {
     if (!quality || qf?.enabled !== true) return memory;
@@ -970,14 +981,21 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     // Signal tags (meta / repetitive / duplicate / short_content / low_quality)
     // are merged onto the stored row in every assessed band so the verdict is
     // observable, not just the numeric score. Below the archive threshold the
-    // memory is additionally archived (still explicitly searchable).
+    // memory is additionally archived (still explicitly searchable) — unless
+    // its importance reaches the exemption floor (kept active, demoted only).
     const tags = [...new Set([...(memory.tags ?? []), ...(quality.tags ?? [])])];
-    if (tags.length === (memory.tags?.length ?? 0) && quality.score >= archiveThreshold) {
+    const exemptImportance = qf.exemptImportance ?? 4;
+    const importanceExempt = Number.isInteger(memory.importance) && memory.importance >= exemptImportance;
+    if (tags.length === (memory.tags?.length ?? 0) && (quality.score >= archiveThreshold || importanceExempt)) {
       return memory; // no tag drift and not archived → nothing extra to write
     }
     try {
       store.update(memory.id, { tags, quality_score: quality.score });
-      if (quality.score < archiveThreshold) store.setArchived(memory.id, true);
+      if (quality.score < archiveThreshold && !importanceExempt) {
+        store.setArchived(memory.id, true);
+      } else if (quality.score < archiveThreshold) {
+        logger?.info?.(`[dsh-mneme] quality filter: memory ${memory.id} scored ${quality.score} < ${archiveThreshold} but importance ${memory.importance} >= exemptImportance ${exemptImportance}; demoted, not archived`);
+      }
       return store.getById(memory.id);
     } catch {
       return memory;
@@ -1492,7 +1510,15 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     },
     update: (id, p, ctx = {}) => {
       const old = store.getById(id);
-      const updated = store.update(id, p);
+      // Issue #135 附属发现 2：质量过滤器把「为什么被降权/归档」写在系统信号标签
+      // 上（SIGNAL_TAGS，applyQualityDisposition 以并集写入），而这里整组替换
+      // tags——任何带 tags 的更新都会抹掉这条唯一的审计线索（报告实测 150 条低分
+      // 记忆里恰好缺的 2 条就是被 update 过的，并因此误判过归档来源）。把 existing
+      // 的系统信号标签并集保留；用户自传的标签照常生效。
+      const patch = (p && Array.isArray(p.tags) && old && Array.isArray(old.tags))
+        ? { ...p, tags: [...new Set([...p.tags, ...old.tags.filter((t) => SIGNAL_TAGS.includes(t))])] }
+        : p;
+      const updated = store.update(id, patch);
       // Record a user correction when any meaningful field changed and the
       // reflection failure tracker is enabled. expected = what it became,
       // actual = what it was before; query (when provided) captures the

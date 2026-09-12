@@ -116,3 +116,71 @@ test("exported helpers behave (meta regex, similarity, dedup ratio)", () => {
   assert.ok(dedupRatio("哈哈哈哈哈哈") < 0.3, "repetitive filler has low dedup ratio");
   assert.ok(dedupRatio("一句信息量足够的话") > 0.3);
 });
+
+// --- Issue #135 附属发现 1：importance ≥ exemptImportance 只降权，不静默归档 ----
+
+test("Issue #135: importance-5 memory below archive threshold is demoted, not archived", () => {
+  const { store, service } = setup();
+  const { memory } = service.saveWithDedupe({
+    type: "preference", title: "关键决策", content: "短", importance: 5
+  });
+  const got = store.getById(memory.id);
+  assert.equal(got.archived, false, "importance 5 >= exemptImportance 4 → kept active");
+  assert.ok(got.quality_score < 30, `score still persisted, got ${got.quality_score}`);
+  assert.ok(got.tags.includes("low_quality"), "signal tag still written (verdict observable)");
+});
+
+test("Issue #135: importance-4 is exempt by default; importance-3 is still archived", () => {
+  const { store, service } = setup();
+  const four = service.saveWithDedupe({ type: "preference", title: "决策甲", content: "短", importance: 4 }).memory;
+  const three = service.saveWithDedupe({ type: "preference", title: "决策乙", content: "短", importance: 3 }).memory;
+  assert.equal(store.getById(four.id).archived, false, "importance 4 exempt by default");
+  assert.equal(store.getById(three.id).archived, true, "importance 3 below the floor still archived");
+});
+
+test("Issue #135: exemptImportance=1 disables auto-archive; =5 narrows the floor", () => {
+  const one = setup({ memoryQualityFilter: { enabled: true, exemptImportance: 1 } });
+  const threeLow = one.service.saveWithDedupe({ type: "preference", title: "语言", content: "短", importance: 3 }).memory;
+  assert.equal(one.store.getById(threeLow.id).archived, false, "exemptImportance 1 exempts everything");
+
+  const five = setup({ memoryQualityFilter: { enabled: true, exemptImportance: 5 } });
+  const four = five.service.saveWithDedupe({ type: "preference", title: "决策甲", content: "短", importance: 4 }).memory;
+  assert.equal(five.store.getById(four.id).archived, true, "importance 4 no longer exempt at floor 5");
+});
+
+// --- Issue #135 附属发现 2：update 的 tags 整组替换不再抹掉系统信号标签 --------
+
+test("Issue #135: update with tags preserves the filter's signal tags", () => {
+  const { store, service } = setup();
+  const { memory } = service.saveWithDedupe({ type: "preference", title: "语言", content: "短" });
+  assert.ok(store.getById(memory.id).tags.includes("low_quality"), "precondition: filter tagged the row");
+
+  service.update(memory.id, { tags: ["用户标签"], content: "补充后的完整内容，不再是短文本了" });
+  const after = store.getById(memory.id);
+  assert.ok(after.tags.includes("用户标签"), "user tags applied");
+  assert.ok(after.tags.includes("low_quality"), "low_quality preserved through the update");
+  assert.ok(after.tags.includes("short_content"), "short_content preserved too");
+});
+
+test("Issue #135: update without tags leaves the row untouched (legacy path)", () => {
+  const { store, service } = setup();
+  const { memory } = service.saveWithDedupe({ type: "preference", title: "语言", content: "短" });
+  const before = store.getById(memory.id).tags;
+  service.update(memory.id, { content: "只改内容，不带 tags 字段" });
+  assert.deepEqual(store.getById(memory.id).tags, before, "no tags in patch → tags untouched");
+});
+
+test("Issue #135 review: self_referential is a signal tag and survives a tagged update", () => {
+  const { store, service } = setup();
+  // type 自指（title 提到自身类型标签「偏好」）→ quality-filter.js 写
+  // self_referential（−15）；加短内容一起跌破归档线。SIGNAL_TAGS 清单必须
+  // 覆盖它，否则带 tags 的 update 恰好把这个标签抹掉（审计线索缺口）。
+  const { memory } = service.saveWithDedupe({ type: "preference", title: "偏好记录", content: "短" });
+  const tagged = store.getById(memory.id);
+  assert.ok(tagged.tags.includes("self_referential"), "precondition: self_referential written");
+
+  service.update(memory.id, { tags: ["用户标签"], content: "补充后的完整内容" });
+  const after = store.getById(memory.id);
+  assert.ok(after.tags.includes("self_referential"), "self_referential preserved through the update");
+  assert.ok(after.tags.includes("用户标签"), "user tags still applied");
+});
