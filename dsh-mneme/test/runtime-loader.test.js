@@ -83,6 +83,41 @@ test("降级不许静默：自管那份坏了要回调出来，同时仍然退�
   assert.match(failures[0], /onnxruntime-node/);
 });
 
+test("第 ② 层版本门禁：宿主装到 v5 就不静默使用，落到第 ③ 层的可操作提示", async () => {
+  await assert.rejects(
+    () =>
+      loadTransformers({
+        runtimeDir: emptyRuntime(),
+        importModule: async () => ({ env: { version: "5.0.0" } })
+      }),
+    (error) => {
+      assert.equal(error.code, "MNEME_RUNTIME_UNAVAILABLE");
+      // transformers 把版本挂在 env 上（顶层没有 version，实测 4.2.0 的 Node 构建），
+      // 所以门禁两个位置都看；越界时那句原因要能被人看懂。
+      assert.match(error.message, /版本越界：5\.0\.0/);
+      return true;
+    }
+  );
+});
+
+test("第 ② 层版本门禁：区间内放行并报出版本；拿不到版本时不拦", async () => {
+  const inRange = await loadTransformers({
+    runtimeDir: emptyRuntime(),
+    importModule: async () => ({ env: { version: "4.2.0" } })
+  });
+  assert.equal(inRange.source, "host");
+  assert.equal(inRange.version, "4.2.0");
+
+  // 拿不到版本 = 无法判断，不拦：否则这层会对某些打包形态整体失效，
+  // 而它正是老用户收编完成前的不断线保障。
+  const unknown = await loadTransformers({
+    runtimeDir: emptyRuntime(),
+    importModule: async () => ({})
+  });
+  assert.equal(unknown.source, "host");
+  assert.equal(unknown.version, undefined);
+});
+
 test("第 ③ 层：两层都没有时给出可操作提示，并列出每一层为什么失败", async () => {
   const runtimeDir = emptyRuntime();
   makePayload(runtimeDir);
