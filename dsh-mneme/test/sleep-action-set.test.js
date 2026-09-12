@@ -400,3 +400,23 @@ test("issue#126r: the full tier discovers cross-type pairs (differentiate would 
   assert.ok(service.getById(proj.id).content.includes("差异注记"), "differentiate reached the cross-type pair");
   store.close();
 });
+
+test("issue#126r: a throwing index maintenance degrades to a warning, never fails the phase", async () => {
+  const { service, store, vectorIndex } = setup();
+  const { a, b } = seedPair(service, vectorIndex, "抖动甲", "抖动乙");
+  // deleteEmbedding 抛错 → maintainIndexAfterDream 抛出 → sleep 只能告警：索引维护是
+  // 收尾动作，不能反过来把已经落库的决策判成失败。
+  const badIndex = {
+    getEmbedding: (id) => vectorIndex.getEmbedding(id),
+    saveEmbedding: (id, v) => vectorIndex.saveEmbedding(id, v),
+    deleteEmbedding: () => { throw new Error("index down"); }
+  };
+  const ctx = captureCtx(JSON.stringify([{ action: "supersede", winner: b.id, loser: a.id, reason: "演进" }]));
+  const result = await runSleep(
+    ctx, service, baseConfig({ sleepActionSet: "full" }),
+    ctx.logger, { embedder, vectorIndex: badIndex }, null
+  );
+  assert.equal(service.getById(a.id).archived, true, "the decision itself still landed");
+  assert.equal(result.phases.conflicts.status, "ok", "index maintenance failure is only a warning");
+  store.close();
+});
