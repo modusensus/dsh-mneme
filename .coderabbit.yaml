@@ -1,0 +1,19 @@
+# CodeRabbit 审阅配置：额度优先。
+# 个人 Free 档限额很小（1 次/小时），默认的「每个 PR 自动审、每次 push 重审」
+# 会把额度烧光。这里关掉自动审，需要 AI 审阅时在 PR 里评论 `@coderabbitai review`
+# 按需触发——外部大 PR 才值得花额度；维护者自己的小改动走本地审阅 +
+# Copilot code review（教育版额度）覆盖。
+language: zh-CN
+
+reviews:
+  profile: chill
+  auto_review:
+    enabled: false
+  # 锁文件与素材目录没有审阅价值，显式排除（预防将来开自动审时浪费额度）。
+  path_filters:
+    - "!**/package-lock.json"
+    - "!images/**"
+    - "!out/**"
+
+chat:
+  auto_reply: false
