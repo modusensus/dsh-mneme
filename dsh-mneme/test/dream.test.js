@@ -27,6 +27,56 @@ test("unknown id rejects whole list", () => {
   assert.ok(errors.some((e) => e.includes("zzz")));
 });
 
+// --- Issue #135: 唯一前缀解析 -------------------------------------------------
+// 模型常把 36 位 UUID 回填成前缀（报告实测 78/78 个 8 位前缀都能唯一对应窗口内
+// 真实记忆，且 few-shot 示例的 "m1"/"m2" 占位符在诱导这种缩写）。校验前的唯一
+// 前缀解析把它们还原成完整 id，而不是逐条 unknown id 后被覆盖率闸整单拒绝。
+
+test("Issue #135: unique short prefixes resolve to full ids (ids + keepSource)", () => {
+  const idA = "f77a0d17-2586-41fe-a789-d69f4d1cee83";
+  const idB = "bc17c9ed-e84c-4b9f-bc36-48f8e9a6b3e0";
+  const snap = snapshot([idA, idB]);
+  const decisions = [
+    { action: "merge", ids: ["f77a0d17", "bc17c9ed"], title: "合并", content: "合并后的内容", importance: 4, keepSource: "f77a0d17" }
+  ];
+  const { ok, errors, resolvedShortIds } = validateDecisions(decisions, snap);
+  assert.equal(ok, true, JSON.stringify(errors));
+  assert.equal(resolvedShortIds, 3, "two ids + keepSource resolved");
+  assert.deepEqual(decisions[0].ids, [idA, idB], "ids rewritten in place");
+  assert.equal(decisions[0].keepSource, idA, "keepSource rewritten");
+});
+
+test("Issue #135: conflict winner/loser short prefixes resolve", () => {
+  const idA = "f77a0d17-2586-41fe-a789-d69f4d1cee83";
+  const idB = "bc17c9ed-e84c-4b9f-bc36-48f8e9a6b3e0";
+  const snap = snapshot([idA, idB]);
+  const decisions = [{ action: "conflict", winner: "f77a0d17", loser: "bc17c9ed", reason: "内容矛盾" }];
+  const { ok, errors, resolvedShortIds } = validateDecisions(decisions, snap);
+  assert.equal(ok, true, JSON.stringify(errors));
+  assert.equal(resolvedShortIds, 2);
+  assert.equal(decisions[0].winner, idA, "winner rewritten");
+  assert.equal(decisions[0].loser, idB, "loser rewritten");
+});
+
+test("Issue #135: ambiguous prefix stays unresolved and reports unknown id", () => {
+  const snap = snapshot([
+    "aaaaaaaa-1111-4111-8111-111111111111",
+    "aaaaaaaa-2222-4222-8222-222222222222"
+  ]);
+  const { ok, errors, resolvedShortIds } = validateDecisions([{ action: "archive", ids: ["aaaaaaaa"] }], snap);
+  assert.equal(ok, false);
+  assert.equal(resolvedShortIds, 0, "ambiguous prefix is never guessed");
+  assert.ok(errors.some((e) => e.includes("unknown id")), JSON.stringify(errors));
+});
+
+test("Issue #135: unmatched prefix is left for the validator to report", () => {
+  const snap = snapshot(["f77a0d17-2586-41fe-a789-d69f4d1cee83"]);
+  const { ok, errors, resolvedShortIds } = validateDecisions([{ action: "archive", ids: ["deadbeef"] }], snap);
+  assert.equal(ok, false);
+  assert.equal(resolvedShortIds, 0, "no match means no rewrite");
+  assert.ok(errors.some((e) => e.includes("deadbeef")), JSON.stringify(errors));
+});
+
 test("invalid action rejects", () => {
   const snap = snapshot(["a"]);
   const { ok } = validateDecisions([{ action: "explode", ids: ["a"] }], snap);
@@ -483,6 +533,36 @@ test("runDream fails safe on invalid decisions", async () => {
   assert.equal(lang.archived, false, "original memory not archived");
   assert.equal(lang.content, "中文", "original memory content untouched");
   assert.ok(warnings.length >= 1, "failure was logged");
+  store.close();
+});
+
+test("Issue #135: failed validation persists { _validationFailed, errors, skipped } into the run row", async () => {
+  const { store, service } = dreamSetup();
+  const saved = service.saveWithDedupe({ type: "preference", title: "语言", content: "中文" });
+  let calls = 0;
+  const ctx = {
+    llm: {
+      stream: async function* () {
+        calls++;
+        yield { type: "text-delta", text: calls === 1 ? JSON.stringify([{ action: "archive", ids: ["deadbeef"] }]) : "summary" };
+        yield { type: "finish", reason: { kind: "ok" } };
+      }
+    },
+    logger: { warn: () => {}, info: () => {} }
+  };
+  const dream = createDreamScheduler({ thresholdCount: 1, thresholdChars: 0, delayMs: 0 });
+  const result = await dream.runDream(ctx, service, { dreamProvider: "deepseek", dreamModel: "deepseek-chat" });
+  assert.equal(result.ok, false, "coverage gate rejects (0% explicit coverage)");
+  assert.ok(Array.isArray(result.decisions) && result.decisions[0]?._validationFailed === true,
+    "failure result carries the validation detail");
+  assert.ok(result.decisions[0].skipped.some((s) => s.error.includes("deadbeef")),
+    "skipped keeps the per-item reason");
+  // 落库验证：dream_runs.decisions 不再是 NULL，事后可离线定位失败原因。
+  const run = store.getDreamRun(result.runId);
+  assert.ok(run?.decisions?.[0]?._validationFailed === true, "detail persisted in dream_runs.decisions");
+  assert.ok(run.decisions[0].skipped.length >= 1);
+  const lang = store.getById(saved.memory.id);
+  assert.equal(lang.archived, false, "unknown-id decision must not touch real memories");
   store.close();
 });
 

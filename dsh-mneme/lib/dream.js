@@ -720,7 +720,7 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       logger?.warn?.(`dsh-mneme dream: no json array in llm output (raw length ${decisionText?.length ?? 0}; head: ${head})`);
       return finish({ ok: false, error: "no json array in llm output", summary: false });
     }
-    const { ok, errors, skipped } = validateDecisions(decisions, snapshot, {
+    const { ok, errors, skipped, resolvedShortIds } = validateDecisions(decisions, snapshot, {
       maxUpdatePerRun: config.reflectionUpdateMaxPerRun,
       minAgeHours: config.reflectionUpdateMinAgeHours,
       // v0.4.4 fix：显式透传，用户配 dreamImplicitKeep:false 时严格模式必须
@@ -732,9 +732,28 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       skipInvalid: config.dreamSkipInvalid !== false,
       allowCrossTypeMerge: config.allowCrossTypeMerge === true
     });
+    // Issue #135：模型把 UUID 缩写成前缀时，唯一前缀已在校验前被解析回完整 id。
+    // 解析量是模型输出质量的一个直接信号（>0 意味着模型在缩写 id），记一条 info
+    // 便于事后从日志侧观察该行为的分布。
+    if (resolvedShortIds > 0) {
+      logger?.info?.(`[dsh-mneme] dream: resolved ${resolvedShortIds} short id prefix(es) to full ids`);
+    }
     if (!ok) {
+      // Issue #135（观测缺口）：失败轮的逐条校验明细此前既不落库也基本不可见——
+      // skipped 的 warn 写在 return 之后（失败路径到不了），dream_runs.decisions
+      // 落 NULL，上百轮失败零现场。这里把明细前置到日志，并把
+      // { _validationFailed, errors, skipped } 随失败行持久化，事后可从审计行
+      // 直接定位「模型输出了什么、为何逐条非法」。
       logger?.warn?.(`dsh-mneme dream: invalid decisions: ${errors.join("; ")}`);
-      return finish({ ok: false, error: `invalid decisions: ${errors.length} errors`, summary: false });
+      if (skipped.length > 0) {
+        logger?.warn?.(`dsh-mneme dream: ${skipped.length} invalid decision(s) skipped: ${skipped.map((s) => `decision[${s.index}]: ${s.error}`).join("; ")}`);
+      }
+      return finish({
+        ok: false,
+        error: `invalid decisions: ${errors.length} errors`,
+        summary: false,
+        decisions: [{ _validationFailed: true, errors, skipped }]
+      });
     }
     const skippedInvalid = skipped.length > 0;
     if (skippedInvalid) {
