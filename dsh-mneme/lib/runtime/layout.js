@@ -85,6 +85,31 @@ export function defaultRuntimeDir(home = homedir()) {
 }
 
 /**
+ * 本机 libc —— 且只在**能正面确认**时给出答案，否则 null。
+ *
+ * 用来在下载闭包时剔掉另一套 libc 的变体（linux-x64 上 `@img/sharp-linuxmusl-x64` 与
+ * `sharp-libvips-linuxmusl-x64` 加起来十几 MB，glibc 机器一辈子用不到；评审建议做，
+ * 收益真实）。
+ *
+ * 为什么只认「正面确认的 glibc」：Node 的 report 里 glibcVersionRuntime 为空时无法区分
+ * 「musl」与「这份 Node 没报」，而猜错的方向（把 glibc 变体滤掉、装上 musl 变体）会得到
+ * 一份必然 import 不起来的运行时，且本仓库没有 Linux 机器能验证这条路径。所以拿不到证据
+ * 就不过滤：Alpine 用户多下十几兆，但没人会因此装坏。
+ * @param {string} [platform] - 目标平台；只在「就是本机且是 linux」时才可能给出答案。
+ * @returns {"glibc"|null} 确认到的 libc。
+ */
+export function detectLibc(platform = process.platform) {
+  // 目标平台不是本机（比如在 win32 上为 linux 生成/统计）时，本机 report 毫无意义。
+  if (platform !== "linux" || platform !== process.platform) return null;
+  try {
+    const glibc = process.report?.getReport?.()?.header?.glibcVersionRuntime;
+    return typeof glibc === "string" && glibc !== "" ? "glibc" : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * 本地模型的默认缓存目录。
  *
  * 收在这里是因为它必须**唯一**：embedder、reranker、verify 三方若各写一份字面量，

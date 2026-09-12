@@ -177,3 +177,17 @@ test("matchesPlatform 支持正向与 `!` 反向两种写法，缺省表示不�
   assert.equal(matchesPlatform({ os: ["!darwin"] }, "darwin", "arm64"), false);
   assert.equal(matchesPlatform({ cpu: ["x64"] }, "win32", "arm64"), false);
 });
+
+test("matchesPlatform：libc 只在确认本机 libc 时才参与判断（拿不到证据就全放行）", () => {
+  const musl = { os: ["linux"], cpu: ["x64"], libc: ["musl"] };
+  const glibc = { os: ["linux"], cpu: ["x64"], libc: ["glibc"] };
+  // 确认了（glibc / musl）就按 libc 排他。
+  assert.equal(matchesPlatform(glibc, "linux", "x64", "glibc"), true);
+  assert.equal(matchesPlatform(musl, "linux", "x64", "glibc"), false);
+  assert.equal(matchesPlatform(musl, "linux", "x64", "musl"), true);
+  // 没确认 = 不过滤：宁多下十几兆，也不赌错方向装出一份跑不起来的运行时。
+  assert.equal(matchesPlatform(musl, "linux", "x64", null), true);
+  assert.equal(matchesPlatform(musl, "linux", "x64"), true);
+  // 不带 libc 字段的包（绝大多数）任何情况下都不因此被排除。
+  assert.equal(matchesPlatform({ os: ["linux"] }, "linux", "x64", "glibc"), true);
+});
