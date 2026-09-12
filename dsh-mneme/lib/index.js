@@ -215,7 +215,18 @@ export const apply = (ctx, config) => {
     // model fingerprint after each successful embed (Bug3).
     embedder = createEmbedder({ store, settings, logger: ctx.logger, vectorIndex });
     service.setEmbedder(embedder);
-    // legacy OpenAI embedder is immediately usable
+    // issue #135: 未配置时明确告警一次。此前 legacy OpenAI embedder 恒报
+    // ready=true，向量层「绿的但全哑」可以静默存在很久（本机持续了数周）。
+    // 只记日志、不阻断启动：轻量模式与「先跑起来再补配置」都是正当用法。
+    if (embedder.configured === false) {
+      ctx.logger?.warn?.(
+        "[dsh-mneme] 向量层未配置（vector-config 的 enabled/baseUrl/apiKey/model 有缺）："
+        + "语义召回、语义去重、rerank、sleep 冲突检测将静默失效，"
+        + "dream 的语义聚类会退化为全量窗口兜底。"
+        + "请在设置面板补全 embedding 端点与模型，或把 embedProvider 改为 local/ollama。"
+      );
+    }
+    // legacy OpenAI embedder needs no async init → human edits apply right away
     applyHumanEdits();
   } else {
     try {

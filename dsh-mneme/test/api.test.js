@@ -33,7 +33,7 @@ function req(path, method = "GET", body = null) {
   return r;
 }
 
-function setup(embedder, apiToken = "", config = null) {
+function setup(embedder, apiToken = "", config = null, semantic = undefined) {
   const store = createStore(":memory:");
   const service = createService({ store, mirror: null, config: {} });
   const settings = createSettings(store.db);
@@ -51,7 +51,7 @@ function setup(embedder, apiToken = "", config = null) {
       }
     }
   };
-  const api = createApi(ctx, service, settings, commands, embedder, undefined, apiToken, config);
+  const api = createApi(ctx, service, settings, commands, embedder, semantic, apiToken, config);
   return { store, service, routes, api, settings, apiToken };
 }
 
@@ -468,6 +468,73 @@ test("GET /api/dsh-mneme/semantic reports ready state per embedder", async () =>
   const named = await fetchSem({ name: "OpenAI", embed() {} });
   assert.equal(named.embedProvider, "OpenAI", "explicit name beats constructor.name");
   assert.equal(named.ready, true);
+});
+
+// --- #135: /semantic must tell "not configured" apart from "degraded" ---------
+
+test("GET /api/dsh-mneme/semantic reports configured/coverage/degraded", async () => {
+  const fetchSem = async (embedder, semantic) => {
+    const { routes } = setup(embedder, "", null, semantic);
+    const sem = routes.find((r) => r.path === "/api/dsh-mneme/semantic");
+    const res = new FakeRes();
+    await sem.handler(req("/api/dsh-mneme/semantic"), res);
+    assert.equal(res.statusCode, 200);
+    return JSON.parse(res.body);
+  };
+  // Stats double: `total` is the memory count, `embedded` the indexed count.
+  const index = (embeddedCount, totalCount) => ({
+    vectorIndex: { getStats: () => ({ embeddedCount, totalCount }) }
+  });
+  const openai = (ready, configured) => ({
+    name: "OpenAI",
+    get ready() { return ready; },
+    get configured() { return configured; },
+    embed() {}
+  });
+
+  // No embedder at all → everything reports absence, not a false green.
+  const none = await fetchSem(undefined, index(0, 0));
+  assert.equal(none.configured, null);
+  assert.equal(none.reason, "no-embedder");
+  assert.equal(none.degraded, false);
+  assert.deepEqual(none.coverage, { embedded: 0, total: 0, ratio: null },
+    "empty store → ratio null (0 would read as 'nothing embedded')");
+
+  // Configured embedder still initializing: unreachable ≠ unconfigured.
+  assert.equal((await fetchSem(openai(false, true), index(0, 346))).reason, "initializing");
+
+  // Never configured: reported as such even though the index has memories.
+  const unconfigured = await fetchSem(openai(false, false), index(0, 346));
+  assert.equal(unconfigured.ready, false);
+  assert.equal(unconfigured.configured, false);
+  assert.equal(unconfigured.reason, "not-configured");
+  assert.equal(unconfigured.degraded, false, "unconfigured was never meant to index");
+  assert.equal(unconfigured.coverage.ratio, 0);
+
+  // Configured, memories present, zero vectors — the state this machine sat in
+  // for weeks while the card showed a healthy provider.
+  const degraded = await fetchSem(openai(true, true), index(0, 346));
+  assert.equal(degraded.reason, null, "a complete config has no abnormal reason");
+  assert.equal(degraded.degraded, true);
+  assert.equal(degraded.coverage.ratio, 0);
+
+  // Healthy index.
+  const ok = await fetchSem(openai(true, true), index(173, 346));
+  assert.equal(ok.degraded, false);
+  assert.equal(ok.coverage.ratio, 0.5);
+
+  // Adapters without a `configured` field (third-party/test doubles) keep the
+  // old contract: assumed configured, `ready` decides.
+  const legacy = await fetchSem({ embed() {} }, index(5, 10));
+  assert.equal(legacy.configured, true);
+  assert.equal(legacy.reason, null);
+  assert.equal(legacy.ready, true);
+
+  // No stats provider (no vector index) must not throw — coverage falls back
+  // to zeros and an empty store is never "degraded".
+  const noIndex = await fetchSem(openai(true, true), null);
+  assert.deepEqual(noIndex.coverage, { embedded: 0, total: 0, ratio: null });
+  assert.equal(noIndex.degraded, false);
 });
 
 // --- Bug8: llm-audit API (pagination + stats) --------------------------------

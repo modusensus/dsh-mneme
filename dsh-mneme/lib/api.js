@@ -606,11 +606,31 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
     handler(req, res) {
       try {
         const stats = semantic?.vectorIndex?.getStats?.() ?? null;
+        // #118: expose readiness so the status card can tell "initializing /
+        // unreachable" from "disabled". An embedder carrying no `ready` prop at
+        // all (test doubles, third-party adapters) is assumed usable.
+        // issue #135: 但「可用」和「配了」是两件事 —— legacy OpenAI embedder
+        // 此前恒报 ready，于是 baseUrl/apiKey/model 全空时状态卡依然是绿的
+        // （"绿色假阳性"）。下面把两者分开，并附上索引覆盖度。
+        const ready = embedder ? ("ready" in embedder ? embedder.ready === true : true) : null;
+        // local/ollama 的配置来自 settings 兜底，没有「未配置」态：它们的
+        // ready=false 表示「还在初始化」，不是「没配」。
+        const configured = embedder ? (typeof embedder.configured === "boolean" ? embedder.configured : true) : null;
+        const embedded = Number(stats?.embeddedCount ?? 0);
+        const total = Number(stats?.totalCount ?? 0);
         sendJson(res, 200, {
-          // #118: expose readiness so the status card can tell "initializing /
-          // unreachable" from "disabled". Legacy OpenAI embedder has no `ready`
-          // prop and is immediately usable, so treat that as ready.
-          ready: embedder ? ("ready" in embedder ? embedder.ready === true : true) : null,
+          ready,
+          configured,
+          // 机器可读的原因；null = 一切正常。面板按它选文案，不用猜布尔组合。
+          reason: !embedder ? "no-embedder"
+            : configured === false ? "not-configured"
+              : ready !== true ? "initializing"
+                : null,
+          // 空库时 ratio 必须是 null 而非 0 —— 0 会被读成「一条都没嵌上」。
+          coverage: { embedded, total, ratio: total > 0 ? embedded / total : null },
+          // 配了、库里有东西可嵌、却一条都没嵌上 = 真的降级（本机此前长期
+          // 处于 ready:true + embeddedCount:0，面板却显示正常）。
+          degraded: configured === true && total > 0 && embedded === 0,
           // Explicit display name first: the legacy OpenAI-compatible embedder
           // is an object literal, so constructor.name would be "Object".
           embedProvider: embedder ? (embedder.name ?? embedder.constructor?.name ?? "unknown") : null,
