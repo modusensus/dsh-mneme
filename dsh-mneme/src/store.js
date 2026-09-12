@@ -1031,11 +1031,18 @@ export function createStore(path) {
     ).get().c;
   }
 
-  /** Candidate rows still missing an embedding, for incremental re-indexing. */
+  /**
+   * Candidate rows still missing an embedding, for incremental re-indexing.
+   * Issue #128: active rows only — archived/forgotten rows never participate in
+   * recall or dream clustering, so backfill quota must not be eaten by them
+   * (report measured 25/50 reindex slots landing on archived rows while 88
+   * active rows stayed un-embedded). Same 口径 as embeddedCount()/count().
+   */
   function needsEmbedding(limit = 50) {
     return db.prepare(
       `SELECT id, title, content FROM memories
-       WHERE embedding IS NULL OR embedding = ''
+       WHERE (embedding IS NULL OR embedding = '')
+         AND forgotten = 0 AND archived = 0
        ORDER BY updated_at DESC LIMIT ?`
     ).all(limit);
   }
