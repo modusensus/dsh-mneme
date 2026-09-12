@@ -23,15 +23,21 @@ import { readJsonSafe } from "./layout.js";
 export const DEFAULT_MAX_PACKAGES = 400;
 
 /**
- * 包是否匹配当前平台。npm 用 package.json 的 os / cpu 字段声明平台，
+ * 包是否匹配当前平台。npm 用 package.json 的 os / cpu / libc 字段声明平台，
  * 支持 `["win32"]` 正向匹配与 `["!darwin"]` 反向排除两种写法。
  * 字段缺省表示「不限平台」。
- * @param {any} manifest - 包的 package.json。
+ *
+ * libc（glibc / musl）与前两者不同：**只有确实知道本机 libc 时才据此过滤**。
+ * 传 null（拿不到证据）就一律放行 —— 反过来「拿不到就当 musl」会把 glibc 变体滤掉，
+ * 装出一份必然 import 不起来的运行时，而本仓库没有 Linux 机器能验证这条路径。
+ * 少省十几兆，换「不会静默装错」。
+ * @param {any} manifest - 包的 package.json（或清单条目）。
  * @param {string} platform - process.platform 取值。
  * @param {string} arch - process.arch 取值。
+ * @param {string|null} [libc] - 本机 libc；null/缺省 = 不据此过滤。
  * @returns {boolean} 是否匹配。
  */
-export function matchesPlatform(manifest, platform, arch) {
+export function matchesPlatform(manifest, platform, arch, libc = null) {
   const check = (values, actual) => {
     if (!Array.isArray(values) || values.length === 0) return true;
     const negated = values.filter((v) => typeof v === "string" && v.startsWith("!"));
@@ -41,7 +47,9 @@ export function matchesPlatform(manifest, platform, arch) {
     if (positive.length === 0) return true;
     return positive.includes(actual);
   };
-  return check(manifest?.os, platform) && check(manifest?.cpu, arch);
+  if (!check(manifest?.os, platform) || !check(manifest?.cpu, arch)) return false;
+  if (libc === null || libc === undefined) return true;
+  return check(manifest?.libc, libc);
 }
 
 /**

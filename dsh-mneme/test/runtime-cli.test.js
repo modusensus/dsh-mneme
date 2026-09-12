@@ -1,8 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { makeEmptyModules, makeSourceModules } from "./helpers/runtime-source.js";
 
 // 这个 CLI 脚本原先不在任何测试覆盖里：USAGE 模板字面量里多一个反引号就能让它整体语法错误，
 // 而 CI 依然全绿 —— package.json 的 `test` 只跑 test/*.test.js，从不碰 scripts/。踩过一次。
@@ -54,46 +52,15 @@ async function captureLog(fn) {
 }
 
 /**
- * 造一个最小可收编的源 node_modules。
- *
- * transformers 必须把 onnxruntime-node / sharp 声明成自己的依赖，闭包计划才会收它们 ——
- * 否则 payload 里不会有这两个包，结构检查会因为「缺必需包」而失败，测的就不是下面这件事了。
- *
- * withMissingDep=true 时再声明一个装不上的必需依赖：planClosure 会记一条 gap，
- * 而 describePayload 只看那三个必需包 —— 这正是「结构说通过、闭包其实缺件」的场景。
+ * 可收编源的夹具有两处要用（这里与 test/runtime-adopt-service.test.js），
+ * 所以放在 test/helpers/runtime-source.js —— 两份漂移过一次就会有两种结论。
  */
-function makeAdoptSource({ withMissingDep = false } = {}) {
-  const base = mkdtempSync(join(tmpdir(), "mneme-cli-src-"));
-  const nm = join(base, "node_modules");
-  const write = (rel, body) => {
-    const full = join(nm, rel);
-    mkdirSync(join(full, ".."), { recursive: true });
-    writeFileSync(full, body);
-  };
-  const dependencies = {
-    "onnxruntime-node": "^1.24.3",
-    sharp: "^0.34.5",
-    ...(withMissingDep ? { "definitely-not-installed-pkg": "^1.0.0" } : {})
-  };
-  write(
-    "@huggingface/transformers/package.json",
-    JSON.stringify({ name: "@huggingface/transformers", version: "4.2.0", dependencies })
-  );
-  write("@huggingface/transformers/dist/transformers.node.mjs", "export const x = 1;\n");
-  write("onnxruntime-node/package.json", JSON.stringify({ name: "onnxruntime-node", version: "1.24.3" }));
-  write("sharp/package.json", JSON.stringify({ name: "sharp", version: "0.34.5" }));
-  // 结构检查点名到平台 + 架构，夹具必须照真实布局建，且要用「本机」平台，否则 CI 上必挂。
-  mkdirSync(join(nm, "onnxruntime-node", "bin", "napi-v6", process.platform, process.arch), { recursive: true });
-  return { nm, runtimeDir: mkdtempSync(join(tmpdir(), "mneme-cli-dst-")) };
-}
 
 test("CLI adopt：源里没有入口包时给出干净原因，不能抛 TypeError（评审阻塞项）", async () => {
-  const empty = mkdtempSync(join(tmpdir(), "mneme-cli-empty-"));
-  mkdirSync(join(empty, "node_modules"), { recursive: true });
-  const runtimeDir = mkdtempSync(join(tmpdir(), "mneme-cli-dst-"));
+  const src = makeEmptyModules();
   // 修之前这里会抛：adoptRuntime 失败时不带 payloadDir，却被当成路径喂给 describePayload。
   const { value, text } = await captureLog(() =>
-    cli.runAdopt({ runtimeDir, asJson: false, options: { from: join(empty, "node_modules") } })
+    cli.runAdopt({ runtimeDir: src.runtimeDir, asJson: false, options: { from: src.nm } })
   );
   assert.equal(value, 1);
   assert.match(text, /收编失败：/, `应当打印干净原因，实际输出：${text}`);
@@ -101,7 +68,7 @@ test("CLI adopt：源里没有入口包时给出干净原因，不能抛 TypeErr
 });
 
 test("CLI adopt：必需传递依赖缺口必须让退出码变红（评审阻塞项）", async () => {
-  const src = makeAdoptSource({ withMissingDep: true });
+  const src = makeSourceModules({ withMissingDep: true });
   const { value, text } = await captureLog(() =>
     cli.runAdopt({ runtimeDir: src.runtimeDir, asJson: false, options: { from: src.nm } })
   );
@@ -113,7 +80,7 @@ test("CLI adopt：必需传递依赖缺口必须让退出码变红（评审阻�
 });
 
 test("CLI adopt：闭包完整时仍然报 0（防止上面那条修复过度触发）", async () => {
-  const src = makeAdoptSource({ withMissingDep: false });
+  const src = makeSourceModules();
   const { value, text } = await captureLog(() =>
     cli.runAdopt({ runtimeDir: src.runtimeDir, asJson: false, options: { from: src.nm } })
   );
