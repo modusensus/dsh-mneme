@@ -21,10 +21,13 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { join } from "node:path";
 import {
   TRANSFORMERS_ENTRY,
+  TRANSFORMERS_MAX_MAJOR,
+  TRANSFORMERS_MIN,
   defaultRuntimeDir,
   describePayload,
   listPayloadDirs,
-  payloadDir
+  payloadDir,
+  transformersVersionOk
 } from "./layout.js";
 
 /** 默认 import 实现；测试用来注入，避免真的加载原生模块。 */
@@ -38,7 +41,9 @@ const defaultImport = (specifier) => import(specifier);
 const RUNTIME_HINT =
   "本地推理运行时不可用。查看状态：" +
   `node "${fileURLToPath(new URL("../../scripts/mneme-runtime.mjs", import.meta.url))}" status` +
-  "；宿主里已有这份依赖时可用 `adopt --from <宿主 node_modules 目录>` 收编，再用 `verify` 验证。" +
+  "；宿主里已有这份依赖时用 `adopt --from <宿主 node_modules 目录>` 收编，" +
+  "本机哪里都没有时可在任意空目录 `npm i @huggingface/transformers@^4.2.0` 再收编那个 node_modules，" +
+  "最后用 `verify` 验证。" +
   "检索会自动降级为关键词/BM25，不影响记忆读写。";
 
 /**
@@ -218,7 +223,20 @@ export async function loadTransformers({
   // ② 宿主（用户自己装的 / 别的插件带进来的）
   try {
     const module = await importModule("@huggingface/transformers");
-    return { module, source: "host" };
+    // 版本门禁：宿主装到 v5 时这一层会**静默**用起来，而 mneme 只验证过
+    // >=4.2 <5 的 API（详见 issue #131 的 peer 提案）。顶层没有 version 时看
+    // env.version —— transformers 的 Node 构建（实测 4.2.0）就是把版本挂在 env 上的。
+    //
+    // 拿不到版本不算「版本越界」：那会让第 ② 层对某些打包形态直接失效，
+    // 而它正是老用户在收编完成前的不断线保障。只拦明确越界的。
+    const version = module?.version ?? module?.env?.version;
+    if (version === undefined || transformersVersionOk(version)) {
+      return { module, source: "host", version };
+    }
+    note(
+      `宿主的 @huggingface/transformers 版本越界：${version}` +
+        `（只认可 >=${TRANSFORMERS_MIN.join(".")} 且 <${TRANSFORMERS_MAX_MAJOR}）`
+    );
   } catch (error) {
     note(`宿主未提供 @huggingface/transformers：${error?.message ?? error}`);
   }

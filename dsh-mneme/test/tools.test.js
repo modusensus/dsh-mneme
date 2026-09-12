@@ -3,9 +3,12 @@ import assert from "node:assert/strict";
 import { assertSupportedJsonSchema, validateJsonSchemaValue } from "@deepseek-ai/dsh-tools";
 import { createStore } from "../src/store.js";
 import { createService } from "../src/service.js";
+import { existsSync, mkdtempSync, readdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createTools } from "../src/tools.js";
 
-function setup(embedder) {
+function setup(embedder, config = {}) {
   const store = createStore(":memory:");
   const service = createService({ store, mirror: null, config: {} });
   const registered = [];
@@ -17,7 +20,7 @@ function setup(embedder) {
       }
     }
   };
-  const tools = createTools(ctx, service, {}, embedder);
+  const tools = createTools(ctx, service, config, embedder);
   return { store, service, tools, registered };
 }
 
@@ -44,15 +47,15 @@ function walkSchema(node, path, problems) {
   }
 }
 
-test("registers eight tools with correct names", () => {
+test("registers nine tools with correct names", () => {
   const { registered } = setup();
   const names = registered.map((t) => t.name).sort();
-  assert.deepEqual(names, ["memory_archive", "memory_delete", "memory_forget", "memory_get", "memory_list", "memory_save", "memory_search", "memory_update"]);
+  assert.deepEqual(names, ["memory_archive", "memory_delete", "memory_forget", "memory_get", "memory_list", "memory_runtime", "memory_save", "memory_search", "memory_update"]);
 });
 
 test("compiled schemas pass the enforced DSH subset (defineTool projection)", () => {
   const { registered } = setup();
-  assert.equal(registered.length, 8);
+  assert.equal(registered.length, 9);
   for (const tool of registered) {
     assertSupportedJsonSchema(tool.parameters);
     assertSupportedJsonSchema(tool.output.schema);
@@ -313,4 +316,26 @@ test("memory_archive on missing id rejects", async () => {
   const { registered } = setup();
   const archive = registered.find((t) => t.name === "memory_archive");
   await assert.rejects(() => archive.execute({ id: "missing" }), /memory not found/);
+});
+
+test("memory_runtime：status 只读且带代价说明；两条来源都不可用时如实回报（不联网）", async () => {
+  const runtimeDir = mkdtempSync(join(tmpdir(), "mneme-tool-rt-"));
+  // 与 api 路由测试同一做法：镜像钉到必然拒绝连接的本地端口，避免测试真的去 registry 拉整套闭包。
+  const { registered } = setup(undefined, { runtimeDir, runtimeMirror: "http://127.0.0.1:1/" });
+  const tool = registered.find((t) => t.name === "memory_runtime");
+  assert.ok(tool, "应当注册 memory_runtime");
+
+  // status 是 agent 的入口：只读，而且必须带上代价，否则 agent 没法先告诉用户再动手。
+  const status = await tool.execute({ action: "status" });
+  assert.deepEqual(validateJsonSchemaValue(tool.output.schema, status), []);
+  assert.equal(status.status, "missing", "临时目录里没有 payload");
+  assert.match(status.cost, /hundreds of MB/, "代价说明要带上体积量级（刻意不写死具体数值：各平台不同、也会漂移）");
+  assert.ok(status.summary.length > 0);
+
+  // provision：仓库布局下推导出的源不是 node_modules，下载又被钉死 —— 如实回报，不抛异常。
+  const provision = await tool.execute({ action: "provision" });
+  assert.deepEqual(validateJsonSchemaValue(tool.output.schema, provision), []);
+  assert.equal(provision.status, "failed");
+  assert.match(provision.reason, /收编失败|下载失败/);
+  assert.equal(existsSync(runtimeDir) ? readdirSync(runtimeDir).length : 0, 0, "失败后不该留下半份 payload");
 });

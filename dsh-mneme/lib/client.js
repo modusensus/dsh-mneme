@@ -427,6 +427,20 @@ window.__ModuleLoader__.load({
         "memory.status.vectorOff": "未启用",
         "memory.status.vectorInit": "初始化中",
         "memory.status.vectorInitHint": "embedder 不可达，正在重试",
+        "memory.status.vectorRuntimeMissing": "缺少本地推理运行时",
+        "memory.status.vectorRuntimeHint": "本地推理运行时未就绪（{status}）",
+        "memory.status.vectorRuntimeCost": "本地向量化要额外一份本地推理运行时（transformers + onnxruntime 闭包，解包后数百 MB）。下面的按钮会先尝试收编本机已有的那份（同盘则硬链接，不占额外空间），没有再按固定清单从 npm 取回（逐个校验 sha512）。也可以直接让 agent 处理，或在终端里自己跑：node scripts/mneme-runtime.mjs status / adopt [--from <node_modules>] / verify（详见 docs/LOCAL_MODEL.md §2.5）。",
+        "memory.runtime.title": "本地推理运行时",
+        "memory.runtime.available": "已就绪",
+        "memory.runtime.missing": "未就绪 —— 只有用本地嵌入（embedProvider: local）时才需要它",
+        "memory.runtime.restart": "本地嵌入要重启 DSH 才会生效",
+        "memory.status.vectorRuntimeReady": "运行时已就绪",
+        "memory.status.vectorRuntimeReadyHint": "本地嵌入尚未初始化（进程里的 embedder 在运行时缺失时已经失败过一次）：若一直停在这里，重启 DSH 即可。",
+        "memory.status.vectorRuntimeFetch": "取回本地运行时",
+        "memory.status.vectorRuntimeFetchBusy": "正在取回…（先试收编，必要时下载，数千个文件，请稍候）",
+        "memory.status.vectorRuntimeFetchAdopted": "已收编本机已有的运行时：{n} 个包 / {m} 个文件（{mode}）。**请重启 DSH 使本地嵌入生效。**",
+        "memory.status.vectorRuntimeFetchDownloaded": "下载完成：{n} 个包 / {m} 个文件。**请重启 DSH 使本地嵌入生效**（取回不会让当前进程里的 embedder 复活）。",
+        "memory.status.vectorRuntimeFetchFailed": "取回失败：{reason}",
         "memory.status.vectorIndexed": "已索引 {n} / {m} 条",
       "memory.status.vectorUnconfigured": "未配置",
       "memory.status.vectorUnconfiguredHint": "未填 embedding 端点/模型或未启用，语义召回不可用",
@@ -735,6 +749,20 @@ window.__ModuleLoader__.load({
         "memory.status.vectorOff": "Disabled",
         "memory.status.vectorInit": "Initializing",
         "memory.status.vectorInitHint": "embedder unreachable, retrying",
+        "memory.status.vectorRuntimeMissing": "Local inference runtime missing",
+        "memory.status.vectorRuntimeHint": "Local inference runtime not ready ({status})",
+        "memory.status.vectorRuntimeCost": "Local vectorization needs an extra local inference runtime (the transformers + onnxruntime closure, hundreds of MB unpacked). The button below first tries to adopt an existing copy on this machine (hardlinked when on the same volume, so no extra disk), and otherwise fetches it from npm against a pinned manifest (every tarball checked against its sha512). You can also just ask the agent, or run it yourself: node scripts/mneme-runtime.mjs status / adopt [--from <node_modules>] / verify (see docs/LOCAL_MODEL.md §2.5).",
+        "memory.runtime.title": "Local inference runtime",
+        "memory.runtime.available": "ready",
+        "memory.runtime.missing": "not ready — only needed when you use local embedding (embedProvider: local)",
+        "memory.runtime.restart": "Local embedding takes effect after restarting DSH",
+        "memory.status.vectorRuntimeReady": "Runtime ready",
+        "memory.status.vectorRuntimeReadyHint": "Local embedder is not initialized yet (the in-process embedder already failed while the runtime was missing): restart DSH if this persists.",
+        "memory.status.vectorRuntimeFetch": "Fetch local runtime",
+        "memory.status.vectorRuntimeFetchBusy": "Fetching… (tries adopt first, may download — thousands of files)",
+        "memory.status.vectorRuntimeFetchAdopted": "Adopted the runtime already on this machine: {n} packages / {m} files ({mode}). **Restart DSH to activate local embedding.**",
+        "memory.status.vectorRuntimeFetchDownloaded": "Download complete: {n} packages / {m} files. **Restart DSH to activate local embedding** (fetching does not revive the embedder already running in this process).",
+        "memory.status.vectorRuntimeFetchFailed": "Fetch failed: {reason}",
         "memory.status.vectorIndexed": "Indexed {n} / {m} items",
       "memory.status.vectorUnconfigured": "Not configured",
       "memory.status.vectorUnconfiguredHint": "No embedding endpoint/model configured — semantic recall is off",
@@ -992,6 +1020,8 @@ window.__ModuleLoader__.load({
       ".mneme-featsub{margin:2px 0 8px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;display:flex;flex-direction:column;gap:6px}",
       ".mneme-featsub .mneme-featnum{padding:6px 0;border-bottom:none}",
       ".mneme-featsubhint{font-size:12px;line-height:17px;color:var(--dsw-alias-label-tertiary)}",
+      // 运行时那一块的说明文字：比常规 hint 再小一档，它是背景信息而不是要读的正文。
+      ".mneme-runtimehint{font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary)}",
       // --- 交互式记忆库：工具栏 / 卡片网格 / 详情抽屉 / 更多菜单 ---
       // sheet 边距放宽：与窗口边缘保持呼吸距离，居中不顶满。
       // 视图切换（卡片/时间线）分段控件挂在子页栏右侧。
@@ -1896,6 +1926,7 @@ window.__ModuleLoader__.load({
           savedTick && h("span", { className: "mneme-saved", style: { marginLeft: 8, fontWeight: 400 } }, t("memory.features.restartHint"))
         ),
         h("div", { className: "mneme-set-desc" }, t("memory.features.desc")),
+        h(RuntimeProvisionBlock, { t }),
         state === null && !error
           ? h("div", { className: "mneme-set-hint" }, "…")
           : h(react.Fragment, null,
@@ -2591,8 +2622,89 @@ window.__ModuleLoader__.load({
     }
 
     // 向量索引 — whether semantic recall is switched on.
+    // 取回本地推理运行时的共享块：**面板状态卡片与设置页共用同一份实现**。
+    //
+    // 为什么设置页也要有：状态卡片是「看到了顺手点」，而设置页是用户主动去找的地方。
+    // 两处都给出代价说明与可复制的命令行，并且在**成功后明确要求重启** —— 取回运行时不会让
+    // 当前进程里那个已经失败的 embedder 复活，重启才生效；不说清这一点，用户会以为功能坏了。
+    function RuntimeProvisionBlock({ t, onChanged }) {
+      const [runtime, setRuntime] = useState(null);
+      const [ready, setReady] = useState(null);
+      const [busy, setBusy] = useState(false);
+      const [msg, setMsg] = useState("");
+      const [tick, setTick] = useState(0);
+
+      useEffect(() => {
+        let cancelled = false;
+        apiFetch("/api/dsh-mneme/semantic")
+          .then((res) => (res.ok ? res.json() : null))
+          .then((j) => {
+            if (cancelled || !j) return;
+            setRuntime(j.localRuntime ?? null);
+            setReady(j.ready ?? null);
+          })
+          .catch(() => {});
+        return () => { cancelled = true; };
+      }, [tick]);
+
+      const available = runtime?.status === "available";
+      // 运行时就绪但 embedder 没起来 = 刚取回到、还没重启。这时唯一有意义的动作就是重启。
+      const needsRestart = available && ready !== true;
+
+      const provision = async () => {
+        setBusy(true);
+        setMsg("");
+        try {
+          const res = await apiFetch("/api/dsh-mneme/runtime/provision", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ overwrite: runtime?.status === "broken" })
+          });
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          const j = await res.json();
+          if (j?.ok) {
+            const key = j.strategy === "download"
+              ? "memory.status.vectorRuntimeFetchDownloaded"
+              : "memory.status.vectorRuntimeFetchAdopted";
+            setMsg(t(key).replace("{n}", j.packages ?? 0).replace("{m}", j.files ?? 0).replace("{mode}", j.materialize ?? "?"));
+          } else {
+            setMsg(t("memory.status.vectorRuntimeFetchFailed").replace("{reason}", j?.reason ?? j?.status ?? "?"));
+          }
+          setTick((n) => n + 1);
+          if (onChanged) onChanged();
+        } catch (error) {
+          setMsg(t("memory.status.vectorRuntimeFetchFailed").replace("{reason}", String((error && error.message) || error)));
+        } finally {
+          setBusy(false);
+        }
+      };
+
+      // 配好之后就把整块收起来：设置页只在「需要用户知道或行动」时占地方，配好了就是纯噪音。
+      // （msg 例外：刚点完按钮要看结果，那一刻 ready 还没变，本来也不会命中这条。）
+      if (available && ready === true && msg === "") return null;
+
+      return h(react.Fragment, null,
+        h("div", { className: "mneme-runtimehint" },
+          t("memory.runtime.title") + "：" + (available ? t("memory.runtime.available") : t("memory.runtime.missing"))),
+        // 未就绪时才给代价说明与按钮；已就绪只留上面那行状态（以及在需要重启时下面那行提醒）。
+        available ? null : h(react.Fragment, null,
+          h("div", { className: "mneme-runtimehint" }, t("memory.status.vectorRuntimeCost")),
+          h("button", {
+            type: "button",
+            className: "mneme-footbtn",
+            disabled: busy,
+            onClick: provision
+          }, busy ? t("memory.status.vectorRuntimeFetchBusy") : t("memory.status.vectorRuntimeFetch"))
+        ),
+        msg ? h("div", { className: "mneme-runtimehint" }, msg) : null,
+        needsRestart ? h("div", { className: "mneme-saved" }, t("memory.runtime.restart")) : null
+      );
+    }
     function VectorStatusCard({ t }) {
-      const [state, setState] = useState({ loading: true, error: false, provider: null, ready: null, configured: null, degraded: false, dimension: 0, embedded: 0, total: 0 });
+      const [state, setState] = useState({ loading: true, error: false, provider: null, ready: null, configured: null, degraded: false, dimension: 0, embedded: 0, total: 0, localRuntime: null });
+      // 收编是写操作、耗时数秒，所以要有忙碌态与就地结果；reload 只是用来让上面的
+      // 加载 useEffect 重跑一次，从而把最新状态拉回来。
+      const [reload, setReload] = useState(0);
       useEffect(() => {
         let cancelled = false;
         // #118: /vector-config is secret-bearing (401 without a stored token →
@@ -2616,12 +2728,14 @@ window.__ModuleLoader__.load({
               // successful embed — fall back to the index stats' dimension.
               dimension: Number(j?.dimension ?? j?.index?.dimension ?? 0),
               embedded: Number(j?.index?.embeddedCount ?? 0),
-              total: Number(j?.index?.totalCount ?? 0)
+              total: Number(j?.index?.totalCount ?? 0),
+              // issue #131: 自管运行时状态。与 provider 无关地拿来，由下面决定是否要展示。
+              localRuntime: j?.localRuntime ?? null
             });
           })
-          .catch(() => { if (!cancelled) setState({ loading: false, error: true, provider: null, ready: null, dimension: 0, embedded: 0 }); });
+          .catch(() => { if (!cancelled) setState({ loading: false, error: true, provider: null, ready: null, dimension: 0, embedded: 0, localRuntime: null }); });
         return () => { cancelled = true; };
-      }, []);
+      }, [reload]);
       const off = !state.provider;
       // issue #135: 先把「没配」和「配了但在初始化」分开。此前两者都落到
       // ready !== true，于是未配置的 legacy embedder（ready 恒 true）反而
@@ -2630,29 +2744,53 @@ window.__ModuleLoader__.load({
       const pending = !off && !unconfigured && state.ready !== true;
       // 配好了、库里有东西、却一条都没嵌上 —— 这才是真正的降级。
       const degraded = !off && !unconfigured && !pending && state.degraded === true;
+      // 本地 provider 缺运行时：绝不能显示「初始化中」——它永远不会初始化，只会一直重试，
+      // 而那正是那份运行时（数百 MB）缺位的真实原因。这里必须说真话并给出下一步。
+      const localBlocked = /^Local/.test(state.provider || "") && state.localRuntime?.status !== "available" && state.localRuntime != null;
+      // 运行时已就绪但 embedder 还没起来 —— 这就是「刚取回运行时、但进程里的 embedder 早已失败」的过渡态。
+      // 这时候继续说「embedder 不可达，正在重试」会让人以为永远好不了；要说的是可操作的那句：重启 DSH。
+      const runtimeReadyPending = pending && state.localRuntime?.status === "available";
       const num = off
         ? t("memory.status.vectorOff")
+        : localBlocked
+          ? t("memory.status.vectorRuntimeMissing")
+          : unconfigured
+            ? t("memory.status.vectorUnconfigured")
+            : runtimeReadyPending
+              ? t("memory.status.vectorRuntimeReady")
+              : pending
+                ? t("memory.status.vectorInit")
+                : `${state.provider.replace(/Embedder$/, "")} · ${state.dimension}D`;
+      const cap = localBlocked
+        ? t("memory.status.vectorRuntimeHint").replace("{status}", state.localRuntime.status)
         : unconfigured
-          ? t("memory.status.vectorUnconfigured")
-          : pending
-            ? t("memory.status.vectorInit")
-            : `${state.provider.replace(/Embedder$/, "")} · ${state.dimension}D`;
-      const cap = unconfigured
-        ? t("memory.status.vectorUnconfiguredHint")
-        : pending
-          ? t("memory.status.vectorInitHint")
-          : off ? ""
-            : degraded
-              ? t("memory.status.vectorDegradedHint").replace("{m}", state.total)
-              : t("memory.status.vectorIndexed").replace("{n}", state.embedded).replace("{m}", state.total);
-      return h(StatusCard, {
-        t,
-        title: t("memory.status.vector"),
-        loading: state.loading,
-        error: state.error,
-        num,
-        cap
-      });
+          ? t("memory.status.vectorUnconfiguredHint")
+          : runtimeReadyPending
+            ? t("memory.status.vectorRuntimeReadyHint")
+            : pending
+              ? t("memory.status.vectorInitHint")
+              : off ? ""
+                : degraded
+                  ? t("memory.status.vectorDegradedHint").replace("{m}", state.total)
+                  : t("memory.status.vectorIndexed").replace("{n}", state.embedded).replace("{m}", state.total);
+
+
+      // 取回运行时由共享组件负责（设置页用的是同一份实现，见 RuntimeProvisionBlock）：
+      // 代价说明、三档来源、结果文案与「要重启」都在那里 —— 同一件事不该有两份代码。
+      return h(react.Fragment, null,
+        h(StatusCard, {
+          t,
+          title: t("memory.status.vector"),
+          loading: state.loading,
+          error: state.error,
+          num,
+          cap
+        }),
+        !state.loading && !state.error && localBlocked
+          ? h("div", { className: "mneme-statuscap", style: { marginTop: "6px" } },
+              h(RuntimeProvisionBlock, { t, onChanged: () => setReload((n) => n + 1) }))
+          : null
+      );
     }
 
     // LLM 消耗 — calls + tokens over the trailing 7 days.

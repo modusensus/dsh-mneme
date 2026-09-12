@@ -1,4 +1,9 @@
 import { defineTool } from "@deepseek-ai/dsh-tools";
+import { describeLocalRuntime, resolveRuntimeEntry } from "./runtime/loader.js";
+import { defaultRuntimeDir } from "./runtime/layout.js";
+import { hostModulesDir, loadRuntimeManifest, provisionRuntime } from "./runtime/provision.js";
+import { matchesPlatform } from "./runtime/closure.js";
+import { verifyPayload } from "./runtime/verify.js";
 
 const TEXT_OUTPUT = (text) => [{ type: "text", text }];
 // Per-registry tool-name registry: guards against duplicate registration on
@@ -330,6 +335,120 @@ export function createTools(ctx, service, config, embedder) {
         }
         const memory = service.setArchived(args.id, args.archived ?? true);
         return { memory: { id: memory.id, archived: memory.archived } };
+      }
+    }),
+
+    // 运行时口子（issue #131 / PR-C）。
+    //
+    // 为什么要有这个工具：mneme 的取向是「本体保持完善但轻量；重的功能存在、默认不开、不被依赖」。
+    // 本地向量化就是那个重功能 —— 它需要额外一份运行时（解包后数百 MB）。面板上有按钮，但用户
+    // 可能根本不看面板；这时 agent 需要一个入口，能先查状态、把代价告诉用户，再按需取回。
+    //
+    // 关于「要不要直接 provision」：它会联网、可能传几十到上百 MB、耗时数分钟。所以工具描述里
+    // 明确要求先告知用户；只有在用户已经表示要本地向量化时才直接动手。
+    defineTool({
+      name: "memory_runtime",
+      description:
+        "Inspect or provision the LOCAL inference runtime that dsh-mneme's local (offline) embedding and rerank need: " +
+        "the transformers + onnxruntime dependency closure, hundreds of MB unpacked. It is deliberately NOT a default " +
+        "dependency — mneme's core stays lightweight and local vectorization is opt-in — so this tool is the hook that " +
+        "makes the heavy capability available on demand. Use action=status first: it is read-only and reports whether " +
+        "the runtime is ready plus what provisioning would cost. action=provision tries, in order: (1) adopting an " +
+        "existing copy from this profile's node_modules (no network; hardlinked when on the same volume, so no extra " +
+        "disk), (2) a configured local .tgz directory, (3) downloading from the npm registry against a pinned manifest, " +
+        "verifying every tarball's sha512. Provisioning can transfer tens to hundreds of MB and take minutes: unless " +
+        "the user has already asked for local vectorization, tell them that cost before calling it. action=verify loads " +
+        "the runtime and runs one real inference (strictly offline, so the model must already be cached).",
+      parameters: {
+        action: { type: "string", enum: ["status", "provision", "verify"], required: true, description: "status = read-only; provision = fetch/adopt the runtime; verify = run one real inference" },
+        overwrite: { type: "boolean", description: "provision only: replace an existing payload (use when repairing a broken one)" }
+      },
+      output: {
+        schema: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            summary: { type: "string", required: true },
+            status: { type: "string", required: true },
+            cost: { type: "string", required: true },
+            strategy: { type: "string" },
+            payloadId: { type: "string" },
+            packages: { type: "integer" },
+            files: { type: "integer" },
+            bytes: { type: "integer" },
+            dimension: { type: "integer" },
+            reason: { type: "string" }
+          }
+        },
+        render: (_args, value) => TEXT_OUTPUT(value.summary)
+      },
+      async execute(args) {
+        const runtimeDir = config?.runtimeDir ?? "";
+        const manifest = loadRuntimeManifest();
+        const forPlatform = Array.isArray(manifest?.packages) ? manifest.packages.filter((pkg) => matchesPlatform(pkg, process.platform, process.arch)) : null;
+        const cost =
+          `Local vectorization needs an extra local inference runtime (transformers + onnxruntime closure, ` +
+          `hundreds of MB unpacked${forPlatform ? `, ${forPlatform.length} packages for this platform` : ""}). ` +
+          `It is not a default dependency: provisioning adopts an existing copy when possible, otherwise downloads it.`;
+
+        if (args.action === "provision") {
+          const result = await provisionRuntime({
+            hostModulesDir: hostModulesDir(import.meta.url),
+            runtimeDir,
+            localTarballDir: config?.runtimeTarballDir ?? "",
+            mirror: config?.runtimeMirror ?? "",
+            overwrite: args.overwrite === true,
+            manifest
+          });
+          return {
+            summary: result.ok
+              ? `Runtime ${result.strategy === "download" ? "downloaded from npm" : "adopted from this machine"}: ` +
+                `${result.packages} packages / ${result.files} files. Local embedding can be used after a DSH reload.`
+              : `Could not provision the runtime: ${result.reason}`,
+            status: result.ok ? "available" : "failed",
+            cost,
+            strategy: result.strategy,
+            ...(result.payloadId ? { payloadId: result.payloadId } : {}),
+            ...(result.packages === undefined ? {} : { packages: result.packages }),
+            ...(result.files === undefined ? {} : { files: result.files }),
+            ...(result.bytes === undefined ? {} : { bytes: result.bytes }),
+            ...(result.reason ? { reason: result.reason } : {})
+          };
+        }
+
+        if (args.action === "verify") {
+          const candidate = resolveRuntimeEntry({ runtimeDir: runtimeDir || undefined });
+          if (candidate === null) {
+            return { summary: "No usable runtime payload to verify.", status: "missing", cost };
+          }
+          const report = await verifyPayload(candidate.dir, { cacheDir: config?.embedModelCacheDir || undefined });
+          return {
+            summary: report.ok
+              ? `Runtime verified: real inference succeeded (dim ${report.functional.dim}, ${report.functional.rows} rows, ` +
+                `${report.functional.elapsedMs}ms, offline). Integrity: ${report.integrity.status}.`
+              : `Runtime verification failed — structural: ${report.structural.ok}, functional: ${report.functional.ok} (${report.functional.reason}).`,
+            status: report.ok ? "verified" : "failed",
+            cost,
+            payloadId: candidate.payloadId,
+            ...(report.functional.dim ? { dimension: report.functional.dim } : {}),
+            ...(report.ok ? {} : { reason: report.functional.reason })
+          };
+        }
+
+        // status：只读，且刻意不加载模型（那要几百毫秒且碰缓存）。报告要给到 agent 足够的信息去
+        // 决定「要不要打扰用户」。
+        const report = describeLocalRuntime({ runtimeDir: runtimeDir || defaultRuntimeDir() });
+        return {
+          summary:
+            `Local inference runtime: ${report.status}` +
+            (report.payloadId ? ` (${report.payloadId}, ${report.procedure ?? "?"}, ${report.materialize ?? "?"})` : "") +
+            `. ${report.status === "available" ? "Local embedding/rerank can be used." : "Local embedding is unavailable — " + (report.hint ?? "")}`,
+          status: report.status,
+          cost,
+          ...(report.payloadId ? { payloadId: report.payloadId } : {}),
+          ...(forPlatform ? { packages: forPlatform.length } : {}),
+          ...(report.reason ? { reason: report.reason } : {})
+        };
       }
     })
   ];
