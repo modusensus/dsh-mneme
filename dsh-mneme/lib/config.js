@@ -331,7 +331,12 @@ export const Config = z.object({
     enabled: z.boolean().default(true),
     archiveThreshold: z.natural().min(1).max(100).default(30),
     degradeThreshold: z.natural().min(1).max(100).default(60),
-    minContentLength: z.natural().min(1).max(1000).default(10)
+    minContentLength: z.natural().min(1).max(1000).default(10),
+    // Issue #135 附属发现 1：importance ≥ 该值的记忆不参与静默自动归档——评分
+    // 与信号标签照常写入（可观测）、注入排序照常降权，但 setArchived 跳过。
+    // 报告实测 150 条低分归档里 128 条 importance ≥ 4（51 条 = 5）。设 1 = 全部
+    // 豁免（等效关闭自动归档），设 5 = 仅最重要的豁免。
+    exemptImportance: z.natural().min(1).max(5).default(4)
   }).default({}),
 
   // --- LLM audit trail (Bug8) ------------------------------------------------

@@ -185,9 +185,9 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 
 - `score ≥ 60`：正常存储
 - `30 ≤ score < 60`：`quality_score` 落库，注入排序改为按 `importance × quality/100` 降权（degraded）
-- `score < 30`：归档并标记 `low_quality`——仍可显式搜索召回，只是**永不自动注入**
+- `score < 30`：归档并标记 `low_quality`——仍可显式搜索召回，只是**永不自动注入**。**例外（#135）**：`importance ≥ memoryQualityFilter.exemptImportance`（默认 4）的记忆只降权不归档——评分与信号标签照常落库，归档决定不再静默越过用户标注的重要性
 
-`memoryQualityFilter.enabled` 可整体关闭，`archiveThreshold` / `degradeThreshold` / `minContentLength` 可调。
+`memoryQualityFilter.enabled` 可整体关闭，`archiveThreshold` / `degradeThreshold` / `minContentLength` / `exemptImportance`（1=全部豁免，5=仅最重要豁免）可调。此外更新记忆（`memory_update` 等）不会抹掉系统信号标签（`low_quality` / `duplicate` / `meta` / `repetitive` / `short_content`）——它们是「为什么被降权/归档」的审计线索，与用户自传标签并集保留（#135）。
 
 ### LLM 消耗审计 📊（v0.4.6，默认开）
 
@@ -449,7 +449,7 @@ dsh web
 | `selectiveInjectEnabled` | `true` | 选择性注入（v0.5.0）：query 向量可用时注入候选按主题相似度重排，替代固定规则序 |
 | `searchSemanticDedup` | `false` | 搜索时语义去重（v0.5.0，激进选项默认关）：embedding 余弦 ≥0.95 近重复行在 Rerank 前丢弃 |
 | `searchSemanticDedupThreshold` | `0.95` | 语义去重相似度阈值（v0.5.0，默认 0.95，范围 0.5-1.0）：`searchSemanticDedup=true` 时生效，调整可防小模型误折叠 |
-| `memoryQualityFilter` | `{enabled:true, archiveThreshold:30, degradeThreshold:60, minContentLength:10}` | 记忆质量过滤（v0.4.6，默认开）：写库前启发式打分 0-100，元记忆词汇/自指/过短/重复/近似重复扣分；≥60 正常存储，30-60 降权（注入排序按 importance×quality/100），<30 归档标记 `low_quality`（显式搜索仍可召回，永不自动注入） |
+| `memoryQualityFilter` | `{enabled:true, archiveThreshold:30, degradeThreshold:60, minContentLength:10, exemptImportance:4}` | 记忆质量过滤（v0.4.6，默认开）：写库前启发式打分 0-100，元记忆词汇/自指/过短/重复/近似重复扣分；≥60 正常存储，30-60 降权（注入排序按 importance×quality/100），<30 归档标记 `low_quality`（显式搜索仍可召回，永不自动注入；`exemptImportance` 豁免：importance ≥ 该值只降权不归档，#135） |
 | `llmAudit` | `{enabled:true, retentionDays:90}` | LLM 消耗审计（v0.4.6，默认开）：每次后台 LLM 调用（autoDream/autoSummarize）写 `llm_audit_logs`（tokens/duration/status/source）；失败记 error 不阻塞；只读 API `/api/dsh-mneme/semantic/llm-audit` + `/llm-audit/stats` |
 
 > 🔐 **API 安全**：DSH 无内置鉴权且默认仅监听 `127.0.0.1`。插件 API 默认开放（便于 Web 面板即装即用）。如需防护（如局域网暴露），在配置中设置 `apiToken`：写操作（画像/规则/命令）与密钥端点（`vector-config`、`vector-reindex`）需携带 `Authorization: Bearer <token>`（前端设置面板可填入同一 token），只读的 `list` / `search` / `semantic` 保持开放。`/api/dsh-mneme/vector-config` 返回的 `apiKey` 已掩码（`sk-***…`），存储仍保留明文供调用；前端回传空或掩码值表示"不改 key"。
