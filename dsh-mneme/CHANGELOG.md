@@ -7,7 +7,8 @@
 - **记忆/提示语言选项（#124）**：新增 `memory.language`（zh/en）配置，prompt 提示词、注入与镜像语言可选，中文用户不必再依赖默认英文镜像。
 - **自管本地推理运行时（#131：PR #132 + #133）**：transformers 改为可选 peerDependencies + 三档取件（收编 / 本地 .tgz / registry）——运行时依赖不再强制捆绑安装，宿主可按需选择自管或沿用插件内置。
 - **summarize 节流、产出上限与同会话去重（#127，PR #143）**：新增最小触发间隔（节流）+ 每会话产出上限 + 同会话写入端去重，长会话不再反复蒸馏同一主题。
-- **sleep 冲突动作集扩展（#126，PR #146）**：`sleepActionSet` 新增 `full` 档——supersede（取代：赢家正文干净、输家归档并附「已被取代」注记）/ differentiate（双留 + 差异注记）/ update / merge / conflict / keep 六分支；默认 `conflict`，**零行为变化**；被跳决策带 phase 名落库 `dream_runs.skipped`（审计可见）。
+- **dream 候选集向量驱动 hybrid 档（#125，PR #147）**：巩固/睡眠的候选集召回新增 hybrid 档（关键词 + 向量语义混合），配置项与设置面板同步接入。
+- **sleep 冲突动作集扩展（#126，PR #146 + #149）**：`sleepActionSet` 新增 `full` 档——supersede（取代：赢家正文干净、输家归档并附「已被取代」注记）/ differentiate（双留 + 差异注记）/ update / merge / conflict / keep 六分支；默认 `conflict`，**零行为变化**；被跳决策带 phase 名落库 `dream_runs.skipped`（审计可见）；PR #149 补档位白名单、supersede 预填、索引维护等 6 处 review 修复。
 - **sleep 校验路径接入 skipInvalid 宽容策略**：sleep 冲突校验现遵循 `dreamSkipInvalid`（默认 true），从「一票否决」变宽容——与 autoDream/consolidation（#104 方向）对齐；需严格一票否决可设 `dreamSkipInvalid: false`。
 
 ## 🐛 修复
