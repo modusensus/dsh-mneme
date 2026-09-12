@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
-import { adoptHostRuntime, hostModulesDir, provisionRuntime } from "../lib/runtime/provision.js";
+import { adoptHostRuntime, hostModulesDir, provisionRuntime } from "../src/runtime/provision.js";
 import { makeEmptyModules, makeSourceModules } from "./helpers/runtime-source.js";
 
 // PR-C：面板「一键收编」的服务层。守两件事：

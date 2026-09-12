@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { gzipSync } from "node:zlib";
-import { sha512Base64, stripPackagePrefix, verifyIntegrity, walkTar, walkTgz } from "../lib/runtime/tarball.js";
+import { sha512Base64, stripPackagePrefix, verifyIntegrity, walkTar, walkTgz } from "../src/runtime/tarball.js";
 import { tarFile, tarHeader, tarMeta, tarPax } from "./helpers/tar-builder.js";
 
 // PR-C 下载通道的归档读取层。这里是整条链里最该被单独守住的一块：它读的是别人产出的字节，

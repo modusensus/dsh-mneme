@@ -85,3 +85,112 @@ test("#135 unconfigured embedder reports no model fingerprint or dimension", () 
   assert.equal(make({ ...FULL, model: "" }).embedder.modelHash, undefined);
   assert.equal(make({ ...FULL, enabled: false }).embedder.modelHash, undefined);
 });
+
+// ── 覆盖补齐：embed 成功/降级、embedSingle 兜底、reindexMissing、schedule 成功路径 ──
+
+/** 临时替换全局 fetch（embedText 直接调它），fn 结束后恢复。 */
+async function withFetch(impl, fn) {
+  const original = globalThis.fetch;
+  globalThis.fetch = impl;
+  try {
+    return await fn();
+  } finally {
+    globalThis.fetch = original;
+  }
+}
+
+const okResponse = (embedding) => ({
+  ok: true,
+  json: async () => ({ data: [{ embedding }] })
+});
+
+test("embed: 完整配置时走真实 fetch，成功返回向量并记下维度", async () => {
+  const { embedder } = make(FULL);
+  await withFetch(async () => okResponse([1, 2, 3, 4]), async () => {
+    const vec = await embedder.embed("猫咪");
+    assert.deepEqual(vec, [1, 2, 3, 4]);
+    assert.equal(embedder.dimension, 4, "成功嵌入后记下维度供指纹用");
+  });
+});
+
+test("embed: 网络失败 / 非 2xx / 响应不可用都降级为 null，不抛", async () => {
+  const { embedder } = make(FULL);
+  await withFetch(async () => { throw new Error("ECONNREFUSED"); }, async () => {
+    assert.equal(await embedder.embed("x"), null);
+  });
+  await withFetch(async () => ({ ok: false }), async () => {
+    assert.equal(await embedder.embed("x"), null);
+  });
+  await withFetch(async () => ({ ok: true, json: async () => { throw new Error("bad json"); } }), async () => {
+    assert.equal(await embedder.embed("x"), null);
+  });
+  await withFetch(async () => ({ ok: true, json: async () => ({ data: [] }) }), async () => {
+    assert.equal(await embedder.embed("x"), null, "空 data 数组不可用");
+  });
+});
+
+test("embedSingle: embed 缺失时兜底返回 null（统一旧接口契约）", async () => {
+  const { embedder } = make(FULL);
+  assert.equal(await embedder.embedSingle.call({}, "x"), null, "无 embed 方法时返回 null 而非抛错");
+});
+
+test("reindexMissing: 逐行回填并统计 indexed/skipped，有成功才记模型指纹", async () => {
+  let markCalls = 0;
+  const rows = [{ id: "m1", title: "t1", content: "c1" }, { id: "m2", title: "t2", content: "c2" }];
+  const writes = [];
+  const embedder = createEmbedder({
+    store: {
+      setEmbedding: (id, v) => writes.push({ id, v }),
+      needsEmbedding: () => rows
+    },
+    settings: { getVectorConfig: () => FULL },
+    vectorIndex: { markModel: () => { markCalls++; } }
+  });
+  let call = 0;
+  await withFetch(async () => okResponse([call++, 0]), async () => {
+    const result = await embedder.reindexMissing(50);
+    assert.equal(result.indexed, 2);
+    assert.equal(result.skipped, 0);
+    assert.equal(writes.length, 2);
+    assert.equal(markCalls, 1, "有成功回填才记模型指纹");
+  });
+});
+
+test("reindexMissing: 未启用时直接返回 0/0，不碰 store", async () => {
+  const { embedder } = make({ ...FULL, enabled: false });
+  const result = await embedder.reindexMissing(50);
+  assert.deepEqual(result, { indexed: 0, skipped: 0 });
+});
+
+test("reindexMissing: 嵌入失败的行走 skipped，不算 indexed", async () => {
+  const writes = [];
+  const embedder = createEmbedder({
+    store: {
+      setEmbedding: (id, v) => writes.push({ id, v }),
+      needsEmbedding: () => [{ id: "m1", title: "t", content: "c" }]
+    },
+    settings: { getVectorConfig: () => FULL }
+  });
+  await withFetch(async () => ({ ok: false }), async () => {
+    const result = await embedder.reindexMissing(50);
+    assert.equal(result.indexed, 0);
+    assert.equal(result.skipped, 1, "嵌入失败的行走 skipped，不算 indexed");
+  });
+});
+
+test("schedule: 嵌入成功时写入 store 并记 info 日志（embedFor 成功路径）", async () => {
+  const writes = [];
+  let logged = 0;
+  const embedder = createEmbedder({
+    store: { setEmbedding: (id, v) => writes.push({ id, v }) },
+    settings: { getVectorConfig: () => FULL },
+    logger: { info: () => { logged++; }, warn() {} },
+    vectorIndex: { markModel() {} }
+  });
+  await withFetch(async () => okResponse([0.1, 0.2]), async () => {
+    embedder.schedule({ id: "m9", title: "t", content: "c" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  assert.equal(writes.length, 1);
+  assert.equal(logged, 1, "成功嵌入记一行 info 日志");
+});

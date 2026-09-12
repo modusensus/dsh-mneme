@@ -13,7 +13,7 @@ import {
   relOfPath,
   resolveCandidates
 } from "../scripts/build-runtime-manifest.mjs";
-import { REQUIRED_PACKAGES, payloadId } from "../lib/runtime/layout.js";
+import { REQUIRED_PACKAGES, payloadId } from "../src/runtime/layout.js";
 
 // PR-C 的清单层，守四件事：
 //   ① 剔除规则按**子树**生效 —— 只按包名会漏掉 onnxruntime-web/node_modules/... 这类嵌套条目，

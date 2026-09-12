@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { adoptRuntime, materializePackage, RUNTIME_MANIFEST_VERSION } from "../lib/runtime/adopt.js";
-import { describePayload, nodeModulesDir, payloadDir, payloadId, runtimeManifestPath } from "../lib/runtime/layout.js";
-import { readJsonSafe } from "../lib/runtime/layout.js";
+import { adoptRuntime, materializePackage, RUNTIME_MANIFEST_VERSION } from "../src/runtime/adopt.js";
+import { describePayload, nodeModulesDir, payloadDir, payloadId, runtimeManifestPath } from "../src/runtime/layout.js";
+import { readJsonSafe } from "../src/runtime/layout.js";
 
 // 收编（issue #131 / PR-A）：守住「老用户升级后本地嵌入不断」这条底线。
 // 关键判据是——源布局被如实镜像（含嵌套层）、同卷走硬链接、符号链接不跟随、
