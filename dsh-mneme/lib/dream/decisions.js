@@ -3,7 +3,8 @@ import { STR, langOf } from "../lang.js";
 // Issue #126：sleepActionSet="full" 时新增两个动作——supersede（演进：新版取代
 // 旧版）与 differentiate（互补：两条都留、各追加差异注记）。两者的校验与执行都
 // 复用既有 merge/conflict 的机制（winner/loser、casGuard、transaction、receipt）。
-const ACTIONS = new Set(["keep", "merge", "archive", "conflict", "update", "create", "supersede", "differentiate"]);
+// 调用方（sleep）按档位派生「本档允许的动作集合」时需要读它，故导出。
+export const ACTIONS = new Set(["keep", "merge", "archive", "conflict", "update", "create", "supersede", "differentiate"]);
 
 // Epistemic trust (v0.4.5): when config.trustEpistemicWeighting is on, merge
 // keepSource and conflict winners prefer the higher-trust memory. Higher value
@@ -31,6 +32,10 @@ export function validateDecisions(decisions, snapshot, options = {}) {
   const skipInvalid = options.skipInvalid === true;
   const maxUpdatePerRun = options.maxUpdatePerRun ?? 2;
   const minAgeHours = options.minAgeHours ?? 24;
+  // Issue #126 review（Copilot）：档位白名单。sleepActionSet 默认档只换 prompt 是
+  // 不够的——ACTIONS 是两个模块共用的，模型自发出 supersede / differentiate 时校验器
+  // 照样放行，"opt-in 零行为变化"就成了空话。省略 / null = 不限制（沿用全局 ACTIONS）。
+  const allowedActions = Array.isArray(options.allowedActions) ? new Set(options.allowedActions) : null;
   if (!Array.isArray(decisions)) {
     return { ok: false, errors: ["decision list must be an array"], resolvedShortIds: 0 };
   }
@@ -85,6 +90,9 @@ export function validateDecisions(decisions, snapshot, options = {}) {
     const ids = d && (d.action === "conflict" || d.action === "supersede") ? [d.winner, d.loser] : (d?.ids ?? []);
     if (!d || typeof d !== "object" || !ACTIONS.has(d.action)) {
       local.push(`${at}: invalid action ${JSON.stringify(d?.action)}`);
+    } else if (allowedActions && !allowedActions.has(d.action)) {
+      // 动作本身合法，但不在当前档位允许的集合里（例如默认档收到 supersede）。
+      local.push(`${at}: action ${JSON.stringify(d.action)} not allowed in this mode`);
     } else if (d.action === "conflict" || d.action === "supersede") {
       if (!d.winner || !d.loser || d.winner === d.loser) {
         local.push(`${at}: ${d.action} needs distinct winner and loser`);

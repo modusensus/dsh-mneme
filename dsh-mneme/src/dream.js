@@ -109,6 +109,13 @@ export function buildOutcome(decisions) {
       byId[d.loser] = "conflict-archived";
     } else if (d.action === "update") {
       for (const id of d.ids) byId[id] = "updated";
+    } else if (d.action === "supersede") {
+      // Issue #126 review（Copilot）：新动作此前在 outcome.byId 里没有 disposition，
+      // 审计行产了 receipt 却看不出这些目标被如何处置。
+      byId[d.winner] = "supersede-winner";
+      byId[d.loser] = "superseded-archived";
+    } else if (d.action === "differentiate") {
+      for (const id of d.ids ?? []) byId[id] = "differentiated";
     }
   }
   return { byId };
@@ -503,7 +510,7 @@ async function collectVectors(memories, semantic) {
  * stay in sync: merged-away/archived/conflict-loser rows lose their vectors,
  * the merge keeper gets a fresh one.
  */
-async function maintainIndexAfterDream(decisions, service, semantic) {
+export async function maintainIndexAfterDream(decisions, service, semantic) {
   const { embedder, vectorIndex } = semantic;
   if (!embedder || !vectorIndex || typeof embedder.embedSingle !== "function") return;
   const rebuild = new Map();
@@ -518,6 +525,18 @@ async function maintainIndexAfterDream(decisions, service, semantic) {
       }
     } else if (d.action === "archive" || d.action === "conflict") {
       for (const id of d.ids ?? [d.loser]) vectorIndex.deleteEmbedding(id);
+    } else if (d.action === "supersede") {
+      // Issue #126 review（Copilot）：被取代的一方已归档 → 移除其向量（与 conflict 的
+      // loser 同等处置）。winner 正文未变化，向量保持有效。
+      vectorIndex.deleteEmbedding(d.loser);
+    } else if (d.action === "differentiate") {
+      // Issue #126 review（Copilot）：双方正文都被追加了差异注记，而 update 在事务内
+      // 会因 txDepth>0 跳过 scheduleEmbed —— 不在这里重嵌，注记就进不了 embedding，
+      // 注释里承诺的"下一轮不再判成重复"就不成立。
+      for (const id of d.ids ?? []) {
+        const mem = service.getById(id);
+        if (mem) rebuild.set(id, [mem.title, mem.content].filter(Boolean).join("\n"));
+      }
     } else if (d.action === "update") {
       const id = d.ids[0];
       const mem = service.getById(id);
