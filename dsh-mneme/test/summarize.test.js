@@ -502,3 +502,74 @@ test("issue#127: the five summarize knobs are whitelisted and range-checked", ()
   assert.throws(() => settings.setFeatureFlags({ summarizeDedupeMode: "semantic" }), /one of: off, title, vector/);
   store.close();
 });
+
+// ── Issue #127 补测：fail-safe 与打点回滚的边界路径 ────────────────────────
+
+test("issue#127: a throwing audit writer never breaks the min-interval skip path", async () => {
+  const { events, store, service } = setup({ summarizeMinIntervalMinutes: 30 });
+  const handler = events.find((e) => e.name === "session/event").fn;
+  const session = sessionFor("t10");
+  await handler(session, { seq: 2, type: "turn/end" });
+  assert.equal(store.count(), 2);
+  // 审计写入器抛错：跳过路径必须吞掉异常——审计是观测手段，绝不能反过来打断蒸馏。
+  service.saveLlmAudit = () => { throw new Error("audit sink down"); };
+  await handler(session, { seq: 3, type: "turn/end" });
+  assert.equal(store.count(), 2, "the throttled turn stays a no-op instead of rejecting");
+});
+
+test("issue#127: an aborted run rolls the interval claim back so the next turn is admitted", async () => {
+  // 间隔取毫秒级小数值（schema 的粒度是 1 分钟，测试直接构造 config 绕开它），
+  // 这样"回滚到上一次打点"与"保留本次打点"才有可观察差异：
+  //   回滚 → 下一次落在 T1+gap 之外，应被接纳；
+  //   不滚 → 距本次打点才几毫秒，必被挡。
+  // 若沿用 gap=0，两种实现的对外行为完全相同，测试无法发现 else 分支写错。
+  let call = 0;
+  const { events } = setup({ summarizeMinIntervalMinutes: 0.01, distillRateLimitIntervalMs: 0 }, {
+    stream() {
+      call++;
+      if (call === 2) {
+        return (async function* () {
+          yield { type: "block-start", block: { type: "text" } };
+          yield { type: "text-delta", delta: "[]" };
+          yield { type: "finish", kind: "aborted" };
+        })();
+      }
+      return (async function* () {
+        yield { type: "block-start", block: { type: "text" } };
+        yield { type: "text-delta", delta: JSON.stringify([{ type: "decision", title: `第${call}条`, content: "内容", importance: 3 }]) };
+        yield { type: "finish", kind: "ok" };
+      })();
+    }
+  });
+  const handler = events.find((e) => e.name === "session/event").fn;
+  const session = sessionFor("t11");
+  await handler(session, { seq: 2, type: "turn/end" }); // T1：成功，占用间隔
+  assert.equal(call, 1, "the first turn distills");
+  await new Promise((r) => setTimeout(r, 700)); // 越过 600ms 间隔窗
+  await handler(session, { seq: 3, type: "turn/end" }); // T2：aborted → 回滚到 T1
+  assert.equal(call, 2, "the aborted turn still reached the LLM call");
+  await handler(session, { seq: 4, type: "turn/end" }); // 立刻再发：只有回滚到 T1 才会被接纳
+  assert.equal(call, 3, "the aborted run did not consume the interval window");
+});
+
+test("issue#127: a throwing candidate lookup degrades to undefined (service fail-safe)", async () => {
+  const { service } = setup({ summarizeDedupeMode: "vector" });
+  // 候选查询在 try 内抛错 → findSessionDuplicate 吞掉并返回 undefined（不向外抛）。
+  const hostile = { get type() { throw new Error("store down"); }, title: "标题", content: "内容" };
+  const hit = await service.findSessionDuplicate(hostile, { mode: "vector", source: "session:z" });
+  assert.equal(hit, undefined, "a failed lookup yields no duplicate instead of throwing");
+});
+
+test("issue#127: a dedupe lookup that yields nothing still lands the entry (never dropped)", async () => {
+  // 走真实的 session/event 落库路径。只让去重判定不可用（service 层为何返回 undefined
+  // 由上一条覆盖）——蒸馏必须照常写入，不能因为拿不到去重结论就把这一条丢掉。
+  const { events, store, service } = setup(
+    { summarizeDedupeMode: "vector" },
+    { stream: streamOf([{ type: "decision", title: "必须落库", content: "内容", importance: 3 }]) }
+  );
+  service.findSessionDuplicate = async () => undefined;
+  const handler = events.find((e) => e.name === "session/event").fn;
+  await handler(sessionFor("t9"), { seq: 2, type: "turn/end" });
+  assert.equal(store.count(), 1, "the entry is stored through the normal write path");
+  assert.equal(store.all()[0].title, "必须落库");
+});
