@@ -657,7 +657,12 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
           outcome: result.outcome,
           applied,
           summary_stored: summaryStored,
-          receipt
+          receipt,
+          // Issue #104：degraded（合法子集已应用）轮被跳过的决策明细。写成独立字段
+          // 而非内联进 decisions——degraded 的 decisions 是合法子集，下游按「决策
+          // 数组」消费，内联标记会污染其它读者（失败轮的 _validationFailed 是整单
+          // 拒绝哨兵，语义与「部分应用」不同，也不复用）。
+          skipped: result.skipped
         });
       } catch (error) {
         logger?.warn?.(`dsh-mneme dream: failed to record audit run: ${String(error)}`);
@@ -978,7 +983,10 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       conflicts,
       failures,
       frozen: frozenCount,
-      summary: summaryStored
+      summary: summaryStored,
+      // Issue #104：只有真发生跳过时才落库（degraded 也可能仅因 summary 为空），
+      // ok 轮留 NULL，避免「空数组」与「无此字段」两种假明细占据审计行。
+      skipped: skippedInvalid ? skipped : undefined
     });
   }
 
