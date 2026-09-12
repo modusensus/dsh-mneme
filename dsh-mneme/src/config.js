@@ -177,6 +177,14 @@ export const Config = z.object({
   // 依赖图，留在里面会让「装任何插件都要替它重走一遍这条链」。
   runtimeDir: z.string().default(""),
 
+  // 运行时取件的两个来源（issue #131 / PR-C）。都是「克制」的默认：留空 = 不额外改变行为。
+  // - runtimeTarballDir：本地 .tgz 目录。某个包网络下不到时（例如 onnxruntime-node），
+  //   把 `npm pack <pkg>` 出来的 tgz 丢进这个目录即可离线取件；有它就优先于联网。
+  // - runtimeMirror：registry 镜像前缀，例如 https://npmmirror.com/mirrors/npm/ 。
+  //   留空则用 runtime-manifest.json 里写死的官方地址（那是随包发布的固定清单）。
+  runtimeTarballDir: z.string().default(""),
+  runtimeMirror: z.string().default(""),
+
   // Vector search tuning.
   vectorSearchTopK: z.natural().min(1).max(100).default(20),
   vectorSearchThreshold: z.number().min(0).max(1).default(0.65),

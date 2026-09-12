@@ -61,6 +61,11 @@ export async function defaultEngine(entryUrl, { cacheDir, model = DEFAULT_PROBE_
     const tensor = await extractor(texts, { pooling: "mean", normalize: true });
     const dims = Array.from(tensor.dims ?? []);
     const width = dims[dims.length - 1] || 0;
+    // 宽度为 0 时下面的 `i += width` 会原地打转 —— 那是**死循环**，会把调用方（乃至 DSH 主进程）
+    // 挂住。宁可明确失败：调用方按契约把失败变成 {ok:false, reason}，而不是永远等不到结果。
+    if (!Number.isInteger(width) || width <= 0) {
+      throw new Error(`推理输出的维度不可用：dims=${JSON.stringify(dims)}`);
+    }
     const rows = [];
     for (let i = 0; i < tensor.data.length; i += width) {
       rows.push(Array.from(tensor.data.subarray(i, i + width)));

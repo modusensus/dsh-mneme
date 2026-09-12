@@ -153,7 +153,8 @@ v0.2 起新增**完全离线的语义记忆引擎**（本地模型 + 精排 + �
 - **Rerank 精排**：`Xenova/bge-reranker-base` 对召回候选交叉编码精排，提升 Top-K 准确率
 - **autoDream 语义增强**：对记忆向量聚类（`clusterMemories`），自动发现主题相近 / 疑似矛盾的记忆，巩固更精准
 - **搜索流水线**：混合召回（关键词 + 向量）→ Rerank → Top-K
-- **自管运行时**：本地推理的依赖闭包（`@huggingface/transformers` + `onnxruntime-node` + `sharp`，本机实测 49 个包 / 约 393MB）可收编到 `~/.dsh/mneme/runtime/`，与 profile 的依赖图解耦——由于 profile 是所有插件共用的依赖图，这份闭包留在此前的位置会让「安装任何插件」都替它重走一遍整条依赖链；收编优先硬链接，同盘时几乎不额外占盘
+- **自管运行时**：本地推理的依赖闭包（`@huggingface/transformers` + `onnxruntime-node` + `sharp`，从宿主收编时本机实测 49 个包 / 约 393MB）可收编到 `~/.dsh/mneme/runtime/`，与 profile 的依赖图解耦——由于 profile 是所有插件共用的依赖图，这份闭包留在此前的位置会让「安装任何插件」都替它重走一遍整条依赖链；收编优先硬链接，同盘时几乎不额外占盘。`@huggingface/transformers` 已从 `dependencies` 降为**可选 peer**，因此安装插件不再携带它；正在使用本地嵌入的用户请先按文档收编，否则升级后本地嵌入不可用（读写信道不受影响）
+- **取回运行时的三条来源**：① 收编本机已有（零网络、同盘硬链接）→ ② 本地 `.tgz` 目录（`runtimeTarballDir`，某个包网络下不到时用）→ ③ npm registry（`runtimeMirror` 可换镜像），按随包发布的 `runtime-manifest.json` 逐个取并**先校验 sha512 再落盘**（win32-x64 实测约 33 个包 / 2142 个文件 / 数百 MB；清单平台无关，一份覆盖 win32/darwin/linux × x64/arm64；剔除 `onnxruntime-web`——Node 构建从不 import 它）。面板「向量索引」卡片在不就绪时会给出这段代价说明并提供一个按钮；不想开面板也可以让 agent 用 `memory_runtime` 工具（`status` / `provision` / `verify`）代做
 
 配置只需在 `cordis.patch.yml` 里设置 `embedProvider`（默认 `openai`，保持 v0.1 行为；改为 `local` 即离线）。升级无需迁移数据。
 
@@ -402,6 +403,9 @@ dsh web
 | `dreamProvider` / `dreamModel` | 空 | dream 的 LLM 路由覆盖（显式配置优先于 agent 默认模型；留空则回退到 agent 默认模型） |
 | `dreamMaxTokens` | `32768` | dream LLM 调用最大 token 数（上限 131072；思考型模型的 reasoning 与正文共享该预算，正文为空时优先调大，见下方调优指南） |
 | `dreamReasoningEffort` | `none` | dream LLM 推理强度透传：`low` / `medium` / `high` / `none`（`none`=不传该字段，沿用模型默认；思考型模型（如 deepseek-v4-flash）想压低思考可设 `low`；v0.7.26+ 模型不支持配置档位时自动换用其支持的默认/首个档位，无 reasoning 能力的型号省略字段） |
+| `dreamCandidateMode` | `window` | dream 候选集构造：`window`（只取最近 `dreamMaxSnapshotSize` 条）/ `hybrid`（在此基础上并入向量翻出的高相似组）。纯时间窗口下，实测 45 对「双方活跃且 sim≥0.85」里 0 对能同时进窗口——该合并的一对几乎永远碰不到面。**已知边界**：dream 侧动作集仍是五分支（keep / merge / archive / update / conflict），hybrid 翻出的互补型 / 演进型对在 dream 里没有 `differentiate` / `supersede` 出口；正确出口在 sleep 侧（`sleepActionSet: full`）|
+| `dreamCandidateMax` | `0` | hybrid 的候选总量上限；`0` = 复用 `dreamMaxSnapshotSize`。候选总量与库总量解耦，输入成本不随库增长 |
+| `dreamCandidateMinSim` | `0.85` | hybrid 判「高相似」的阈值（与 sleep 的 normal 档对齐，两个模块共用同一个「高相似」定义） |
 | `apiToken` | 空 | 可选 API 鉴权 token；设置后写操作与密钥接口要求 `Authorization: Bearer <apiToken>` |
 | `embedProvider` | `openai` | 语义后端：`openai`（默认，兼容 v0.1）/ `local`（ONNX 离线）/ `ollama` |
 | `localEmbedModel` | `Xenova/bge-small-zh-v1.5` | 本地 ONNX embedding 模型 |

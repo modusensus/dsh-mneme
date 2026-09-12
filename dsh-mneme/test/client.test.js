@@ -626,6 +626,18 @@ test("settings feedback card: prefilled issue + mailto + browse, version from /i
   }
 });
 
+// UI 文案必须双语齐全（中英各一条）。用户明确要求所有 UI 文字都做 i18n，
+// 这条守卫用「每个键恰好出现两次」兜住：出现奇数次就是漏译，>2 次说明重复。
+test("i18n keys are bilingual: every key appears exactly twice (zh + en)", () => {
+  const counts = new Map();
+  for (const match of clientSource.matchAll(/^\s*"([a-zA-Z0-9_.]+)"\s*:\s*"/gm)) {
+    counts.set(match[1], (counts.get(match[1]) ?? 0) + 1);
+  }
+  const odd = [...counts.entries()].filter(([, n]) => n !== 2).map(([key, n]) => `${key}×${n}`);
+  assert.deepEqual(odd, [], `这些 i18n 键没有做到中英各一条：${odd.join(", ")}`);
+  assert.ok(counts.size > 100, `解析到的键太少（${counts.size}），正则可能没匹配到 i18n 表`);
+});
+
 // issue #135：向量状态卡必须区分「没配」与「配了却一条都没嵌上」。此前卡片只看
 // ready，而未配置的 legacy embedder（ready 恒 true）一路显示成正常 provider。
 test("vector status card surfaces the configured/degraded split", () => {
