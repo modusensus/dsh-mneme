@@ -403,6 +403,9 @@ dsh web
 | `dreamProvider` / `dreamModel` | 空 | dream 的 LLM 路由覆盖（显式配置优先于 agent 默认模型；留空则回退到 agent 默认模型） |
 | `dreamMaxTokens` | `32768` | dream LLM 调用最大 token 数（上限 131072；思考型模型的 reasoning 与正文共享该预算，正文为空时优先调大，见下方调优指南） |
 | `dreamReasoningEffort` | `none` | dream LLM 推理强度透传：`low` / `medium` / `high` / `none`（`none`=不传该字段，沿用模型默认；思考型模型（如 deepseek-v4-flash）想压低思考可设 `low`；v0.7.26+ 模型不支持配置档位时自动换用其支持的默认/首个档位，无 reasoning 能力的型号省略字段） |
+| `dreamCandidateMode` | `window` | dream 候选集构造：`window`（只取最近 `dreamMaxSnapshotSize` 条）/ `hybrid`（在此基础上并入向量翻出的高相似组）。纯时间窗口下，实测 45 对「双方活跃且 sim≥0.85」里 0 对能同时进窗口——该合并的一对几乎永远碰不到面。**已知边界**：dream 侧动作集仍是五分支（keep / merge / archive / update / conflict），hybrid 翻出的互补型 / 演进型对在 dream 里没有 `differentiate` / `supersede` 出口；正确出口在 sleep 侧（`sleepActionSet: full`）|
+| `dreamCandidateMax` | `0` | hybrid 的候选总量上限；`0` = 复用 `dreamMaxSnapshotSize`。候选总量与库总量解耦，输入成本不随库增长 |
+| `dreamCandidateMinSim` | `0.85` | hybrid 判「高相似」的阈值（与 sleep 的 normal 档对齐，两个模块共用同一个「高相似」定义） |
 | `apiToken` | 空 | 可选 API 鉴权 token；设置后写操作与密钥接口要求 `Authorization: Bearer <apiToken>` |
 | `embedProvider` | `openai` | 语义后端：`openai`（默认，兼容 v0.1）/ `local`（ONNX 离线）/ `ollama` |
 | `localEmbedModel` | `Xenova/bge-small-zh-v1.5` | 本地 ONNX embedding 模型 |

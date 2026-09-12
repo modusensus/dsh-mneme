@@ -82,13 +82,17 @@ const FEATURE_FLAG_INT_RANGES = {
   // Issue #127：autoSummarize 节流三键（0 = 零行为变化，等同现状）。
   summarizeMinIntervalMinutes: [0, 10080],
   summarizeMaxEntriesPerRun: [0, 50],
-  summarizeDedupeWindowHours: [0, 168]
+  summarizeDedupeWindowHours: [0, 168],
+  // Issue #125：hybrid 候选量上限（0 = 复用 dreamMaxSnapshotSize）。
+  dreamCandidateMax: [0, 5000]
 };
 // 浮点开关的闭区间（与 config.js 的 z.number().min().max() 对齐）。与整数开关
 // 分开：面板的整数控件要求 Number.isInteger，而余弦相似度阈值必须允许小数。
 const FEATURE_FLAG_NUMBER_RANGES = {
   // Issue #127：vector 去重档的并入阈值。
-  summarizeDedupeMinSim: [0.5, 0.99]
+  summarizeDedupeMinSim: [0.5, 0.99],
+  // Issue #125：hybrid 判"高相似"的阈值。
+  dreamCandidateMinSim: [0.5, 0.99]
 };
 // 自由字符串开关（与 config.js 的 z.string() 同名同型）：trim 后 ≤200 字符，
 // 空串合法（= 跟随主对话模型/默认路径，面板显示 placeholder）。
@@ -120,7 +124,9 @@ const FEATURE_FLAG_ENUMS = {
   // Issue #127：落库前去重档位（off 默认，等同现状）。
   summarizeDedupeMode: ["off", "title", "vector"],
   // Issue #126：sleep 冲突阶段的动作集（conflict 默认 = 现状；full = 六分支）。
-  sleepActionSet: ["conflict", "full"]
+  sleepActionSet: ["conflict", "full"],
+  // Issue #125：dream 候选集构造方式（window 默认 = 现状；hybrid 并入向量组）。
+  dreamCandidateMode: ["window", "hybrid"]
 };
 const FEATURE_FLAG_STRING_MAX = 200;
 

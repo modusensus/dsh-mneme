@@ -106,6 +106,20 @@ export const Config = z.object({
   // 记忆做 consolidation。大记忆量下全量快照会把 LLM 输入撑爆（636 记忆 →
   // 677 "missing" errors、applied=0），窗口外的旧记忆不进 snapshot。
   dreamMaxSnapshotSize: z.natural().min(1).max(1000).default(200),
+  // Issue #125：候选集构造方式。"window"（默认，等同现状）只取最近
+  // dreamMaxSnapshotSize 条；"hybrid" 在此基础上并入**向量翻出的高相似组**——
+  // 本机实测 45 对「双方活跃且 sim≥0.85」里 0 对能同时进窗口（窗口覆盖率 11.7%），
+  // 纯时间窗口让"该合并的一对"几乎永远碰不到面。候选总量仍由下面的上限封顶、
+  // 与库总量解耦，这是相对"调大窗口"的核心收益：输入成本不随库增长。
+  dreamCandidateMode: z.union([
+    z.const("window"),
+    z.const("hybrid")
+  ]).default("window"),
+  // hybrid 的候选总量上限；0 = 复用 dreamMaxSnapshotSize（不迁移，需要时显式覆盖）。
+  dreamCandidateMax: z.natural().min(0).max(5000).default(0),
+  // hybrid 判"高相似"的阈值；0.85 与 sleep normal 档对齐——两个模块对"高相似"
+  // 保持同一个定义。
+  dreamCandidateMinSim: z.number().min(0.5).max(0.99).default(0.85),
   // 隐式 keep（v0.4.4）：LLM 未提及的 snapshot 记忆自动补 {action:"keep"}，
   // 避免"未覆盖即全拒"白白浪费整轮 run。设为 false 时保留旧的严格校验
   // （未覆盖即拒绝整单）。
