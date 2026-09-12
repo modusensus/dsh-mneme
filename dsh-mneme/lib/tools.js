@@ -1,4 +1,5 @@
 import { defineTool } from "@deepseek-ai/dsh-tools";
+import { createScopeResolver } from "./scope.js";
 import { describeLocalRuntime, resolveRuntimeEntry } from "./runtime/loader.js";
 import { defaultRuntimeDir } from "./runtime/layout.js";
 import { hostModulesDir, loadRuntimeManifest, provisionRuntime } from "./runtime/provision.js";
@@ -37,6 +38,9 @@ export function createTools(ctx, service, config, embedder) {
     registeredTools = new Set();
     REGISTERED_TOOLS.set(toolsRegistry, registeredTools);
   }
+  // v0.8.0 A1（issue #17）：写入端 scope 解析（agentPreset + workspace 反查）。
+  // flag 关闭时 resolveWriteScope 恒返回 null，写入路径与 A1 前完全一致。
+  const resolveWriteScope = createScopeResolver({ ctx, config });
   const tools = [
     defineTool({
       name: "memory_save",
@@ -50,7 +54,9 @@ export function createTools(ctx, service, config, embedder) {
         content: { type: "string", required: true, description: "Memory body" },
         tags: { type: "array", items: { type: "string" }, description: "Optional tags" },
         importance: { type: "integer", description: "1-5; >= threshold auto-injects into future sessions" },
-        source: { type: "string", description: "Optional provenance" }
+        source: { type: "string", description: "Optional provenance" },
+        sensitivity: { type: "string", description: "Optional sensitivity label (free-form, e.g. personal). Same-title entries with different sensitivity stay separate instead of merging." },
+        occurred_at: { type: "string", description: "Optional ISO-8601 instant the remembered event happened (differs from write time). Invalid values are ignored." }
       },
       output: {
         schema: {
@@ -63,14 +69,21 @@ export function createTools(ctx, service, config, embedder) {
         },
         render: (_args, value) => TEXT_OUTPUT(`memory ${value.action}: ${value.id}`)
       },
-      async execute(args) {
+      async execute(args, exec) {
+        // scope 标注：agent_scope/workspace_scope 由会话身份解析（不作为模型
+        // 参数），sensitivity/occurred_at 来自显式参数。解析绝不抛错、取不到
+        // 落 NULL；flag 关闭时 scope 为 null，一个字段都不标注。
+        const scope = resolveWriteScope(exec);
         const { action, memory } = service.saveWithDedupe({
           type: args.type,
           title: args.title,
           content: args.content,
           tags: args.tags ?? [],
           importance: args.importance ?? 3,
-          source: args.source ?? "tool"
+          source: args.source ?? "tool",
+          ...(scope ? { agent_scope: scope.agent_scope, workspace_scope: scope.workspace_scope } : {}),
+          ...(args.sensitivity !== undefined ? { sensitivity: args.sensitivity } : {}),
+          ...(args.occurred_at !== undefined ? { occurred_at: args.occurred_at } : {})
         });
         return { action, id: memory.id };
       }

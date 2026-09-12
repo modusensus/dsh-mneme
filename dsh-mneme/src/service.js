@@ -38,6 +38,13 @@ const CONTENT_HISTORY_MAX = 20;
 // 清单必须与 quality-filter.js 的写入端对齐（6 个，含 type 自指的 self_referential）。
 const SIGNAL_TAGS = ["low_quality", "duplicate", "meta", "repetitive", "short_content", "self_referential"];
 
+// v0.8.0 A1（issue #17）去重键的 scope 归一：非空 trim 字符串原样比较，其余
+// （NULL/undefined/空串）统一为「未标注」。与 store.normalizeScopeText 的落库
+// 口径一致——两把钥匙只有都过这里再比较，NULL 与 'global' 才不会错配。
+function scopeKeyOf(v) {
+  return typeof v === "string" && v.trim() ? v.trim() : null;
+}
+
 /** Prepend the previous content to a memory's content_history (FIFO capped). */
 function pushContentHistory(existing, source) {
   const history = Array.isArray(existing?.content_history) ? existing.content_history : [];
@@ -965,15 +972,28 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     // 标题变化，若仍按 (type, title) 匹配会出现两个活跃的 summary 同时注入。
     // 其余类型维持 (type, title) 匹配不变。
     const candidates = store.list({ type: memory.type, limit: 100 });
+    // v0.8.0 A1（issue #17）：scopeEnabled 开启时去重键由 (type, title) 扩展为
+    // (type, title, agent_scope, workspace_scope, sensitivity)——不同作用域的同
+    // 标题记忆绝不互相物理合并（旧逻辑跨 agent/workspace 并行，事后无法拆分）。
+    // NULL 归一为「未标注」：未标注行之间互相匹配（含存量行），与已标注行不
+    // 匹配。flag 关闭时跳过比较，行为与 A1 前逐字节一致。
+    const scopeOn = config.scopeEnabled === true;
+    const scopeMatches = (m) =>
+      !scopeOn ||
+      (scopeKeyOf(m.agent_scope) === scopeKeyOf(memory.agent_scope) &&
+        scopeKeyOf(m.workspace_scope) === scopeKeyOf(memory.workspace_scope) &&
+        scopeKeyOf(m.sensitivity) === scopeKeyOf(memory.sensitivity));
     // Issue #127：写入端语义去重命中时，调用方用 _mergeInto 指定并入目标——复用
     // 下面这段并入逻辑（appendContent + content_history + 质量处置），不另写第二份
-    // 实现。目标已被并发删除时回落到常规匹配。
-    const existing = memory._mergeInto
-      ? store.getById(memory._mergeInto)
+    // 实现。目标已被并发删除时回落到常规匹配。显式目标同样过 scope 门：跨作用域
+    // 的语义相似不并入（防泄漏），回落为独立新行。
+    const explicitTarget = memory._mergeInto ? store.getById(memory._mergeInto) : undefined;
+    const existing = explicitTarget
+      ? (scopeMatches(explicitTarget) ? explicitTarget : undefined)
       : (memory.type === "summary" && memory.source === "dream")
-        ? (candidates.find((m) => m.source === "dream")
-          ?? candidates.find((m) => m.title.trim() === String(memory.title).trim()))
-        : candidates.find((m) => m.title.trim() === String(memory.title).trim());
+        ? (candidates.find((m) => m.source === "dream" && scopeMatches(m))
+          ?? candidates.find((m) => scopeMatches(m) && m.title.trim() === String(memory.title).trim()))
+        : candidates.find((m) => scopeMatches(m) && m.title.trim() === String(memory.title).trim());
     if (existing) {
       const newContent = String(memory.content ?? "");
       if (!newContent.trim()) {
@@ -1009,6 +1029,11 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       tags: memory.tags ?? [],
       importance: memory.importance ?? 3,
       source: memory.source ?? "manual",
+      // v0.8.0 A1：scope 标注透传（store 端归一化，未标注落 NULL）。
+      agent_scope: memory.agent_scope,
+      workspace_scope: memory.workspace_scope,
+      sensitivity: memory.sensitivity,
+      occurred_at: memory.occurred_at,
       ...(quality ? { quality_score: quality.score } : {})
     });
     const result = applyQualityDisposition(created, quality, qf);

@@ -438,6 +438,15 @@ export const Config = z.object({
   recallRecordDefault: z.boolean().default(true),
   // recall_runs 滚动清理保留天数。
   recallRetentionDays: z.natural().min(1).max(3650).default(90),
+
+  // --- scope: v0.8.0 A1 存储层（issue #17）--------------------------------
+  // 总开关默认关：关闭时写入不标注 scope、去重维持 (type, title) 现状，行为
+  // 逐字节不变。开启后 memory_save 写入 agent_scope（session header 的
+  // agentPreset）与 workspace_scope（registry 反查 canonical path，header.cwd
+  // 兜底，取不到 NULL——解析绝不阻塞写入），去重键扩展为 (type, title,
+  // agent_scope, workspace_scope, sensitivity)。检索侧加权/过滤在 A2/A3 落地。
+  // 也走 feature_flags（FEATURE_FLAG_BOOLEANS 白名单），面板可启停=线上回滚开关。
+  scopeEnabled: z.boolean().default(false),
 });
 
 // Fields forced to false by the light-mode preset. Everything not listed here

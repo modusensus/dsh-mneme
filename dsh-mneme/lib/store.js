@@ -332,6 +332,26 @@ function parseTags(raw) {
   }
 }
 
+// scope 列（agent_scope/workspace_scope/sensitivity）写入归一化：非空 trim 字符串
+// 原样收下，其余（undefined/null/空串/非字符串）一律 NULL。存储层不做枚举校验——
+// scope 值是宿主身份标签（agentPreset id / 目录路径 / 自由 sensitivity 标签），
+// 语义由调用方负责；这里只保证「脏输入落 NULL，绝不阻塞写入」。
+function normalizeScopeText(raw) {
+  if (typeof raw !== "string") return null;
+  const s = raw.trim();
+  return s ? s : null;
+}
+
+// occurred_at：事件发生时间（区别于 created_at 的入库时间）。可解析的时间戳
+// 统一归一到 UTC ISO（A2 的时间过滤要按字典序直接比较）；解析失败落 NULL，
+// 同样不阻塞写入。
+function normalizeOccurredAt(raw) {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  const ms = Date.parse(raw.trim());
+  if (Number.isNaN(ms)) return null;
+  return new Date(ms).toISOString();
+}
+
 function toRow(row) {
   if (!row) return undefined;
   return {
@@ -347,6 +367,10 @@ function toRow(row) {
     content_history: parseJsonArray(row.content_history),
     quality_score: row.quality_score !== null && row.quality_score !== undefined ? Number(row.quality_score) : undefined,
     epistemic_status: row.epistemic_status ?? "subjective",
+    agent_scope: row.agent_scope ?? undefined,
+    workspace_scope: row.workspace_scope ?? undefined,
+    sensitivity: row.sensitivity ?? undefined,
+    occurred_at: row.occurred_at ?? undefined,
     created_at: row.created_at,
     updated_at: row.updated_at,
     last_accessed_at: row.last_accessed_at ?? undefined,
@@ -597,6 +621,14 @@ export function createStore(path) {
   addColumn("memories", "content_history", "ALTER TABLE memories ADD COLUMN content_history TEXT");
   addColumn("memories", "quality_score", "ALTER TABLE memories ADD COLUMN quality_score REAL");
 
+  // v0.8.0 A1（issue #17）scope 隔离存储层：四列全部可空、不带 DEFAULT——存量行
+  // 零重写，读侧把 NULL 视为未标注（= 全局可见）。是否落值由 scopeEnabled 门控
+  // （service/tools 层），存储层只负责归一化（normalizeScopeText/normalizeOccurredAt）。
+  addColumn("memories", "agent_scope", "ALTER TABLE memories ADD COLUMN agent_scope TEXT");
+  addColumn("memories", "workspace_scope", "ALTER TABLE memories ADD COLUMN workspace_scope TEXT");
+  addColumn("memories", "sensitivity", "ALTER TABLE memories ADD COLUMN sensitivity TEXT");
+  addColumn("memories", "occurred_at", "ALTER TABLE memories ADD COLUMN occurred_at TEXT");
+
   // Legacy dream_runs without policy_epoch → backfill with the default epoch.
   addColumn("dream_runs", "policy_epoch", "ALTER TABLE dream_runs ADD COLUMN policy_epoch INTEGER NOT NULL DEFAULT 0");
   addColumn("dream_runs", "run_type", "ALTER TABLE dream_runs ADD COLUMN run_type TEXT NOT NULL DEFAULT 'auto'");
@@ -714,8 +746,8 @@ export function createStore(path) {
       : inferEpistemicStatus(memory);
     runAtomically(() => {
       db.prepare(
-        `INSERT INTO memories (id, type, title, content, tags, importance, forgotten, archived, source, content_history, quality_score, embedding, epistemic_status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO memories (id, type, title, content, tags, importance, forgotten, archived, source, content_history, quality_score, embedding, epistemic_status, agent_scope, workspace_scope, sensitivity, occurred_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         id,
         type,
@@ -729,6 +761,10 @@ export function createStore(path) {
         Number.isFinite(memory.quality_score) ? memory.quality_score : null,
         embedding,
         epistemicStatus,
+        normalizeScopeText(memory.agent_scope),
+        normalizeScopeText(memory.workspace_scope),
+        normalizeScopeText(memory.sensitivity),
+        normalizeOccurredAt(memory.occurred_at),
         now,
         now
       );

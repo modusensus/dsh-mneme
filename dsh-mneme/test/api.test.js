@@ -649,11 +649,12 @@ test("GET /api/dsh-mneme/features returns empty overrides and effective config d
   // dreamMaxTokens、睡眠路由 sleepProvider/sleepModel、PR1 新增的
   // recallFusion/signalTransparency、issue #109 新增的实体抽取路由
   // entityExtractionProvider/entityExtractionModel/entityExtractionReasoning、
-  // issue #127 新增的 summarize 五键、issue #126 新增的 sleepActionSet，以及
-  // issue #125 新增的候选集三键），未覆盖时取 bundle 配置的解析默认值；
+  // issue #127 新增的 summarize 五键、issue #126 新增的 sleepActionSet，
+  // 以及 issue #125 新增的候选集三键、issue #17（v0.8.0 A1）新增的
+  // scopeEnabled），未覆盖时取 bundle 配置的解析默认值；
   // dreamProvider/dreamModel 无 schema 默认值（Config({}) 解析为 undefined），
-  // 不编造给前端 → 51 - 2 = 49
-  assert.equal(Object.keys(data.effective).length, 49);
+  // 不编造给前端 → 52 - 2 = 50
+  assert.equal(Object.keys(data.effective).length, 50);
   assert.equal(data.effective.dreamSkipInvalid, true);
   assert.equal(data.effective.allowCrossTypeMerge, false);
   assert.equal(data.effective.dreamMinIntervalMinutes, 0);
