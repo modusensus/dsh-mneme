@@ -589,7 +589,7 @@ test("GET /api/dsh-mneme/features returns empty overrides and effective config d
   assert.equal(data.effective.dreamSkipInvalid, true);
   assert.equal(data.effective.allowCrossTypeMerge, false);
   assert.equal(data.effective.dreamMinIntervalMinutes, 0);
-  assert.equal(data.effective.dreamMaxTokens, 32768);
+  assert.equal(data.effective.dreamMaxTokens, 131072);
   assert.equal(data.effective.sleepProvider, "");
   assert.equal(data.effective.sleepModel, "");
   assert.equal(data.effective.autoInject, true);

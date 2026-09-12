@@ -1,10 +1,15 @@
-// Regression for issue #9:
+// Regression for issue #9, extended by issue #135 (建议 3/4/5):
 //  - B: dreamMaxTokens cap widened (min 256, max 131072) so large memory
-//    libraries no longer starve the consolidation output.
-//  - A: dreamReasoningEffort / sleepReasoningEffort pass-through. Default
-//    'none' must OMIT the reasoningEffort field entirely (the provider's own
-//    default applies); low/medium/high are forwarded verbatim on every dream /
-//    sleep LLM call. Asserted by capturing the options each llm.stream() sees.
+//    libraries no longer starve the consolidation output. #135 raises the
+//    DEFAULT to 131072 too — 32768 was exactly what thinking-model reasoning
+//    burnt, leaving an empty body.
+//  - A: dreamReasoningEffort / sleepReasoningEffort pass-through. Explicit
+//    'none' omits the reasoningEffort field entirely (provider default
+//    applies); low/medium/high are forwarded verbatim on every dream /
+//    sleep LLM call. #135: UNSET now resolves to the LOWEST effort the model
+//    declares (the old default 'none' let the harness substitute the model's
+//    defaultEffort, burning the budget on reasoning). Asserted by capturing
+//    the options each llm.stream() sees.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { Config } from "../src/config.js";
@@ -25,9 +30,9 @@ const embedder = {
 
 // ---------------------------------------------------------------- config schema
 
-test("issue#9: dreamMaxTokens defaults to 32768 and accepts values up to 131072", () => {
-  assert.equal(Config({}).dreamMaxTokens, 32768, "default raised for thinking-model headroom");
-  assert.equal(Config({ dreamMaxTokens: 131072 }).dreamMaxTokens, 131072, "new upper bound accepted");
+test("issue#135: dreamMaxTokens defaults to 131072 and accepts values up to 131072", () => {
+  assert.equal(Config({}).dreamMaxTokens, 131072, "old default 32768 was exactly what thinking-model reasoning burnt (Issue #135 建议 3)");
+  assert.equal(Config({ dreamMaxTokens: 131072 }).dreamMaxTokens, 131072, "upper bound accepted");
   assert.equal(Config({ dreamMaxTokens: 65536 }).dreamMaxTokens, 65536, "intermediate value accepted");
 });
 
@@ -39,11 +44,12 @@ test("issue#9: dreamMaxTokens clamps to [256, 131072], out-of-range values are r
   assert.throws(() => Config({ dreamMaxTokens: 0 }), "zero rejected");
 });
 
-test("issue#9: reasoningEffort config defaults to none and rejects unknown values", () => {
+test("issue#135: reasoningEffort unset = undefined (auto-lowest at resolve time); explicit values preserved", () => {
   const cfg = Config({});
-  assert.equal(cfg.dreamReasoningEffort, "none");
-  assert.equal(cfg.sleepReasoningEffort, "none");
-  assert.equal(Config({ dreamReasoningEffort: "high" }).dreamReasoningEffort, "high");
+  assert.equal(cfg.dreamReasoningEffort, undefined, "unset must be distinguishable from explicit 'none'");
+  assert.equal(cfg.sleepReasoningEffort, undefined);
+  assert.equal(Config({ dreamReasoningEffort: "none" }).dreamReasoningEffort, "none", "explicit 'none' kept");
+  assert.equal(Config({ dreamReasoningEffort: "off" }).dreamReasoningEffort, "off", "'off' now a valid explicit choice");
   assert.equal(Config({ sleepReasoningEffort: "medium" }).sleepReasoningEffort, "medium");
   assert.throws(() => Config({ dreamReasoningEffort: "bogus" }), "invalid effort rejected");
   assert.throws(() => Config({ sleepReasoningEffort: "ultra" }), "invalid effort rejected");
@@ -71,7 +77,7 @@ function dreamCtx({ onConsolidation, summaryText = "记忆库总览：用户偏�
   };
 }
 
-test("issue#9: dream omits reasoningEffort under default 'none' and still consolidates (applied>0)", async () => {
+test("issue#135: dream omits reasoningEffort when unset without a capability API and still consolidates (applied>0)", async () => {
   const store = createStore(":memory:");
   const service = createService({ store, mirror: null, config: {} });
   const dream = createDreamScheduler({ onRun: () => Promise.resolve({ ok: true, skipped: true }) });
@@ -89,7 +95,64 @@ test("issue#9: dream omits reasoningEffort under default 'none' and still consol
   assert.ok(result.applied > 0, "end-to-end dream run still lands changes");
   assert.equal(captured.length, 2, "consolidation + summary both hit the LLM");
   for (const options of captured) {
-    assert.equal("reasoningEffort" in options, false, `default 'none' must not forward reasoningEffort (${options.purpose})`);
+    assert.equal("reasoningEffort" in options, false, `unset without capability API must not forward reasoningEffort (${options.purpose})`);
+  }
+  store.close();
+});
+
+test("issue#135: unset effort resolves to the LOWEST supported effort, never the poison default", async () => {
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config: {} });
+  const dream = createDreamScheduler({ onRun: () => Promise.resolve({ ok: true, skipped: true }) });
+  const { memory: a } = service.saveWithDedupe({ type: "project", title: "插件", content: "旧", importance: 3 });
+  const { memory: b } = service.saveWithDedupe({ type: "project", title: "插件2", content: "新细节", importance: 4 });
+  const captured = [];
+  const ctx = dreamCtx({
+    captured,
+    onConsolidation: () => JSON.stringify([
+      { action: "merge", ids: [a.id, b.id], keepSource: b.id, title: "插件总览", content: "合并内容", importance: 4 }
+    ])
+  });
+  // v4-flash 系能力报告：声明 off/low/high/max、defaultEffort=high。旧默认
+  // （省略字段）让 harness 顶上 high → 推理烧光预算返回空体；现在未配置应
+  // 自动取最低档 off，而不是服务商默认。
+  ctx.llm.resolveModelInfo = async (provider, model) => ({
+    provider,
+    model,
+    reasoning: { efforts: [{ id: "high" }, { id: "off" }, { id: "low" }, { id: "max" }], defaultEffort: "high" }
+  });
+  const result = await dream.runDream(ctx, service, {});
+  assert.equal(result.ok, true);
+  assert.ok(result.applied > 0, "consolidation lands changes");
+  assert.equal(captured.length, 2, "consolidation + summary both hit the LLM");
+  for (const options of captured) {
+    assert.equal(options.reasoningEffort, "off", `unset resolves to the lowest declared effort on ${options.purpose}`);
+  }
+  store.close();
+});
+
+test("issue#135: explicit 'none' still omits the field even when the capability API is available", async () => {
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config: {} });
+  const dream = createDreamScheduler({ onRun: () => Promise.resolve({ ok: true, skipped: true }) });
+  const { memory: a } = service.saveWithDedupe({ type: "project", title: "插件", content: "旧", importance: 3 });
+  const { memory: b } = service.saveWithDedupe({ type: "project", title: "插件2", content: "新细节", importance: 4 });
+  const captured = [];
+  const ctx = dreamCtx({
+    captured,
+    onConsolidation: () => JSON.stringify([
+      { action: "merge", ids: [a.id, b.id], keepSource: b.id, title: "插件总览", content: "合并内容", importance: 4 }
+    ])
+  });
+  ctx.llm.resolveModelInfo = async (provider, model) => ({
+    provider,
+    model,
+    reasoning: { efforts: [{ id: "off" }, { id: "low" }], defaultEffort: "high" }
+  });
+  const result = await dream.runDream(ctx, service, { dreamReasoningEffort: "none" });
+  assert.equal(result.ok, true);
+  for (const options of captured) {
+    assert.equal("reasoningEffort" in options, false, `explicit 'none' is a user decision to omit (${options.purpose})`);
   }
   store.close();
 });
@@ -297,6 +360,34 @@ test("issue#9: sleep forwards sleepReasoningEffort on its LLM passes", async () 
   assert.ok(captured.length >= 2, "conflict + pattern passes both hit the LLM");
   for (const options of captured) {
     assert.equal(options.reasoningEffort, "medium", `reasoningEffort forwarded on ${options.purpose}`);
+  }
+  store.close();
+});
+
+test("issue#135: sleep unset effort also resolves to the lowest supported", async () => {
+  const { store, service, vectorIndex } = sleepSetup();
+  const a = service.saveWithDedupe({ type: "project", title: "主题X", content: "内容A 关于主题X", importance: 3 }).memory;
+  const b = service.saveWithDedupe({ type: "project", title: "主题X副本", content: "内容B 关于主题X", importance: 3 }).memory;
+  vectorIndex.saveEmbedding(a.id, [1, 0, 0]);
+  vectorIndex.saveEmbedding(b.id, [1, 0, 0]);
+  const captured = [];
+  const ctx = sleepCtx(
+    (userText) => userText.startsWith("候选冲突")
+      ? JSON.stringify([{ action: "conflict", winner: a.id, loser: b.id, reason: "重复覆盖" }])
+      : "[]",
+    { provider: "mock", model: "sleep-model" },
+    captured
+  );
+  ctx.llm.resolveModelInfo = async (provider, model) => ({
+    provider,
+    model,
+    reasoning: { efforts: [{ id: "low" }, { id: "high" }], defaultEffort: "high" }
+  });
+  const result = await runSleep(ctx, service, baseConfig(), ctx.logger, { embedder, vectorIndex }, null);
+  assert.equal(result.status, "ok");
+  assert.ok(captured.length >= 2, "conflict + pattern passes both hit the LLM");
+  for (const options of captured) {
+    assert.equal(options.reasoningEffort, "low", `unset sleep effort resolves to the lowest declared (${options.purpose})`);
   }
   store.close();
 });
