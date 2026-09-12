@@ -1,5 +1,5 @@
 import { validateDecisions, applyDecisions } from "./dream/decisions.js";
-import { clusterMemories, findPotentialConflicts } from "./dream/clustering.js";
+import { clusterMemories, findPotentialConflicts, cosineSimilarity } from "./dream/clustering.js";
 import { createHash, randomUUID } from "node:crypto";
 import { STR, langOf } from "./lang.js";
 export { validateDecisions, applyDecisions, withEffortFallback, describeStreamFailure, resolveDreamEffort, resolveRoute };
@@ -499,6 +499,106 @@ async function collectVectors(memories, semantic) {
 }
 
 /**
+ * Issue #125：把高相似对聚成**连通分量组**——一个簇 = 一个候选单元。直接按对展开
+ * 会把同一簇拆成互相抢占的多个决策（校验器有 one-claim 规则），成组才是正确粒度
+ * （与 sleep 冲突阶段的贪心"每记忆每轮最多进一对"同理）。
+ * 组内最小相似度用于组间排序：最该处理的簇先入选。
+ */
+function similarityGroups(pairs) {
+  const parent = new Map();
+  const find = (x) => {
+    let root = x;
+    while (parent.get(root) !== root) root = parent.get(root);
+    return root;
+  };
+  for (const p of pairs) {
+    if (!parent.has(p.a.id)) parent.set(p.a.id, p.a.id);
+    if (!parent.has(p.b.id)) parent.set(p.b.id, p.b.id);
+    const ra = find(p.a.id);
+    const rb = find(p.b.id);
+    if (ra !== rb) parent.set(ra, rb);
+  }
+  const byRoot = new Map();
+  for (const p of pairs) {
+    for (const m of [p.a, p.b]) {
+      const root = find(m.id);
+      if (!byRoot.has(root)) byRoot.set(root, new Map());
+      byRoot.get(root).set(m.id, m);
+    }
+  }
+  return [...byRoot.values()].map((members) => {
+    const list = [...members.values()];
+    const ids = new Set(list.map((m) => m.id));
+    let minSim = 1;
+    for (const p of pairs) {
+      if (ids.has(p.a.id) && ids.has(p.b.id)) minSim = Math.min(minSim, p.similarity);
+    }
+    return { members: list, minSim };
+  });
+}
+
+/**
+ * Issue #125：为候选构造收集向量。与 collectVectors 的差别是**允许部分缺失**——
+ * 全量库只要有几条嵌入失败就整场返回 null，会让 hybrid 在真实库上几乎永远回落；
+ * 拿不到向量的条目只是不参与比较（cosineSimilarity 对非数组返回 0，不会误判）。
+ */
+async function collectCandidateVectors(memories, semantic, logger) {
+  const { embedder, vectorIndex } = semantic;
+  const vectors = new Array(memories.length);
+  const missing = [];
+  for (let i = 0; i < memories.length; i++) {
+    const cached = vectorIndex.getEmbedding?.(memories[i].id);
+    if (cached) vectors[i] = cached;
+    else missing.push(i);
+  }
+  if (missing.length) {
+    try {
+      const texts = missing.map((i) => [memories[i].title, memories[i].content].filter(Boolean).join("\n"));
+      const rows = await embedder.embed(texts);
+      missing.forEach((mi, j) => {
+        if (rows[j]?.length) {
+          vectors[mi] = rows[j];
+          vectorIndex.saveEmbedding?.(memories[mi].id, rows[j]);
+        }
+      });
+    } catch (error) {
+      logger?.warn?.(`[dsh-mneme] dream hybrid vector backfill failed: ${String(error)}`);
+    }
+  }
+  return vectors;
+}
+
+/**
+ * Issue #125：hybrid 候选成员，按"组内最小相似度"降序展平（高价值簇排前面，
+ * 受上限截断时先入选）。同类型比较沿用 findPotentialConflicts；仅当
+ * allowCrossTypeMerge 显式开启时再补跨类型高相似对。
+ * 任何失败都返回空数组——调用方回落纯窗口，dream 路径绝不因向量层而失败。
+ */
+async function hybridCandidateMembers(allMemories, config, semantic, logger) {
+  try {
+    const vectors = await collectCandidateVectors(allMemories, semantic, logger);
+    const minSim = config.dreamCandidateMinSim ?? 0.85;
+    const pairs = findPotentialConflicts(allMemories, vectors, minSim);
+    if (config.allowCrossTypeMerge === true) {
+      for (let i = 0; i < allMemories.length; i++) {
+        for (let j = i + 1; j < allMemories.length; j++) {
+          if (allMemories[i].type === allMemories[j].type) continue; // 同类型已由上面覆盖
+          const sim = cosineSimilarity(vectors[i], vectors[j]);
+          if (sim > minSim) pairs.push({ a: allMemories[i], b: allMemories[j], similarity: sim });
+        }
+      }
+    }
+    if (pairs.length === 0) return [];
+    return similarityGroups(pairs)
+      .sort((g1, g2) => g2.minSim - g1.minSim)
+      .flatMap((g) => g.members);
+  } catch (error) {
+    logger?.warn?.(`[dsh-mneme] dream hybrid candidate expansion failed (falling back to window): ${String(error)}`);
+    return [];
+  }
+}
+
+/**
  * Rebuild the vector index after dream decisions so the store and the index
  * stay in sync: merged-away/archived/conflict-loser rows lose their vectors,
  * the merge keeper gets a fresh one.
@@ -620,7 +720,7 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     // 窗口外的旧记忆不进 snapshot（大记忆量下全量快照会撑爆 LLM 输入，配合
     // 隐式 keep 让 run 始终可收敛）。按 updated_at 倒序取前 maxSize 条。
     const maxSize = Number.isInteger(config.dreamMaxSnapshotSize) ? config.dreamMaxSnapshotSize : 200;
-    memories = [...memories]
+    const windowMemories = [...memories]
       .sort((a, b) => {
         const ta = String(a.updated_at ?? "");
         const tb = String(b.updated_at ?? "");
@@ -629,6 +729,31 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
         return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
       })
       .slice(0, Math.max(1, maxSize));
+    // Issue #125：hybrid 档在窗口之外并入向量翻出的高相似组。候选**总量**仍由
+    // maxSize（或显式 dreamCandidateMax）封顶、与库总量解耦——用"按相似度取候选"
+    // 替代"调大窗口"，输入成本才不随库增长。封顶截断时向量组优先于窗口尾部，
+    // 否则"该合并的一对"仍会被时间窗挤掉。
+    let selected = windowMemories;
+    if ((config.dreamCandidateMode ?? "window") === "hybrid" && semantic?.embedder && semantic?.vectorIndex) {
+      const extra = await hybridCandidateMembers(memories, config, semantic, logger);
+      if (extra.length > 0) {
+        const cap = Math.max(
+          Math.max(1, maxSize),
+          Number.isInteger(config.dreamCandidateMax) && config.dreamCandidateMax > 0 ? config.dreamCandidateMax : 0
+        );
+        const merged = [];
+        const seen = new Set();
+        for (const m of [...extra, ...windowMemories]) {
+          if (seen.has(m.id)) continue;
+          seen.add(m.id);
+          merged.push(m);
+          if (merged.length >= cap) break;
+        }
+        selected = merged;
+        logger?.info?.(`[dsh-mneme] dream hybrid candidates: ${merged.length} (window ${windowMemories.length}, vector ${extra.length}, cap ${cap})`);
+      }
+    }
+    memories = selected;
     const snapshot = new Map(memories.map((m) => [m.id, m]));
     const route = resolveRoute(ctx, config, logger);
     const runId = randomUUID();

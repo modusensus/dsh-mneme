@@ -644,16 +644,16 @@ test("GET /api/dsh-mneme/features returns empty overrides and effective config d
   assert.equal(res.statusCode, 200);
   const data = JSON.parse(res.body);
   assert.deepEqual(data.overrides, {});
-  // effective 覆盖全部 48 个白名单键（含 v0.7.20 heatEnabled、Issue #89 新增
+  // effective 覆盖全部 51 个白名单键（含 v0.7.20 heatEnabled、Issue #89 新增
   // dreamSkipInvalid/allowCrossTypeMerge/dreamMinIntervalMinutes、面板可调的
   // dreamMaxTokens、睡眠路由 sleepProvider/sleepModel、PR1 新增的
   // recallFusion/signalTransparency、issue #109 新增的实体抽取路由
   // entityExtractionProvider/entityExtractionModel/entityExtractionReasoning、
-  // issue #127 新增的 summarize 五键，以及 issue #126 新增的 sleepActionSet），
-  // 未覆盖时取 bundle 配置的解析默认值；
+  // issue #127 新增的 summarize 五键、issue #126 新增的 sleepActionSet，以及
+  // issue #125 新增的候选集三键），未覆盖时取 bundle 配置的解析默认值；
   // dreamProvider/dreamModel 无 schema 默认值（Config({}) 解析为 undefined），
-  // 不编造给前端 → 48 - 2 = 46
-  assert.equal(Object.keys(data.effective).length, 46);
+  // 不编造给前端 → 51 - 2 = 49
+  assert.equal(Object.keys(data.effective).length, 49);
   assert.equal(data.effective.dreamSkipInvalid, true);
   assert.equal(data.effective.allowCrossTypeMerge, false);
   assert.equal(data.effective.dreamMinIntervalMinutes, 0);
@@ -691,6 +691,10 @@ test("GET /api/dsh-mneme/features returns empty overrides and effective config d
   assert.equal(data.effective.summarizeDedupeWindowHours, 24);
   // issue #126：sleep 动作集（默认 conflict = 现状；面板可切 full）
   assert.equal(data.effective.sleepActionSet, "conflict");
+  // issue #125：候选集三键（默认 window / 0 / 0.85）
+  assert.equal(data.effective.dreamCandidateMode, "window");
+  assert.equal(data.effective.dreamCandidateMax, 0);
+  assert.equal(data.effective.dreamCandidateMinSim, 0.85);
 });
 
 test("PUT /api/dsh-mneme/features round-trips, overrides effective and persists", async () => {
