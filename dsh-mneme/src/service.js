@@ -35,7 +35,8 @@ const CONTENT_HISTORY_MAX = 20;
 
 // Issue #135 附属发现 2：质量过滤器写下的系统信号标签（「为什么被降权/归档」的
 // 唯一审计线索）。更新路径整组替换 tags 会把它们抹掉——更新时按此清单并集保留。
-const SIGNAL_TAGS = ["low_quality", "duplicate", "meta", "repetitive", "short_content"];
+// 清单必须与 quality-filter.js 的写入端对齐（6 个，含 type 自指的 self_referential）。
+const SIGNAL_TAGS = ["low_quality", "duplicate", "meta", "repetitive", "short_content", "self_referential"];
 
 /** Prepend the previous content to a memory's content_history (FIFO capped). */
 function pushContentHistory(existing, source) {

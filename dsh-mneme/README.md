@@ -187,7 +187,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 - `30 ≤ score < 60`：`quality_score` 落库，注入排序改为按 `importance × quality/100` 降权（degraded）
 - `score < 30`：归档并标记 `low_quality`——仍可显式搜索召回，只是**永不自动注入**。**例外（#135）**：`importance ≥ memoryQualityFilter.exemptImportance`（默认 4）的记忆只降权不归档——评分与信号标签照常落库，归档决定不再静默越过用户标注的重要性
 
-`memoryQualityFilter.enabled` 可整体关闭，`archiveThreshold` / `degradeThreshold` / `minContentLength` / `exemptImportance`（1=全部豁免，5=仅最重要豁免）可调。此外更新记忆（`memory_update` 等）不会抹掉系统信号标签（`low_quality` / `duplicate` / `meta` / `repetitive` / `short_content`）——它们是「为什么被降权/归档」的审计线索，与用户自传标签并集保留（#135）。
+`memoryQualityFilter.enabled` 可整体关闭，`archiveThreshold` / `degradeThreshold` / `minContentLength` / `exemptImportance`（1=全部豁免，5=仅最重要豁免）可调。此外更新记忆（`memory_update` 等）不会抹掉系统信号标签（`low_quality` / `duplicate` / `meta` / `self_referential` / `repetitive` / `short_content`）——它们是「为什么被降权/归档」的审计线索，与用户自传标签并集保留（#135）。
 
 ### LLM 消耗审计 📊（v0.4.6，默认开）
 
