@@ -302,6 +302,14 @@ export const Config = z.object({
     z.const("normal"),
     z.const("aggressive")
   ]).default("normal"),
+  // Issue #126：冲突阶段的动作集。"conflict"（默认 = 现状）只用 conflict/keep——
+  // 后台自动流程不静默扩张行为；"full" 开放六分支（merge / update / supersede /
+  // differentiate / conflict / keep），互补型与演进型重复因此有了正确出口，不再
+  // 被迫"输赢化"（实测抽样 10 对里 2 对属演进型/互补型，用 conflict 处理会丢信息）。
+  sleepActionSet: z.union([
+    z.const("conflict"),
+    z.const("full")
+  ]).default("conflict"),
   // Archival demotion tiering (days since last access):
   //   >= sleepArchiveDays  → shrink to summary, full body kept in _full_content
   //   >= sleepCompressDays → archived outright (entity relations preserved)

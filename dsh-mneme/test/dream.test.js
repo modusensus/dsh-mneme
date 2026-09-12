@@ -1199,3 +1199,52 @@ test("issue#89: minIntervalMs throttles re-triggering regardless of run outcome"
   assert.equal(dream.maybeSchedule(service), true, "interval elapsed → eligible again (baseline unmoved by failure)");
   store.close();
 });
+
+// --- Issue #126：新动作（supersede / differentiate）在 dream 路径也必须产 receipt ---
+// buildRecordReceipts 此前只认 merge/conflict/update，新动作会静默不产 receipt，让
+// receipt_chain 留洞。dream 的 consolidation prompt 虽然不含这两个动作，但校验器
+// 的 ACTIONS 是共用的——模型自由发挥（或将来把动作集扩到 dream）时审计不能丢。
+
+test("issue#126: a supersede decision on the dream path produces a supersede receipt", async () => {
+  const { store, service } = dreamSetup();
+  const oldMem = service.saveWithDedupe({ type: "project", title: "方案 v1", content: "用 pm2 常驻" }).memory;
+  const newMem = service.saveWithDedupe({ type: "project", title: "方案 v2", content: "改用 systemd" }).memory;
+  const ctx = mockCtx({
+    onConsolidation: () => JSON.stringify([
+      { action: "supersede", winner: newMem.id, loser: oldMem.id, reason: "版本演进" }
+    ])
+  });
+  const dream = createDreamScheduler({ thresholdCount: 1, thresholdChars: 0, delayMs: 0 });
+  const result = await dream.runDream(ctx, service, { dreamProvider: "mock", dreamModel: "mock-model" });
+  assert.equal(result.status, "ok", "supersede applied and the summary landed");
+  assert.equal(store.getById(oldMem.id).archived, true, "older entry archived");
+  assert.equal(store.getById(newMem.id).content, "改用 systemd", "winner body untouched");
+  const receipts = store.listReceipts();
+  const supersedeReceipt = receipts.find((r) => r.kind === "supersede");
+  assert.ok(supersedeReceipt, "supersede receipt lands in receipt_chain");
+  assert.equal(supersedeReceipt.record_id, oldMem.id, "receipt records the superseded side");
+  assert.equal(supersedeReceipt.winner_id, newMem.id);
+  assert.equal(supersedeReceipt.loser_id, oldMem.id);
+  store.close();
+});
+
+test("issue#126: a differentiate decision on the dream path produces one receipt per entry", async () => {
+  const { store, service } = dreamSetup();
+  const a = service.saveWithDedupe({ type: "project", title: "内网端口", content: "内网走 22" }).memory;
+  const b = service.saveWithDedupe({ type: "project", title: "外网端口", content: "外网映射 2222" }).memory;
+  const ctx = mockCtx({
+    onConsolidation: () => JSON.stringify([
+      { action: "differentiate", ids: [a.id, b.id], distinctions: ["内网直连", "外网映射"] }
+    ])
+  });
+  const dream = createDreamScheduler({ thresholdCount: 1, thresholdChars: 0, delayMs: 0 });
+  const result = await dream.runDream(ctx, service, { dreamProvider: "mock", dreamModel: "mock-model" });
+  assert.equal(result.status, "ok", "differentiate applied and the summary landed");
+  assert.equal(store.getById(a.id).archived, false, "neither side is archived");
+  assert.equal(store.getById(b.id).archived, false);
+  const receipts = store.listReceipts().filter((r) => r.kind === "differentiate");
+  assert.equal(receipts.length, 2, "one receipt per differentiated entry");
+  assert.deepEqual(receipts.map((r) => r.record_id).sort(), [a.id, b.id].sort());
+  assert.ok(receipts.every((r) => r.count_before === 1 && r.count_after === 1), "no count change for differentiate");
+  store.close();
+});

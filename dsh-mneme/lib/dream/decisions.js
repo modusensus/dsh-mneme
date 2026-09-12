@@ -1,6 +1,9 @@
 import { STR, langOf } from "../lang.js";
 
-const ACTIONS = new Set(["keep", "merge", "archive", "conflict", "update", "create"]);
+// Issue #126：sleepActionSet="full" 时新增两个动作——supersede（演进：新版取代
+// 旧版）与 differentiate（互补：两条都留、各追加差异注记）。两者的校验与执行都
+// 复用既有 merge/conflict 的机制（winner/loser、casGuard、transaction、receipt）。
+const ACTIONS = new Set(["keep", "merge", "archive", "conflict", "update", "create", "supersede", "differentiate"]);
 
 // Epistemic trust (v0.4.5): when config.trustEpistemicWeighting is on, merge
 // keepSource and conflict winners prefer the higher-trust memory. Higher value
@@ -77,12 +80,23 @@ export function validateDecisions(decisions, snapshot, options = {}) {
     // 单条校验错误先进 local：skipInvalid 模式下整条跳过，严格模式下才并入
     // 全局 errors（沿用 v0.6.9 的双轨结构）。
     const local = [];
-    const ids = d && d.action === "conflict" ? [d.winner, d.loser] : (d?.ids ?? []);
+    // Issue #126：supersede 与 conflict 一样用 winner/loser 定位双方（沿用同一套
+    // 字段，校验与 receipt 逻辑因此可以直接复用）。
+    const ids = d && (d.action === "conflict" || d.action === "supersede") ? [d.winner, d.loser] : (d?.ids ?? []);
     if (!d || typeof d !== "object" || !ACTIONS.has(d.action)) {
       local.push(`${at}: invalid action ${JSON.stringify(d?.action)}`);
-    } else if (d.action === "conflict") {
+    } else if (d.action === "conflict" || d.action === "supersede") {
       if (!d.winner || !d.loser || d.winner === d.loser) {
-        local.push(`${at}: conflict needs distinct winner and loser`);
+        local.push(`${at}: ${d.action} needs distinct winner and loser`);
+      }
+    } else if (d.action === "differentiate") {
+      // Issue #126：互补型——两条都留下、各追加差异注记。ids 必须 ≥2（随后走下方
+      // 通用 id 校验：unknown / archived / summary / 重复 claim），distinctions 必须
+      // 非空，否则会写出空注记（写了等于没写，还会污染正文）。
+      if (!Array.isArray(d.ids) || d.ids.length < 2) {
+        local.push(`${at}: differentiate needs at least two ids`);
+      } else if (!Array.isArray(d.distinctions) || !d.distinctions.some((s) => typeof s === "string" && s.trim())) {
+        local.push(`${at}: differentiate needs a non-empty distinctions array`);
       }
     } else if (d.action === "create") {
       // Mint a fresh memory (sleep pattern discovery). Claims no existing id,
@@ -244,7 +258,7 @@ export class CasConflictError extends Error {
 }
 
 function decisionIds(d) {
-  return d.action === "conflict" ? [d.winner, d.loser] : (d.ids ?? []);
+  return d.action === "conflict" || d.action === "supersede" ? [d.winner, d.loser] : (d.ids ?? []);
 }
 
 /**
@@ -333,6 +347,8 @@ function applyOne(d, service, snapshot, config = {}) {
     case "archive": return applyArchive(d, service, snapshot);
     case "merge": return applyMerge(d, service, snapshot, config);
     case "conflict": return applyConflict(d, service, snapshot, config);
+    case "supersede": return applySupersede(d, service, snapshot, config);
+    case "differentiate": return applyDifferentiate(d, service, snapshot, config);
     case "create": return applyCreate(d, service, config);
     default: return applyUpdate(d, service, snapshot, config);
   }
@@ -471,6 +487,77 @@ function applyConflict(d, service, snapshot, config = {}) {
     service.setArchived(d.loser, true);
   });
   return { applied: 1, committed: { action: "conflict", winner: d.winner, loser: d.loser, count_before: 2, count_after: 1 } };
+}
+
+/**
+ * supersede（Issue #126，sleepActionSet="full"）：演进型重复——新版本取代旧版本。
+ * 与 conflict 的关键差别：**注记追加到 loser（被取代方）而不是 winner**。conflict
+ * 把"已否决旧信息"写进赢家正文，赢家因此被污染——这正是 #126 的原始抱怨；
+ * supersede 把可追溯性留在被归档的那一侧，赢家正文一字不动。
+ *
+ * 幂等：loser 已归档即视为该决策已落地（重放/并发不会重复追加注记或重复归档）。
+ */
+function applySupersede(d, service, snapshot, config = {}) {
+  const language = langOf(config);
+  // Epistemic trust（与 conflict 同款）：可信度更高的一侧优先作为取代方。
+  if (config.trustEpistemicWeighting === true) {
+    const pw = EPISTEMIC_PRIORITY[service.getById(d.winner)?.epistemic_status] ?? 0;
+    const pl = EPISTEMIC_PRIORITY[service.getById(d.loser)?.epistemic_status] ?? 0;
+    if (pl > pw) [d.winner, d.loser] = [d.loser, d.winner];
+  }
+  const winner = service.getById(d.winner);
+  const loser = service.getById(d.loser);
+  if (!winner || !loser) return "skipped";
+  if (loser.archived) return "skipped"; // 幂等重放：已经取代过了
+  service.transaction(() => {
+    casGuard(service, snapshot, [d.winner, d.loser]);
+    const winnerNow = service.getById(d.winner);
+    const loserNow = service.getById(d.loser);
+    if (!winnerNow || !loserNow || loserNow.archived) return;
+    service.update(d.loser, {
+      content: STR.supersededBySuffix[language](loserNow.content, winnerNow.title)
+    });
+    service.setArchived(d.loser, true);
+  });
+  return { applied: 1, committed: { action: "supersede", winner: d.winner, loser: d.loser, count_before: 2, count_after: 1 } };
+}
+
+/**
+ * differentiate（Issue #126，sleepActionSet="full"）：互补型重复——两条各自成立、
+ * 覆盖不同侧面，不该判输赢。双方都保留（不归档），各追加同一段差异注记；注记进
+ * 正文 → 进注入与 embedding → 下一轮不会再被判成重复（这是本动作存在的意义）。
+ *
+ * 注记由插件按 distinctions 渲染，**不让模型整段重写 content**（重写有篡改/丢失
+ * 风险）。幂等：注记已在正文里就不重复追加，否则同一决策重放会不断堆叠。
+ */
+function applyDifferentiate(d, service, snapshot, config = {}) {
+  const language = langOf(config);
+  const ids = Array.isArray(d.ids) ? d.ids : [];
+  const notes = (Array.isArray(d.distinctions) ? d.distinctions : [])
+    .filter((s) => typeof s === "string" && s.trim())
+    .map((s) => s.trim());
+  const marker = STR.differentiatedMarker[language](notes);
+  const alive = ids.filter((id) => {
+    const m = service.getById(id);
+    return m && !m.archived;
+  });
+  if (alive.length < 2) return "skipped"; // 缺一条即已处理/不可用（幂等）
+  if (alive.every((id) => String(service.getById(id)?.content ?? "").includes(marker))) {
+    return "skipped"; // 同一条决策重放：注记已存在
+  }
+  service.transaction(() => {
+    casGuard(service, snapshot, ids);
+    for (const id of ids) {
+      const m = service.getById(id);
+      if (!m || m.archived) continue;
+      if (String(m.content).includes(marker)) continue; // 单条已注记过
+      service.update(id, { content: `${m.content}${marker}` });
+    }
+  });
+  return {
+    applied: 1,
+    committed: { action: "differentiate", ids, count_before: ids.length, count_after: ids.length }
+  };
 }
 
 function applyUpdate(d, service, snapshot, config = {}) {
