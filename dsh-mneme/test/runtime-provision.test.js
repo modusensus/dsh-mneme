@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { adoptHostRuntime, hostModulesDir, provisionRuntime } from "../lib/runtime/provision.js";
 import { makeEmptyModules, makeSourceModules } from "./helpers/runtime-source.js";
@@ -84,4 +84,18 @@ test("adoptHostRuntime：收编结果不完整时也必须带 reason（不能是
   // 评审指出的正是这条：缺 reason 时，给用户的话会变成「收编失败：undefined」。
   assert.match(result.reason, /收编结果不完整/);
   assert.match(result.reason, /缺依赖/);
+});
+
+test("provisionRuntime：同一个目录的不同写法必须共用一把锁（否则仍会被并发写）", async () => {
+  const src = makeSourceModules();
+  // 尾部分隔符是最常见的等价写法（配置里手填、或别处 join 出来的形态）；
+  // 归一化之前它与 src.runtimeDir 是两个键，于是第二次会重跑一遍收编，
+  // 撞上「目标已存在」—— 用户看到的是「取件失败」，而不是接上正在进行的那次。
+  const sameDirOtherSpelling = src.runtimeDir + sep;
+  const [a, b] = await Promise.all([
+    provisionRuntime({ hostModulesDir: src.nm, runtimeDir: src.runtimeDir }),
+    provisionRuntime({ hostModulesDir: src.nm, runtimeDir: sameDirOtherSpelling })
+  ]);
+  assert.equal(a.ok, true, a.reason);
+  assert.equal(a, b, "等价路径应当复用同一次取件（同一个结论对象）");
 });

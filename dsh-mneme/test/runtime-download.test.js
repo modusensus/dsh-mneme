@@ -110,6 +110,27 @@ function standardSet(base) {
   return { files: { "/transformers.tgz": tgz.transformers, "/onnx.tgz": tgz.onnx, "/sharp.tgz": tgz.sharp }, packages };
 }
 
+test("downloadRuntime：确认本机 libc 后，另一套 libc 的必需包算缺失（拉取前就失败，不装出跑不起来的运行时）", async () => {
+  const set = standardSet("http://127.0.0.1:0");
+  // 把原生依赖标成 musl：确认本机是 glibc 时它就不该进 wanted 列表，
+  // 于是「缺必需包」这条守卫生效 —— 而不是先下 200MB 再让 verify 发现在炸。
+  const packages = set.packages.map((p) =>
+    p.rel === "onnxruntime-node" ? { ...p, libc: ["musl"] } : p
+  );
+  const runtimeDir = mkdtempSync(join(tmpdir(), "mneme-libc-"));
+  const result = await downloadRuntime({
+    manifest: manifestFor(packages),
+    runtimeDir,
+    libc: "glibc",
+    fetchImpl: () => {
+      throw new Error("不该联网：过滤之后就该在拉取前失败");
+    }
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /缺少必需包/);
+  assert.match(result.reason, /onnxruntime-node/);
+});
+
 test("applyMirror：只换前缀，保留 /name/-/file.tgz；空镜像与非 registry 地址原样返回", () => {
   const url = "https://registry.npmjs.org/onnxruntime-node/-/onnxruntime-node-1.24.3.tgz";
   assert.equal(applyMirror(url, ""), url);

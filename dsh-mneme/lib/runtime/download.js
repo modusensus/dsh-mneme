@@ -15,7 +15,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, sep } from "node:path";
 import { RUNTIME_MANIFEST_VERSION } from "./adopt.js";
-import { REQUIRED_PACKAGES, defaultRuntimeDir, nodeModulesDir, payloadDir, payloadId, runtimeManifestPath } from "./layout.js";
+import { REQUIRED_PACKAGES, defaultRuntimeDir, detectLibc, nodeModulesDir, payloadDir, payloadId, runtimeManifestPath } from "./layout.js";
 import { matchesPlatform } from "./closure.js";
 import { stripPackagePrefix, verifyIntegrity, walkTgz } from "./tarball.js";
 
@@ -147,6 +147,7 @@ export async function downloadRuntime({
   manifest,
   platform = process.platform,
   arch = process.arch,
+  libc = detectLibc(platform),
   runtimeDir = defaultRuntimeDir(),
   localTarballDir = "",
   mirror = "",
@@ -155,13 +156,13 @@ export async function downloadRuntime({
   fetchImpl = fetch,
   onProgress
 }) {
-  // v2 清单是**平台无关**的：里面是所有平台的包（各带 os / cpu），这里按本机平台过滤。
+  // v2 清单是**平台无关**的：里面是所有平台的包（各带 os / cpu / libc），这里按本机平台过滤。
   // 这样一份随包发布的静态清单就覆盖 win32 / darwin / linux × x64 / arm64 —— 不需要
   // 「谁在哪个系统上跑一次生成脚本」，也就不会让 macOS 用户卡在「清单里没有我的平台」。
   const all = Array.isArray(manifest?.packages) ? manifest.packages : null;
   if (all === null) return { ok: false, reason: "运行时清单不可用（缺少 packages 列表）" };
 
-  const wanted = all.filter((pkg) => matchesPlatform(pkg, platform, arch));
+  const wanted = all.filter((pkg) => matchesPlatform(pkg, platform, arch, libc));
   const missingRequired = REQUIRED_PACKAGES.filter((name) => !wanted.some((pkg) => pkg.rel === name));
   if (missingRequired.length > 0) {
     // 目标平台在清单里就缺必需包时，现在失败好过装出一份「结构看着全、import 原生模块才炸」的

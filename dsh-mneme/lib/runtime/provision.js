@@ -17,12 +17,12 @@
 // 将来若成为常态路径，再考虑挪进 worker。
 //
 // @module dsh-mneme/runtime/provision
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { adoptRuntime } from "./adopt.js";
 import { downloadRuntime } from "./download.js";
-import { describePayload } from "./layout.js";
+import { defaultRuntimeDir, describePayload, detectLibc } from "./layout.js";
 
 /**
  * 从插件自身位置推出宿主 node_modules。
@@ -141,6 +141,7 @@ async function provisionOnce({
   manifest,
   platform = process.platform,
   arch = process.arch,
+  libc = detectLibc(platform),
   fetchImpl,
   onProgress
 }) {
@@ -169,6 +170,7 @@ async function provisionOnce({
     overwrite: overwrite || adopted.status === "incomplete",
     platform,
     arch,
+    libc,
     ...(fetchImpl === undefined ? {} : { fetchImpl }),
     ...(onProgress === undefined ? {} : { onProgress })
   });
@@ -206,8 +208,26 @@ async function provisionOnce({
  */
 const IN_FLIGHT = new Map();
 
+/**
+ * 取件真正会写入的那个运行时根目录 —— 绝对且归一化，用作串行化的键。
+ *
+ * 为什么不能直接拿 `options.runtimeDir` 当键：三档实现都是「空串 = 默认位置」，所以
+ * `""`、`~/.dsh/mneme/runtime`、`./runtime`、`D:\x\runtime` 与 `d:\x\runtime`
+ * 可能指向同一个目录，却得到四个不同的键 —— 同一个目录仍会被两路并发写（评审指出）。
+ * 键与写入位置必须一一对应，否则这把锁就只是看起来有用。
+ *
+ * win32 文件系统不区分大小写，键也跟着不区分；POSIX 保持原样（那边大小写是两回事）。
+ * @param {object} [options] - provisionRuntime 的选项。
+ * @returns {string} 归一化后的绝对路径。
+ */
+function runtimeLockKey(options) {
+  const given = String(options?.runtimeDir ?? "").trim();
+  const dir = resolve(given === "" ? defaultRuntimeDir() : given);
+  return process.platform === "win32" ? dir.toLowerCase() : dir;
+}
+
 export async function provisionRuntime(options) {
-  const key = String(options?.runtimeDir ?? "").trim() || "default";
+  const key = runtimeLockKey(options);
   const running = IN_FLIGHT.get(key);
   if (running !== undefined) return running;
   const task = provisionOnce(options).finally(() => IN_FLIGHT.delete(key));

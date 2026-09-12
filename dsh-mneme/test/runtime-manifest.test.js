@@ -131,6 +131,27 @@ test("build：平台无关，六个常见平台都能过滤出完整的必需包
   }
 });
 
+test("libc 过滤：确认 glibc 时剔掉 musl 变体，拿不到证据时一个都不剔", () => {
+  const built = build();
+  const all = packagesForPlatform(built, "linux", "x64");
+  const onGlibc = packagesForPlatform(built, "linux", "x64", "glibc");
+  const dropped = all.filter((pkg) => !onGlibc.includes(pkg));
+  // linux-x64 上那两套 musl 变体（sharp 与 libvips）就是这条过滤的全部收益，十几 MB。
+  assert.ok(dropped.length >= 2, `应当剔掉 musl 变体，实际剔了 ${dropped.length}`);
+  for (const pkg of dropped) assert.deepEqual(pkg.libc, ["musl"], `${pkg.rel} 不该被剔`);
+  // 必需包绝不能因 libc 被剔 —— 否则下载会在「缺必需包」处直接失败，用户拿不到出路。
+  for (const required of REQUIRED_PACKAGES) {
+    assert.ok(onGlibc.some((pkg) => pkg.rel === required), `确认 glibc 后缺必需包 ${required}`);
+  }
+  // 没有证据 = 与过滤前完全一致（默认路径必须是它）。
+  assert.deepEqual(packagesForPlatform(built, "linux", "x64", null), all);
+  // 别的平台没有 libc 变体，给不给证据都一样。
+  assert.deepEqual(
+    packagesForPlatform(built, "darwin", "arm64", "glibc"),
+    packagesForPlatform(built, "darwin", "arm64")
+  );
+});
+
 test("已提交的 runtime-manifest.json 就是生成器的输出（漂移 = 发布错的哈希）", () => {
   const committed = JSON.parse(readFileSync(join(ROOT, "runtime-manifest.json"), "utf8"));
   assert.deepEqual(committed, build(), "清单与 package-lock.json 不一致，请重跑 scripts/build-runtime-manifest.mjs");

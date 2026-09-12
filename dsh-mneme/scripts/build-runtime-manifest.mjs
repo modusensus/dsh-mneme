@@ -125,9 +125,12 @@ export function closureFromLockfile(lock) {
       rel: relOfPath(path),
       integrity: meta.integrity ?? null,
       tarball: tarballUrl(nameOfPath(path), meta.version, meta.resolved),
-      // 平台约束照抄 lockfile：下载器按它过滤。没有这两个字段 = 与平台无关。
+      // 平台约束照抄 lockfile：下载器按它过滤。没有这三个字段 = 与平台无关。
       ...(Array.isArray(meta.os) ? { os: meta.os } : {}),
-      ...(Array.isArray(meta.cpu) ? { cpu: meta.cpu } : {})
+      ...(Array.isArray(meta.cpu) ? { cpu: meta.cpu } : {}),
+      // libc 也带上：linux-x64 的 glibc 机器靠它剔掉两套 musl 变体（十几 MB）。
+      // 下载器只在**确认**了本机 libc 时才据此过滤，拿不到证据就不看这个字段。
+      ...(Array.isArray(meta.libc) ? { libc: meta.libc } : {})
     }))
     .sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
 
@@ -135,8 +138,8 @@ export function closureFromLockfile(lock) {
 }
 
 /** 某个平台实际需要取哪些包（与下载器用同一条判据）。 */
-export function packagesForPlatform(manifest, platform, arch) {
-  return manifest.packages.filter((pkg) => matchesPlatform(pkg, platform, arch));
+export function packagesForPlatform(manifest, platform, arch, libc = null) {
+  return manifest.packages.filter((pkg) => matchesPlatform(pkg, platform, arch, libc));
 }
 
 /** 生成一份**平台无关**的清单。 */
@@ -165,7 +168,7 @@ export function build() {
     entry: ENTRY,
     transformersVersion: entry.version,
     excluded: EXCLUDED,
-    // 平台无关：下载时按 os/cpu 过滤（payloadId 也由下载器按本机平台算）。
+    // 平台无关：下载时按 os/cpu/libc 过滤（payloadId 也由下载器按本机平台算）。
     packages
   };
 }
@@ -188,7 +191,10 @@ export function main(args = process.argv.slice(2)) {
     const set = packagesForPlatform(built, platform, arch);
     const hasEntry = set.some((pkg) => pkg.rel === ENTRY);
     const hasNative = set.some((pkg) => pkg.rel === "onnxruntime-node");
-    return `${platform}-${arch}: ${set.length} 个包${hasEntry && hasNative ? "" : "（缺入口或原生依赖！）"}`;
+    // linux 再报一次「确认 glibc 时」的包数：下载器会剔掉另一套 libc 的变体，这行让
+    // 「剔掉了多少」在 --check 里看得见，而不是只能翻清单。
+    const glibc = platform === "linux" ? `；确认 glibc 时 ${packagesForPlatform(built, platform, arch, "glibc").length} 个` : "";
+    return `${platform}-${arch}: ${set.length} 个包${glibc}${hasEntry && hasNative ? "" : "（缺入口或原生依赖！）"}`;
   });
 
   if (check) {
