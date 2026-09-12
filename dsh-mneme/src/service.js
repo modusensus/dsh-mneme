@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { TYPE_FILE } from "./mirror.js";
+import { updatedAtBounds } from "./store.js";
 import { STR, langOf } from "./lang.js";
 import { computeHeat } from "./heat.js";
 import { evaluateMemoryQuality } from "./quality-filter.js";
@@ -43,6 +44,41 @@ const SIGNAL_TAGS = ["low_quality", "duplicate", "meta", "repetitive", "short_co
 // 口径一致——两把钥匙只有都过这里再比较，NULL 与 'global' 才不会错配。
 function scopeKeyOf(v) {
   return typeof v === "string" && v.trim() ? v.trim() : null;
+}
+
+// v0.8.0 A2（issue #17）scope 检索加权系数：当前会话 scope 两维都命中 → 加成；
+// 任一维度带着他 scope → 降权但保留可见（硬过滤是 A3 strictScope）。未标注行
+// （NULL）与无法比较的维度恒中性——全局/存量记忆不因加权掉位。系数是模块常量
+// 而非配置项：A2 只定性行为，数值要等线上检索质量反馈再调（加配置面=提前优化）。
+const SCOPE_MATCH_BOOST = 1.25;
+const SCOPE_FOREIGN_PENALTY = 0.5;
+
+/**
+ * 单条候选的 scope 乘数。匹配语义与去重键一致（scopeKeyOf）：记忆侧未标注视同
+ * 该维度命中（全局记忆对谁都可见）；当前会话侧某维度解析不到则该维度不参与
+ * 比较（无法比较 ≠ 不匹配）。
+ */
+function scopeMultiplier(m, current) {
+  const agentForeign = scopeKeyOf(m.agent_scope) !== null
+    && current.agent_scope !== null
+    && scopeKeyOf(m.agent_scope) !== current.agent_scope;
+  const workspaceForeign = scopeKeyOf(m.workspace_scope) !== null
+    && current.workspace_scope !== null
+    && scopeKeyOf(m.workspace_scope) !== current.workspace_scope;
+  return (agentForeign || workspaceForeign) ? SCOPE_FOREIGN_PENALTY : SCOPE_MATCH_BOOST;
+}
+
+/**
+ * v0.8.0 A2：occurred_at 后置过滤谓词（搜索融合池用）。行侧取
+ * COALESCE(occurred_at, created_at)——与 store.list 的 SQL 过滤同口径，未标注
+ * 行回退创建时间；时间戳损坏的行保留（宁可放宽也不误杀，同 summarize inWindow）。
+ */
+function inOccurredBounds(m, bounds) {
+  const t = Date.parse(String(m.occurred_at ?? m.created_at ?? ""));
+  if (!Number.isFinite(t)) return true;
+  if (bounds.from && t < Date.parse(bounds.from)) return false;
+  if (bounds.to && t > Date.parse(bounds.to)) return false;
+  return true;
 }
 
 /** Prepend the previous content to a memory's content_history (FIFO capped). */
@@ -596,7 +632,19 @@ export function createService({ store, mirror, config, onWrite, logger }) {
    * a vector/rerank failure degrades to keyword results.
    */
   async function searchMemories(query, options = {}) {
-    const { mode = "auto", topK = 20, threshold, useRerank = true, recordRecall = options.recordRecall ?? (config?.recallRecordDefault ?? true) } = options;
+    const {
+      mode = "auto",
+      topK = 20,
+      threshold,
+      useRerank = true,
+      // v0.8.0 A2（issue #17）：当前会话 scope（工具层从 exec 解析后传入）与
+      // occurred_at 时间窗。两者都只在显式传入时生效，既有调用方（注入/梦/评测）
+      // 不传 → 行为与 A2 前一致。
+      scope = null,
+      occurredFrom = null,
+      occurredTo = null,
+      recordRecall = options.recordRecall ?? (config?.recallRecordDefault ?? true)
+    } = options;
     const q = String(query ?? "").trim();
     if (!q) return [];
 
@@ -663,6 +711,12 @@ export function createService({ store, mirror, config, onWrite, logger }) {
 
     const { merged: fusedMerged, signals } = fuseRecall({ keyword, vector, bm25, lim, mode, wv, wk, wb });
     let merged = fusedMerged;
+    // v0.8.0 A2：occurred_at 时间过滤——在融合池上先滤再 dedup/slice，rerank
+    // 只看窗内候选，topK 槽位不被窗外行占用。
+    const occurredBounds = updatedAtBounds(occurredFrom, occurredTo);
+    if (occurredBounds.from || occurredBounds.to) {
+      merged = merged.filter((m) => inOccurredBounds(m, occurredBounds));
+    }
     // Signal transparency (#2): decorate each returned row with its per-source
     // scores and the final fused score. Purely additive — never changes rank.
     if (config?.signalTransparency === true) {
@@ -688,6 +742,17 @@ export function createService({ store, mirror, config, onWrite, logger }) {
           ...m,
           score: (m.score ?? 0) * (EPISTEMIC_WEIGHTS[m.epistemic_status] ?? 1)
         }))
+        .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+        .slice(0, lim);
+    }
+
+    // v0.8.0 A2（issue #17）：scope 检索加权——当前会话 scope 两维命中的候选
+    // 加成、带他 scope 的候选降权但保留可见（硬过滤是 A3 strictScope）。未标注
+    // 行与无法比较的维度恒中性；flag 关或调用方未传 scope 时不动分，排序与
+    // A2 前逐字节一致。与 epistemic 加权同款收尾：乘分 → 降序 → 截 topK。
+    if (config.scopeEnabled === true && scope && (scope.agent_scope || scope.workspace_scope)) {
+      result = result
+        .map((m) => ({ ...m, score: (m.score ?? 0) * scopeMultiplier(m, scope) }))
         .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
         .slice(0, lim);
     }
@@ -1252,7 +1317,14 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       importance: m.importance,
       source: m.source,
       created_at: m.created_at,
-      updated_at: m.updated_at
+      updated_at: m.updated_at,
+      // v0.8.0 A2：scope 标注与事件发生时间透出——条件展开（未标注行不带键，
+      // DTO 与 A2 前逐字节同形；带 undefined 键会被 in-process schema 校验
+      // 判违规，JSON 序列化虽会丢弃但形状不稳定）。
+      ...(m.agent_scope !== undefined ? { agent_scope: m.agent_scope } : {}),
+      ...(m.workspace_scope !== undefined ? { workspace_scope: m.workspace_scope } : {}),
+      ...(m.sensitivity !== undefined ? { sensitivity: m.sensitivity } : {}),
+      ...(m.occurred_at !== undefined ? { occurred_at: m.occurred_at } : {})
     }));
   }
 

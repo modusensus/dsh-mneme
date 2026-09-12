@@ -26,9 +26,34 @@ const MEMORY_ITEM_SCHEMA = {
     tags: { type: "array", items: { type: "string" } },
     importance: { type: "integer", required: true },
     source: { type: "string" },
+    // v0.8.0 A2：scope 标注与事件发生时间随行透出（未标注时缺省，可选属性）。
+    agent_scope: { type: "string" },
+    workspace_scope: { type: "string" },
+    sensitivity: { type: "string" },
+    occurred_at: { type: "string" },
     created_at: { type: "string", required: true },
     updated_at: { type: "string", required: true }
   }
+};
+
+// v0.8.0 A2：occurred 时间窗参数 → store 过滤选项（list/count 同口径）；
+// 未传参返回空对象，既有调用方不受影响。
+function occurredWindow(args) {
+  const from = args?.occurred_from ?? null;
+  const to = args?.occurred_to ?? null;
+  return from !== null || to !== null ? { occurredFrom: from, occurredTo: to } : {};
+}
+
+// v0.8.0 A2：检索结果的 provenance 附加段——只在有标注时出现，未标注行渲染
+// 与 A2 前逐字节一致。
+const MEMORY_PROVENANCE = (m) => {
+  const parts = [];
+  if (m.occurred_at) parts.push(`occurred: ${m.occurred_at}`);
+  if (m.agent_scope || m.workspace_scope) {
+    parts.push(`scope: ${m.agent_scope ?? "global"} / ${m.workspace_scope ?? "global"}`);
+  }
+  if (m.sensitivity) parts.push(`sensitivity: ${m.sensitivity}`);
+  return parts.length ? ` | ${parts.join(" | ")}` : "";
 };
 
 export function createTools(ctx, service, config, embedder) {
@@ -38,9 +63,9 @@ export function createTools(ctx, service, config, embedder) {
     registeredTools = new Set();
     REGISTERED_TOOLS.set(toolsRegistry, registeredTools);
   }
-  // v0.8.0 A1（issue #17）：写入端 scope 解析（agentPreset + workspace 反查）。
-  // flag 关闭时 resolveWriteScope 恒返回 null，写入路径与 A1 前完全一致。
-  const resolveWriteScope = createScopeResolver({ ctx, config });
+  // v0.8.0 A1/A2（issue #17）：会话 scope 解析（agentPreset + workspace 反查）。
+  // flag 关闭时恒返回 null——写入不标注，检索不加权，行为与 A1 前完全一致。
+  const resolveSessionScope = createScopeResolver({ ctx, config });
   const tools = [
     defineTool({
       name: "memory_save",
@@ -73,7 +98,7 @@ export function createTools(ctx, service, config, embedder) {
         // scope 标注：agent_scope/workspace_scope 由会话身份解析（不作为模型
         // 参数），sensitivity/occurred_at 来自显式参数。解析绝不抛错、取不到
         // 落 NULL；flag 关闭时 scope 为 null，一个字段都不标注。
-        const scope = resolveWriteScope(exec);
+        const scope = resolveSessionScope(exec);
         const { action, memory } = service.saveWithDedupe({
           type: args.type,
           title: args.title,
@@ -92,12 +117,15 @@ export function createTools(ctx, service, config, embedder) {
     defineTool({
       name: "memory_search",
       description: "Search the cross-session memory store. Use when you need past context: how a problem was solved, user preferences, project decisions. Substring-matches title/content/tags, and augments results with semantic (vector) recall + optional rerank when an embeddings provider is configured. Returns matching entries with source and timestamps.",
+      // A2 检索接线：occurred 时间窗 + 会话 scope 加成（见 execute）。
       parameters: {
         query: { type: "string", required: true, description: "Search text; substring match over title/content/tags" },
         limit: { type: "integer", description: "Max results (default 20)" },
         mode: { type: "string", enum: ["auto", "keyword", "vector", "hybrid"], description: "auto (default) = keyword hits first + vector fill when enabled; keyword = text only; vector = semantic recall first (falls back to keyword); hybrid = vector leads, keyword fills remaining slots" },
         semantic: { type: "boolean", description: "Shorthand: enable semantic (vector) recall (same as mode=vector when true)" },
-        rerank: { type: "boolean", description: "Run cross-encoder rerank over candidates when a local reranker is configured (default true)" }
+        rerank: { type: "boolean", description: "Run cross-encoder rerank over candidates when a local reranker is configured (default true)" },
+        occurred_from: { type: "string", description: "Optional ISO date/timestamp lower bound on when the remembered event happened (occurred_at, falling back to created_at). Date-only values are inclusive from that day's 00:00Z." },
+        occurred_to: { type: "string", description: "Optional ISO date/timestamp upper bound on occurred_at. Date-only values are inclusive through that day's 23:59:59.999Z." }
       },
       output: {
         schema: {
@@ -117,19 +145,26 @@ export function createTools(ctx, service, config, embedder) {
             .map((m, i) => {
               const preview = (m.content ?? "").replace(/\s+/g, " ").trim();
               const cut = preview.length > 200 ? `${preview.slice(0, 200)}…` : preview;
-              return `[${i + 1}] ${m.title}\n    ID: ${m.id} | type: ${m.type} | importance: ${m.importance} | updated: ${m.updated_at}\n    ${cut}`;
+              return `[${i + 1}] ${m.title}\n    ID: ${m.id} | type: ${m.type} | importance: ${m.importance} | updated: ${m.updated_at}${MEMORY_PROVENANCE(m)}\n    ${cut}`;
             })
             .join("\n\n");
           return TEXT_OUTPUT(`Found ${items.length} memory entr${items.length === 1 ? "y" : "ies"}:\n\n${body}`);
         }
       },
-      async execute(args) {
+      async execute(args, exec) {
         const limit = args.limit ?? 20;
         const mode = args.semantic === true && !args.mode ? "vector" : args.mode ?? "auto";
+        // v0.8.0 A2（issue #17）：scope 检索加权 + occurred 时间窗的检索接线。
+        // flag 关闭或解析不出 scope 时为 null，检索行为与 A2 前一致。
+        const scope = resolveSessionScope(exec);
+        const occurredFrom = args.occurred_from ?? null;
+        const occurredTo = args.occurred_to ?? null;
         const rows = await service.searchMemories(args.query, {
           mode,
           topK: limit,
-          useRerank: args.rerank !== false
+          useRerank: args.rerank !== false,
+          ...(scope ? { scope } : {}),
+          ...(occurredFrom !== null || occurredTo !== null ? { occurredFrom, occurredTo } : {})
         });
         return { items: service.toApiList(rows) };
       }
@@ -142,7 +177,9 @@ export function createTools(ctx, service, config, embedder) {
         type: { type: "string", enum: ["preference", "project", "decision", "history", "rejected_solution", "pitfall", "constraint"], description: "Filter by type; omit for all" },
         limit: { type: "integer", description: "Page size (default 50)" },
         offset: { type: "integer", description: "Page offset (default 0)" },
-        include_archived: { type: "boolean", description: "Include archived (hidden) entries so they can be found and restored (default false)" }
+        include_archived: { type: "boolean", description: "Include archived (hidden) entries so they can be found and restored (default false)" },
+        occurred_from: { type: "string", description: "Optional ISO date/timestamp lower bound on when the remembered event happened (occurred_at, falling back to created_at). Date-only values are inclusive from that day's 00:00Z." },
+        occurred_to: { type: "string", description: "Optional ISO date/timestamp upper bound on occurred_at. Date-only values are inclusive through that day's 23:59:59.999Z." }
       },
       output: {
         schema: {
@@ -160,7 +197,7 @@ export function createTools(ctx, service, config, embedder) {
           const items = value.items ?? [];
           if (items.length === 0) return TEXT_OUTPUT(`0 memory entries (of ${value.total}).`);
           const body = items
-            .map((m, i) => `[${i + 1}] ${m.title} (type=${m.type}, importance=${m.importance})\n    ID: ${m.id} | updated: ${m.updated_at}`)
+            .map((m, i) => `[${i + 1}] ${m.title} (type=${m.type}, importance=${m.importance})\n    ID: ${m.id} | updated: ${m.updated_at}${MEMORY_PROVENANCE(m)}`)
             .join("\n\n");
           return TEXT_OUTPUT(`${items.length} memory entries (of ${value.total}):\n\n${body}`);
         }
@@ -171,9 +208,10 @@ export function createTools(ctx, service, config, embedder) {
           type: args.type,
           limit: args.limit ?? 50,
           offset: args.offset ?? 0,
-          includeArchived
+          includeArchived,
+          ...occurredWindow(args)
         }));
-        return { items: rows, total: service.count(args.type, { includeArchived }) };
+        return { items: rows, total: service.count(args.type, { includeArchived, ...occurredWindow(args) }) };
       }
     }),
 
@@ -199,6 +237,10 @@ export function createTools(ctx, service, config, embedder) {
                 tags: { type: "array", items: { type: "string" } },
                 content: { type: "string", required: true },
                 source: { type: "string" },
+                agent_scope: { type: "string" },
+                workspace_scope: { type: "string" },
+                sensitivity: { type: "string" },
+                occurred_at: { type: "string" },
                 created_at: { type: "string" },
                 updated_at: { type: "string" }
               }
@@ -207,7 +249,7 @@ export function createTools(ctx, service, config, embedder) {
         },
         render: (_args, value) => {
           const m = value.memory;
-          return TEXT_OUTPUT(`${m.title}\nID: ${m.id} | type: ${m.type} | importance: ${m.importance}\n\n${m.content}`);
+          return TEXT_OUTPUT(`${m.title}\nID: ${m.id} | type: ${m.type} | importance: ${m.importance}${MEMORY_PROVENANCE(m)}\n\n${m.content}`);
         }
       },
       async execute(args) {
