@@ -38,7 +38,9 @@ const defaultImport = (specifier) => import(specifier);
 const RUNTIME_HINT =
   "本地推理运行时不可用。查看状态：" +
   `node "${fileURLToPath(new URL("../../scripts/mneme-runtime.mjs", import.meta.url))}" status` +
-  "；宿主里已有这份依赖时可用 `adopt --from <宿主 node_modules 目录>` 收编，再用 `verify` 验证。" +
+  "；宿主里已有这份依赖时用 `adopt --from <宿主 node_modules 目录>` 收编，" +
+  "本机哪里都没有时可在任意空目录 `npm i @huggingface/transformers@^4.2.0` 再收编那个 node_modules，" +
+  "最后用 `verify` 验证。" +
   "检索会自动降级为关键词/BM25，不影响记忆读写。";
 
 /**

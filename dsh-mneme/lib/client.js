@@ -427,6 +427,8 @@ window.__ModuleLoader__.load({
         "memory.status.vectorOff": "未启用",
         "memory.status.vectorInit": "初始化中",
         "memory.status.vectorInitHint": "embedder 不可达，正在重试",
+        "memory.status.vectorRuntimeMissing": "缺少本地推理运行时",
+        "memory.status.vectorRuntimeHint": "本地推理运行时未就绪（{status}）：先运行 scripts/mneme-runtime.mjs adopt 收编，详见 LOCAL_MODEL.md §2.5",
         "memory.status.vectorIndexed": "已索引 {n} / {m} 条",
       "memory.status.vectorUnconfigured": "未配置",
       "memory.status.vectorUnconfiguredHint": "未填 embedding 端点/模型或未启用，语义召回不可用",
@@ -735,6 +737,8 @@ window.__ModuleLoader__.load({
         "memory.status.vectorOff": "Disabled",
         "memory.status.vectorInit": "Initializing",
         "memory.status.vectorInitHint": "embedder unreachable, retrying",
+        "memory.status.vectorRuntimeMissing": "Local inference runtime missing",
+        "memory.status.vectorRuntimeHint": "Local inference runtime not ready ({status}): run scripts/mneme-runtime.mjs adopt first — see LOCAL_MODEL.md §2.5",
         "memory.status.vectorIndexed": "Indexed {n} / {m} items",
       "memory.status.vectorUnconfigured": "Not configured",
       "memory.status.vectorUnconfiguredHint": "No embedding endpoint/model configured — semantic recall is off",
@@ -2592,7 +2596,8 @@ window.__ModuleLoader__.load({
 
     // 向量索引 — whether semantic recall is switched on.
     function VectorStatusCard({ t }) {
-      const [state, setState] = useState({ loading: true, error: false, provider: null, ready: null, configured: null, degraded: false, dimension: 0, embedded: 0, total: 0 });
+      const [state, setState] = useState({ loading: true, error: false, provider: null, ready: null, dimension: 0, embedded: 0, total: 0, localRuntime: null });
+      const [state, setState] = useState({ loading: true, error: false, provider: null, ready: null, configured: null, degraded: false, dimension: 0, embedded: 0, total: 0, localRuntime: null });
       useEffect(() => {
         let cancelled = false;
         // #118: /vector-config is secret-bearing (401 without a stored token →
@@ -2616,13 +2621,31 @@ window.__ModuleLoader__.load({
               // successful embed — fall back to the index stats' dimension.
               dimension: Number(j?.dimension ?? j?.index?.dimension ?? 0),
               embedded: Number(j?.index?.embeddedCount ?? 0),
-              total: Number(j?.index?.totalCount ?? 0)
+              total: Number(j?.index?.totalCount ?? 0),
+              // issue #131: 自管运行时状态。与 provider 无关地拿来，由下面决定是否要展示。
+              localRuntime: j?.localRuntime ?? null
             });
           })
-          .catch(() => { if (!cancelled) setState({ loading: false, error: true, provider: null, ready: null, dimension: 0, embedded: 0 }); });
+          .catch(() => { if (!cancelled) setState({ loading: false, error: true, provider: null, ready: null, dimension: 0, embedded: 0, localRuntime: null }); });
         return () => { cancelled = true; };
       }, []);
       const off = !state.provider;
+      const pending = !off && state.ready !== true;
+      // 本地 provider 缺运行时：绝不能显示「初始化中」——它永远不会初始化，只会一直重试，
+      // 而那正是 393MB 那份运行时缺位的真实原因。这里必须说真话并给出下一步。
+      const localBlocked = /^Local/.test(state.provider || "") && state.localRuntime?.status !== "available" && state.localRuntime != null;
+      const num = off
+        ? t("memory.status.vectorOff")
+        : localBlocked
+          ? t("memory.status.vectorRuntimeMissing")
+          : pending
+            ? t("memory.status.vectorInit")
+            : `${state.provider.replace(/Embedder$/, "")} · ${state.dimension}D`;
+      const cap = localBlocked
+        ? t("memory.status.vectorRuntimeHint").replace("{status}", state.localRuntime.status)
+        : pending
+          ? t("memory.status.vectorInitHint")
+          : off ? "" : t("memory.status.vectorIndexed").replace("{n}", state.embedded).replace("{m}", state.total);
       // issue #135: 先把「没配」和「配了但在初始化」分开。此前两者都落到
       // ready !== true，于是未配置的 legacy embedder（ready 恒 true）反而
       // 一路显示成正常状态。
@@ -2630,21 +2653,28 @@ window.__ModuleLoader__.load({
       const pending = !off && !unconfigured && state.ready !== true;
       // 配好了、库里有东西、却一条都没嵌上 —— 这才是真正的降级。
       const degraded = !off && !unconfigured && !pending && state.degraded === true;
+      // 本地 provider 缺运行时：绝不能显示「初始化中」——它永远不会初始化，只会一直重试，
+      // 而那正是那份运行时（数百 MB）缺位的真实原因。这里必须说真话并给出下一步。
+      const localBlocked = /^Local/.test(state.provider || "") && state.localRuntime?.status !== "available" && state.localRuntime != null;
       const num = off
         ? t("memory.status.vectorOff")
+        : localBlocked
+          ? t("memory.status.vectorRuntimeMissing")
+          : unconfigured
+            ? t("memory.status.vectorUnconfigured")
+            : pending
+              ? t("memory.status.vectorInit")
+              : `${state.provider.replace(/Embedder$/, "")} · ${state.dimension}D`;
+      const cap = localBlocked
+        ? t("memory.status.vectorRuntimeHint").replace("{status}", state.localRuntime.status)
         : unconfigured
-          ? t("memory.status.vectorUnconfigured")
+          ? t("memory.status.vectorUnconfiguredHint")
           : pending
-            ? t("memory.status.vectorInit")
-            : `${state.provider.replace(/Embedder$/, "")} · ${state.dimension}D`;
-      const cap = unconfigured
-        ? t("memory.status.vectorUnconfiguredHint")
-        : pending
-          ? t("memory.status.vectorInitHint")
-          : off ? ""
-            : degraded
-              ? t("memory.status.vectorDegradedHint").replace("{m}", state.total)
-              : t("memory.status.vectorIndexed").replace("{n}", state.embedded).replace("{m}", state.total);
+            ? t("memory.status.vectorInitHint")
+            : off ? ""
+              : degraded
+                ? t("memory.status.vectorDegradedHint").replace("{m}", state.total)
+                : t("memory.status.vectorIndexed").replace("{n}", state.embedded).replace("{m}", state.total);
       return h(StatusCard, {
         t,
         title: t("memory.status.vector"),

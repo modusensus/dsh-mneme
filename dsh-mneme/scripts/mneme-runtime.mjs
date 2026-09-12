@@ -36,6 +36,10 @@ const USAGE = `本地推理运行时管理（dsh-mneme / issue #131）
   status  只读探查：这份运行时在哪、来源是什么、结构完不完整。不加载模型。
   adopt   把宿主 node_modules 里已有的那份依赖闭包收编进插件自管目录，
           优先用硬链接（同盘时几乎不额外占盘）。收编后宿主那份可以随时被 pnpm 删掉。
+          本机哪里都没有这份依赖时，可在任意空目录先装一份：
+              npm i @huggingface/transformers@^4.2.0
+          再把那个 node_modules 作为 --from 传进来。必须让安装脚本正常执行（npm 默认会，
+          pnpm 10+ 默认拦截构建脚本），否则取不到 onnxruntime-node / sharp 的原生二进制。
   verify  真加载运行时并跑一次推理，外加结构与完整性检查。
           ⚠ 功能验证是离线的（allowRemoteModels=false）：模型必须已在缓存目录里，
           否则会明确失败 —— 这是有意的，验证不该偷偷触网。

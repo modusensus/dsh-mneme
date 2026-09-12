@@ -15,7 +15,7 @@
 
 > 依赖解析分三层：① **插件自管运行时目录**（`~/.dsh/mneme/runtime/`，见 §2.5，优先）；② 宿主 profile 里已装的 `@huggingface/transformers`；③ 都没有则本地推理不可用，检索自动降级为关键词/BM25（读写在任何情况下都不受影响）。
 >
-> 目前插件仍把 `@huggingface/transformers` 声明在 `dependencies`，所以第 ② 层恒可用；后续版本会摘掉该声明、改由自管运行时承接。**建议提前按 §2.5 收编一份**，否则升级后本地嵌入会不可用。
+> 从本版起 `@huggingface/transformers` 已从 `dependencies` 降为**可选 peer**（`peerDependenciesMeta.optional`），安装插件时不会再带上它和它那套原生闭包；第 ② 层因此只对「自己装过这份依赖」或「从旧版本升级上来、尚未被 prune」的环境有效。**正在使用本地嵌入的用户请在升级前按 §2.5 收编一份**，否则升级后本地嵌入不可用（读写信道不受影响）。
 >
 > `onnxruntime-node` 作为可选原生后端列在 `allowScripts`（首次安装需确认脚本），无需手动额外安装。
 
@@ -93,6 +93,24 @@ node scripts/mneme-runtime.mjs verify --cache-dir ~/.dsh/mneme/models
 - 运行时不可用时插件不会崩：检索降级为关键词/BM25，读写在任何情况下都不受影响；错误信息会带上 `adopt` 的具体命令。
 - 同一份状态也能从 `GET /api/dsh-mneme/semantic` 的 `localRuntime` 字段读到（面板与 CLI 同源）。
 
+#### 升级前必做（否则本地嵌入会断）
+
+如果你正在使用本地嵌入（`embedProvider: local`），**在升级到已摘掉 `dependencies` 声明的版本之前**先执行一次 `adopt` + `verify`。顺序不能反：升级时 pnpm 会 prune 掉宿主里那份依赖，那之后就没有可收编的源了，只剩联网下载一条路。
+
+#### 本机没有可收编的副本时
+
+全新机器、或从没装过这份依赖时，可以用 npm 自己取一份来收编——不必手工逐个下载包：
+
+```bash
+mkdir %TEMP%\mneme-fetch && cd /d %TEMP%\mneme-fetch
+npm i @huggingface/transformers@^4.2.0
+node "<插件目录>\scripts\mneme-runtime.mjs" adopt --from "%TEMP%\mneme-fetch\node_modules"
+```
+
+- **安装脚本必须能执行**：npm 默认会执行生命周期脚本，而 `onnxruntime-node` / `sharp` 正是靠 postinstall 取原生二进制；加 `--ignore-scripts` 会得到一个装不起来的闭包。pnpm 10+ 默认拦截构建脚本，所以这里用 npm 更省事。
+- 收编完那个临时目录可以直接删掉：闭包已经在 `~/.dsh/mneme/runtime/` 里了（硬链接时几乎不额外占盘）。
+- 收编后**仍然建议跑一次 `verify`**——结构完整不等于能推理。
+
 ## 3. 配置
 
 ### 3.1 插件配置（`~/.dsh/profiles/web/cordis.patch.yml`）
@@ -107,7 +125,7 @@ node scripts/mneme-runtime.mjs verify --cache-dir ~/.dsh/mneme/models
     localEmbedDimension: 512    # 与模型匹配的向量维度
     localEmbedDevice: cpu       # cpu | gpu（仅 local 生效）
     localEmbedBatchSize: 8      # 分批嵌入条数，内存紧张调小
-    embedModelCacheDir: ""      # 模型缓存目录（空=用户级 ~/.dsh/mneme/models）
+    embedModelCacheDir: ""      # 模型缓存目录（空=用户级 ~/.dsh/mneme/models；注意：不做 ~ 展开，要指别处必须写绝对路径）
     ollamaBaseUrl: "http://localhost:11434"   # 仅 ollama 生效
     ollamaModel: "nomic-embed-text"           # 仅 ollama 生效（openai 端点走面板 vector-config）
     # ── Rerank（Phase 2，可选）─────────────────
