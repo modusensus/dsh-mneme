@@ -5,6 +5,8 @@ import { createStore } from "../src/store.js";
 import { createService } from "../src/service.js";
 import { createVectorIndex } from "../src/vector-index.js";
 import { runSleep } from "../src/dream/sleep.js";
+import { buildOutcome } from "../src/dream.js";
+import { STR } from "../src/lang.js";
 
 // Issue #126：sleep 冲突阶段的动作集扩展。默认档（sleepActionSet="conflict"）保持
 // 只有 conflict/keep 的窄语义；"full" 开放六分支，让演进型（supersede）与互补型
@@ -249,7 +251,10 @@ test("issue#126 skipInvalid: one invalid pair no longer fails the phase, and lan
     { action: "conflict", winner: "nonexistent-zzz", loser: bad.b.id, reason: "引用了不存在的 id" }
   ]));
   const result = await runSleep(ctx, service, baseConfig({ sleepActionSet: "full" }), ctx.logger, { embedder, vectorIndex }, null);
-  assert.equal(result.phases.conflicts.status, "ok", "valid subset applied instead of failing the whole phase");
+  // Issue #126 review（Copilot）：合法子集已应用但仍有余项被跳过 → degraded，不再是
+  // ok —— 与 dream 的契约对齐，消费方不必去翻审计明细才能区分"整轮"与"残轮"。
+  assert.equal(result.phases.conflicts.status, "degraded", "valid subset applied, run flagged degraded");
+  assert.equal(result.status, "degraded", "the whole sleep run reflects the partial phase");
   assert.equal(service.getById(good.b.id).archived, true, "the valid pair still landed");
   // #104 同向：被跳过的逐对明细进审计行（此前只进日志）。
   const run = store.getDreamRun(result.runId);
@@ -300,5 +305,118 @@ test("issue#126 differentiate: fewer than two live targets is a no-op", () => {
   );
   assert.equal(applied, 0, "differentiate needs two live entries");
   assert.ok(!service.getById(a.id).content.includes("差异注记"), "no note is written without a pair");
+  store.close();
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Issue #126 review（Copilot 逐条）的回归护栏：一处修复一条断言。
+// ═══════════════════════════════════════════════════════════════════════════
+
+test("issue#126r: the default tier rejects an unexpected supersede (opt-in stays opt-in)", async () => {
+  const { service, store, vectorIndex } = setup();
+  const { a, b } = seedPair(service, vectorIndex, "默认档甲", "默认档乙");
+  // 默认档没开 full，模型却输出了 supersede —— 校验器必须挡住。只换 prompt 挡不住，
+  // 这正是 Copilot 指出的 "opt-in 空话"。
+  const ctx = captureCtx(JSON.stringify([{ action: "supersede", winner: b.id, loser: a.id, reason: "越档" }]));
+  const result = await runSleep(ctx, service, baseConfig(), ctx.logger, { embedder, vectorIndex }, null);
+  assert.equal(service.getById(a.id).archived, false, "supersede must not be applied in the default tier");
+  // 全部决策越档 → 无合法决策 → 覆盖率闸整单拒绝（phase 因此没有 applied 计数）。
+  // 这与 #146 之前的行为一致（那时 supersede 同样被判 invalid action）。
+  assert.equal(result.phases.conflicts.applied ?? 0, 0, "nothing was applied");
+  store.close();
+});
+
+test("issue#126r: the full tier still accepts the very same supersede", async () => {
+  const { service, store, vectorIndex } = setup();
+  const { a, b } = seedPair(service, vectorIndex, "全量档甲", "全量档乙");
+  const ctx = captureCtx(JSON.stringify([{ action: "supersede", winner: b.id, loser: a.id, reason: "演进" }]));
+  const result = await runSleep(ctx, service, baseConfig({ sleepActionSet: "full" }), ctx.logger, { embedder, vectorIndex }, null);
+  assert.equal(result.phases.conflicts.applied, 1, "full tier applies it");
+  assert.equal(service.getById(a.id).archived, true);
+  store.close();
+});
+
+test("issue#126r: strict mode no longer rejects a valid supersede over synthetic keeps", async () => {
+  const { service, store, vectorIndex } = setup();
+  const { a, b } = seedPair(service, vectorIndex, "严格甲", "严格乙");
+  const ctx = captureCtx(JSON.stringify([{ action: "supersede", winner: b.id, loser: a.id, reason: "演进" }]));
+  // dreamSkipInvalid:false = 严格模式。covered 预填必须认 supersede 的 winner/loser，
+  // 否则会补两条 keep 与它抢 claim → 整单被拒。
+  const result = await runSleep(
+    ctx, service,
+    baseConfig({ sleepActionSet: "full", dreamSkipInvalid: false }),
+    ctx.logger, { embedder, vectorIndex }, null
+  );
+  assert.equal(result.phases.conflicts.status, "ok", "strict mode accepts the valid supersede");
+  assert.equal(service.getById(a.id).archived, true, "the supersede landed");
+  store.close();
+});
+
+test("issue#126r: the English full prompt names the field the validator requires", () => {
+  const en = STR.prompts.conflictFull.en;
+  assert.ok(en.includes("distinctions"), "the English prompt must name `distinctions`");
+  assert.ok(!en.includes("distinguish must"), "the stale `distinguish` field name is gone");
+});
+
+test("issue#126r: buildOutcome records a disposition for the new actions", () => {
+  const outcome = buildOutcome([
+    { action: "supersede", winner: "w1", loser: "l1" },
+    { action: "differentiate", ids: ["d1", "d2"] }
+  ]);
+  assert.equal(outcome.byId.w1, "supersede-winner");
+  assert.equal(outcome.byId.l1, "superseded-archived");
+  assert.equal(outcome.byId.d1, "differentiated");
+  assert.equal(outcome.byId.d2, "differentiated");
+});
+
+test("issue#126r: differentiate refreshes the cached vectors so the note reaches the index", async () => {
+  const { service, store, vectorIndex } = setup();
+  const { a, b } = seedPair(service, vectorIndex, "向量甲", "向量乙");
+  const before = vectorIndex.getEmbedding(a.id);
+  // 让嵌入器产出与旧向量不同的结果，便于确认"确实重嵌了"。
+  const fresh = { ...embedder, embedSingle: async () => [0, 1, 0] };
+  service.setEmbedder(fresh);
+  const ctx = captureCtx(JSON.stringify([
+    { action: "differentiate", ids: [a.id, b.id], distinctions: ["甲面", "乙面"] }
+  ]));
+  await runSleep(ctx, service, baseConfig({ sleepActionSet: "full" }), ctx.logger, { embedder: fresh, vectorIndex }, null);
+  const after = vectorIndex.getEmbedding(a.id);
+  assert.notDeepEqual(after, before, "the cached vector was recomputed after the content note");
+  assert.deepEqual(after, [0, 1, 0], "it carries the fresh embedding");
+  store.close();
+});
+
+test("issue#126r: the full tier discovers cross-type pairs (differentiate would otherwise be unreachable)", async () => {
+  const { service, store, vectorIndex } = setup();
+  const proj = makeMemory(service, "项目端口", "项目用 8080", "project");
+  const pref = makeMemory(service, "偏好端口", "偏好 8080", "preference");
+  vectorIndex.saveEmbedding(proj.id, [1, 0, 0]);
+  vectorIndex.saveEmbedding(pref.id, [1, 0, 0]);
+  const ctx = captureCtx(JSON.stringify([
+    { action: "differentiate", ids: [proj.id, pref.id], distinctions: ["项目侧", "偏好侧"] }
+  ]));
+  const result = await runSleep(ctx, service, baseConfig({ sleepActionSet: "full" }), ctx.logger, { embedder, vectorIndex }, null);
+  assert.equal(result.phases.conflicts.applied, 1, "the cross-type pair was adjudicated");
+  assert.ok(service.getById(proj.id).content.includes("差异注记"), "differentiate reached the cross-type pair");
+  store.close();
+});
+
+test("issue#126r: a throwing index maintenance degrades to a warning, never fails the phase", async () => {
+  const { service, store, vectorIndex } = setup();
+  const { a, b } = seedPair(service, vectorIndex, "抖动甲", "抖动乙");
+  // deleteEmbedding 抛错 → maintainIndexAfterDream 抛出 → sleep 只能告警：索引维护是
+  // 收尾动作，不能反过来把已经落库的决策判成失败。
+  const badIndex = {
+    getEmbedding: (id) => vectorIndex.getEmbedding(id),
+    saveEmbedding: (id, v) => vectorIndex.saveEmbedding(id, v),
+    deleteEmbedding: () => { throw new Error("index down"); }
+  };
+  const ctx = captureCtx(JSON.stringify([{ action: "supersede", winner: b.id, loser: a.id, reason: "演进" }]));
+  const result = await runSleep(
+    ctx, service, baseConfig({ sleepActionSet: "full" }),
+    ctx.logger, { embedder, vectorIndex: badIndex }, null
+  );
+  assert.equal(service.getById(a.id).archived, true, "the decision itself still landed");
+  assert.equal(result.phases.conflicts.status, "ok", "index maintenance failure is only a warning");
   store.close();
 });

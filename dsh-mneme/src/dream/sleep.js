@@ -16,10 +16,15 @@ import { STR, langOf } from "../lang.js";
 // abortable via an AbortController signal (user activity) — phases check the
 // signal between batches so a running cycle yields promptly.
 import { randomUUID, createHash } from "node:crypto";
-import { validateDecisions, applyDecisions } from "./decisions.js";
-import { findPotentialConflicts } from "./clustering.js";
-import { buildReceipt, describeStreamFailure, resolveDreamEffort, withEffortFallback } from "../dream.js";
+import { validateDecisions, applyDecisions, ACTIONS } from "./decisions.js";
+import { findPotentialConflicts, cosineSimilarity } from "./clustering.js";
+import { buildReceipt, describeStreamFailure, resolveDreamEffort, withEffortFallback, maintainIndexAfterDream } from "../dream.js";
 import { computeHeat } from "../heat.js";
+
+// Issue #126 review（Copilot）：默认档（sleepActionSet="conflict"）允许的动作 = 全局
+// ACTIONS 去掉 #126 新增的两个。从 ACTIONS 派生而非硬编码，将来再扩动作集时自动跟随。
+// 只换 prompt 挡不住模型自发输出新动作，必须由校验器按档位收口。
+const LEGACY_ACTIONS = [...ACTIONS].filter((a) => a !== "supersede" && a !== "differentiate");
 
 const SUMMARY_MAX = 120;
 // Conflict similarity threshold per strictness level (v0.4.0):
@@ -132,7 +137,24 @@ async function phaseConflicts(ctx, service, config, logger, runId, semantic = nu
   const usableMemories = usable.map((i) => memories[i]);
   const usableVectors = usable.map((i) => vectors[i]);
 
+  // Issue #126：动作集档位既要决定 prompt，也要决定**校验器允许的动作集合**（见下方
+  // allowedActions），并且在候选构造阶段就要知道——full 档需要补跨类型对。因此在这里
+  // 解析，而不是等到拼 prompt 时。
+  const actionSet = config.sleepActionSet ?? "conflict";
   const pairs = findPotentialConflicts(usableMemories, usableVectors, threshold);
+  if (actionSet === "full") {
+    // Issue #126 review（Copilot）：findPotentialConflicts 只看同类型，而 full 档的
+    // prompt 明确宣传 differentiate 用于互补型——互补本来就常跨类型（同一事实的项目侧
+    // 与偏好侧）。不补这一遍，那条路径永远选不到。merge 的类型守卫不受影响：它拦在
+    // validateDecisions 里（allowCrossTypeMerge），不在候选生成。
+    for (let i = 0; i < usableMemories.length; i++) {
+      for (let j = i + 1; j < usableMemories.length; j++) {
+        if (usableMemories[i].type === usableMemories[j].type) continue;
+        const sim = cosineSimilarity(usableVectors[i], usableVectors[j]);
+        if (sim > threshold) pairs.push({ a: usableMemories[i], b: usableMemories[j], similarity: sim });
+      }
+    }
+  }
   if (pairs.length === 0) return { status: "skipped", reason: "no conflicts found" };
 
   // Dedupe: each memory participates in at most one pair, highest similarity
@@ -174,9 +196,8 @@ async function phaseConflicts(ctx, service, config, logger, runId, semantic = nu
   ).join("\n\n");
   const sleepEffort = await resolveDreamEffort(ctx, route, config.sleepReasoningEffort, logger);
   let conflictStreamFailure = "";
-  // Issue #126：动作集档位决定 prompt。默认档（"conflict"）保持只有 conflict/keep
-  // 的窄 prompt（零行为变化）；"full" 才开放六分支，让互补型/演进型重复有正确出口。
-  const actionSet = config.sleepActionSet ?? "conflict";
+  // actionSet 已在候选构造前解析（跨类型候选需要它），这里只按档位选 prompt：
+  // 默认档保持只有 conflict/keep 的窄 prompt，"full" 才开放六分支。
   const conflictPrompt = actionSet === "full" ? STR.prompts.conflictFull[language] : STR.prompts.conflict[language];
   const runConflict = (withEffort) => {
     conflictStreamFailure = "";
@@ -204,7 +225,10 @@ async function phaseConflicts(ctx, service, config, logger, runId, semantic = nu
   // 预填作为防御性双保险——漏判读作"未裁决冲突"而非"冲突阶段整体失败"。
   const covered = new Set();
   for (const d of decisions) {
-    if (d?.action === "conflict") {
+    // Issue #126 review（Copilot）：supersede 同样用 winner/loser 定位（没有 ids），
+    // 此前只认 conflict → 它的两个目标都没进 covered → 被补成 implicit keep → 与
+    // supersede 的 claim 冲突：严格模式整单拒绝，宽容模式把合成的 keep 记成 skipped。
+    if (d?.action === "conflict" || d?.action === "supersede") {
       if (typeof d?.winner === "string") covered.add(d.winner);
       if (typeof d?.loser === "string") covered.add(d.loser);
     } else if (Array.isArray(d?.ids)) {
@@ -222,12 +246,28 @@ async function phaseConflicts(ctx, service, config, logger, runId, semantic = nu
     maxUpdatePerRun: config.reflectionUpdateMaxPerRun,
     minAgeHours: config.reflectionUpdateMinAgeHours,
     skipInvalid: config.dreamSkipInvalid !== false,
-    allowCrossTypeMerge: config.allowCrossTypeMerge === true
+    allowCrossTypeMerge: config.allowCrossTypeMerge === true,
+    // Issue #126 review（Copilot）：默认档必须真的只放行旧动作集——只换 prompt 挡不住
+    // 模型自发输出 supersede / differentiate，那样"opt-in 零行为变化"就不成立。
+    allowedActions: actionSet === "full" ? null : LEGACY_ACTIONS
   });
   if (!ok) return { status: "failed", error: `invalid decisions: ${errors.join("; ")}`, skipped };
   const { applied, failures, conflicts } = applyDecisions(decisions, service, logger, snapshot, config);
+  // Issue #126 review（Copilot）：事务内 service.update 会跳过 scheduleEmbed（txDepth>0），
+  // 而 sleep 路径此前没有 dream 那样的 post-apply 索引维护——differentiate 的差异注记与
+  // supersede 的归档都反映不到缓存向量，"注记进 embedding 防再判重复"就是空承诺。
+  if (applied > 0 && semantic?.embedder && semantic?.vectorIndex) {
+    try {
+      await maintainIndexAfterDream(decisions, service, semantic);
+    } catch (error) {
+      logger?.warn?.(`dsh-mneme sleep: index maintenance failed: ${String(error)}`);
+    }
+  }
+  // Issue #126 review（Copilot）：有决策被跳过时不能报 ok——与 dream 的 degraded 契约
+  // 对齐（"合法子集已应用"是 degraded 而非 ok），否则消费方分不清整轮与残轮。
+  const degraded = skipped.length > 0;
   return {
-    status: applied > 0 ? "ok" : failures.length ? "failed" : "noop",
+    status: applied > 0 ? (degraded ? "degraded" : "ok") : failures.length ? "failed" : "noop",
     pairs: selected.length,
     applied,
     failures,
@@ -416,7 +456,11 @@ function deriveStatus(phases) {
   const list = Object.values(phases);
   if (list.length === 0) return "noop";
   const anyError = list.some((p) => p.status === "failed" || p.status === "error");
-  const anyWork = list.some((p) => p.status === "ok");
+  // Issue #126 review（Copilot）：phase 自身可以是 degraded（合法子集已应用但有条目被
+  // 跳过），它同样算"有产出"——否则整轮会被误判成 noop，把真实变更报成空轮。
+  const anyWork = list.some((p) => p.status === "ok" || p.status === "degraded");
+  const anyDegraded = list.some((p) => p.status === "degraded");
+  if (anyDegraded) return "degraded";
   if (anyWork && anyError) return "degraded";
   if (anyError) return "failed";
   if (anyWork) return "ok";
