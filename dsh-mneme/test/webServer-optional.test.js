@@ -47,3 +47,36 @@ test("headless host (no webServer): plugin must not throw", async () => {
   await fiber;
   assert.ok(true, "headless load must not throw");
 });
+
+/** Boot the plugin with ctx.logger.warn captured. */
+async function bootCapturingWarnings(config) {
+  const { ctx } = buildHost(true);
+  const warnings = [];
+  const original = ctx.logger.warn.bind(ctx.logger);
+  ctx.logger.warn = (...args) => { warnings.push(args.join(" ")); original(...args); };
+  await ctx.plugin(mneme, config);
+  return warnings;
+}
+
+// issue #135：向量层未配置时启动必须留下痕迹。此前 legacy OpenAI embedder 恒报
+// ready=true，于是向量层「绿的但全哑」可以静默存在很久 —— 本机这样过了数周，
+// 语义召回、语义去重、rerank、sleep 冲突检测全部失效而面板一切正常。
+// embedProvider 默认就是 "openai"，所以「默认配置 + 空 vector-config」必现。
+test("unconfigured vector layer warns once at boot (issue #135)", async () => {
+  const warnings = await bootCapturingWarnings({ memoryDir: mkdtempSync(join(tmpdir(), "mneme-warn-")) });
+  const vectorWarnings = warnings.filter((w) => w.includes("向量层未配置"));
+  assert.equal(vectorWarnings.length, 1, "exactly one warning, not one per use:\n" + warnings.join("\n"));
+  // 告警必须点名实际受影响的能力，否则用户不知道该去修什么。
+  for (const feature of ["语义召回", "rerank", "sleep", "dream"]) {
+    assert.ok(vectorWarnings[0].includes(feature), `warning must name ${feature}: ${vectorWarnings[0]}`);
+  }
+});
+
+// 轻量模式是有意的选择、不是配置错误：不能刷这条告警（整条向量管线本就不装配）。
+test("light mode does not warn about the vector layer (issue #135)", async () => {
+  const warnings = await bootCapturingWarnings({
+    memoryDir: mkdtempSync(join(tmpdir(), "mneme-light-")),
+    lightMode: true
+  });
+  assert.deepEqual(warnings.filter((w) => w.includes("向量层未配置")), []);
+});

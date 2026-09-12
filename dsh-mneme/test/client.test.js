@@ -625,3 +625,43 @@ test("settings feedback card: prefilled issue + mailto + browse, version from /i
     assert.ok(occurrences >= 2, `i18n key memory.settings.${key} must exist in both zh and en (got ${occurrences})`);
   }
 });
+
+// issue #135：向量状态卡必须区分「没配」与「配了却一条都没嵌上」。此前卡片只看
+// ready，而未配置的 legacy embedder（ready 恒 true）一路显示成正常 provider。
+test("vector status card surfaces the configured/degraded split", () => {
+  // 1. 读后端新字段，缺失（旧服务端）时退化成旧行为而不是误报未配置
+  assert.ok(
+    clientSource.includes('typeof j?.configured === "boolean" ? j.configured : null'),
+    "the card must read `configured` and tolerate older servers that omit it"
+  );
+  assert.ok(
+    clientSource.includes("j?.degraded === true"),
+    "the card must read `degraded`"
+  );
+  // 2. 三态互斥：未配置优先于初始化中，降级只在既非未配置也非初始化时成立
+  assert.ok(
+    clientSource.includes("const unconfigured = !off && state.configured === false;"),
+    "unconfigured must be its own state, not folded into ready"
+  );
+  assert.ok(
+    clientSource.includes("const pending = !off && !unconfigured && state.ready !== true;"),
+    "an unconfigured embedder must not be reported as initializing"
+  );
+  assert.ok(
+    clientSource.includes("const degraded = !off && !unconfigured && !pending && state.degraded === true;"),
+    "degraded must only apply to a configured, settled embedder"
+  );
+  // 3. 三个状态各自的标签/说明走 i18n，双语齐备
+  for (const key of ["vectorUnconfigured", "vectorUnconfiguredHint", "vectorDegradedHint"]) {
+    const occurrences = clientSource.split(`"memory.status.${key}"`).length - 1;
+    assert.ok(occurrences >= 2, `i18n key memory.status.${key} must exist in both zh and en (got ${occurrences})`);
+  }
+  assert.ok(
+    clientSource.includes('t("memory.status.vectorUnconfigured")'),
+    "the unconfigured state must render its own label"
+  );
+  assert.ok(
+    clientSource.includes('t("memory.status.vectorDegradedHint")'),
+    "the degraded state must render its own caption (0 of {m} indexed)"
+  );
+});

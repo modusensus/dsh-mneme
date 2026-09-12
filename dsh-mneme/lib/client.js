@@ -428,6 +428,9 @@ window.__ModuleLoader__.load({
         "memory.status.vectorInit": "初始化中",
         "memory.status.vectorInitHint": "embedder 不可达，正在重试",
         "memory.status.vectorIndexed": "已索引 {n} / {m} 条",
+      "memory.status.vectorUnconfigured": "未配置",
+      "memory.status.vectorUnconfiguredHint": "未填 embedding 端点/模型或未启用，语义召回不可用",
+      "memory.status.vectorDegradedHint": "已索引 0 / {m} 条，语义召回实际不可用",
         "memory.status.llm": "LLM 消耗",
         "memory.status.llmCalls": "近 7 天 · {n} 次调用",
         "memory.status.error": "加载失败"
@@ -733,6 +736,9 @@ window.__ModuleLoader__.load({
         "memory.status.vectorInit": "Initializing",
         "memory.status.vectorInitHint": "embedder unreachable, retrying",
         "memory.status.vectorIndexed": "Indexed {n} / {m} items",
+      "memory.status.vectorUnconfigured": "Not configured",
+      "memory.status.vectorUnconfiguredHint": "No embedding endpoint/model configured — semantic recall is off",
+      "memory.status.vectorDegradedHint": "Indexed 0 / {m} items — semantic recall is effectively unavailable",
         "memory.status.llm": "LLM Usage",
         "memory.status.llmCalls": "Last 7 days · {n} calls",
         "memory.status.error": "Failed to load"
@@ -2586,7 +2592,7 @@ window.__ModuleLoader__.load({
 
     // 向量索引 — whether semantic recall is switched on.
     function VectorStatusCard({ t }) {
-      const [state, setState] = useState({ loading: true, error: false, provider: null, ready: null, dimension: 0, embedded: 0, total: 0 });
+      const [state, setState] = useState({ loading: true, error: false, provider: null, ready: null, configured: null, degraded: false, dimension: 0, embedded: 0, total: 0 });
       useEffect(() => {
         let cancelled = false;
         // #118: /vector-config is secret-bearing (401 without a stored token →
@@ -2602,6 +2608,10 @@ window.__ModuleLoader__.load({
               error: false,
               provider: j?.embedProvider || null,
               ready: j?.ready ?? null,
+              // issue #135: missing on older servers → null/false，卡片退化成
+              // 旧行为（只按 ready 判断），不会误报「未配置」。
+              configured: typeof j?.configured === "boolean" ? j.configured : null,
+              degraded: j?.degraded === true,
               // Legacy OpenAI embedder exposes dimension only after its first
               // successful embed — fall back to the index stats' dimension.
               dimension: Number(j?.dimension ?? j?.index?.dimension ?? 0),
@@ -2613,15 +2623,28 @@ window.__ModuleLoader__.load({
         return () => { cancelled = true; };
       }, []);
       const off = !state.provider;
-      const pending = !off && state.ready !== true;
+      // issue #135: 先把「没配」和「配了但在初始化」分开。此前两者都落到
+      // ready !== true，于是未配置的 legacy embedder（ready 恒 true）反而
+      // 一路显示成正常状态。
+      const unconfigured = !off && state.configured === false;
+      const pending = !off && !unconfigured && state.ready !== true;
+      // 配好了、库里有东西、却一条都没嵌上 —— 这才是真正的降级。
+      const degraded = !off && !unconfigured && !pending && state.degraded === true;
       const num = off
         ? t("memory.status.vectorOff")
+        : unconfigured
+          ? t("memory.status.vectorUnconfigured")
+          : pending
+            ? t("memory.status.vectorInit")
+            : `${state.provider.replace(/Embedder$/, "")} · ${state.dimension}D`;
+      const cap = unconfigured
+        ? t("memory.status.vectorUnconfiguredHint")
         : pending
-          ? t("memory.status.vectorInit")
-          : `${state.provider.replace(/Embedder$/, "")} · ${state.dimension}D`;
-      const cap = pending
-        ? t("memory.status.vectorInitHint")
-        : off ? "" : t("memory.status.vectorIndexed").replace("{n}", state.embedded).replace("{m}", state.total);
+          ? t("memory.status.vectorInitHint")
+          : off ? ""
+            : degraded
+              ? t("memory.status.vectorDegradedHint").replace("{m}", state.total)
+              : t("memory.status.vectorIndexed").replace("{n}", state.embedded).replace("{m}", state.total);
       return h(StatusCard, {
         t,
         title: t("memory.status.vector"),

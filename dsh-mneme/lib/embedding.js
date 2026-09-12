@@ -81,9 +81,13 @@ export function createEmbedder({ store, settings, logger, vectorIndex }) {
     } catch { /* metadata write is best-effort */ }
   }
 
+  // issue #135: 「配置是否齐备」的唯一判据 —— embed()/embedFor() 的守卫与下面
+  // ready/configured 两个 getter 共用，避免以后改一处漏一处。
+  const configComplete = (cfg) => !!(cfg?.enabled && cfg.baseUrl && cfg.apiKey && cfg.model);
+
   async function embedFor(id, title, content) {
     const cfg = settings.getVectorConfig();
-    if (!cfg?.enabled || !cfg.baseUrl || !cfg.apiKey || !cfg.model) return;
+    if (!configComplete(cfg)) return;
     const text = [title, content].filter(Boolean).join("\n");
     const vector = await embedText(cfg, text);
     if (vector) {
@@ -100,6 +104,22 @@ export function createEmbedder({ store, settings, logger, vectorIndex }) {
     // Display name for /semantic: a literal's constructor.name is "Object",
     // which the status card would render verbatim.
     name: "OpenAI",
+    /**
+     * issue #135: 这个 embedder 没有异步初始化，`"ready" in embedder` 的通用
+     * 分支会把它恒判为可用 —— 而 vector-config 四项有缺时它一条都嵌不出来。
+     * 对外报真实可用性，让 /semantic 的 ready 不再是「绿色假阳性」。
+     * 用 getter 而非快照字段：设置面板改完配置无需重启即生效（与 embed() 同源读取）。
+     */
+    get ready() {
+      return configComplete(settings.getVectorConfig());
+    },
+    /**
+     * 与 ready 同源，分开两个名字是给 /semantic 用：local/ollama 的
+     * ready=false 表示「还在初始化」，而这里的 false 表示「根本没配」。
+     */
+    get configured() {
+      return configComplete(settings.getVectorConfig());
+    },
     /** Fire-and-forget re-embed of a memory after any write. */
     schedule(memory) {
       if (!memory?.id) return;
@@ -109,7 +129,7 @@ export function createEmbedder({ store, settings, logger, vectorIndex }) {
     /** Embed one text and return its vector (null on failure/disabled). */
     async embed(query) {
       const cfg = settings.getVectorConfig();
-      if (!cfg?.enabled || !cfg.baseUrl || !cfg.apiKey || !cfg.model) return null;
+      if (!configComplete(cfg)) return null;
       const vector = await embedText(cfg, query);
       if (vector) _dimension = vector.length;
       return vector;
