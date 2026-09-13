@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { TYPE_FILE } from "./mirror.js";
 import { updatedAtBounds } from "./store.js";
+import { normalizeExplicitScope } from "./scope.js";
 import { STR, langOf } from "./lang.js";
 import { computeHeat } from "./heat.js";
 import { evaluateMemoryQuality } from "./quality-filter.js";
@@ -1097,6 +1098,17 @@ export function createService({ store, mirror, config, onWrite, logger }) {
         ? newContent
         : appendContent(existing.content, newContent);
       const importance = Math.min(5, Math.max(existing.importance, memory.importance ?? existing.importance));
+      // v0.8.1 底座（issue #170）：去重命中=scope 值完全同键，此时显式写入把
+      // 被并入行的同维来源升级为 explicit（用户刚刚显式声明了同一归属），
+      // 并刷新 scope_decided_at。仅升级来源、不改值——值改变会走新行。
+      const scopeUpgrade = {};
+      if (memory.agent_scope_source === "explicit" && existing.agent_scope_source !== "explicit") {
+        scopeUpgrade.agent_scope_source = "explicit";
+      }
+      if (memory.workspace_scope_source === "explicit" && existing.workspace_scope_source !== "explicit") {
+        scopeUpgrade.workspace_scope_source = "explicit";
+      }
+      if (Object.keys(scopeUpgrade).length) scopeUpgrade.scope_decided_at = new Date().toISOString();
       const merged = store.update(existing.id, {
         content,
         importance,
@@ -1105,6 +1117,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
         content_history: pushContentHistory(existing, direct
           ? (memory._humanEdited === true ? "human_override" : "overwrite")
           : "auto_merge"),
+        ...scopeUpgrade,
         ...(quality ? { quality_score: quality.score } : {})
       });
       // Bug7: a degraded/archived result is applied on top of the merged row.
@@ -1122,8 +1135,12 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       importance: memory.importance ?? 3,
       source: memory.source ?? "manual",
       // v0.8.0 A1：scope 标注透传（store 端归一化，未标注落 NULL）。
+      // v0.8.1 底座：来源（auto/explicit）与决策时间随行透传。
       agent_scope: memory.agent_scope,
       workspace_scope: memory.workspace_scope,
+      agent_scope_source: memory.agent_scope_source,
+      workspace_scope_source: memory.workspace_scope_source,
+      scope_decided_at: memory.scope_decided_at,
       sensitivity: memory.sensitivity,
       occurred_at: memory.occurred_at,
       ...(quality ? { quality_score: quality.score } : {})
@@ -1441,8 +1458,12 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       // v0.8.0 A2：scope 标注与事件发生时间透出——条件展开（未标注行不带键，
       // DTO 与 A2 前逐字节同形；带 undefined 键会被 in-process schema 校验
       // 判违规，JSON 序列化虽会丢弃但形状不稳定）。
+      // v0.8.1 底座：scope 来源与决策时间随行透出（同样条件展开）。
       ...(m.agent_scope !== undefined ? { agent_scope: m.agent_scope } : {}),
       ...(m.workspace_scope !== undefined ? { workspace_scope: m.workspace_scope } : {}),
+      ...(m.agent_scope_source !== undefined ? { agent_scope_source: m.agent_scope_source } : {}),
+      ...(m.workspace_scope_source !== undefined ? { workspace_scope_source: m.workspace_scope_source } : {}),
+      ...(m.scope_decided_at !== undefined ? { scope_decided_at: m.scope_decided_at } : {}),
       ...(m.sensitivity !== undefined ? { sensitivity: m.sensitivity } : {}),
       ...(m.occurred_at !== undefined ? { occurred_at: m.occurred_at } : {})
     }));
@@ -1734,10 +1755,47 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     // tags——任何带 tags 的更新都会抹掉这条唯一的审计线索（报告实测 150 条低分
     // 记忆里恰好缺的 2 条就是被 update 过的，并因此误判过归档来源）。把 existing
     // 的系统信号标签并集保留；用户自传的标签照常生效。
-    const patch = (p && Array.isArray(p.tags) && old && Array.isArray(old.tags))
+    let patch = (p && Array.isArray(p.tags) && old && Array.isArray(old.tags))
       ? { ...p, tags: [...new Set([...p.tags, ...old.tags.filter((t) => SIGNAL_TAGS.includes(t))])] }
       : p;
+    // v0.8.1 底座（issue #170）：显式 scope 修正。patch 携带 agent_scope /
+    // workspace_scope 键（undefined=该维不动）时归一化并盖 explicit 章 +
+    // scope_decided_at，随后写 scope_changes 审计行（actor：tool=模型侧 /
+    // panel=人工侧）。审计失败只 warn，不反噬主写入。
+    const nextAgentScope = p && p.agent_scope !== undefined ? normalizeExplicitScope(p.agent_scope) : undefined;
+    const nextWorkspaceScope = p && p.workspace_scope !== undefined ? normalizeExplicitScope(p.workspace_scope) : undefined;
+    const scopeChanged = nextAgentScope !== undefined || nextWorkspaceScope !== undefined;
+    if (scopeChanged) {
+      const decidedAt = new Date().toISOString();
+      patch = { ...patch };
+      if (nextAgentScope !== undefined) {
+        patch.agent_scope = nextAgentScope;
+        patch.agent_scope_source = "explicit";
+      }
+      if (nextWorkspaceScope !== undefined) {
+        patch.workspace_scope = nextWorkspaceScope;
+        patch.workspace_scope_source = "explicit";
+      }
+      patch.scope_decided_at = decidedAt;
+    }
     const updated = store.update(id, patch);
+    if (scopeChanged && old && updated) {
+      try {
+        store.saveScopeChange({
+          memory_id: id,
+          actor: ctx.actor === "panel" ? "panel" : "tool",
+          prev_agent_scope: old.agent_scope ?? null,
+          prev_workspace_scope: old.workspace_scope ?? null,
+          next_agent_scope: updated.agent_scope ?? null,
+          next_workspace_scope: updated.workspace_scope ?? null,
+          agent_scope_source: updated.agent_scope_source ?? null,
+          workspace_scope_source: updated.workspace_scope_source ?? null,
+          decided_at: patch.scope_decided_at
+        });
+      } catch (e) {
+        try { ctx.logger?.warn?.(`[dsh-mneme] scope change audit failed: ${String(e)}`); } catch { /* 同样不反噬 */ }
+      }
+    }
     // Record a user correction when any meaningful field changed and the
     // reflection failure tracker is enabled. expected = what it became,
     // actual = what it was before; query (when provided) captures the
@@ -1843,6 +1901,8 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       notifyWrite();
     },
     update: updateMemory,
+    // v0.8.1 底座：scope 归属修正审计（单条记忆，新→旧）。
+    listScopeChanges: (memoryId, opts) => store.listScopeChanges(memoryId, opts),
     // Compare-and-set update: applies the patch only when the row still carries
     // `expectedUpdatedAt`. Returns undefined on a miss (no write) so the caller
     // can re-read and retry — the primitive that prevents lost updates across

@@ -148,6 +148,25 @@ CREATE TABLE IF NOT EXISTS conflict_pending (
 );
 CREATE INDEX IF NOT EXISTS idx_conflict_pending_unresolved ON conflict_pending(resolved_at);
 
+-- scope_changes: v0.8.1 底座（issue #170）scope 归属的人工修正审计。显式声明
+-- （memory_save/memory_update 的 scope 参数、面板编辑）每次改变某条记忆的
+-- agent/workspace 归属都落一行：改动前后值 + 来源 + actor（tool=模型侧 /
+-- panel=人工侧）。与 conflict_pending 同款的 bookkeeping 表：只做审计，
+-- 不触发 write hooks。放宽可见性（label→global）的候选筛选与回放都靠它。
+CREATE TABLE IF NOT EXISTS scope_changes (
+  id                    TEXT PRIMARY KEY,
+  memory_id             TEXT NOT NULL,
+  actor                 TEXT NOT NULL,
+  prev_agent_scope      TEXT,
+  prev_workspace_scope  TEXT,
+  next_agent_scope      TEXT,
+  next_workspace_scope  TEXT,
+  agent_scope_source    TEXT,
+  workspace_scope_source TEXT,
+  decided_at            TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_scope_changes_memory ON scope_changes(memory_id);
+
 -- llm_audit_logs: every background LLM call (autoDream consolidation + summary,
 -- autoSummarize compression) is recorded here — tokens in/out, duration, status
 -- and the trigger that caused it (Bug8). Failures are captured as status='error'
@@ -344,6 +363,13 @@ function normalizeScopeText(raw) {
   return s ? s : null;
 }
 
+// scope 来源列（issue #170 底座）：'auto'=载体自动标注，'explicit'=显式声明。
+// 只认这两个枚举值，其余（含 NULL）落 NULL——NULL 语义是「未标注，或 0.8.1
+// 之前落库的存量标注（视为 auto 的软效力，第 3 步语义收窄时按此口径读）」。
+function normalizeScopeSource(raw) {
+  return raw === "auto" || raw === "explicit" ? raw : null;
+}
+
 // occurred_at：事件发生时间（区别于 created_at 的入库时间）。可解析的时间戳
 // 统一归一到 UTC ISO（A2 的时间过滤要按字典序直接比较）；解析失败落 NULL，
 // 同样不阻塞写入。
@@ -371,6 +397,9 @@ function toRow(row) {
     epistemic_status: row.epistemic_status ?? "subjective",
     agent_scope: row.agent_scope ?? undefined,
     workspace_scope: row.workspace_scope ?? undefined,
+    agent_scope_source: row.agent_scope_source ?? undefined,
+    workspace_scope_source: row.workspace_scope_source ?? undefined,
+    scope_decided_at: row.scope_decided_at ?? undefined,
     sensitivity: row.sensitivity ?? undefined,
     occurred_at: row.occurred_at ?? undefined,
     created_at: row.created_at,
@@ -435,6 +464,22 @@ function toConflictPending(row) {
     created_at: row.created_at,
     resolved_at: row.resolved_at ?? undefined,
     resolved_winner: row.resolved_winner ?? undefined
+  };
+}
+
+function toScopeChange(row) {
+  if (!row) return undefined;
+  return {
+    id: row.id,
+    memory_id: row.memory_id,
+    actor: row.actor,
+    prev_agent_scope: row.prev_agent_scope ?? undefined,
+    prev_workspace_scope: row.prev_workspace_scope ?? undefined,
+    next_agent_scope: row.next_agent_scope ?? undefined,
+    next_workspace_scope: row.next_workspace_scope ?? undefined,
+    agent_scope_source: row.agent_scope_source ?? undefined,
+    workspace_scope_source: row.workspace_scope_source ?? undefined,
+    decided_at: row.decided_at
   };
 }
 
@@ -631,6 +676,16 @@ export function createStore(path) {
   addColumn("memories", "sensitivity", "ALTER TABLE memories ADD COLUMN sensitivity TEXT");
   addColumn("memories", "occurred_at", "ALTER TABLE memories ADD COLUMN occurred_at TEXT");
 
+  // v0.8.1 底座（issue #170）：scope 标注的来源与决策时间。三列全部可空不带
+  // DEFAULT（与 A1 同款零重写迁移）。来源拆成 agent/workspace 各一列而非单列
+  // scope_source：混合来源（agent 维显式 + workspace 维自动）必须可表达——否则
+  // 「提升回全局」之后遗留的自动 workspace 标签会在效力收窄时被一并当成显式，
+  // 恰好复活 issue #170 抱怨的「自动标签吃硬过滤」问题。存量标注行三列皆 NULL，
+  // 读侧按 auto（软效力）口径解释。
+  addColumn("memories", "agent_scope_source", "ALTER TABLE memories ADD COLUMN agent_scope_source TEXT");
+  addColumn("memories", "workspace_scope_source", "ALTER TABLE memories ADD COLUMN workspace_scope_source TEXT");
+  addColumn("memories", "scope_decided_at", "ALTER TABLE memories ADD COLUMN scope_decided_at TEXT");
+
   // Legacy dream_runs without policy_epoch → backfill with the default epoch.
   addColumn("dream_runs", "policy_epoch", "ALTER TABLE dream_runs ADD COLUMN policy_epoch INTEGER NOT NULL DEFAULT 0");
   addColumn("dream_runs", "run_type", "ALTER TABLE dream_runs ADD COLUMN run_type TEXT NOT NULL DEFAULT 'auto'");
@@ -775,8 +830,8 @@ export function createStore(path) {
       : inferEpistemicStatus(memory);
     runAtomically(() => {
       db.prepare(
-        `INSERT INTO memories (id, type, title, content, tags, importance, forgotten, archived, source, content_history, quality_score, embedding, epistemic_status, agent_scope, workspace_scope, sensitivity, occurred_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO memories (id, type, title, content, tags, importance, forgotten, archived, source, content_history, quality_score, embedding, epistemic_status, agent_scope, workspace_scope, agent_scope_source, workspace_scope_source, scope_decided_at, sensitivity, occurred_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         id,
         type,
@@ -792,6 +847,9 @@ export function createStore(path) {
         epistemicStatus,
         normalizeScopeText(memory.agent_scope),
         normalizeScopeText(memory.workspace_scope),
+        normalizeScopeSource(memory.agent_scope_source),
+        normalizeScopeSource(memory.workspace_scope_source),
+        normalizeOccurredAt(memory.scope_decided_at),
         normalizeScopeText(memory.sensitivity),
         normalizeOccurredAt(memory.occurred_at),
         now,
@@ -825,9 +883,26 @@ export function createStore(path) {
     const qualityScore = patch.quality_score !== undefined && Number.isFinite(patch.quality_score)
       ? patch.quality_score
       : (existing.quality_score ?? null);
+    // v0.8.1 底座（issue #170）：scope 列只在本 patch 显式携带该键时才改写
+    // （undefined=不动；null=清空为未标注/global）。来源列只认 auto|explicit。
+    const nextAgentScope = patch.agent_scope !== undefined
+      ? normalizeScopeText(patch.agent_scope)
+      : (existing.agent_scope ?? null);
+    const nextWorkspaceScope = patch.workspace_scope !== undefined
+      ? normalizeScopeText(patch.workspace_scope)
+      : (existing.workspace_scope ?? null);
+    const nextAgentSource = patch.agent_scope_source !== undefined
+      ? normalizeScopeSource(patch.agent_scope_source)
+      : (existing.agent_scope_source ?? null);
+    const nextWorkspaceSource = patch.workspace_scope_source !== undefined
+      ? normalizeScopeSource(patch.workspace_scope_source)
+      : (existing.workspace_scope_source ?? null);
+    const nextDecidedAt = patch.scope_decided_at !== undefined
+      ? normalizeOccurredAt(patch.scope_decided_at)
+      : (existing.scope_decided_at ?? null);
     runAtomically(() => {
       db.prepare(
-        `UPDATE memories SET type=?, title=?, content=?, tags=?, importance=?, source=?, content_history=?, quality_score=?, embedding=?, epistemic_status=?, updated_at=? WHERE id=?`
+        `UPDATE memories SET type=?, title=?, content=?, tags=?, importance=?, source=?, content_history=?, quality_score=?, embedding=?, epistemic_status=?, agent_scope=?, workspace_scope=?, agent_scope_source=?, workspace_scope_source=?, scope_decided_at=?, updated_at=? WHERE id=?`
       ).run(
         type,
         patch.title ?? existing.title,
@@ -839,6 +914,11 @@ export function createStore(path) {
         qualityScore,
         embedding,
         epistemicStatus,
+        nextAgentScope,
+        nextWorkspaceScope,
+        nextAgentSource,
+        nextWorkspaceSource,
+        nextDecidedAt,
         now,
         id
       );
@@ -1668,6 +1748,41 @@ export function createStore(path) {
     ).get().c;
   }
 
+  /**
+   * v0.8.1 底座（issue #170）：scope 归属人工修正的审计行。record 描述「一次
+   * 决策后的完整状态」（prev_* 为改前、next_* 为改后，NULL=global/未标注），
+   * 由调用方（service.updateMemory）在 store.update 成功后写入；本函数不做
+   * 业务校验，只保证审计落库失败不反噬主写入（异常上抛由调用方吞掉记 warn）。
+   */
+  function saveScopeChange({ memory_id, actor, prev_agent_scope, prev_workspace_scope, next_agent_scope, next_workspace_scope, agent_scope_source, workspace_scope_source, decided_at }) {
+    const id = randomUUID();
+    db.prepare(
+      `INSERT INTO scope_changes (id, memory_id, actor, prev_agent_scope, prev_workspace_scope, next_agent_scope, next_workspace_scope, agent_scope_source, workspace_scope_source, decided_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      id,
+      memory_id,
+      actor === "panel" ? "panel" : "tool",
+      normalizeScopeText(prev_agent_scope),
+      normalizeScopeText(prev_workspace_scope),
+      normalizeScopeText(next_agent_scope),
+      normalizeScopeText(next_workspace_scope),
+      normalizeScopeSource(agent_scope_source),
+      normalizeScopeSource(workspace_scope_source),
+      normalizeOccurredAt(decided_at) ?? nowIso()
+    );
+    return toScopeChange(db.prepare("SELECT * FROM scope_changes WHERE id = ?").get(id));
+  }
+
+  /** Scope 修正审计（单条记忆，新→旧）。审计回放与候选复核用。 */
+  function listScopeChanges(memoryId, { limit = 50 } = {}) {
+    const lim = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 200) : 50;
+    const rows = db.prepare(
+      "SELECT * FROM scope_changes WHERE memory_id = ? ORDER BY decided_at DESC, id DESC LIMIT ?"
+    ).all(memoryId, lim);
+    return rows.map(toScopeChange);
+  }
+
   function getFailureStats({ since } = {}) {
     const clause = since ? "WHERE created_at >= ?" : "";
     const params = since ? [since] : [];
@@ -2133,6 +2248,8 @@ export function createStore(path) {
     listConflictPending,
     resolveConflictPending,
     countConflictPending,
+    saveScopeChange,
+    listScopeChanges,
     createEntity,
     findEntityByName,
     findEntityById,

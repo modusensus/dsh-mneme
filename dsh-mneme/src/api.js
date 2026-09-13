@@ -480,6 +480,19 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
             }
             patch.tags = body.tags;
           }
+          // v0.8.1 底座（issue #170）：显式 scope 修正。null=放宽到全局，
+          // 字符串=收窄/改标；归一化（"global"/"*"/空白→NULL + explicit 章 +
+          // 审计行）在 service.updateMemory 内做，路由只做形状校验。
+          if (body.agent_scope !== undefined && body.agent_scope !== null && typeof body.agent_scope !== "string") {
+            sendJson(res, 400, { error: "invalid-agent-scope" });
+            return;
+          }
+          if (body.workspace_scope !== undefined && body.workspace_scope !== null && typeof body.workspace_scope !== "string") {
+            sendJson(res, 400, { error: "invalid-workspace-scope" });
+            return;
+          }
+          if (body.agent_scope !== undefined) patch.agent_scope = body.agent_scope;
+          if (body.workspace_scope !== undefined) patch.workspace_scope = body.workspace_scope;
           if (body.archived !== undefined && typeof body.archived !== "boolean") {
             sendJson(res, 400, { error: "invalid-archived" });
             return;
@@ -501,7 +514,7 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
               ...history
             ].slice(0, 20);
           }
-          if (Object.keys(patch).length) service.update(id, patch);
+          if (Object.keys(patch).length) service.update(id, patch, { actor: "panel" });
           if (body.archived !== undefined) service.setArchived(id, body.archived);
           sendJson(res, 200, { memory: service.getById(id) });
         });

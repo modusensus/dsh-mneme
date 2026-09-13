@@ -1,5 +1,5 @@
 import { defineTool } from "@deepseek-ai/dsh-tools";
-import { createScopeResolver } from "./scope.js";
+import { createScopeResolver, normalizeExplicitScope } from "./scope.js";
 import { describeLocalRuntime, resolveRuntimeEntry } from "./runtime/loader.js";
 import { defaultRuntimeDir } from "./runtime/layout.js";
 import { hostModulesDir, loadRuntimeManifest, provisionRuntime } from "./runtime/provision.js";
@@ -27,8 +27,12 @@ const MEMORY_ITEM_SCHEMA = {
     importance: { type: "integer", required: true },
     source: { type: "string" },
     // v0.8.0 A2：scope 标注与事件发生时间随行透出（未标注时缺省，可选属性）。
+    // v0.8.1 底座：scope 来源（auto/explicit）与决策时间随行透出（同样可选）。
     agent_scope: { type: "string" },
     workspace_scope: { type: "string" },
+    agent_scope_source: { type: "string" },
+    workspace_scope_source: { type: "string" },
+    scope_decided_at: { type: "string" },
     sensitivity: { type: "string" },
     occurred_at: { type: "string" },
     created_at: { type: "string", required: true },
@@ -90,7 +94,9 @@ export function createTools(ctx, service, config, embedder) {
         importance: { type: "integer", description: "1-5; >= threshold auto-injects into future sessions" },
         source: { type: "string", description: "Optional provenance" },
         sensitivity: { type: "string", description: "Optional sensitivity label (free-form, e.g. personal). Same-title entries with different sensitivity stay separate instead of merging." },
-        occurred_at: { type: "string", description: "Optional ISO-8601 instant the remembered event happened (differs from write time). Invalid values are ignored." }
+        occurred_at: { type: "string", description: "Optional ISO-8601 instant the remembered event happened (differs from write time). Invalid values are ignored." },
+        agent_scope: { type: "string", description: "Optional explicit agent-scope declaration (issue #170): 'global' or '*' makes this memory visible to every agent; any other value narrows it to that label. Overrides the automatic carrier label for this write; honored even when automatic scope labeling is disabled." },
+        workspace_scope: { type: "string", description: "Optional explicit workspace-scope declaration: 'global' or '*' makes this memory visible in every workspace; any other value narrows it to that label. Overrides the automatic carrier label for this write; honored even when automatic scope labeling is disabled." }
       },
       output: {
         schema: {
@@ -104,10 +110,18 @@ export function createTools(ctx, service, config, embedder) {
         render: (_args, value) => TEXT_OUTPUT(`memory ${value.action}: ${value.id}`)
       },
       async execute(args, exec) {
-        // scope 标注：agent_scope/workspace_scope 由会话身份解析（不作为模型
-        // 参数），sensitivity/occurred_at 来自显式参数。解析绝不抛错、取不到
-        // 落 NULL；flag 关闭时 scope 为 null，一个字段都不标注。
+        // scope 标注（v0.8.1 底座，issue #170）：默认由会话身份解析（载体自动
+        // 标注，盖 auto 章）；显式 agent_scope/workspace_scope 参数逐维覆盖并盖
+        // explicit 章。解析绝不抛错、取不到落 NULL；scopeEnabled 关闭只关自动
+        // 标注——显式声明是直接用户意图，始终生效。"global"/"*"/空 = 显式全局
+        // （存储 NULL，由 source 列与「从未标注」区分）。
         const scope = resolveSessionScope(exec);
+        const agentLabel = args.agent_scope !== undefined
+          ? { value: normalizeExplicitScope(args.agent_scope), source: "explicit" }
+          : scope ? { value: scope.agent_scope, source: "auto" } : null;
+        const workspaceLabel = args.workspace_scope !== undefined
+          ? { value: normalizeExplicitScope(args.workspace_scope), source: "explicit" }
+          : scope ? { value: scope.workspace_scope, source: "auto" } : null;
         const { action, memory } = service.saveWithDedupe({
           type: args.type,
           title: args.title,
@@ -115,7 +129,8 @@ export function createTools(ctx, service, config, embedder) {
           tags: args.tags ?? [],
           importance: args.importance ?? 3,
           source: args.source ?? "tool",
-          ...(scope ? { agent_scope: scope.agent_scope, workspace_scope: scope.workspace_scope } : {}),
+          ...(agentLabel ? { agent_scope: agentLabel.value, agent_scope_source: agentLabel.source } : {}),
+          ...(workspaceLabel ? { workspace_scope: workspaceLabel.value, workspace_scope_source: workspaceLabel.source } : {}),
           ...(args.sensitivity !== undefined ? { sensitivity: args.sensitivity } : {}),
           ...(args.occurred_at !== undefined ? { occurred_at: args.occurred_at } : {})
         });
@@ -288,7 +303,9 @@ export function createTools(ctx, service, config, embedder) {
         type: { type: "string", enum: ["preference", "project", "decision", "history", "rejected_solution", "pitfall", "constraint"] },
         tags: { type: "array", items: { type: "string" } },
         importance: { type: "integer", description: "1-5" },
-        reason: { type: "string", description: "Optional context for the correction (what the user actually said/wanted), recorded for reflection" }
+        reason: { type: "string", description: "Optional context for the correction (what the user actually said/wanted), recorded for reflection" },
+        agent_scope: { type: "string", description: "Optional explicit agent-scope correction (issue #170): 'global' or '*' widens visibility to every agent; any other value narrows it to that label. Omit to keep the current agent scope. Recorded as an explicit scope decision (audited)." },
+        workspace_scope: { type: "string", description: "Optional explicit workspace-scope correction: 'global' or '*' widens visibility to every workspace; any other value narrows it to that label. Omit to keep the current workspace scope. Recorded as an explicit scope decision (audited)." }
       },
       output: {
         schema: {
@@ -314,7 +331,9 @@ export function createTools(ctx, service, config, embedder) {
           content: args.content,
           type: args.type,
           tags: args.tags,
-          importance: args.importance
+          importance: args.importance,
+          ...(args.agent_scope !== undefined ? { agent_scope: args.agent_scope } : {}),
+          ...(args.workspace_scope !== undefined ? { workspace_scope: args.workspace_scope } : {})
         }, { query: args.reason });
         return { memory: { id: memory.id, title: memory.title, content: memory.content } };
       }

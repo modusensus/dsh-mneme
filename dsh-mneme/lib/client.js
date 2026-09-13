@@ -407,6 +407,12 @@ window.__ModuleLoader__.load({
         "memory.explorer.scopeBadge": "作用域",
         "memory.explorer.detail.agentScope": "Agent 作用域",
         "memory.explorer.detail.workspaceScope": "工作区作用域",
+        "memory.explorer.detail.scopeGlobal": "全局（所有会话可见）",
+        "memory.explorer.detail.scopeSourceAuto": "自动",
+        "memory.explorer.detail.scopeSourceExplicit": "显式",
+        "memory.explorer.detail.scopeEditHint": "留空 = 全局；也可填写具体标签收窄归属",
+        "memory.explorer.detail.scopeWidenConfirm": "确认放宽可见性？",
+        "memory.explorer.detail.scopeWidenHint": "放宽后该记忆将对所有会话可见",
         "memory.explorer.detail.sensitivity": "敏感度",
         "memory.explorer.detail.occurred": "发生时间",
         "memory.explorer.detail.edit": "编辑",
@@ -748,6 +754,12 @@ window.__ModuleLoader__.load({
         "memory.explorer.scopeBadge": "Scoped",
         "memory.explorer.detail.agentScope": "Agent scope",
         "memory.explorer.detail.workspaceScope": "Workspace scope",
+        "memory.explorer.detail.scopeGlobal": "Global (visible to all sessions)",
+        "memory.explorer.detail.scopeSourceAuto": "auto",
+        "memory.explorer.detail.scopeSourceExplicit": "explicit",
+        "memory.explorer.detail.scopeEditHint": "Empty = global; or enter a specific label to narrow the scope",
+        "memory.explorer.detail.scopeWidenConfirm": "Widen visibility?",
+        "memory.explorer.detail.scopeWidenHint": "Widening makes this memory visible to all sessions",
         "memory.explorer.detail.sensitivity": "Sensitivity",
         "memory.explorer.detail.occurred": "Occurred",
         "memory.explorer.detail.edit": "Edit",
@@ -3191,11 +3203,30 @@ window.__ModuleLoader__.load({
     // 右侧滑出：全文、来源、质量分、关联实体与手动操作（编辑/归档/删除）。
     // 编辑态本地暂存草稿，保存经 POST /update 落库；后端成功后重渲染镜像，
     // 前端只做本地视图同步。两步删除确认在此完成（红钮武装 → 实心红提交）。
+    // v0.8.1 底座（issue #170）：scope 行的来源徽注（显式/自动）。存量行无来源
+    // 时不加后缀——与 A4 的「未标注零视觉变化」同款克制。
+    const scopeSourceSuffix = (t, source) =>
+      source === "explicit" ? ` · ${t("memory.explorer.detail.scopeSourceExplicit")}`
+        : source === "auto" ? ` · ${t("memory.explorer.detail.scopeSourceAuto")}`
+        : "";
+    const scopeProvenanceTitle = (t, source, decidedAt) =>
+      [
+        source === "explicit" ? t("memory.explorer.detail.scopeSourceExplicit")
+          : source === "auto" ? t("memory.explorer.detail.scopeSourceAuto") : null,
+        decidedAt ?? null
+      ].filter(Boolean).join(" · ");
+
     function MemoryDrawer({ t, memory, conflict, deleting, deleteError, onClose, onDelete, onSaved }) {
       const [editing, setEditing] = useState(false);
       const [title, setTitle] = useState(memory.title || "");
       const [content, setContent] = useState(memory.content || "");
       const [importance, setImportance] = useState(memory.importance || 3);
+      // v0.8.1 底座（issue #170）：scope 归属的人工修正入口。空串=放宽到全局
+      // （发送 null），非空=收窄到该标签；只有真的改动才会随 patch 发送并盖
+      // explicit 章——普通编辑不得污染归属来源。
+      const [agentScope, setAgentScope] = useState(memory.agent_scope || "");
+      const [workspaceScope, setWorkspaceScope] = useState(memory.workspace_scope || "");
+      const [confirmWiden, setConfirmWiden] = useState(false);
       const [confirmDelete, setConfirmDelete] = useState(false);
       const [busy, setBusy] = useState(false);
       const [savedTick, setSavedTick] = useState(false);
@@ -3234,7 +3265,25 @@ window.__ModuleLoader__.load({
       const save = () => {
         const t2 = title.trim();
         if (!t2) return;
-        postUpdate({ title: t2, content, importance }, {});
+        const patch = { title: t2, content, importance };
+        const curAgent = memory.agent_scope ?? "";
+        const curWorkspace = memory.workspace_scope ?? "";
+        const nextAgent = agentScope.trim();
+        const nextWorkspace = workspaceScope.trim();
+        const agentChanged = nextAgent !== curAgent;
+        const workspaceChanged = nextWorkspace !== curWorkspace;
+        if (agentChanged) patch.agent_scope = nextAgent || null;
+        if (workspaceChanged) patch.workspace_scope = nextWorkspace || null;
+        // 放宽可见性（标注→全局）必须显式确认（issue #170 的安全阀）：
+        // 第一次点保存只弹确认，再次点「确认放宽」才真正落库。
+        const widening = (curAgent && agentChanged && !nextAgent)
+          || (curWorkspace && workspaceChanged && !nextWorkspace);
+        if (widening && !confirmWiden) {
+          setConfirmWiden(true);
+          return;
+        }
+        setConfirmWiden(false);
+        postUpdate(patch, {});
       };
 
       return h("aside", { className: "mneme-drawer", "aria-label": t("memory.explorer.detail") },
@@ -3278,12 +3327,40 @@ window.__ModuleLoader__.load({
             memory.occurred_at && h(react.Fragment, null,
               h("span", { className: "mneme-dmetakey" }, t("memory.explorer.detail.occurred")),
               h("span", { className: "mneme-dmetaval", title: memory.occurred_at }, formatDateShort(memory.occurred_at))),
-            memory.agent_scope && h(react.Fragment, null,
+            // v0.8.1 底座：scope 行双态——查看态展示归属 + 来源徽注（显式声明的
+            // 「全局」也渲染，不再因 NULL 而隐身）；编辑态为文本框（留空=全局）。
+            (editing || memory.agent_scope || memory.agent_scope_source === "explicit") && h(react.Fragment, null,
               h("span", { className: "mneme-dmetakey" }, t("memory.explorer.detail.agentScope")),
-              h("span", { className: "mneme-dmetaval", title: memory.agent_scope }, memory.agent_scope)),
-            memory.workspace_scope && h(react.Fragment, null,
+              editing
+                ? h("input", {
+                    type: "text",
+                    className: "mneme-select",
+                    style: { height: 26, fontSize: 12, justifySelf: "start", width: "100%" },
+                    value: agentScope,
+                    placeholder: t("memory.explorer.detail.scopeGlobal"),
+                    title: t("memory.explorer.detail.scopeEditHint"),
+                    onChange: (e) => setAgentScope(e.target.value)
+                  })
+                : h("span", {
+                    className: "mneme-dmetaval",
+                    title: scopeProvenanceTitle(t, memory.agent_scope_source, memory.scope_decided_at) || memory.agent_scope
+                  }, (memory.agent_scope ?? t("memory.explorer.detail.scopeGlobal")) + scopeSourceSuffix(t, memory.agent_scope_source))),
+            (editing || memory.workspace_scope || memory.workspace_scope_source === "explicit") && h(react.Fragment, null,
               h("span", { className: "mneme-dmetakey" }, t("memory.explorer.detail.workspaceScope")),
-              h("span", { className: "mneme-dmetaval", title: memory.workspace_scope }, memory.workspace_scope)),
+              editing
+                ? h("input", {
+                    type: "text",
+                    className: "mneme-select",
+                    style: { height: 26, fontSize: 12, justifySelf: "start", width: "100%" },
+                    value: workspaceScope,
+                    placeholder: t("memory.explorer.detail.scopeGlobal"),
+                    title: t("memory.explorer.detail.scopeEditHint"),
+                    onChange: (e) => setWorkspaceScope(e.target.value)
+                  })
+                : h("span", {
+                    className: "mneme-dmetaval",
+                    title: scopeProvenanceTitle(t, memory.workspace_scope_source, memory.scope_decided_at) || memory.workspace_scope
+                  }, (memory.workspace_scope ?? t("memory.explorer.detail.scopeGlobal")) + scopeSourceSuffix(t, memory.workspace_scope_source))),
             memory.sensitivity && h(react.Fragment, null,
               h("span", { className: "mneme-dmetakey" }, t("memory.explorer.detail.sensitivity")),
               h("span", { className: "mneme-dmetaval", title: memory.sensitivity }, memory.sensitivity)),
@@ -3316,7 +3393,16 @@ window.__ModuleLoader__.load({
         h("div", { className: "mneme-dactions" },
           editing
             ? h(react.Fragment, null,
-                h("button", { type: "button", className: "mneme-btn", disabled: busy, onClick: save }, t("memory.explorer.detail.save")),
+                confirmWiden
+                  ? h(react.Fragment, null,
+                      h("span", { style: { fontSize: 12, color: "var(--dsw-alias-state-warn,#b8860b)" } },
+                        t("memory.explorer.detail.scopeWidenHint")),
+                      h("button", { type: "button", className: "mneme-btn mneme-btndangerconfirm", disabled: busy, onClick: save },
+                        t("memory.explorer.detail.scopeWidenConfirm")),
+                      h("button", { type: "button", className: "mneme-btn", disabled: busy, onClick: () => setConfirmWiden(false) },
+                        t("memory.explorer.cancel"))
+                    )
+                  : h("button", { type: "button", className: "mneme-btn", disabled: busy, onClick: save }, t("memory.explorer.detail.save")),
                 h("button", {
                   type: "button",
                   className: "mneme-btn",
@@ -3326,6 +3412,9 @@ window.__ModuleLoader__.load({
                     setTitle(memory.title || "");
                     setContent(memory.content || "");
                     setImportance(memory.importance || 3);
+                    setAgentScope(memory.agent_scope || "");
+                    setWorkspaceScope(memory.workspace_scope || "");
+                    setConfirmWiden(false);
                   }
                 }, t("memory.explorer.detail.cancel")),
                 savedTick && h("span", { className: "mneme-saved" }, t("memory.explorer.detail.saved")),
