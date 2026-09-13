@@ -111,7 +111,7 @@ window.__ModuleLoader__.load({
      * 仅在条目带任一 scope 标注（agent_scope / workspace_scope / sensitivity）
      * 时渲染；字段缺省返回 null（未标注条目视觉零变化，前端不感知开关状态，
      * 与 HeatBadge 的「数据缺省即不渲染」同一模式）。tooltip 展示完整归属，
-     * 正文本体只有本地化的短标签（「作用域」/ "Scoped"）。
+     * 标签复用详情抽屉的 i18n 键（云端复验观察点：tooltip 曾硬编码英文）。
      *
      * @param {{m: object, t: (key: string) => string}} props
      * @param {object} props.m 记忆条目（/list、/search 透出的 toApiList 形状，
@@ -122,9 +122,9 @@ window.__ModuleLoader__.load({
     const ScopeBadge = ({ m, t }) => {
       if (!m || (!m.agent_scope && !m.workspace_scope && !m.sensitivity)) return null;
       const tip = [
-        m.agent_scope ? `agent: ${m.agent_scope}` : null,
-        m.workspace_scope ? `workspace: ${m.workspace_scope}` : null,
-        m.sensitivity ? `sensitivity: ${m.sensitivity}` : null
+        m.agent_scope ? `${t("memory.explorer.detail.agentScope")}: ${m.agent_scope}` : null,
+        m.workspace_scope ? `${t("memory.explorer.detail.workspaceScope")}: ${m.workspace_scope}` : null,
+        m.sensitivity ? `${t("memory.explorer.detail.sensitivity")}: ${m.sensitivity}` : null
       ].filter(Boolean).join(" · ");
       return h("span", { className: "mneme-badge mneme-badge--scope", title: tip },
         t("memory.explorer.scopeBadge"));
