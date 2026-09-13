@@ -10,7 +10,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-3E63DD?style=flat-square" alt="license"></a>
   <a href="https://github.com/modusensus/dsh-mneme/actions"><img src="https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/ci.yml?style=flat-square&label=CI" alt="CI"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-24%2B-3E63DD?style=flat-square&logo=nodedotjs&logoColor=white" alt="node"></a>
-  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-916%20passed-3E63DD?style=flat-square" alt="tests"></a>
+  <a href="https://github.com/modusensus/dsh-mneme"><img src="https://img.shields.io/badge/tests-981%20passed-3E63DD?style=flat-square" alt="tests"></a>
   <a href="https://codecov.io/gh/modusensus/dsh-mneme"><img src="https://img.shields.io/codecov/c/github/modusensus/dsh-mneme/main?style=flat-square" alt="coverage"></a>
   <a href="https://github.com/awesome-dsh-plugin/awesome-dsh-plugin"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="Awesome"></a>
 </p>
@@ -44,7 +44,8 @@
 ## 为什么可以信任它
 
 - 🧾 **可回放、可追责** — 每次自动整理都留一张「决策凭证」：输入快照 + 决策明细 + 结果哈希，同样的整理可复现回放，**不默默吞错、不留无法追溯的改动**。
-- ⚖️ **矛盾先冻结，等你裁决** — 两条记忆打架时，不擅自替你做主。可疑冲突会**挂起待审**，你确认后才生效。复杂判断，人永远在线。
+- ⚖️ **矛盾先冻结，等你裁决**（可关）— 两条记忆打架时，不擅自替你做主。可疑冲突会**挂起待审**，状态页冲突队列里并排对比、一键裁决（保留 A / 保留 B / 仅标记），确认后才生效。复杂判断，人永远在线。
+- 🔐 **记忆按 agent 与工作区隔离**（可关）— `scopeEnabled` 开启后，每条记忆标注由哪个 agent、在哪个工作区写入；检索时本会话作用域优先（命中加权，他 scope 降权仍可见）；`strictScope` 再进一步——带他者作用域的记忆在检索/注入里完全不可见。多 Agent、多项目互不串台。
 - 🌙 **夜深人静才动手**（可关）— 空闲时自动分层归档：常看的留在热区、久不用的压成摘要、陈旧的彻底归档。记忆库**越用越精炼，不膨胀**。
 - 🧠 **本地语义检索，默认离线** — 自带本地 Embedding 与精排，不强求 API Key，网络断了也能检索。
 - 📝 **Markdown 双向同步** — 记忆就是本地 `.md` 文件，随时打开编辑；**人工改动会被优先尊重**，不会被机器覆盖。
@@ -71,6 +72,7 @@ dsh web
 | 完全离线运行 | `embedProvider` | `openai` | 改为 `local` |
 | 删除对话时保留记忆 | `sessionLifecycleEnabled` | `false` | 改为 `true` |
 | 自动提取结构化实体 | `entityExtractionEnabled` | `false` | 改为 `true` |
+| 多 Agent / 多项目记忆隔离 | `scopeEnabled`（硬隔离再加 `strictScope`） | `false` | 改为 `true` |
 
 > 以上均在 DSH 设置面板 → 记忆库设置 中修改。完整配置见 [配置章节](dsh-mneme/README.md)。
 
@@ -129,7 +131,7 @@ dsh web
 
 | 文档 | 路径 |
 |------|------|
-| 插件完整文档（功能 / 安装 / 配置 / 架构） | [dsh-mneme/README.md](dsh-mneme/README.md) · [English](dsh-mneme/README.en.md) |
+| 插件完整文档（功能 / 安装 / 配置 / 架构） | [dsh-mneme/README.md](dsh-mneme/README.md) · [English](dsh-mneme/README.md) |
 | 实体结构化设计 | [dsh-mneme/docs/ENTITIES.md](dsh-mneme/docs/ENTITIES.md) |
 | 语义架构 | [dsh-mneme/docs/SEMANTIC.md](dsh-mneme/docs/SEMANTIC.md) |
 | 本地模型部署指南 | [dsh-mneme/docs/LOCAL_MODEL.md](dsh-mneme/docs/LOCAL_MODEL.md) |
@@ -150,7 +152,7 @@ dsh web
 | **v0.5** | 召回融合与记忆可视化：BM25 + 图谱 + 热记忆 | ✅ |
 | **v0.6** | 会话生命周期：删对话 ≠ 删记忆 | ✅ |
 | **v0.7** | 自进化记忆：热度衰减 + 睡眠双保护 + 桌面端工作台/功能开关 | ✅ |
-| **v0.8** | 图谱增强：兴趣漂移可视化 + 范围隔离 + 跨工作区共享 | 🚧 计划中（9 月末） |
+| **v0.8** | 作用域隔离（agent/workspace 双维隔离 + 检索加权 + opt-in 硬过滤）+ 冲突队列人工裁决 + 斜杠命令提交 Agent + 注入转义回归修复 | ✅ 已发布 |
 
 > 完整逐小版本路线图见 [dsh-mneme/README.md](dsh-mneme/README.md#-进化路线图)。
 
@@ -158,7 +160,7 @@ dsh web
 
 ```bash
 cd dsh-mneme && npm install
-npm test        # 916 个测试
+npm test        # 981 个测试
 npm run stress  # 三轴线压测
 npm run sync    # src → lib 同步
 ```
@@ -190,7 +192,8 @@ Every time you start a new chat, the AI acts like it's never met you?
 ## Why you can trust it
 
 - 🧾 **Replayable, accountable** — every consolidation leaves a "decision receipt": input snapshot + decision detail + result hash. The same run reproduces the same outcome. **No silent mis-merges, no untraceable changes.**
-- ⚖️ **Conflicts freeze, you decide** — when two memories contradict, it does not take sides for you. The suspected conflict is **parked for review** and only applied once you confirm. On hard judgments, a human stays in the loop.
+- ⚖️ **Conflicts freeze, you decide** (opt-in) — when two memories contradict, it does not take sides for you. The suspected conflict is **parked for review**, compared side-by-side in the status-page conflict queue, and resolved with one click (keep A / keep B / mark reviewed). On hard judgments, a human stays in the loop.
+- 🔐 **Memories isolated by agent & workspace** (opt-in) — with `scopeEnabled`, every memory is stamped with which agent wrote it and in which workspace; retrieval favors the current scope (weighted hits, out-of-scope demoted but visible); `strictScope` goes further — memories scoped to other agents/workspaces become invisible to search and injection. Multiple agents and projects, zero cross-talk.
 - 🌙 **It works while you sleep** (opt-in) — idle time triggers tiered archiving: frequent memories stay hot, stale ones compress to summaries, old ones archive. The store **stays lean as it grows**.
 - 🧠 **Local semantic search, offline by default** — built-in local Embedding + reranking. No API key required; retrieval still works without a network.
 - 📝 **Two-way Markdown sync** — memories are local `.md` files you can open and edit; **human edits are respected**, never clobbered by the machine.
@@ -217,8 +220,9 @@ It works out of the box. To feel its value in five minutes:
 | Fully offline | `embedProvider` | `openai` | Change to `local` |
 | Keep memories when deleting sessions | `sessionLifecycleEnabled` | `false` | Change to `true` |
 | Structured entity extraction | `entityExtractionEnabled` | `false` | Change to `true` |
+| Memory isolation per agent / workspace | `scopeEnabled` (hard isolation: add `strictScope`) | `false` | Change to `true` |
 
-> All of these live in DSH Settings → Memory Settings. Full config docs in the [Configuration section](dsh-mneme/README.en.md).
+> All of these live in DSH Settings → Memory Settings. Full config docs in the [Configuration section](dsh-mneme/README.md).
 
 ## The memory loop in one diagram
 
@@ -275,7 +279,7 @@ It works out of the box. To feel its value in five minutes:
 
 | Doc | Path |
 |-----|------|
-| Full plugin docs (features / install / config / architecture) | [dsh-mneme/README.md](dsh-mneme/README.md) · [中文](dsh-mneme/README.en.md) |
+| Full plugin docs (features / install / config / architecture) | [dsh-mneme/README.md](dsh-mneme/README.md) · 中文见同文件中文区 |
 | Entity structure design | [dsh-mneme/docs/ENTITIES.md](dsh-mneme/docs/ENTITIES.md) |
 | Semantic architecture | [dsh-mneme/docs/SEMANTIC.md](dsh-mneme/docs/SEMANTIC.md) |
 | Local model guide | [dsh-mneme/docs/LOCAL_MODEL.md](dsh-mneme/docs/LOCAL_MODEL.md) |
@@ -286,7 +290,7 @@ It works out of the box. To feel its value in five minutes:
 ## 🗺️ Roadmap
 
 ```
-🧬 Gene → 🛡️ Audit hardening → 💤 Sleep maintenance → 🕸️ Recall fusion & graph → ✨ Panel enhancement → 🌡️ Self-evolving memory → 🕸️ Graph enhancement
+🧬 Gene → 🛡️ Audit hardening → 💤 Sleep maintenance → 🕸️ Recall fusion & graph → ✨ Panel enhancement → 🌡️ Self-evolving memory → 🔐 Scope isolation
 ```
 
 | Version | Theme | Status |
@@ -296,17 +300,19 @@ It works out of the box. To feel its value in five minutes:
 | **v0.5** | Recall fusion & visualization: BM25 + graph + hot memory | ✅ |
 | **v0.6** | Session lifecycle: delete session ≠ delete memory | ✅ |
 | **v0.7** | Self-evolving memory: heat decay + sleep dual-protection + desktop workbench/feature toggles | ✅ |
-| **v0.8** | Graph enhancement: interest-drift viz + scope isolation + cross-workspace sharing | 🚧 Planned (late Sep) |
+| **v0.8** | Scope isolation (agent/workspace stamping + retrieval weighting + opt-in hard filter) + conflict review queue + slash commands submitted to Agent + injection escaping restored | ✅ Released |
 
-> Full per-minor-version roadmap in [dsh-mneme/README.en.md](dsh-mneme/README.en.md#-evolution-roadmap).
+> Full per-minor-version roadmap in [dsh-mneme/README.md](dsh-mneme/README.md#-evolution-roadmap).
 
 ## 🧪 Local development
 
 ```bash
 cd dsh-mneme && npm install
-npm test        # 916 tests
+npm test        # 981 tests
 npm run stress  # three-axis stress test
 npm run sync    # src → lib sync
+```
+
 ---
 
 ## 🙏 致谢

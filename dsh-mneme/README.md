@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Awesome](https://awesome-dsh-plugin.com/badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
-[![tests](https://img.shields.io/badge/tests-916%20passed-success)](https://github.com/modusensus/dsh-mneme)
+[![tests](https://img.shields.io/badge/tests-981%20passed-success)](https://github.com/modusensus/dsh-mneme)
 [![CI](https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/ci.yml)](https://github.com/modusensus/dsh-mneme/actions)
 [![node](https://img.shields.io/badge/node-24%2B-blue)](https://nodejs.org)
 [![npm downloads](https://img.shields.io/npm/dm/@modusensus/dsh-mneme?color=blue&label=downloads)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
@@ -17,11 +17,11 @@
 
 ## ⏱️ 30 秒理解
 
-**一句话**：给 Agent 装上跨会话记忆——记住你、记住项目，并在后台自动整理，越用越懂你。
+**一句话**：给 Agent 装上跨会话记忆——记住你、记住项目，并在后台自动整理，越用越懂你；**v0.8.0 起**记忆可按 agent 与工作区隔离（`scopeEnabled`），多 Agent / 多项目互不串台。
 
 | ① 写入 | ② 存储 | ③ 进化 |
 |--------|--------|--------|
-| 对话中模型主动记录（`memory_save`）；会话结束自动提炼（`autoSummarize`） | SQLite 主库 + 人类可编辑 Markdown 镜像；实体 / 属性 / 时间轴三层结构化 | 新会话自动注入相关记忆；autoDream 后台去重 / 合并 / 归档，记忆库自我精炼 |
+| 对话中模型主动记录（`memory_save`，可带敏感度与事件时间）；会话结束自动提炼（`autoSummarize`） | SQLite 主库 + 人类可编辑 Markdown 镜像；实体 / 属性 / 时间轴三层结构化；记忆带 agent / workspace / 敏感度 / 发生时间标注 | 新会话自动注入相关记忆（按当前作用域加权，strictScope 开启后硬隔离）；autoDream 后台去重 / 合并 / 归档，冲突冻结待人工裁决 |
 
 ```bash
 # 30 秒上手
@@ -49,18 +49,19 @@ dsh web
   - 逐 type 记录 `committed / failed / pending` 回执，健康端点区分 `ok / degraded / unknown`
   - 状态写失败不静默：同步失败落日志并留债务，重启自动收敛
 
-### 模型工具（8 个）
+### 模型工具（9 个）
 
 | 工具 | 功能 |
 |------|------|
-| `memory_save` | 记录一条记忆（自动按标题去重合并） |
-| `memory_search` | 全文搜索（中文子串友好，可启用向量语义搜索） |
-| `memory_list` | 按类型分页列出（`include_archived=true` 可查看已归档） |
+| `memory_save` | 记录一条记忆（自动按标题去重合并；v0.8.0 起去重键含 agent/workspace/scope 作用域，可选 `sensitivity` / `occurred_at` 参数） |
+| `memory_search` | 全文搜索（中文子串友好，可启用向量语义搜索；可选 `occurred_from` / `occurred_to` 按事件发生时间过滤） |
+| `memory_list` | 按类型分页列出（`include_archived=true` 可查看已归档；可选 `occurred_from` / `occurred_to` 时间过滤） |
 | `memory_get` | 读取单条记忆完整正文（v0.7.25，按 id；memory_search / memory_list 命中后读全文） |
 | `memory_update` | 修改已有记忆 |
 | `memory_delete` | 删除记忆（按记忆 ID 精确删除） |
 | `memory_forget` | 抑制注入（降权不删除，可恢复） |
 | `memory_archive` | 归档/恢复记忆（v0.2.5；归档后隐藏于列表/搜索/注入/整理，`archived=false` 可恢复） |
+| `memory_runtime` | 本地推理运行时的状态 / 供给 / 校验（v0.7.32，自管运行时三档取件） |
 
 ### 自动注入 + 会话摘要
 
@@ -75,7 +76,7 @@ dsh web
 - **决策清单式整理**：LLM 输出 `keep` / `merge` / `archive` / `conflict` / `update` 决策清单，服务端校验后逐条应用
   - `merge`：合并主题相近的条目，保留信息最完整者
   - `archive`：归档过时/冗余条目（可恢复，不物理删除）
-  - `conflict`：裁决矛盾信息，胜者保留、败者归档并追加溯源注释
+  - `conflict`：裁决矛盾信息，胜者保留、败者归档并追加溯源注释；`conflictFreezeEnabled`（默认关）开启后矛盾对不自动裁决，改为冻结进**冲突队列**（状态页并排对比，人工选保留方，#166）
   - `update`（v0.2.1）：直接修正单条记忆的过时/错误内容（单 id / 必须实际变化 / 非 summary / 24h 保护 / 每次 ≤2）
 - **失败追踪（v0.2.1）**：用户纠正记忆时写入 `failure_memories` 表（旧值/新值），为后续自进化积累数据
 - **摘要生成**：整理后生成"记忆库总览"（单一实例），作为下次会话的优先注入
@@ -227,6 +228,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 
 | 版本 | 亮点 |
 |------|------|
+| **v0.8.0** | 作用域隔离（issue #17 批次 A）+ 冲突集中处理 + 斜杠命令提交 Agent + 注入转义回归修复：记忆按 agent 与工作区双维标注（agent_scope / workspace_scope / sensitivity / occurred_at 四列可空），检索按当前会话作用域加权（命中 ×1.25、他 scope ×0.5 保留可见），opt-in `strictScope` 硬过滤贯通检索/注入/列表/单取（fail-closed）；`scopeEnabled` / `strictScope` 默认关、面板「作用域隔离」组可启停；去重键扩展含作用域三元——跨作用域同标题不再物理合并；`occurred_at` 事件发生时间 + `occurred_from/to` 过滤贯通搜索与列表；冲突冻结（conflictFreezeEnabled）新增人工出口——状态页冲突队列并排对比 + 保留 A/B/仅标记（#166）；斜杠命令经 agent.followup 真正提交模型（#152）；恢复 v0.7.4 的注入花括号转义 + hot memory 跳过 reasoning——`{{.Server.Version}}` 类文本不再卡死会话（#165）；981 测试全绿 |
 | **v0.7.32** | 冲突动作集扩展 + 运行时自管化 + 记忆/提示语言 + 候选集 hybrid 档 + 一批修复：`sleepActionSet` 新增 `full` 档（supersede/differentiate/update/merge/conflict/keep 六分支，默认 `conflict` 零行为变化）——supersede 赢家正文干净、输家归档附「已被取代」注记，differentiate 双留+差异注记；sleep 校验接入 `dreamSkipInvalid` 宽容策略（默认 true，一票否决变宽容，严格可关）；运行时三档取件（收编/本地 .tgz/registry）+ transformers 转可选 peer（#131）；`memory.language`（zh/en）提示/注入/镜像语言可选（#124）；summarize 节流 + 产出上限 + 同会话去重（#127）；inject 正文读取修复（#129）、#135 五连修（前缀解析/effort 最低档/importance 豁免/ready 语义/覆盖度降级告警）、boot 回填指纹短路修复（#128）、degraded 轮跳过明细落库（#104）；916 测试全绿、总覆盖 92.7%（runtime 96%、embedding 100%） |
 | **v0.7.30** | 状态页向量卡修复（issue #118）：改读开放的 `/semantic`——不再吃 `/vector-config` 的 401「加载失败」，ollama/local 模式不再恒显「未启用」；新增「初始化中（embedder 不可达，正在重试）」与「已索引 N / M 条」回填进度显示；legacy OpenAI 兼容 embedder「Object · 0D」显示修复（embedder 显式 `name: "OpenAI"` + 维度回退 `index.dimension`）；「已索引 N / M」分子分母同口径（`embeddedCount` 剔除归档/遗忘，与 `count()` 默认过滤对齐）；embedder init 失败有界重试（共 5 次，不再一次性永久降级，unload 清理定时器）+ `OllamaEmbedder.ready` 生命周期位 + `/semantic` 新增 `ready` 字段；745 测试全绿 |
 | **v0.7.29** | 实体抽取路由契约修复 + 面板控件 + 帮助与反馈：`streamEntityText` 抽取为可测试导出的 `createEntityStreamAdapter`——显式 `provider`/`model` 优先、缺省兜底读默认路由选择；实体抽取思考强度 `entityExtractionReasoning` 被模型拒绝时自动去 effort 重试（与 autoDream/sleep 同一降级策略）；设置面板新增实体抽取 `provider`/`model`/思考强度三控件；面板底部新增「帮助与反馈」卡片（GitHub issue 预填 + mailto `work@modusensus.space` + 浏览已知问题）+ 配套 `GET /api/dsh-mneme/info`；744 测试全绿 |
@@ -332,7 +334,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 | **v0.7.30** | ✅ 完成 | 状态页向量卡修复 + embedder 有界重试 | 卡片改读 `/semantic`（不再 401「加载失败」、ollama/local 不再恒显「未启用」）+「初始化中 / 已索引 N / M 条」显示（issue #118）；legacy OpenAI 兼容 embedder 显式 `name: "OpenAI"` + 维度回退 `index.dimension`（「Object · 0D」修复）；`embeddedCount` 对齐 `count()` 默认口径、剔除归档/遗忘（「已索引 269 / 36」修复）；embedder init 失败 5 次有界重试不再一次性永久降级 + `OllamaEmbedder.ready` + `/semantic` `ready` 字段；745 测试全绿 |
 | **v0.7.31** | ✅ 完成 | peerDependencies 宿主版本声明修复 | 原 `^0.1.0-rc.6` 按 node-semver 预发布元组规则不匹配 `0.1.5-rc.1` 等中间预发布版本（当前 dsh 用户安装 ERESOLVE），也违反 awesome-dsh-plugin 的 peer-range 预发布分支规范；改显式三段式预发布分支（覆盖 0.1.0-rc.6 至 0.1.5-rc.1 全部已发布 0.1.x 含预发布 + 0.2 预发布留显式分支 + 0.3+ 待验证后放开）；745 测试全绿 |
 | **v0.7.32** | ✅ 完成 | sleep 冲突动作集扩展 + 运行时自管化 + 候选集 hybrid 档 + 一批修复 | `sleepActionSet` 新增 `full` 档（supersede/differentiate/update/merge/conflict/keep 六分支，默认 `conflict` 零行为变化）+ sleep 校验接入 `dreamSkipInvalid` 宽容策略 + 被跳决策带 phase 落库 `dream_runs.skipped`；运行时三档取件 + transformers 转可选 peer（#131）；`memory.language` 提示/注入/镜像语言可选（#124）；候选集向量驱动 hybrid 档（#125，PR #147）；summarize 节流 + 产出上限 + 同会话去重（#127）；inject 正文读取修复（#129）+ #135 五连修 + boot 回填指纹短路修复（#128）+ degraded 轮跳过明细落库（#104）；runtime 覆盖统计归一 + 补齐（总覆盖 92.7%）；916 测试全绿 |
-| **v0.8.0** | 🚧 计划中（9 月末） | 图谱增强 | 兴趣漂移可视化 + scope 隔离（issue #17）+ 跨 workspace 记忆共享 |
+| **v0.8.0** | ✅ 完成 | 作用域隔离 + 冲突队列 | 按 agent 与工作区双维隔离记忆（标注 / 检索加权 / opt-in strictScope 四路硬过滤，issue #17 批次 A）；冻结冲突新增人工确认队列（状态页并排对比，#166）；斜杠命令真正提交 Agent（#152）；注入转义回归恢复 + hot memory 跳过 reasoning（#162）。图谱增强（兴趣漂移可视化）、跨 workspace 记忆共享仍在规划 |
 
 > 新能力一律做成**可开关的功能**（配置启用/关闭），默认保守开启、不破坏现有行为。`failure_memories` 表与 autoDream 决策引擎已为后续反思性成长铺好路。
 
@@ -458,6 +460,10 @@ dsh web
 | `searchSemanticDedupThreshold` | `0.95` | 语义去重相似度阈值（v0.5.0，默认 0.95，范围 0.5-1.0）：`searchSemanticDedup=true` 时生效，调整可防小模型误折叠 |
 | `memoryQualityFilter` | `{enabled:true, archiveThreshold:30, degradeThreshold:60, minContentLength:10, exemptImportance:4}` | 记忆质量过滤（v0.4.6，默认开）：写库前启发式打分 0-100，元记忆词汇/自指/过短/重复/近似重复扣分；≥60 正常存储，30-60 降权（注入排序按 importance×quality/100），<30 归档标记 `low_quality`（显式搜索仍可召回，永不自动注入；`exemptImportance` 豁免：importance ≥ 该值只降权不归档，#135） |
 | `llmAudit` | `{enabled:true, retentionDays:90}` | LLM 消耗审计（v0.4.6，默认开）：每次后台 LLM 调用（autoDream/autoSummarize）写 `llm_audit_logs`（tokens/duration/status/source）；失败记 error 不阻塞；只读 API `/api/dsh-mneme/semantic/llm-audit` + `/llm-audit/stats` |
+| `scopeEnabled` | `false` | 作用域隔离总开关（v0.8.0，issue #17）：memory_save 按会话身份写入 agent / workspace 标注（agentPreset / 工作区路径，registry 反查取不到回退 header.cwd，再取不到 NULL）；去重键扩展含作用域三元——跨作用域同标题不再物理合并；检索按当前会话作用域加权（命中 ×1.25、他 scope ×0.5 保留可见）。也走 feature_flags 白名单（面板可启停） |
+| `strictScope` | `false` | 作用域硬过滤（v0.8.0，依赖 `scopeEnabled`）：检索 / 注入 / 列表 / 单取四路过滤，带他者作用域的记忆完全不可见；会话身份解析不到时 fail-closed 只见未标注行。关闭时为软隔离（降权保留可见）。也走 feature_flags 白名单 |
+| `conflictFreezeEnabled` | `false` | 冲突冻结（v0.4.4）：dream 发现矛盾对不自动裁决，冻结进冲突队列；状态页「冲突队列」支持并排对比与人工确认（保留 A / 保留 B / 仅标记已处理，v0.8.0） |
+| `escapePromptVariables` | `true` | 注入文本花括号转义（v0.8.0 恢复，issue #162）：注入边界把 `{{...}}` 转义，防止 hot memory / 记忆原文里的 Go template / Vue 语法触发宿主 interpolate 抛错卡死会话（v0.7.4 曾修复、v0.7.11 误删） |
 
 > 🔐 **API 安全**：DSH 无内置鉴权且默认仅监听 `127.0.0.1`。插件 API 默认开放（便于 Web 面板即装即用）。如需防护（如局域网暴露），在配置中设置 `apiToken`：写操作（画像/规则/命令）与密钥端点（`vector-config`、`vector-reindex`）需携带 `Authorization: Bearer <token>`（前端设置面板可填入同一 token），只读的 `list` / `search` / `semantic` 保持开放。`/api/dsh-mneme/vector-config` 返回的 `apiKey` 已掩码（`sk-***…`），存储仍保留明文供调用；前端回传空或掩码值表示"不改 key"。
 
@@ -554,25 +560,29 @@ dsh-mneme config show                                # 查看当前配置（toke
 
 ```
 src/
-├── store.js          # SQLite 存储（CRUD、搜索、归档/遗忘、schema 迁移）
+├── store.js          # SQLite 存储（CRUD、搜索、归档/遗忘、schema 迁移、scope 四列）
 ├── mirror.js         # Markdown 镜像（渲染/解析，人工优先）
-├── service.js        # 领域逻辑（去重合并、注入筛选、写入钩子）
+├── service.js        # 领域逻辑（去重合并、注入筛选、写入钩子、scope 加权/硬过滤、冲突队列）
+├── scope.js          # 作用域解析（agentPreset + workspace registry 反查，issue #17）
 ├── config.js         # schemastery 配置 schema
-├── tools.js          # 8 个模型工具（defineTool）
-├── inject.js         # systemPrompt.context 动态注入
+├── tools.js          # 9 个模型工具（defineTool）
+├── inject.js         # systemPrompt.context 动态注入（含花括号转义）
 ├── summarize.js      # 会话结束 LLM 摘要
 ├── dream.js          # autoDream 调度 + runDream（LLM 决策 + 摘要）
 ├── dream/decisions.js# 决策校验（fail-safe）+ 决策应用
+├── dream/clustering.js # 候选集聚类（k-means++ seeding）
+├── dream/sleep.js    # Sleep Mode 分层压缩
 ├── entities/extractor.js # 实体抽取器（v0.3.0：LLM JSON 抽取 + 去重 + fail-safe）
 ├── search/bm25.js    # BM25 稀疏召回（v0.5.0：分词 + IDF 索引）
 ├── search/adaptive.js# 自适应相似度阈值（v0.5.0）
-├── hot-memory.js     # 会话级短期热记忆（v0.5.0：滚动轮次 + token 预算）
+├── hot-memory.js     # 会话级短期热记忆（v0.5.0：滚动轮次 + token 预算；注入剥离 reasoning）
+├── runtime/          # 自管本地推理运行时（收编 / 本地 .tgz / registry 三档取件 + 校验）
 ├── embedding.js      # OpenAI 兼容 embeddings 客户端 + 向量检索
-├── api.js            # HTTP 路由（Web 面板数据通道）
+├── api.js            # HTTP 路由（Web 面板数据通道，含 /conflicts 冲突队列）
 └── index.js          # 插件接线
 lib/                  # src 的同步分发产物（npm run sync；发布前由 root prepack 的 check-sync.js 校验一致性；唯一手写例外 lib/client.js——Web 面板 bundle，sync 不覆盖）
-test/                 # 714 个 node:test 测试（审计与三轴线压测不变量；src↔lib 一致性由 scripts/check-sync.js 发布闸门校验）
-scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压测 · sync-lib.js 同步 · check-sync.js 发布闸门 · benchmark-recall.js 召回基准
+test/                 # 981 个 node:test 测试（审计与三轴线压测不变量；src↔lib 一致性由 scripts/check-sync.js 发布闸门校验）
+scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压测 · sync-lib.js 同步 · check-sync.js 发布闸门 · benchmark-recall.js 召回基准 · release-prep.mjs 发布准备
 ```
 
 ## 🧪 开发
@@ -580,7 +590,7 @@ scripts/              # e2e-dsh.js 端到端演示 · stress-dsh.js 三轴线压
 ```bash
 cd dsh-mneme
 npm install        # 安装 peer 依赖（以 devDependencies 形式，用于本地测试）
-npm test           # 运行 714 个测试
+npm test           # 运行 981 个测试
 npm run stress     # 三轴线压测：长会话检索 / 冲突仲裁 / 多 Agent 并发（离线 mock LLM）
 npm run sync       # 把 src/ 同步到 lib/（发布时由 prepack 钩子自动执行）
 ```

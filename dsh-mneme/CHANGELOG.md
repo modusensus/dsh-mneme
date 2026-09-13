@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.8.0] - 2026-09-13
+
+## 🆕 新增
+
+- **作用域隔离（issue #17 批次 A，PR #153/#155/#156/#157 + #163）**：记忆按 agent 与 workspace 双维标注（agent_scope / workspace_scope），检索加权（本会话命中 ×1.25、他 scope ×0.5 保留可见），opt-in `strictScope` 硬过滤贯通检索/注入/列表/单取四路（身份解析不到 fail-closed 只见未标注行）；`scopeEnabled` / `strictScope` 默认关、进面板设置页「作用域隔离」组；去重键扩展 +agent_scope +workspace_scope +sensitivity——跨作用域同标题不再物理合并；memory_save 新增 sensitivity / occurred_at 参数；面板新增「作用域」徽章与详情抽屉四行（scope 标注在 web 会话全空的修复含于 #163）。
+- **occurred_at 时间维度（PR #155）**：memories 新增事件发生时间列（区别于入库时间 created_at），occurred_from / occurred_to 闭区间过滤贯通 memory_search / memory_list 与搜索融合池；未标注行回退 created_at，存量数据可比。
+- **冲突集中处理（PR #166）**：conflictFreezeEnabled 冻结的矛盾对新增人工出口——GET /api/dsh-mneme/conflicts 队列接口 + POST /conflicts/resolve 人工确认（盖章审计 + dream 同款处置：保留方追加已否决注记、另一方归档，CAS + 事务 + 幂等同源）；状态页新增冲突队列视图（双方并排对比 + 保留 A/B / 仅标记已处理）。
+- **自定义斜杠命令提交 Agent（PR #152，issue #151）**：斜杠命令的指令内容经 agent.followup 真正提交给模型执行，不再只是 UI 提示；声明 input.hint；无 followup 的宿主回退旧行为。
+
+## 🐛 修复
+
+- **注入边界花括号转义恢复 + hot memory 跳过 reasoning（PR #165，issue #162）**：v0.7.4 的 escapePromptVars 在 v0.7.11 重构中被整块误删（0.7.32 受影响）——恢复三处注入出口的转义；hot memory 的 textOf 跳过 reasoning part，模型思考里出现的 `{{.Server.Version}}` 类文本不再让会话永久卡死；恢复 `escapePromptVariables` 配置（默认 true）。
+- **scope 标注 web 会话全空（PR #163）**：scope 解析器先读 requestHeader()（EpochHeader 请求级路由头）遮蔽了 session.header——改为 session.header 优先；v0.8.0 发版前 web 实测发现并修复。
+
+## 🏗️ 工程
+
+- **autoDream 溯源致谢（PR #158）**：README 增补理念来源与致谢章节（Claude Code Auto Dream / Sleep-time Compute 论文 arXiv:2504.13171 / cc-haha）。
+- 981 项测试全绿（较 0.7.32 新增 65 项：作用域隔离全链路、冲突集中处理、注入转义回归等）。
+
 ## [0.7.32] - 2026-09-12
 
 ## 🆕 新增
