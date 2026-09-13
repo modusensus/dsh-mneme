@@ -146,13 +146,22 @@ The standalone external API (`src/api-standalone.js`) and the `bin/cli.mjs` clie
 - Auth additions/changes must keep `timingSafeEqual` token comparison and the `GET /health` exception.
 - The CLI is dependency-free by contract - do not add imports to `bin/cli.mjs`.
 
+## Issue Reporting Requirements
+
+Maintainers verify every report against the code before replying — you do not need to read the source. But every report **must come from someone who has actually run the plugin**, and must meet these minimums (they keep the issue tracker usable for everyone):
+
+- **Bug reports must carry**: dsh-mneme version, DSH version + profile (`web`/desktop), platform; reproduction steps; actual vs expected behavior; the relevant console/log snippet. Reports missing environment info and logs get **one request to complete; if not provided within 7 days the issue is closed** (comment with the missing details to reopen).
+- **Feature requests must start from the current state**: check the README, CHANGELOG, roadmap, and existing issues first — several asked-for capabilities already exist behind named switches (e.g. per-turn auto recall = `autoInject`; idle distillation = `autoSummarize` + `autoDream`). Describe the **use case**, not a prescribed implementation.
+- **AI assistance is fine — unverified AI-generated reports are not.** Using AI to polish wording is acceptable; **mass-generated, duplicated, or fabricated reports (invented reproductions, citations of behavior that does not exist, issues filed without ever running the plugin) are spam**: closed on sight, and repeat offenders get blocked.
+- The same minimums apply to issues opened by maintainers and by AI-assisted maintainer workflows.
+
 ## Code of Conduct
 
 This project adopts the spirit of the [Contributor Covenant v2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct/) — the short version for a memory-plugin codebase:
 
 - **Argue about the code, not the person.** Review comments, issue replies, and design debates address behavior of the software, never the author.
 - **Respect differing setups.** Reporters run different models, providers, locales, and platforms — a bug that doesn't reproduce on your machine is still a bug.
-- **Zero tolerance** for harassment, doxxing, or spam (including AI-generated issue noise): maintainers will close and, if repeated, block.
+- **Zero tolerance** for harassment, doxxing, or spam (including AI-generated issue noise — see [Issue Reporting Requirements](#issue-reporting-requirements)): maintainers will close and, if repeated, block.
 - Maintainers hold themselves to the same standard; concerns about maintainer conduct go to `work@modusensus.space` privately.
 
 ---
@@ -310,13 +319,22 @@ DSH 上游仍处于 developer preview 阶段，API 与服务接口变动频繁�
 
 ---
 
+## Issue 报告要求
+
+维护者回复前会对每份报告做代码级核实——你不必读源码，但每份报告**必须来自真实跑过插件的人**，并满足以下最低要求（这是 issue 区对所有人可用的前提）：
+
+- **Bug 报告必须携带**：dsh-mneme 版本、DSH 版本与 profile（web/desktop）、操作系统平台；复现步骤；实际行为 vs 预期行为；相关 console/log 片段。缺环境信息与日志的报告会收到**一次补充请求，7 天内未补将关闭**（补齐后评论即可重开）。
+- **Feature Request 必须先确认现状**：先查 README、CHANGELOG、路线图与已有 issue——不少诉求已被现有开关覆盖（例如逐回合自动唤回 = `autoInject`；空闲期蒸馏 = `autoSummarize` + `autoDream`）。请描述**使用场景**，而不是直接指定实现方案。
+- **AI 辅助可以，未验证的 AI 生成报告不行。**用 AI 打磨措辞没问题；**批量生成、重复、或虚构的报告（编造复现步骤、引用不存在的行为、从未实际运行插件就提 issue）视为垃圾信息**：发现即关闭，重复刷的直接拉黑。
+- 维护者自己（含 AI 辅助的维护者工作流）开的 issue 同样受以上最低要求约束。
+
 ## 行为准则
 
 本项目遵循 [Contributor Covenant v2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct/) 的精神——对一个记忆插件仓库来说，简版就是这几条：
 
 - **对代码争论，不对人争论。**Review 意见、issue 回复、方案讨论针对的是软件的行为，不是作者本人。
 - **尊重不同的环境。**报告者用的模型、服务商、语言、平台各不相同——在你机器上复现不了的 bug 依然是 bug。
-- **对骚扰、人肉与垃圾信息（包括 AI 生成的无效 issue 噪声）零容忍**：维护者会关闭，反复出现则拉黑。
+- **对骚扰、人肉与垃圾信息（包括 AI 生成的无效 issue 噪声）零容忍**：维护者会关闭，反复出现则拉黑（细则见上文 [Issue 报告要求](#issue-报告要求)）。
 - 维护者同样受此约束；对维护者行为的反馈请私下发 `work@modusensus.space`。
 
 ---
