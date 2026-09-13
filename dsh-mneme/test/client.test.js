@@ -712,3 +712,26 @@ test("scope isolation ships panel switches and provenance surfaces (A4)", () => 
   assert.ok(clientSource.includes('t("memory.explorer.detail.agentScope")'), "drawer must render agent scope row");
   assert.ok(clientSource.includes('t("memory.explorer.detail.occurred")'), "drawer must render occurred row");
 });
+
+// v0.8.0 冲突集中处理：状态页的待确认冲突队列（reason + 双方内容对比 +
+// 保留 A/B/仅标记动作），resolveConflictPending 的第一个前端出口。双语齐备。
+test("conflict queue ships a central review surface on the status tab", () => {
+  for (const key of [
+    "memory.status.conflictQueue.reason",
+    "memory.status.conflictQueue.sideA",
+    "memory.status.conflictQueue.sideB",
+    "memory.status.conflictQueue.keepA",
+    "memory.status.conflictQueue.keepB",
+    "memory.status.conflictQueue.markReviewed",
+    "memory.status.conflictQueue.applyHint",
+    "memory.status.conflictQueue.missing",
+    "memory.status.conflictQueue.refresh"
+  ]) {
+    const occurrences = clientSource.split(`"${key}"`).length - 1;
+    assert.ok(occurrences >= 2, `i18n key ${key} must exist in both zh and en (got ${occurrences})`);
+  }
+  assert.ok(/function ConflictsQueue\(\{ t \}\)/.test(clientSource), "ConflictsQueue component must exist");
+  assert.ok(clientSource.includes('"/api/dsh-mneme/conflicts"'), "queue must fetch the conflicts endpoint");
+  assert.ok(clientSource.includes('"/api/dsh-mneme/conflicts/resolve"'), "queue must call the resolve endpoint");
+  assert.ok(clientSource.includes("h(ConflictsQueue, { t })"), "status tab must render the queue");
+});

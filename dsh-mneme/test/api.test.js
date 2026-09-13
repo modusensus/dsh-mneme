@@ -1069,6 +1069,90 @@ test("GET /api/dsh-mneme/dream-status returns runs and pending conflict ids", as
   assert.deepEqual(afterData.pendingMemoryIds, []);
 });
 
+// v0.8.0 冲突集中处理：GET /conflicts 队列联表 + POST /conflicts/resolve 人工确认。
+test("GET /api/dsh-mneme/conflicts joins both sides of unresolved conflicts", async () => {
+  const { routes, service } = setup();
+  const a = service.saveWithDedupe({ type: "history", title: "界面暗色偏好", content: "用户当前使用暗色界面主题", importance: 3 }).memory;
+  const b = service.saveWithDedupe({ type: "history", title: "界面亮色切换", content: "用户界面亮色切换计划", importance: 3 }).memory;
+  service.saveConflictPending({ memory_a: a.id, memory_b: b.id, reason: "主题偏好前后矛盾" });
+
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/conflicts");
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/conflicts"), res);
+  assert.equal(res.statusCode, 200);
+  const data = JSON.parse(res.body);
+  assert.equal(data.items.length, 1);
+  assert.equal(data.total, 1);
+  assert.equal(data.items[0].reason, "主题偏好前后矛盾");
+  // saveConflictPending 会按 id 字典序归一 A/B 侧位——断言集合而非位置。
+  assert.deepEqual(
+    [data.items[0].memory_a.title, data.items[0].memory_b.title].sort(),
+    ["界面亮色切换", "界面暗色偏好"]
+  );
+  assert.equal(data.items[0].memory_a.archived, false);
+  assert.equal(data.items[0].memory_b.archived, false);
+  // 幽灵侧容忍缺失
+  service.saveConflictPending({ memory_a: a.id, memory_b: "ghost-id", reason: "对方已删" });
+  const res2 = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/conflicts"), res2);
+  const data2 = JSON.parse(res2.body);
+  assert.equal(data2.items.length, 2);
+  assert.equal(data2.items.find((x) => x.reason === "对方已删").memory_b.missing, true);
+});
+
+test("POST /api/dsh-mneme/conflicts/resolve stamps and applies the disposition", async () => {
+  const { store, routes, service } = setup();
+  const a = service.saveWithDedupe({ type: "history", title: "界面暗色偏好", content: "用户当前使用暗色界面主题", importance: 3 }).memory;
+  const b = service.saveWithDedupe({ type: "history", title: "界面亮色切换", content: "用户界面亮色切换计划", importance: 3 }).memory;
+  const pending = service.saveConflictPending({ memory_a: a.id, memory_b: b.id, reason: "主题偏好前后矛盾" });
+
+  // store 会把 pair 按 id 字典序归一——从队列行反查「界面亮色切换」所在侧再选。
+  const queueRoute = routes.find((r) => r.path === "/api/dsh-mneme/conflicts");
+  const queueRes = new FakeRes();
+  await queueRoute.handler(req("/api/dsh-mneme/conflicts"), queueRes);
+  const queued = JSON.parse(queueRes.body).items.find((x) => x.id === pending.id);
+  const keepSide = queued.memory_a.id === b.id ? "a" : "b";
+  const loserId = keepSide === "a" ? a.id : b.id;
+
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/conflicts/resolve");
+  // 保留「界面亮色切换」所在侧（apply 默认 true）→ 该侧保留，另一侧归档
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/conflicts/resolve", "POST", { id: pending.id, winner: keepSide }), res);
+  assert.equal(res.statusCode, 200);
+  const data = JSON.parse(res.body);
+  assert.equal(data.ok, true);
+  assert.equal(data.conflict.resolved_winner, b.id);
+  assert.equal(data.conflict.disposition.ok, true);
+  assert.equal(store.getById(b.id).archived, false, "winner kept");
+  assert.equal(store.getById(loserId).archived, true, "loser archived by apply");
+
+  // 处理过的 id 再 resolve → 幂等重盖（仍是 200；队列视图只列未解决行，
+  // 正常 UI 不会再发这个请求，但接口层保持幂等）
+  const res2 = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/conflicts/resolve", "POST", { id: pending.id, winner: "a" }), res2);
+  assert.equal(res2.statusCode, 200);
+  assert.equal(JSON.parse(res2.body).ok, true);
+
+  // 未知 id → 404；缺 id → 400
+  const res3 = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/conflicts/resolve", "POST", { id: "nope", winner: "a" }), res3);
+  assert.equal(res3.statusCode, 404);
+  const res4 = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/conflicts/resolve", "POST", {}), res4);
+  assert.equal(res4.statusCode, 400);
+
+  // apply:false 只盖章不处置
+  const c = service.saveWithDedupe({ type: "decision", title: "丙", content: "内容丙" }).memory;
+  const d = service.saveWithDedupe({ type: "decision", title: "丁", content: "内容丁" }).memory;
+  const p2 = service.saveConflictPending({ memory_a: c.id, memory_b: d.id, reason: "r2" });
+  const res5 = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/conflicts/resolve", "POST", { id: p2.id, apply: false }), res5);
+  assert.equal(res5.statusCode, 200);
+  assert.equal(JSON.parse(res5.body).conflict.disposition, null);
+  assert.equal(store.getById(c.id).archived, false);
+  assert.equal(store.getById(d.id).archived, false);
+});
+
 test("parseHumanEdits is the pure core of readHumanEdits (CRLF tolerant)", () => {
   const digest = "0".repeat(64);
   const text = [

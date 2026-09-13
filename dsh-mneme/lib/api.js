@@ -1014,6 +1014,66 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
     }
   });
 
+  // --- 冲突集中处理（v0.8.0）：队列 + 人工确认 --------------------------------
+  // GET /conflicts：未解决冲突 + 双方当前内容（此前面板只有计数与徽章，
+  // resolveConflictPending 在存储层躺着没有任何调用方）。POST /conflicts/resolve：
+  // {id, winner: "a"|"b"|null, apply}——盖章审计，apply 时按 dream 非冻结
+  // conflict 路径同款处置（service.resolveConflictPending 内部复用
+  // applyDecisions：CAS + 事务 + 注记 + 幂等）。认证与其他写路由一致。
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/conflicts",
+    handler(req, res) {
+      try {
+        if (req.method !== "GET") {
+          sendJson(res, 404, { error: "not-found" });
+          return;
+        }
+        if (!requireAuth(req, res, apiToken)) return;
+        const url = new URL(req.url, "http://localhost");
+        const limit = Math.min(200, Math.max(1, Number(url.searchParams.get("limit") ?? 50) || 50));
+        const offset = Math.max(0, Number(url.searchParams.get("offset") ?? 0) || 0);
+        const items = service.listConflictQueue({ limit, offset });
+        sendJson(res, 200, { items, total: service.countConflictPending?.() ?? items.length });
+      } catch {
+        sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/conflicts/resolve",
+    handler(req, res) {
+      try {
+        if (req.method !== "POST") {
+          sendJson(res, 404, { error: "not-found" });
+          return;
+        }
+        if (!requireAuth(req, res, apiToken)) return;
+        return readBody(req).then((text) => {
+          let body = {};
+          try { body = JSON.parse(text || "{}"); } catch { /* 坏 JSON → 走缺参分支 */ }
+          const id = typeof body.id === "string" ? body.id.trim() : "";
+          if (!id) {
+            sendJson(res, 400, { error: "missing-id" });
+            return;
+          }
+          const winner = body.winner === "a" || body.winner === "b" ? body.winner : null;
+          const apply = body.apply !== false;
+          const result = service.resolveConflictPending(id, { winner, apply });
+          if (!result) {
+            sendJson(res, 404, { error: "not-found" });
+            return;
+          }
+          sendJson(res, 200, { ok: true, conflict: result });
+        }).catch(() => sendJson(res, 500, { error: "internal" }));
+      } catch {
+        sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
   // --- health: mirror sync state (F-NEW-03 / v0.3.6) ---
   // Auth-gated; only returns a sanitized error code (never raw last_error which
   // may leak paths/token-like strings/internal hosts). On state read failure it

@@ -429,6 +429,15 @@ window.__ModuleLoader__.load({
         "memory.status.dreamNever": "尚未运行",
         "memory.status.conflicts": "待确认冲突",
         "memory.status.conflictsHint": "冻结的矛盾记忆，等待人工确认",
+        "memory.status.conflictQueue.reason": "原因",
+        "memory.status.conflictQueue.sideA": "A 方",
+        "memory.status.conflictQueue.sideB": "B 方",
+        "memory.status.conflictQueue.keepA": "保留 A",
+        "memory.status.conflictQueue.keepB": "保留 B",
+        "memory.status.conflictQueue.markReviewed": "仅标记已处理",
+        "memory.status.conflictQueue.applyHint": "确认后：保留方正文追加已否决注记，另一方归档。",
+        "memory.status.conflictQueue.missing": "（该记忆已不存在）",
+        "memory.status.conflictQueue.refresh": "刷新队列",
         "memory.status.workbench": "工作动态",
         "memory.status.dreamConsolidate": "记忆巩固",
         "memory.status.summarize": "总结提炼",
@@ -761,6 +770,15 @@ window.__ModuleLoader__.load({
         "memory.status.dreamNever": "Not yet run",
         "memory.status.conflicts": "Pending conflicts",
         "memory.status.conflictsHint": "Frozen contradictory memories awaiting confirmation",
+        "memory.status.conflictQueue.reason": "Reason",
+        "memory.status.conflictQueue.sideA": "Side A",
+        "memory.status.conflictQueue.sideB": "Side B",
+        "memory.status.conflictQueue.keepA": "Keep A",
+        "memory.status.conflictQueue.keepB": "Keep B",
+        "memory.status.conflictQueue.markReviewed": "Mark reviewed only",
+        "memory.status.conflictQueue.applyHint": "On confirm: a veto note is appended to the kept side and the other side is archived.",
+        "memory.status.conflictQueue.missing": "(memory no longer exists)",
+        "memory.status.conflictQueue.refresh": "Refresh queue",
         "memory.status.workbench": "Activity",
         "memory.status.dreamConsolidate": "Consolidation",
         "memory.status.summarize": "Summarization",
@@ -1089,6 +1107,19 @@ window.__ModuleLoader__.load({
       ".mneme-badge--conflict{color:var(--dsw-alias-state-error,#c33);background:color-mix(in srgb,var(--dsw-alias-state-error,#c33) 10%,transparent);border:1px solid color-mix(in srgb,var(--dsw-alias-state-error,#c33) 30%,transparent)}",
       ".mneme-badge--archived{color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-interactive-bg-hover)}",
       ".mneme-badge--scope{color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent);border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 30%,transparent)}",
+      // 冲突集中处理队列（v0.8.0）：状态页的待确认冲突列表
+      ".mneme-conflictq{display:flex;flex-direction:column;gap:10px}",
+      ".mneme-conflictq-head{display:flex;align-items:center;gap:8px}",
+      ".mneme-conflict-item{border:1px solid var(--dsw-alias-border,var(--dsw-alias-interactive-bg-hover));border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:8px}",
+      ".mneme-conflict-reason{font-size:12px;line-height:17px;color:var(--dsw-alias-label-secondary)}",
+      ".mneme-conflict-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}",
+      ".mneme-conflict-side{border:1px solid var(--dsw-alias-border,var(--dsw-alias-interactive-bg-hover));border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:4px;min-width:0}",
+      ".mneme-conflict-sidelabel{font-size:11px;color:var(--dsw-alias-label-tertiary)}",
+      ".mneme-conflict-sidetitle{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+      ".mneme-conflict-snippet{font-size:12px;line-height:17px;color:var(--dsw-alias-label-secondary);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}",
+      ".mneme-conflict-missing{font-size:12px;color:var(--dsw-alias-label-tertiary)}",
+      ".mneme-conflict-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}",
+      ".mneme-conflict-hint{font-size:11px;color:var(--dsw-alias-label-tertiary);margin-right:auto}",
       // 详情抽屉：sheet 内右侧滑出，覆盖在浏览区之上
       ".mneme-xmain{position:relative}",
       "@keyframes mneme-slidein{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:translateX(0)}}",
@@ -2904,6 +2935,62 @@ window.__ModuleLoader__.load({
       );
     }
 
+    // --- 冲突集中处理队列（v0.8.0，状态页）---------------------------------
+    // 此前冻结冲突只有计数与散落徽章，resolveConflictPending 无任何调用方——
+    // 这里是第一处理入口：并排展示双方内容 + reason，人工选保留方后走
+    // POST /conflicts/resolve（service 端按 dream 非冻结 conflict 同款处置）。
+    // 队列为空时整块不渲染（不打扰无冲突实例）。
+    function ConflictsQueue({ t }) {
+      const [items, setItems] = useState(null);
+      const [busy, setBusy] = useState(false);
+      const load = () => {
+        apiFetch("/api/dsh-mneme/conflicts")
+          .then((res) => { if (!res.ok) throw new Error("http"); return res.json(); })
+          .then((d) => setItems(d.items || []))
+          .catch(() => setItems([]));
+      };
+      useEffect(() => { load(); }, []);
+      if (!items || items.length === 0) return null;
+      const resolve = (id, winner) => {
+        setBusy(true);
+        apiFetch("/api/dsh-mneme/conflicts/resolve", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, winner, apply: winner !== null })
+        })
+          .then((res) => { if (!res.ok) throw new Error("http"); return res.json(); })
+          .then(() => load())
+          .catch(() => {})
+          .finally(() => setBusy(false));
+      };
+      const side = (s, label) => h("div", { className: "mneme-conflict-side" },
+        h("div", { className: "mneme-conflict-sidelabel" }, label),
+        s.missing
+          ? h("div", { className: "mneme-conflict-missing" }, t("memory.status.conflictQueue.missing"))
+          : h(react.Fragment, null,
+              h("div", { className: "mneme-conflict-sidetitle", title: s.title }, s.title || "…"),
+              h("div", { className: "mneme-conflict-snippet" }, (s.content || "").slice(0, 140)),
+              s.archived && h("span", { className: "mneme-badge mneme-badge--archived" }, t("memory.explorer.archivedBadge")))
+      );
+      return h("div", { className: "mneme-conflictq" },
+        h("div", { className: "mneme-conflictq-head" },
+          h("span", { className: "mneme-xcount" }, t("memory.status.conflicts")),
+          h("button", { className: "mneme-footbtn", onClick: () => load() },
+            h(Icon, { name: "refresh", size: 12 }), t("memory.status.conflictQueue.refresh"))),
+        items.map((it) => h("div", { key: it.id, className: "mneme-conflict-item" },
+          it.reason && h("div", { className: "mneme-conflict-reason" },
+            `${t("memory.status.conflictQueue.reason")}: ${it.reason}`),
+          h("div", { className: "mneme-conflict-pair" },
+            side(it.memory_a, t("memory.status.conflictQueue.sideA")),
+            side(it.memory_b, t("memory.status.conflictQueue.sideB"))),
+          h("div", { className: "mneme-conflict-actions" },
+            h("span", { className: "mneme-conflict-hint" }, t("memory.status.conflictQueue.applyHint")),
+            h("button", { className: "mneme-footbtn", disabled: busy, onClick: () => resolve(it.id, "a") }, t("memory.status.conflictQueue.keepA")),
+            h("button", { className: "mneme-footbtn", disabled: busy, onClick: () => resolve(it.id, "b") }, t("memory.status.conflictQueue.keepB")),
+            h("button", { className: "mneme-footbtn", disabled: busy, onClick: () => resolve(it.id, null) }, t("memory.status.conflictQueue.markReviewed"))))
+        ));
+    }
+
     // --- 状态页工作台：让用户切实看见插件在干活 ---
     // 活动流合并 llm_audit 里 autoDream/autoSummarize 的后台调用（状态、
     // token、沉淀条数）；沉淀记忆列表用 audit 行携带的 related_memory_ids
@@ -3094,6 +3181,7 @@ window.__ModuleLoader__.load({
           h(DreamStatusCards, { t }),
           h(HeatStatusCard, { t })
         ),
+        h(ConflictsQueue, { t }),
         h(WorkbenchSection, { t, onBrowse })
       );
     }

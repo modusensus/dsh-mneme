@@ -4,6 +4,7 @@ import { updatedAtBounds } from "./store.js";
 import { STR, langOf } from "./lang.js";
 import { computeHeat } from "./heat.js";
 import { evaluateMemoryQuality } from "./quality-filter.js";
+import { applyDecisions } from "./dream/decisions.js";
 import { createBM25Index } from "./search/bm25.js";
 import { adaptiveThreshold } from "./search/adaptive.js";
 
@@ -1338,6 +1339,85 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     return applied;
   }
 
+  /**
+   * v0.8.0 冲突集中处理（issue 反馈：冻结冲突没有人工出口——store 的
+   * resolveConflictPending 此前无任何 API/UI 调用）。人工确认一条待审冲突：
+   * 盖章 resolved_at/resolved_winner（审计），可选按 dream 非冻结 conflict
+   * 路径**同款**处置落地——复用 applyDecisions 的 conflict 分支，CAS 快照 +
+   * 事务 + 胜者追加已否决注记 + 败者归档 + 幂等全部同源，不另写第二份裁决。
+   *
+   * @param {string} id conflict_pending 行 id
+   * @param {{winner?: "a"|"b"|null, apply?: boolean}} opts
+   *   winner: 选哪一方保留（a = memory_a，冻结时 LLM 的建议胜者；b = memory_b）；
+   *   null = 仅盖章标记已读、不落地处置。人工选择是权威裁决：传入
+   *   applyDecisions 的 config 关掉 trustEpistemicWeighting——可信度自动换位
+   *   只应作用于 LLM 提议对，不能推翻人工选择。
+   * @returns {object|undefined} 盖章后的冲突行 + disposition 摘要；未知 id 返回 undefined
+   */
+  function resolveConflictPending(id, { winner = null, apply = true } = {}) {
+    const rows = store.listConflictPending({ includeResolved: true, limit: 500 });
+    const row = rows.find((r) => r.id === id);
+    if (!row) return undefined;
+    const winnerId = winner === "a" ? row.memory_a : winner === "b" ? row.memory_b : null;
+    const loserId = winner === "a" ? row.memory_b : winner === "b" ? row.memory_a : null;
+    const stamped = store.resolveConflictPending(id, { winner: winnerId });
+    if (!stamped) return undefined;
+    let disposition = null;
+    if (apply && winnerId && loserId) {
+      const snapshot = new Map();
+      for (const m of [store.getById(row.memory_a), store.getById(row.memory_b)]) {
+        if (m) snapshot.set(m.id, { updated_at: m.updated_at, content: m.content, title: m.title });
+      }
+      // applyDecisions 需要一个 service 形状的参数（getById/update/setArchived/
+      // transaction）——委托给闭包内的同名实现，mirror/通知/嵌入与主写路径同源。
+      const applyService = {
+        getById: (mid) => store.getById(mid),
+        update: (mid, patch) => updateMemory(mid, patch),
+        setArchived: (mid, v) => archiveMemory(mid, v),
+        transaction: (fn) => transaction(fn)
+      };
+      const { committed, failures } = applyDecisions(
+        [{ action: "conflict", winner: winnerId, loser: loserId, reason: row.reason ?? "" }],
+        applyService,
+        logger,
+        snapshot,
+        { ...config, trustEpistemicWeighting: false }
+      );
+      disposition = failures.length ? { ok: false, failures } : { ok: true, committed };
+    }
+    return { ...stamped, disposition };
+  }
+
+  /**
+   * v0.8.0 冲突队列视图数据源：未解决冲突行，联表带出双方的当前状态（标题/
+   * 内容/类型/重要性/归档标记），面板一处即可集中审阅，不必按徽章逐条找。
+   * 参与记忆被删除/失联时该侧返回 {missing: true}（队列不因此丢行）。
+   */
+  function listConflictQueue({ limit = 50, offset = 0 } = {}) {
+    const rows = store.listConflictPending({ limit, offset, includeResolved: false });
+    const side = (id) => {
+      const m = store.getById(id);
+      if (!m) return { id, missing: true };
+      return {
+        id,
+        title: m.title,
+        type: m.type,
+        importance: m.importance,
+        content: m.content,
+        archived: m.archived === true,
+        forgotten: m.forgotten === true
+      };
+    };
+    return rows.map((r) => ({
+      id: r.id,
+      run_id: r.run_id ?? null,
+      reason: r.reason ?? null,
+      created_at: r.created_at,
+      memory_a: side(r.memory_a),
+      memory_b: side(r.memory_b)
+    }));
+  }
+
   function toApiList(rows) {
     return rows.map((m) => ({
       id: m.id,
@@ -1636,6 +1716,62 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     }
   }
 
+  // 返回字面量与内部裁决器（resolveConflictPending → applyDecisions 的 conflict
+  // 处置）共用的写路径：mirror 同步、写通知、嵌入调度全部同源，不能各写一份。
+  function updateMemory(id, p, ctx = {}) {
+    const old = store.getById(id);
+    // Issue #135 附属发现 2：质量过滤器把「为什么被降权/归档」写在系统信号标签
+    // 上（SIGNAL_TAGS，applyQualityDisposition 以并集写入），而这里整组替换
+    // tags——任何带 tags 的更新都会抹掉这条唯一的审计线索（报告实测 150 条低分
+    // 记忆里恰好缺的 2 条就是被 update 过的，并因此误判过归档来源）。把 existing
+    // 的系统信号标签并集保留；用户自传的标签照常生效。
+    const patch = (p && Array.isArray(p.tags) && old && Array.isArray(old.tags))
+      ? { ...p, tags: [...new Set([...p.tags, ...old.tags.filter((t) => SIGNAL_TAGS.includes(t))])] }
+      : p;
+    const updated = store.update(id, patch);
+    // Record a user correction when any meaningful field changed and the
+    // reflection failure tracker is enabled. expected = what it became,
+    // actual = what it was before; query (when provided) captures the
+    // user's original intent so later reflection can reason about recall.
+    const hasMeaningfulChange = old && updated && (
+      old.content !== updated.content ||
+      old.title !== updated.title ||
+      old.importance !== updated.importance
+    );
+    if (hasMeaningfulChange && config.reflectionFailureTracking) {
+      store.saveFailure({
+        id: randomUUID(),
+        query: ctx.query ?? null,
+        expected: updated.content,
+        actual: old.content,
+        before: { title: old.title, content: old.content, importance: old.importance },
+        failure_type: "user_correction",
+        memory_id: id
+      });
+    }
+    const sync = afterSync("write");
+    notifyWrite();
+    scheduleEmbed(updated);
+    // Audit peer B: when the mirror sync failed, the store write landed but
+    // the mirror did not converge — return an explicit degraded receipt rather
+    // than a plain success. Non-enumerable so existing deepEqual assertions on
+    // the memory shape keep passing.
+    if (!sync?.success && !sync?.deferred) {
+      Object.defineProperty(updated, "_mirror", {
+        value: { status: "degraded", error: sync?.error ?? "mirror sync failed" },
+        enumerable: false,
+        configurable: true
+      });
+    }
+    return updated;
+  }
+
+  function archiveMemory(id, f) {
+    const updated = store.setArchived(id, f);
+    afterSync("write");
+    return updated;
+  }
+
   return {
     saveWithDedupe,
     recoverMirror,
@@ -1697,53 +1833,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       afterSync("write");
       notifyWrite();
     },
-    update: (id, p, ctx = {}) => {
-      const old = store.getById(id);
-      // Issue #135 附属发现 2：质量过滤器把「为什么被降权/归档」写在系统信号标签
-      // 上（SIGNAL_TAGS，applyQualityDisposition 以并集写入），而这里整组替换
-      // tags——任何带 tags 的更新都会抹掉这条唯一的审计线索（报告实测 150 条低分
-      // 记忆里恰好缺的 2 条就是被 update 过的，并因此误判过归档来源）。把 existing
-      // 的系统信号标签并集保留；用户自传的标签照常生效。
-      const patch = (p && Array.isArray(p.tags) && old && Array.isArray(old.tags))
-        ? { ...p, tags: [...new Set([...p.tags, ...old.tags.filter((t) => SIGNAL_TAGS.includes(t))])] }
-        : p;
-      const updated = store.update(id, patch);
-      // Record a user correction when any meaningful field changed and the
-      // reflection failure tracker is enabled. expected = what it became,
-      // actual = what it was before; query (when provided) captures the
-      // user's original intent so later reflection can reason about recall.
-      const hasMeaningfulChange = old && updated && (
-        old.content !== updated.content ||
-        old.title !== updated.title ||
-        old.importance !== updated.importance
-      );
-      if (hasMeaningfulChange && config.reflectionFailureTracking) {
-        store.saveFailure({
-          id: randomUUID(),
-          query: ctx.query ?? null,
-          expected: updated.content,
-          actual: old.content,
-          before: { title: old.title, content: old.content, importance: old.importance },
-          failure_type: "user_correction",
-          memory_id: id
-        });
-      }
-      const sync = afterSync("write");
-      notifyWrite();
-      scheduleEmbed(updated);
-      // Audit peer B: when the mirror sync failed, the store write landed but
-      // the mirror did not converge — return an explicit degraded receipt rather
-      // than a plain success. Non-enumerable so existing deepEqual assertions on
-      // the memory shape keep passing.
-      if (!sync?.success && !sync?.deferred) {
-        Object.defineProperty(updated, "_mirror", {
-          value: { status: "degraded", error: sync?.error ?? "mirror sync failed" },
-          enumerable: false,
-          configurable: true
-        });
-      }
-      return updated;
-    },
+    update: updateMemory,
     // Compare-and-set update: applies the patch only when the row still carries
     // `expectedUpdatedAt`. Returns undefined on a miss (no write) so the caller
     // can re-read and retry — the primitive that prevents lost updates across
@@ -1786,11 +1876,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       afterSync("write");
       return updated;
     },
-    setArchived: (id, f) => {
-      const updated = store.setArchived(id, f);
-      afterSync("write");
-      return updated;
-    },
+    setArchived: archiveMemory,
     // sleep-mode storage (v0.4.0). demoteToSummary / restoreContent mutate
     // content so they ride the normal write-hook path (mirror re-renders).
     // touchLastAccess is a read-stamp — deliberately NO write hook (a recall
@@ -1822,7 +1908,8 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     // above: an audit write, never a write-hook-triggering memory mutation).
     saveConflictPending: (r) => store.saveConflictPending(r),
     listConflictPending: (opts) => store.listConflictPending(opts),
-    resolveConflictPending: (id, o) => store.resolveConflictPending(id, o),
+    listConflictQueue,
+    resolveConflictPending,
     countConflictPending: () => store.countConflictPending(),
     // Recall evaluation trail (方案 B): audit-bookkeeping semantics like the
     // dream/recall passthroughs above — a recall_evals write is a snapshot, not

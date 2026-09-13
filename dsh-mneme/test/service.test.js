@@ -327,3 +327,62 @@ test("Bug7: injection ranking re-weights by quality_score (degraded memories ran
   assert.equal(candidates[0].title, "高质量", "100-quality preference leads the degraded one");
   assert.equal(candidates[1].title, "元记忆");
 });
+
+// v0.8.0 冲突集中处理：resolveConflictPending 盖章 + 处置落地（与 dream 非冻结
+// conflict 同款：胜者正文追加已否决注记、败者归档），以及队列视图的联表形状。
+test("resolveConflictPending applies the dream-style disposition on human confirmation", () => {
+  const { store, service } = setup();
+  const a = store.save({ type: "history", title: "界面暗色偏好", content: "用户当前使用暗色界面主题", importance: 3 });
+  const b = store.save({ type: "history", title: "界面亮色切换", content: "用户界面亮色切换计划", importance: 3 });
+  const pending = store.saveConflictPending({ memory_a: a.id, memory_b: b.id, reason: "主题偏好前后矛盾" });
+  // store 会把 pair 按 id 字典序归一（防重复入队），A/B 只是排序位——
+  // 人工确认前先从队列行反查「界面亮色切换」（keeper，恒为 b）落在哪一侧，
+  // 再选那一侧保留；loser 恒为 a（「界面暗色偏好」），与侧位字母无关。
+  const queued = service.listConflictQueue().find((q) => q.id === pending.id);
+  const winnerSide = queued.memory_a.id === b.id ? "a" : "b";
+  const loserId = a.id;
+
+  const resolved = service.resolveConflictPending(pending.id, { winner: winnerSide, apply: true });
+  assert.ok(resolved, "returns the stamped row");
+  assert.ok(resolved.resolved_at, "stamps resolved_at");
+  assert.equal(resolved.resolved_winner, b.id, "resolved_winner records the chosen memory id");
+  assert.equal(resolved.disposition?.ok, true, "disposition landed");
+
+  // 败者归档 + 胜者保留——与 dream applyConflict 同款（胜者正文由
+  // applyDecisions 追加已否决注记）。
+  assert.equal(store.getById(loserId).archived, true, "loser archived");
+  assert.equal(store.getById(b.id).archived, false, "winner kept active");
+  assert.notEqual(store.getById(b.id).content, b.content, "winner content carries the veto note");
+  // 处置后队列不再返回该冲突。
+  assert.equal(service.listConflictQueue().length, 0);
+});
+
+test("resolveConflictPending with winner=null only stamps (mark reviewed)", () => {
+  const { store, service } = setup();
+  const a = store.save({ type: "project", title: "甲", content: "内容甲" });
+  const b = store.save({ type: "project", title: "乙", content: "内容乙" });
+  const pending = store.saveConflictPending({ memory_a: a.id, memory_b: b.id, reason: "r" });
+  const resolved = service.resolveConflictPending(pending.id, { winner: null });
+  assert.ok(resolved.resolved_at);
+  assert.equal(resolved.disposition, null, "no disposition applied");
+  assert.equal(store.getById(a.id).archived, false);
+  assert.equal(store.getById(b.id).archived, false);
+});
+
+test("resolveConflictPending unknown id returns undefined", () => {
+  const { service } = setup();
+  assert.equal(service.resolveConflictPending("nope", { winner: "a" }), undefined);
+});
+
+test("listConflictQueue joins both sides and tolerates missing memories", () => {
+  const { store, service } = setup();
+  const a = store.save({ type: "decision", title: "现存方", content: "现存内容", importance: 4 });
+  const pending = store.saveConflictPending({ memory_a: a.id, memory_b: "ghost-id", reason: "对方已被删除" });
+  const queue = service.listConflictQueue();
+  assert.equal(queue.length, 1);
+  assert.equal(queue[0].id, pending.id);
+  assert.equal(queue[0].memory_a?.title, "现存方", "side A joined from the store");
+  assert.equal(queue[0].memory_a?.archived, false);
+  assert.equal(queue[0].memory_b?.missing, true, "ghost side marked missing");
+  assert.equal(queue[0].reason, "对方已被删除");
+});
