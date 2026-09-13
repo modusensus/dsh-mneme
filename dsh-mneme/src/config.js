@@ -447,6 +447,13 @@ export const Config = z.object({
   // agent_scope, workspace_scope, sensitivity)。检索侧加权/过滤在 A2/A3 落地。
   // 也走 feature_flags（FEATURE_FLAG_BOOLEANS 白名单），面板可启停=线上回滚开关。
   scopeEnabled: z.boolean().default(false),
+  // strictScope（A3）：硬过滤模式。关闭=A2 软隔离（他 scope 降权保留可见）；
+  // 开启后检索/注入/list/get 按 issue #17 四象限可见性公式硬过滤——带他 scope
+  // 的记忆完全不可见，未标注（NULL）恒可见；当前会话某维度解析不到时该维度
+  // 带标注的记忆一律不可见（fail-closed：身份不明只见全局）。依赖 scopeEnabled
+  // 打开才有意义（没有写入标注就无可过滤维度），但独立成键：可先开标注积累
+  // 数据、观察 A2 加权质量后再切硬过滤。
+  strictScope: z.boolean().default(false),
 });
 
 // Fields forced to false by the light-mode preset. Everything not listed here

@@ -677,7 +677,7 @@ export function createStore(path) {
     return ts;
   }
 
-  function count(type, { minImportance = null, source = null, includeForgotten = false, includeArchived = false, onlyArchived = false, depositedOnly = false, updatedFrom = null, updatedTo = null, occurredFrom = null, occurredTo = null } = {}) {
+  function count(type, { minImportance = null, source = null, includeForgotten = false, includeArchived = false, onlyArchived = false, depositedOnly = false, updatedFrom = null, updatedTo = null, occurredFrom = null, occurredTo = null, visibility = null } = {}) {
     const clauses = [];
     const params = [];
     if (type !== undefined) {
@@ -714,6 +714,22 @@ export function createStore(path) {
     if (occurred.to) {
       clauses.push("COALESCE(occurred_at, created_at) <= ?");
       params.push(occurred.to);
+    }
+    // occurred_at 闭区间：与 list() 同过滤（visibility 同口径），memory_list
+    // 的 total 才能和过滤后的行保持一致。
+    if (visibility) {
+      if (visibility.agentScope != null) {
+        clauses.push("(agent_scope IS NULL OR agent_scope = ?)");
+        params.push(visibility.agentScope);
+      } else {
+        clauses.push("agent_scope IS NULL");
+      }
+      if (visibility.workspaceScope != null) {
+        clauses.push("(workspace_scope IS NULL OR workspace_scope = ?)");
+        params.push(visibility.workspaceScope);
+      } else {
+        clauses.push("workspace_scope IS NULL");
+      }
     }
     if (!includeForgotten) {
       clauses.push("forgotten = 0");
@@ -985,7 +1001,7 @@ export function createStore(path) {
     return rows.map(toRow);
   }
 
-  function list({ type, limit = 50, offset = 0, order = "importance", includeForgotten = false, includeArchived = false, onlyArchived = false, depositedOnly = false, minImportance = null, source = null, updatedFrom = null, updatedTo = null, occurredFrom = null, occurredTo = null } = {}) {
+  function list({ type, limit = 50, offset = 0, order = "importance", includeForgotten = false, includeArchived = false, onlyArchived = false, depositedOnly = false, minImportance = null, source = null, updatedFrom = null, updatedTo = null, occurredFrom = null, occurredTo = null, visibility = null } = {}) {
     const clauses = [];
     const params = [];
     if (type) {
@@ -1024,6 +1040,24 @@ export function createStore(path) {
     if (occurred.to) {
       clauses.push("COALESCE(occurred_at, created_at) <= ?");
       params.push(occurred.to);
+    }
+    // v0.8.0 A3（issue #17）：strictScope 硬过滤（memory_list 分页路径）。
+    // SQL 与 service.isVisibleInScope 同口径：未标注(NULL)恒可见；当前维度
+    // 解析不到时该维度只放行未标注行（fail-closed）。只有显式传 visibility
+    // 的用户面调用才过滤——dream/质量过滤等内部 store.list 调用不受影响。
+    if (visibility) {
+      if (visibility.agentScope != null) {
+        clauses.push("(agent_scope IS NULL OR agent_scope = ?)");
+        params.push(visibility.agentScope);
+      } else {
+        clauses.push("agent_scope IS NULL");
+      }
+      if (visibility.workspaceScope != null) {
+        clauses.push("(workspace_scope IS NULL OR workspace_scope = ?)");
+        params.push(visibility.workspaceScope);
+      } else {
+        clauses.push("workspace_scope IS NULL");
+      }
     }
     if (!includeForgotten) {
       clauses.push("forgotten = 0");
