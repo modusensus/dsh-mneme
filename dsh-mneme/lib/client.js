@@ -105,8 +105,20 @@ window.__ModuleLoader__.load({
         h("span", { className: "mneme-heatpct" }, `${pct}%`));
     };
 
-    // v0.8.0 A4（issue #17）：scope 标注徽章——仅在条目带标注时渲染（字段缺省
-    // 即消失，前端不感知开关状态，与 heat 徽章同一模式）；tooltip 展示完整归属。
+    /**
+     * v0.8.0 A4（issue #17）：scope 标注徽章——条目的归属来源一行摘要。
+     *
+     * 仅在条目带任一 scope 标注（agent_scope / workspace_scope / sensitivity）
+     * 时渲染；字段缺省返回 null（未标注条目视觉零变化，前端不感知开关状态，
+     * 与 HeatBadge 的「数据缺省即不渲染」同一模式）。tooltip 展示完整归属，
+     * 正文本体只有本地化的短标签（「作用域」/ "Scoped"）。
+     *
+     * @param {{m: object, t: (key: string) => string}} props
+     * @param {object} props.m 记忆条目（/list、/search 透出的 toApiList 形状，
+     *   scope 四字段条件存在）
+     * @param {(key: string) => string} props.t i18n 取词函数（调用点闭包提供）
+     * @returns {object|null} 徽章 vnode；无任何标注时为 null
+     */
     const ScopeBadge = ({ m, t }) => {
       if (!m || (!m.agent_scope && !m.workspace_scope && !m.sensitivity)) return null;
       const tip = [
