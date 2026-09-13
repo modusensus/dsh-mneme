@@ -52,8 +52,16 @@ function extractRounds(ctx, maxRounds) {
       // 这里用 ?? 兜底而不是直接改成 data.message.content：user 消息与旧的扁平形状都照旧可用。
       const parts = event?.data?.content ?? event?.data?.message?.content;
       if (!Array.isArray(parts)) return "";
+      // 只取正文 part（type === "text" 或字符串），跳过 reasoning（issue #162）：
+      // reasoning 里出现 Go template / Vue / Handlebars / 正则 / 日志原文的概率远高于
+      // 正文，把它带进 hot memory 会让 `{{...}}` 模板片段注入 prompt。旧的扁平形状
+      // （字符串 part）照旧取用，无 type 字段的兜底视为正文。
       return parts
-        .map((p) => (typeof p === "string" ? p : p?.text ?? ""))
+        .map((p) => {
+          if (typeof p === "string") return p;
+          if (p?.type && p.type !== "text") return "";
+          return p?.text ?? "";
+        })
         .filter(Boolean)
         .join("\n")
         .trim();
@@ -108,6 +116,24 @@ export function createInjector(ctx, service, settings, config) {
     return text.length <= maxLength ? text : `${text.slice(0, maxLength)}…`;
   }
 
+  // Prompt-variable brace escaping (issue #162, restored from v0.7.4 #40):
+  // DSH's interpolate() scans every injected section for `{{...}}` and throws
+  // unless the variable name matches /^[a-z][a-z0-9_]*$/ — memory/profile
+  // content carrying legal template syntax (docker `--format "{{.Server.Version}}"`,
+  // Obsidian-style `{{hl|}}`, `{{挖空}}`, `{{关键词}}`) would hit an illegal
+  // variable name and throw, crashing the whole turn. At the injection boundary
+  // we escape every run of 2+ consecutive braces, inserting a `\` between each
+  // pair, so no `{{`/`}}` substring survives into the prompt: `{{a}}` → `{\{a\}\}`,
+  // and odd runs like `{{{a}}}` (which pair-wise escaping would leave with a
+  // literal `{{`) are handled too. The text keeps its readable template form,
+  // the transform is idempotent (escaped braces are single + `\`, never two
+  // adjacent), and single braces pass through untouched — interpolate only
+  // scans `{{`. Off via config.escapePromptVariables=false (default true).
+  function escapePromptVars(text) {
+    if (config.escapePromptVariables === false) return String(text);
+    return String(text).replace(/[{}]{2,}/g, (run) => run.split("").join("\\"));
+  }
+
   // Hot memory (v0.5.0 1.3): the latest rounds of THIS session, rebuilt from
   // the materialized event log on every render — stateless, so it survives
   // session switches and never persists anywhere.
@@ -124,7 +150,7 @@ export function createInjector(ctx, service, settings, config) {
     for (const r of rounds) hot.add(r);
     const body = hot.getContext();
     if (!body) return "";
-    return STR.hotHeader[language](rounds.length, body);
+    return escapePromptVars(STR.hotHeader[language](rounds.length, body));
   }
 
   function render(candidates) {
@@ -148,7 +174,7 @@ export function createInjector(ctx, service, settings, config) {
         lines.push(`- [${m.type}] ${verified}${title}`);
       }
     }
-    return lines.join("\n");
+    return escapePromptVars(lines.join("\n"));
   }
 
   // Bug4: the system-prompt render is synchronous, so the semantic query vector
@@ -182,7 +208,7 @@ export function createInjector(ctx, service, settings, config) {
     const lines = [STR.userSettingsHeader[language]];
     if (profile) lines.push(STR.profileLine[language](profile));
     for (const rule of rules) lines.push(STR.ruleLine[language](rule));
-    return lines.join("\n");
+    return escapePromptVars(lines.join("\n"));
   }
 
   const disposers = [
