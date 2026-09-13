@@ -310,7 +310,9 @@ function escapeLike(q) {
 // 法值一律返回 undefined → 不进 WHERE（忽略而非报错：面板传坏参数时宁可放宽
 // 过滤也不要白屏）。updated_at 列是 toISOString 产生的 UTC "Z" 字符串，字典
 // 序与时间序一致，SQL 里可直接比较。
-function updatedAtBounds(updatedFrom, updatedTo) {
+// v0.8.0 A2：导出复用——occurred_at 时间过滤（service 的搜索后置过滤）与
+// updated_at 过滤共用同一套边界归一化，坏参数口径一致。
+export function updatedAtBounds(updatedFrom, updatedTo) {
   const norm = (raw, endOfDay) => {
     if (typeof raw !== "string" || !raw.trim()) return undefined;
     const s = raw.trim();
@@ -675,7 +677,7 @@ export function createStore(path) {
     return ts;
   }
 
-  function count(type, { minImportance = null, source = null, includeForgotten = false, includeArchived = false, onlyArchived = false, depositedOnly = false, updatedFrom = null, updatedTo = null } = {}) {
+  function count(type, { minImportance = null, source = null, includeForgotten = false, includeArchived = false, onlyArchived = false, depositedOnly = false, updatedFrom = null, updatedTo = null, occurredFrom = null, occurredTo = null, visibility = null } = {}) {
     const clauses = [];
     const params = [];
     if (type !== undefined) {
@@ -701,6 +703,33 @@ export function createStore(path) {
     if (bounds.to) {
       clauses.push("updated_at <= ?");
       params.push(bounds.to);
+    }
+    // occurred_at 闭区间：与 list() 同口径（COALESCE 回退 created_at），
+    // memory_list 的 total 才能和过滤后的行保持一致。
+    const occurred = updatedAtBounds(occurredFrom, occurredTo);
+    if (occurred.from) {
+      clauses.push("COALESCE(occurred_at, created_at) >= ?");
+      params.push(occurred.from);
+    }
+    if (occurred.to) {
+      clauses.push("COALESCE(occurred_at, created_at) <= ?");
+      params.push(occurred.to);
+    }
+    // occurred_at 闭区间：与 list() 同过滤（visibility 同口径），memory_list
+    // 的 total 才能和过滤后的行保持一致。
+    if (visibility) {
+      if (visibility.agentScope != null) {
+        clauses.push("(agent_scope IS NULL OR agent_scope = ?)");
+        params.push(visibility.agentScope);
+      } else {
+        clauses.push("agent_scope IS NULL");
+      }
+      if (visibility.workspaceScope != null) {
+        clauses.push("(workspace_scope IS NULL OR workspace_scope = ?)");
+        params.push(visibility.workspaceScope);
+      } else {
+        clauses.push("workspace_scope IS NULL");
+      }
     }
     if (!includeForgotten) {
       clauses.push("forgotten = 0");
@@ -972,7 +1001,7 @@ export function createStore(path) {
     return rows.map(toRow);
   }
 
-  function list({ type, limit = 50, offset = 0, order = "importance", includeForgotten = false, includeArchived = false, onlyArchived = false, depositedOnly = false, minImportance = null, source = null, updatedFrom = null, updatedTo = null } = {}) {
+  function list({ type, limit = 50, offset = 0, order = "importance", includeForgotten = false, includeArchived = false, onlyArchived = false, depositedOnly = false, minImportance = null, source = null, updatedFrom = null, updatedTo = null, occurredFrom = null, occurredTo = null, visibility = null } = {}) {
     const clauses = [];
     const params = [];
     if (type) {
@@ -999,6 +1028,36 @@ export function createStore(path) {
     if (bounds.to) {
       clauses.push("updated_at <= ?");
       params.push(bounds.to);
+    }
+    // v0.8.0 A2（issue #17）：occurred_at 闭区间过滤——按「事件发生时间」检索。
+    // 未标注 occurred_at 的行（含全部存量）回退 created_at 比较（COALESCE），
+    // 否则过滤器对旧库近乎不可用；边界归一化与 updated_at 共用 updatedAtBounds。
+    const occurred = updatedAtBounds(occurredFrom, occurredTo);
+    if (occurred.from) {
+      clauses.push("COALESCE(occurred_at, created_at) >= ?");
+      params.push(occurred.from);
+    }
+    if (occurred.to) {
+      clauses.push("COALESCE(occurred_at, created_at) <= ?");
+      params.push(occurred.to);
+    }
+    // v0.8.0 A3（issue #17）：strictScope 硬过滤（memory_list 分页路径）。
+    // SQL 与 service.isVisibleInScope 同口径：未标注(NULL)恒可见；当前维度
+    // 解析不到时该维度只放行未标注行（fail-closed）。只有显式传 visibility
+    // 的用户面调用才过滤——dream/质量过滤等内部 store.list 调用不受影响。
+    if (visibility) {
+      if (visibility.agentScope != null) {
+        clauses.push("(agent_scope IS NULL OR agent_scope = ?)");
+        params.push(visibility.agentScope);
+      } else {
+        clauses.push("agent_scope IS NULL");
+      }
+      if (visibility.workspaceScope != null) {
+        clauses.push("(workspace_scope IS NULL OR workspace_scope = ?)");
+        params.push(visibility.workspaceScope);
+      } else {
+        clauses.push("workspace_scope IS NULL");
+      }
     }
     if (!includeForgotten) {
       clauses.push("forgotten = 0");

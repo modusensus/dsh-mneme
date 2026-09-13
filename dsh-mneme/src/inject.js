@@ -1,3 +1,4 @@
+import { createScopeResolver } from "./scope.js";
 import { createHotMemory } from "./hot-memory.js";
 import { STR, langOf } from "./lang.js";
 
@@ -85,6 +86,9 @@ export function createInjector(ctx, service, settings, config) {
   const language = langOf(config);
   const maxItems = config.maxInjectedItems ?? 5;
   const threshold = config.importanceThreshold ?? 3;
+  // v0.8.0 A3（issue #17）：注入路径的会话 scope 解析——strictScope 硬过滤
+  // 需要。渲染 ctx 与工具 exec 同形（agent.session），解析器直接复用。
+  const resolveSessionScope = createScopeResolver({ ctx, config });
 
   // Bug6: bound the injected memory block. Each entry's content is truncated to
   // MAX_CONTENT chars (trailing `…`); the whole block gets a MAX_BLOCK budget
@@ -192,7 +196,10 @@ export function createInjector(ctx, service, settings, config) {
         const query = lastUserQuery(ctx);
         if (query) prefetchQueryVector(query);
         const queryVector = queryVectorCache.get(query);
-        const candidates = service.injectCandidates({ query, queryVector, maxItems, threshold });
+        // v0.8.0 A3：scope 随请求解析（strict 开启时 injectCandidates 内硬过滤；
+        // flag 关闭时解析器返回 null，注入行为不变）。
+        const scope = resolveSessionScope(ctx);
+        const candidates = service.injectCandidates({ query, queryVector, maxItems, threshold, scope });
         // Hot memory (v0.5.0 1.3) leads the single memory block: the agent
         // sees the short-term rounds first, then the cross-session recall —
         // the documented injection order 1→2. Folding it here (instead of a
