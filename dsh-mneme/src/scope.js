@@ -40,10 +40,14 @@ export function createScopeResolver({ ctx, config, logger } = {}) {
       session = null;
     }
 
-    // 持久化 header：优先 live 的 requestHeader()，旧宿主只有静态 .header 属性。
+    // 持久化 header（issue #17 的身份契约）：session.header 是创建时冻结的
+    // SessionHeader（含 agentPreset/cwd）。⚠️ 不能先读 requestHeader()——那返回
+    // EpochHeader（请求级模型路由头，首个请求后即为真值），会把 session.header
+    // 遮蔽掉，agentPreset/cwd 双双取空（本地 web 复验 2026-09-13 实测踩中）。
+    // 仅当宿主没有 .header 属性时才降级尝试 requestHeader().config（旧形状）。
     let header = null;
     try {
-      header = session?.requestHeader?.() ?? session?.header ?? null;
+      header = session?.header ?? session?.requestHeader?.()?.config ?? null;
     } catch {
       header = null;
     }

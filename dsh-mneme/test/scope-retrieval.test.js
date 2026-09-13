@@ -163,7 +163,7 @@ test("memory_search passes the session scope and occurred window through", async
     occurred_at: "2026-08-15T00:00:00Z"
   });
   const search = pick("memory_search");
-  const exec = { agent: { session: { id: "s1", requestHeader: () => ({ agentPreset: "novelist", cwd: "D:\\p" }) } } };
+  const exec = { agent: { session: { id: "s1", header: { agentPreset: "novelist", cwd: "D:\\p" } } } };
   const args = { query: "needle", occurred_from: "2026-08-01", occurred_to: "2026-08-31" };
   const out = await runHandler(search, args, exec);
   // 窗口内只剩 beta；其 agent_scope 命中当前会话（novelist），标注随行透出。
