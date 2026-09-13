@@ -1360,8 +1360,6 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     if (!row) return undefined;
     const winnerId = winner === "a" ? row.memory_a : winner === "b" ? row.memory_b : null;
     const loserId = winner === "a" ? row.memory_b : winner === "b" ? row.memory_a : null;
-    const stamped = store.resolveConflictPending(id, { winner: winnerId });
-    if (!stamped) return undefined;
     let disposition = null;
     if (apply && winnerId && loserId) {
       const snapshot = new Map();
@@ -1383,8 +1381,19 @@ export function createService({ store, mirror, config, onWrite, logger }) {
         snapshot,
         { ...config, trustEpistemicWeighting: false }
       );
-      disposition = failures.length ? { ok: false, failures } : { ok: true, committed };
+      // Review 发现：处置必须**先于**盖章。原实现先 resolveConflictPending 盖章、
+      // 再 applyDecisions——若 CAS 拒掉（确认前双方被并发更新），行已 resolved 从
+      // 队列消失、前端仍显示成功，审计却记了"已确认"且无法重试。现在失败时不盖章
+      // 直接返回：行留在队列待重试，审计不被污染。
+      if (failures.length) {
+        return { ...row, disposition: { ok: false, failures } };
+      }
+      disposition = { ok: true, committed };
     }
+    // 处置成功（或纯标记）后才盖章。幂等重放（败者已归档 → skipped）也走这里：
+    // 处置本就存在，标记已审即可。
+    const stamped = store.resolveConflictPending(id, { winner: winnerId });
+    if (!stamped) return undefined;
     return { ...stamped, disposition };
   }
 

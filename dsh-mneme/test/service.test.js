@@ -374,6 +374,23 @@ test("resolveConflictPending unknown id returns undefined", () => {
   assert.equal(service.resolveConflictPending("nope", { winner: "a" }), undefined);
 });
 
+// Review 守卫（#166 时序修复）：盖章必须先于处置的**反面**契约——处置失败时
+// 不得盖章。单线程下 casGuard 的 snapshot 与读取之间没有异步介入点，CAS 冲突
+// 实际不可达（这是原 PR 没测它的原因），但它一旦因未来改动可达（异步 store、
+// update/archive 抛错），先盖章会让行已 resolved、从队列消失却未处置。这条源码
+// 断言把顺序固化下来（与 client.test.js 断言 ConflictsQueue 存在同一惯例），
+// 防止未来有人再把盖章挪回处置之前。
+test("resolveConflictPending stamps only after disposition succeeds (review ordering guard)", () => {
+  const source = readFileSync(new URL("../src/service.js", import.meta.url), "utf8");
+  const fn = source.slice(source.indexOf("function resolveConflictPending"));
+  const applyAt = fn.indexOf("applyDecisions(");
+  const stampAt = fn.indexOf("store.resolveConflictPending(");
+  assert.ok(applyAt !== -1, "resolveConflictPending must call applyDecisions");
+  assert.ok(stampAt !== -1, "resolveConflictPending must call store.resolveConflictPending");
+  assert.ok(stampAt > applyAt, "stamp must happen after applyDecisions — a failed disposition must not mark the conflict resolved");
+  assert.ok(fn.includes("if (failures.length)"), "apply failures must short-circuit before stamping");
+});
+
 test("listConflictQueue joins both sides and tolerates missing memories", () => {
   const { store, service } = setup();
   const a = store.save({ type: "decision", title: "现存方", content: "现存内容", importance: 4 });
