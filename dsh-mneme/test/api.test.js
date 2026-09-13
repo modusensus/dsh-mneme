@@ -1112,7 +1112,8 @@ test("POST /api/dsh-mneme/conflicts/resolve stamps and applies the disposition",
   await queueRoute.handler(req("/api/dsh-mneme/conflicts"), queueRes);
   const queued = JSON.parse(queueRes.body).items.find((x) => x.id === pending.id);
   const keepSide = queued.memory_a.id === b.id ? "a" : "b";
-  const loserId = keepSide === "a" ? a.id : b.id;
+  // loser 恒为 a（keeper 恒为「界面亮色切换」= b），与 A/B 侧位字母无关
+  const loserId = a.id;
 
   const route = routes.find((r) => r.path === "/api/dsh-mneme/conflicts/resolve");
   // 保留「界面亮色切换」所在侧（apply 默认 true）→ 该侧保留，另一侧归档
