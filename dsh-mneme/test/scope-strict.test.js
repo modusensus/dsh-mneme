@@ -118,8 +118,8 @@ async function runHandler(def, args, exec) {
   return handler(args, exec);
 }
 
-const STRICT_EXEC = { agent: { session: { id: "s1", requestHeader: () => ({ agentPreset: "me", cwd: "D:\\p" }) } } };
-const OTHER_EXEC = { agent: { session: { id: "s2", requestHeader: () => ({ agentPreset: "other", cwd: "D:\\q" }) } } };
+const STRICT_EXEC = { agent: { session: { id: "s1", header: { agentPreset: "me", cwd: "D:\\p" } } } };
+const OTHER_EXEC = { agent: { session: { id: "s2", header: { agentPreset: "other", cwd: "D:\\q" } } } };
 
 test("memory_get hides foreign-scope rows under strictScope, resolvable for the owner", async () => {
   const { store, pick } = setupTools({ scopeEnabled: true, strictScope: true });

@@ -145,7 +145,7 @@ async function runMemorySave(memorySave, args, exec) {
 
 test("memory_save stamps resolved scope onto the row when the flag is on", async () => {
   const { store, memorySave } = setupTools({ scopeEnabled: true });
-  const exec = { agent: { session: { id: "s1", requestHeader: () => ({ agentPreset: "coder", cwd: "D:\\proj" }) } } };
+  const exec = { agent: { session: { id: "s1", header: { agentPreset: "coder", cwd: "D:\\proj" } } } };
   const args = { type: "pitfall", title: "T", content: "c", sensitivity: "personal", occurred_at: "2026-09-12T00:00:00Z" };
   const out = await runMemorySave(memorySave, args, exec);
   const row = store.getById(out.id);
@@ -165,7 +165,7 @@ test("memory_save without exec context writes unscoped rows (flag on, nothing re
 
 test("memory_save with the flag off writes rows without any scope annotation", async () => {
   const { store, memorySave } = setupTools({});
-  const exec = { agent: { session: { id: "s1", requestHeader: () => ({ agentPreset: "coder", cwd: "D:\\proj" }) } } };
+  const exec = { agent: { session: { id: "s1", header: { agentPreset: "coder", cwd: "D:\\proj" } } } };
   const out = await runMemorySave(memorySave, { type: "pitfall", title: "T", content: "c" }, exec);
   const row = store.getById(out.id);
   assert.equal(row.agent_scope, undefined);
@@ -182,7 +182,7 @@ test("resolver stamps agentPreset and header cwd; registry hit wins over header 
     config: { scopeEnabled: true },
     ctx: { workspaceRegistry: { list: () => [{ path: "C:\\canon", sessionIds: ["s1"] }] } }
   });
-  const exec = { agent: { session: { id: "s1", requestHeader: () => ({ agentPreset: "coder", cwd: "D:\\raw" }) } } };
+  const exec = { agent: { session: { id: "s1", header: { agentPreset: "coder", cwd: "D:\\raw" } } } };
   assert.deepEqual(resolve(exec), { agent_scope: "coder", workspace_scope: "C:\\canon" });
 
   const resolveNoHit = createScopeResolver({
@@ -198,6 +198,36 @@ test("resolver falls back to the static .header property on old hosts", () => {
   assert.deepEqual(resolve(exec), { agent_scope: "novelist", workspace_scope: null });
 });
 
+test("session.header wins over requestHeader() (EpochHeader must not shadow the durable header)", () => {
+  const resolve = createScopeResolver({ config: { scopeEnabled: true }, ctx: {} });
+  // 本地 web 复验（2026-09-13）实测踩中的形状：requestHeader() 返回请求级
+  // EpochHeader（模型路由头，无 agentPreset/cwd），曾在首个请求后遮蔽
+  // session.header，导致标注全空。
+  const exec = {
+    agent: {
+      session: {
+        id: "s1",
+        header: { agentPreset: "coder", cwd: "D:\\proj" },
+        requestHeader: () => ({ config: { provider: "deepseek-official", model: "deepseek-v4-flash" } })
+      }
+    }
+  };
+  assert.deepEqual(resolve(exec), { agent_scope: "coder", workspace_scope: "D:\\proj" });
+});
+
+test("hosts without .header fall back to requestHeader().config shape", () => {
+  const resolve = createScopeResolver({ config: { scopeEnabled: true }, ctx: {} });
+  const exec = {
+    agent: {
+      session: {
+        id: "s2",
+        requestHeader: () => ({ config: { agentPreset: "legacy", cwd: "E:\\old" } })
+      }
+    }
+  };
+  assert.deepEqual(resolve(exec), { agent_scope: "legacy", workspace_scope: "E:\\old" });
+});
+
 test("resolver never throws: registry explosion degrades to header cwd and warns once", () => {
   const warnings = [];
   const resolve = createScopeResolver({
@@ -205,7 +235,7 @@ test("resolver never throws: registry explosion degrades to header cwd and warns
     ctx: { workspaceRegistry: { list: () => { throw new Error("boom"); } } },
     logger: { warn: (m) => warnings.push(String(m)) }
   });
-  const exec = { agent: { session: { id: "s1", requestHeader: () => ({ agentPreset: "coder", cwd: "D:\\raw" }) } } };
+  const exec = { agent: { session: { id: "s1", header: { agentPreset: "coder", cwd: "D:\\raw" } } } };
   assert.deepEqual(resolve(exec), { agent_scope: "coder", workspace_scope: "D:\\raw" });
   assert.equal(warnings.length, 1, "warn exactly once, never block the write path");
 });
