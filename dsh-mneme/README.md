@@ -13,7 +13,7 @@
 
 > 给 DeepSeek Harness 的跨会话记忆插件：让 Agent 记住你、记住项目、自动整理记忆。**Mneme**（Μνήμη）——希腊记忆女神 Mnemosyne 之名，掌管记忆与梦境，正如 autoDream 在后台巩固记忆。
 
-`dsh-mneme` 是一个 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) 插件，为 Agent 提供持久的跨会话记忆能力。它借鉴了 Claude 的 **Dream 机制** 与 cc-haha / Claude Code 的 **autoDream** 实现思路——不仅**存储**记忆，还会**自动巩固**（去重、合并、冲突裁决、摘要生成），让记忆库越用越精炼。
+`dsh-mneme` 是一个 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) 插件，为 Agent 提供持久的跨会话记忆能力。它借鉴了 Claude 的 **Dream 机制** 与 cc-haha / Claude Code 的 **autoDream** 记忆巩固功能——不仅**存储**记忆，还会**自动巩固**（去重、合并、冲突裁决、摘要生成），让记忆库越用越精炼。完整溯源与致谢见文末「[🙏 致谢](#-致谢)」。
 
 ## ⏱️ 30 秒理解
 
@@ -68,6 +68,8 @@ dsh web
 - **会话摘要**：`turn/end` 时用 LLM 提炼本次会话的偏好/决策/教训，自动入库（过滤 plugin 注入上下文，避免污染）
 
 ### autoDream 自动记忆整理 🧠
+
+> **溯源**：autoDream 的理念源自 Claude Code 的 Auto Dream 记忆巩固功能（Anthropic，Memory 2.0 的后台整理子代理），其「离线巩固」思路与 UC Berkeley & Letta 的 *Sleep-time Compute* 论文（[arXiv:2504.13171](https://arxiv.org/abs/2504.13171)）一脉相承。dsh-mneme 将其引入 DSH 插件生态，并发展为自己的实现——K-Means++ 聚类预分组、类型化决策清单与可回放的 sha256 摘要审计链，详见文末「[🙏 致谢](#-致谢)」。
 
 - **触发**：记忆数 > 10 或总字符 > 5000 时，异步自动触发（不阻塞写入）
 - **决策清单式整理**：LLM 输出 `keep` / `merge` / `archive` / `conflict` / `update` 决策清单，服务端校验后逐条应用
@@ -595,6 +597,16 @@ npm run sync       # 把 src/ 同步到 lib/（发布时由 prepack 钩子自动
 - [语义增强架构](docs/SEMANTIC.md)
 - [本地模型部署指南](docs/LOCAL_MODEL.md)
 - [从 v0.1 升级说明](docs/MIGRATION.md)
+
+## 🙏 致谢
+
+autoDream 的理念溯源（理念借鉴、实现原创）：
+
+- **[Claude Code 的 Auto Dream](https://code.claude.com/docs/en/memory)**（Anthropic，Memory 2.0）：理念源头——会话间隙由后台子代理整理记忆文件（去重、修矛盾、清衰减）。
+- **[Sleep-time Compute: Beyond Inference Scaling at Test-time](https://arxiv.org/abs/2504.13171)**（UC Berkeley & Letta，arXiv:2504.13171）：Auto Dream「离线巩固」思想背后的学术脉络。
+- **cc-haha**：早期实现思路的参照之一。
+
+在上述工作之上，dsh-mneme 做了自己的工程发展：K-Means++ 聚类预分组（`src/dream/clustering.js`）、类型化决策清单（keep / merge / archive / conflict / update，及 sleep 侧 supersede / differentiate）与可回放的 sha256 摘要审计链（`dream_runs` / `receipt_chain`）。如有遗漏的灵感来源，欢迎提 issue 指出。
 
 ## 📜 License
 

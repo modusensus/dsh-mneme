@@ -309,6 +309,26 @@ npm run stress  # three-axis stress test
 npm run sync    # src → lib sync
 ---
 
+## 🙏 致谢
+
+autoDream 的理念溯源（理念借鉴、实现原创）：
+
+- **[Claude Code 的 Auto Dream](https://code.claude.com/docs/en/memory)**（Anthropic，Memory 2.0）：理念源头——会话间隙由后台子代理整理记忆文件（去重、修矛盾、清衰减）。
+- **[Sleep-time Compute: Beyond Inference Scaling at Test-time](https://arxiv.org/abs/2504.13171)**（UC Berkeley & Letta，arXiv:2504.13171）：Auto Dream「离线巩固」思想背后的学术脉络。
+- **cc-haha**：早期实现思路的参照之一。
+
+在上述工作之上，dsh-mneme 做了自己的工程发展：K-Means++ 聚类预分组、类型化决策清单（keep / merge / archive / conflict / update，及 sleep 侧 supersede / differentiate）与可回放的 sha256 摘要审计链（`dream_runs` / `receipt_chain`）。如有遗漏的灵感来源，欢迎提 issue 指出。
+
+## Acknowledgements
+
+Provenance of the autoDream concept (ideas credited, implementation original):
+
+- **[Auto Dream in Claude Code](https://code.claude.com/docs/en/memory)** (Anthropic, Memory 2.0): the conceptual origin — a background sub-agent consolidates memory files between sessions (dedupe, resolve contradictions, prune decay).
+- **[Sleep-time Compute: Beyond Inference Scaling at Test-time](https://arxiv.org/abs/2504.13171)** (UC Berkeley & Letta, arXiv:2504.13171): the academic thread behind the offline-consolidation idea.
+- **cc-haha**: an early reference for the implementation approach.
+
+On top of these, dsh-mneme adds its own engineering: K-Means++ cluster pre-grouping, a typed decision list (keep / merge / archive / conflict / update, plus supersede / differentiate on the sleep side), and a replayable sha256-digest audit chain (`dream_runs` / `receipt_chain`). If any source of inspiration is missing, please open an issue.
+
 ## 📜 License
 
 MIT
