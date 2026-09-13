@@ -98,7 +98,7 @@ test("searchMemories weighting is off entirely when the flag is off", async () =
   assert.deepEqual(rows.map((m) => m.title), ["alpha needle", "beta"]);
 });
 
-test("unscoped rows stay neutral under weighting (global memories keep their rank)", async () => {
+test("unscoped rows rank with matched rows under weighting (never suppressed)", async () => {
   const store = createStore(":memory:");
   const service = createService({ store, mirror: null, config: { scopeEnabled: true } });
   store.save({ type: "project", title: "global needle", content: "x" });
@@ -107,7 +107,7 @@ test("unscoped rows stay neutral under weighting (global memories keep their ran
     mode: "keyword",
     scope: { agent_scope: "me", workspace_scope: null }
   });
-  // global 行命中 ×1.25，foreign 行 ×0.5——未标注行不该被任何会话的加权压掉。
+  // 未标注行与命中行同列吃 BOOST（×1.25），foreign 行 ×0.5——不被任何会话压掉。
   assert.deepEqual(rows.map((m) => m.title), ["global needle", "foreign"]);
 });
 

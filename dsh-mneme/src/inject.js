@@ -88,7 +88,8 @@ export function createInjector(ctx, service, settings, config) {
   const threshold = config.importanceThreshold ?? 3;
   // v0.8.0 A3（issue #17）：注入路径的会话 scope 解析——strictScope 硬过滤
   // 需要。渲染 ctx 与工具 exec 同形（agent.session），解析器直接复用。
-  const resolveSessionScope = createScopeResolver({ ctx, config });
+  // logger 透传：registry 反查失败时 warnOnce 才有出口。
+  const resolveSessionScope = createScopeResolver({ ctx, config, logger: ctx.logger });
 
   // Bug6: bound the injected memory block. Each entry's content is truncated to
   // MAX_CONTENT chars (trailing `…`); the whole block gets a MAX_BLOCK budget

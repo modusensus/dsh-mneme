@@ -46,10 +46,12 @@ function scopeKeyOf(v) {
   return typeof v === "string" && v.trim() ? v.trim() : null;
 }
 
-// v0.8.0 A2（issue #17）scope 检索加权系数：当前会话 scope 两维都命中 → 加成；
-// 任一维度带着他 scope → 降权但保留可见（硬过滤是 A3 strictScope）。未标注行
-// （NULL）与无法比较的维度恒中性——全局/存量记忆不因加权掉位。系数是模块常量
-// 而非配置项：A2 只定性行为，数值要等线上检索质量反馈再调（加配置面=提前优化）。
+// v0.8.0 A2（issue #17）scope 检索加权系数：两维都无法确立 foreign 的候选
+// （命中行、未标注行、当前侧维度解析不到的行）→ 加成；只有确立了 foreign
+// （记忆带标注 + 当前维度可解析 + 值不等）→ 降权但保留可见（硬过滤是 A3
+// strictScope）。即未标注行与命中行同列、不吃惩罚，但注意它们吃的是 BOOST
+// 而非 ×1 中性。系数是模块常量而非配置项：A2 只定性行为，数值要等线上检索
+// 质量反馈再调（加配置面=提前优化）。
 const SCOPE_MATCH_BOOST = 1.25;
 const SCOPE_FOREIGN_PENALTY = 0.5;
 
@@ -769,10 +771,11 @@ export function createService({ store, mirror, config, onWrite, logger }) {
         .slice(0, lim);
     }
 
-    // v0.8.0 A2（issue #17）：scope 检索加权——当前会话 scope 两维命中的候选
-    // 加成、带他 scope 的候选降权但保留可见（硬过滤是 A3 strictScope）。未标注
-    // 行与无法比较的维度恒中性；flag 关或调用方未传 scope 时不动分，排序与
-    // A2 前逐字节一致。与 epistemic 加权同款收尾：乘分 → 降序 → 截 topK。
+    // v0.8.0 A2（issue #17）：scope 检索加权——两维都无法确立 foreign 的候选
+    // （命中/未标注/当前侧解析不到）加成，确立 foreign 的候选降权但保留可见
+    // （硬过滤是 A3 strictScope）；未标注行与命中行同列吃 BOOST、不被压制。
+    // flag 关或调用方未传 scope 时不动分，排序与 A2 前逐字节一致。与
+    // epistemic 加权同款收尾：乘分 → 降序 → 截 topK。
     if (config.scopeEnabled === true && scope && (scope.agent_scope || scope.workspace_scope)) {
       result = result
         .map((m) => ({ ...m, score: (m.score ?? 0) * scopeMultiplier(m, scope) }))

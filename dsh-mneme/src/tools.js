@@ -73,7 +73,8 @@ export function createTools(ctx, service, config, embedder) {
   }
   // v0.8.0 A1/A2（issue #17）：会话 scope 解析（agentPreset + workspace 反查）。
   // flag 关闭时恒返回 null——写入不标注，检索不加权，行为与 A1 前完全一致。
-  const resolveSessionScope = createScopeResolver({ ctx, config });
+  // logger 透传：registry 反查失败时 warnOnce 才有出口（否则静默降级无观测）。
+  const resolveSessionScope = createScopeResolver({ ctx, config, logger: ctx.logger });
   const tools = [
     defineTool({
       name: "memory_save",
