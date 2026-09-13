@@ -37,11 +37,19 @@ const MEMORY_ITEM_SCHEMA = {
 };
 
 // v0.8.0 A2：occurred 时间窗参数 → store 过滤选项（list/count 同口径）；
-// 未传参返回空对象，既有调用方不受影响。
+// 未传参返回空对象，既有调用方不受影响。（A3 复核：此处入参仅含 occurred 边界。）
 function occurredWindow(args) {
   const from = args?.occurred_from ?? null;
   const to = args?.occurred_to ?? null;
   return from !== null || to !== null ? { occurredFrom: from, occurredTo: to } : {};
+}
+
+// v0.8.0 A3：strictScope 硬过滤的 visibility 选项（store.list/count 同口径）。
+// flag 关或会话 scope 未解析出（flag 关时解析器返回 null）→ 空对象不过滤；
+// scope 为 {null,null}（匿名会话）时照传——store 侧 fail-closed 只放行未标注行。
+function strictVisibility(config, scope) {
+  if (config?.strictScope !== true || !scope) return {};
+  return { visibility: { agentScope: scope.agent_scope, workspaceScope: scope.workspace_scope } };
 }
 
 // v0.8.0 A2：检索结果的 provenance 附加段——只在有标注时出现，未标注行渲染
@@ -209,9 +217,12 @@ export function createTools(ctx, service, config, embedder) {
           limit: args.limit ?? 50,
           offset: args.offset ?? 0,
           includeArchived,
-          ...occurredWindow(args)
+          ...occurredWindow(args),
+          // A3：strict 开启时按会话 scope 硬过滤（宿主按 (args, runContext) 调用，
+          // 从 arguments 取第二参）。
+          ...strictVisibility(config, resolveSessionScope(arguments[1]))
         }));
-        return { items: rows, total: service.count(args.type, { includeArchived, ...occurredWindow(args) }) };
+        return { items: rows, total: service.count(args.type, { includeArchived, ...occurredWindow(args), ...strictVisibility(config, resolveSessionScope(arguments[1])) }) };
       }
     }),
 
@@ -255,6 +266,13 @@ export function createTools(ctx, service, config, embedder) {
       async execute(args) {
         const memory = service.getById(args.id);
         if (memory === undefined) throw new Error("memory not found");
+        // v0.8.0 A3：strictScope 下他 scope 的行按不存在处理（无存在性泄漏）。
+        // 宿主注册表按 (args, runContext) 两参调用处理器，从 arguments 取第二参。
+        const runContext = arguments[1];
+        const scope = resolveSessionScope(runContext);
+        if (config.strictScope === true && scope && !service.isVisibleInScope(memory, scope)) {
+          throw new Error("memory not found");
+        }
         return { memory: service.toApiList([memory])[0] };
       }
     }),

@@ -81,6 +81,22 @@ function inOccurredBounds(m, bounds) {
   return true;
 }
 
+/**
+ * v0.8.0 A3（issue #17）strictScope 可见性谓词：issue 的四象限可见性公式
+ * （agent 不对称可见性）——记忆对当前会话可见 ⇔ (agent 维：未标注 或 命中当前
+ * agent) AND (workspace 维：未标注 或 命中当前 workspace)。NULL=未标注=全局；
+ * 当前会话某维度解析不到时，该维度带标注的记忆一律不可见（fail-closed：身份
+ * 不明的会话只见全局，不冒认）。sensitivity 是标签不参与可见性判定（其语义
+ * 留给后续批次）。store.list 的 SQL 过滤与此谓词同口径（见 store.js visibility）。
+ */
+function isVisibleInScope(m, current) {
+  const agent = scopeKeyOf(m.agent_scope);
+  if (agent !== null && (current.agent_scope === null || agent !== current.agent_scope)) return false;
+  const ws = scopeKeyOf(m.workspace_scope);
+  if (ws !== null && (current.workspace_scope === null || ws !== current.workspace_scope)) return false;
+  return true;
+}
+
 /** Prepend the previous content to a memory's content_history (FIFO capped). */
 function pushContentHistory(existing, source) {
   const history = Array.isArray(existing?.content_history) ? existing.content_history : [];
@@ -711,6 +727,13 @@ export function createService({ store, mirror, config, onWrite, logger }) {
 
     const { merged: fusedMerged, signals } = fuseRecall({ keyword, vector, bm25, lim, mode, wv, wk, wb });
     let merged = fusedMerged;
+    // v0.8.0 A3（issue #17）：strictScope 硬过滤——他 scope 的候选直接出局
+    // （区别于 A2 的降权保留可见）；未标注行与命中行保留。strict 与 A2 加权
+    // 叠加：过滤后剩下的命中行仍吃加成。scope 未传（flag 关）或完全解析不到
+    // 时跳过——identity 为空的对象（{null,null}）按 fail-closed 过滤。
+    if (config.strictScope === true && scope) {
+      merged = merged.filter((m) => isVisibleInScope(m, scope));
+    }
     // v0.8.0 A2：occurred_at 时间过滤——在融合池上先滤再 dedup/slice，rerank
     // 只看窗内候选，topK 槽位不被窗外行占用。
     const occurredBounds = updatedAtBounds(occurredFrom, occurredTo);
@@ -1164,7 +1187,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
    * fills + dedupes the remaining slots. Empty query / no cached recall /
    * hybridInject off → pure legacy rule-based selection.
    */
-  function injectCandidates({ query = "", maxItems = 5, threshold = 3, queryVector } = {}) {
+  function injectCandidates({ query = "", maxItems = 5, threshold = 3, queryVector, scope = null } = {}) {
     const q = String(query ?? "").trim();
     // codingRetrospect 读取侧门控：编码记忆（rejected_solution / pitfall /
     // constraint）只在编码任务时注入，防噪声污染其他业务；编码任务时按
@@ -1253,6 +1276,11 @@ export function createService({ store, mirror, config, onWrite, logger }) {
           candidates = [...candidates].sort((a, b) => (sim.get(b.id) ?? -1) - (sim.get(a.id) ?? -1));
         }
       } catch { /* topic re-rank unavailable: keep rule-based order */ }
+    }
+    // v0.8.0 A3（issue #17）：strictScope 硬过滤同样作用于自动注入——scoped 记忆
+    // 泄进无关注入上下文是最典型的越权通道，检索侧过滤挡不住这里。
+    if (config?.strictScope === true && scope) {
+      candidates = candidates.filter((m) => isVisibleInScope(m, scope));
     }
     const selected = candidates.slice(0, maxItems);
     touchRecalled(selected);
@@ -1613,6 +1641,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     injectCandidates,
     mergeHumanEdits,
     toApiList,
+    isVisibleInScope,
     transaction,
     enqueue,
     setDreamHook(fn) { dreamHook = fn; },

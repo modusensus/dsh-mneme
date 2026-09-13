@@ -68,6 +68,9 @@ const FEATURE_FLAG_BOOLEANS = [
   // agent_scope/workspace_scope、去重键扩展（含 sensitivity）；检索侧过滤在
   // A2/A3。默认关=行为与 A1 前逐字节一致。
   "scopeEnabled",
+  // Issue #17（v0.8.0 A3）：strictScope 硬过滤——他 scope 完全不可见（关闭时
+  // 为 A2 软隔离：降权保留可见）。
+  "strictScope",
   // 嵌套对象开关：config.js 里是 memoryQualityFilter / llmAudit 对象的 enabled
   // 子字段。kv 按点号键平铺存（"memoryQualityFilter.enabled": false），index.js
   // 合并时展开回嵌套对象，api.js 的 effective 从对象子字段取值。
