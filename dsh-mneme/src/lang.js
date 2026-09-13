@@ -103,6 +103,11 @@ export const STR = {
 
   // --- dream/sleep.js：冲突候选列表 --------------------------------------------
   similarityReason: { zh: (s) => `相似度 ${s}`, en: (s) => `similarity ${s}` },
+  // v0.8.1（issue #170 第 2 步）：跨 scope 相似对停车到冲突队列的专属 reason。
+  scopeCandidateReason: {
+    zh: (s) => `跨作用域相似 ${s}（疑似同一内容落在两个归属下，请裁决归属/去重）`,
+    en: (s) => `cross-scope similar ${s} (same content under two scopes — review ownership)`
+  },
   candidateConflicts: {
     zh: (p) => `候选冲突：\nid=${p.a.id} | type=${p.a.type} | title=${p.a.title}\n${p.a.content}\n---\nid=${p.b.id} | type=${p.b.type} | title=${p.b.title}\n${p.b.content}\n（相似度 ${p.similarity.toFixed(2)}）`,
     en: (p) => `Candidate conflicts:\nid=${p.a.id} | type=${p.a.type} | title=${p.a.title}\n${p.a.content}\n---\nid=${p.b.id} | type=${p.b.type} | title=${p.b.title}\n${p.b.content}\n(similarity ${p.similarity.toFixed(2)})`

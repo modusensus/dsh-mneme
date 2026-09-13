@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { TYPE_FILE } from "./mirror.js";
 import { updatedAtBounds } from "./store.js";
-import { normalizeExplicitScope } from "./scope.js";
+import { normalizeExplicitScope, scopeKeyOf } from "./scope.js";
 import { STR, langOf } from "./lang.js";
 import { computeHeat } from "./heat.js";
 import { evaluateMemoryQuality } from "./quality-filter.js";
@@ -41,12 +41,8 @@ const CONTENT_HISTORY_MAX = 20;
 // 清单必须与 quality-filter.js 的写入端对齐（6 个，含 type 自指的 self_referential）。
 const SIGNAL_TAGS = ["low_quality", "duplicate", "meta", "repetitive", "short_content", "self_referential"];
 
-// v0.8.0 A1（issue #17）去重键的 scope 归一：非空 trim 字符串原样比较，其余
-// （NULL/undefined/空串）统一为「未标注」。与 store.normalizeScopeText 的落库
-// 口径一致——两把钥匙只有都过这里再比较，NULL 与 'global' 才不会错配。
-function scopeKeyOf(v) {
-  return typeof v === "string" && v.trim() ? v.trim() : null;
-}
+// scopeKeyOf 已上提到 ./scope.js（v0.8.1，issue #170 第 2 步）：与 sleep 的跨
+// scope 配对共用同一把比较钥匙，避免两处定义漂移。
 
 // v0.8.0 A2（issue #17）scope 检索加权系数：两维都无法确立 foreign 的候选
 // （命中行、未标注行、当前侧维度解析不到的行）→ 加成；只有确立了 foreign

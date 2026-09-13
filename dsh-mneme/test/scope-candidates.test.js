@@ -1,0 +1,167 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { runSleep } from "../src/dream/sleep.js";
+import { createStore } from "../src/store.js";
+import { createService } from "../src/service.js";
+import { createVectorIndex } from "../src/vector-index.js";
+
+// v0.8.1（issue #170 第 2 步）：sleep 冲突阶段的跨 scope 分流。
+// 同一内容落在两个归属下（任一维标注键不等，含「一侧未标注=全局」）时，
+// 不允许自动裁决（freeze 或 LLM）——归档败者可能销毁某归属下的唯一副本，
+// 归属裁决是用户的决定。跨 scope 对一律停车到 conflict_pending（专属 reason），
+// 同 scope 对维持既有路径。夹具为中性主题（构建笔记/编辑器主题）。
+
+const embedder = {
+  embedSingle: async () => [1, 0, 0],
+  embed: async () => [1, 0, 0],
+  schedule: () => {},
+  modelHash: "mock#1",
+  dimension: 3
+};
+
+function setup() {
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config: {} });
+  const vectorIndex = createVectorIndex({ store });
+  service.setEmbedder(embedder);
+  service.setVectorIndex(vectorIndex);
+  return { store, service, vectorIndex };
+}
+
+function baseConfig(overrides = {}) {
+  return {
+    sleepModeEnabled: true,
+    sleepIdleMinutes: 5,
+    sleepMinIntervalHours: 8,
+    sleepConflictStrictness: "normal",
+    sleepArchiveDays: 30,
+    sleepCompressDays: 90,
+    sleepPatternMinMemories: 10,
+    sleepMaxPatternPerRun: 3,
+    ...overrides
+  };
+}
+
+function llmCtx(captured = [], selection = { provider: "mock", model: "sleep-model" }) {
+  return {
+    logger: { warn: () => {}, info: () => {} },
+    agentDefaultModel: { currentSelection: () => selection },
+    llm: {
+      async *stream(options) {
+        captured.push(options);
+        const userText = options.messages.find((m) => m.role === "user")?.content?.[0]?.text ?? "";
+        yield { type: "text-delta", index: 0, text: userText.startsWith("候选冲突") || userText.startsWith("Candidate conflicts") ? "[]" : "[]" };
+        yield { type: "finish", reason: { kind: "stop" } };
+      }
+    }
+  };
+}
+
+function noRouteCtx() {
+  return { logger: { warn: () => {}, info: () => {} } };
+}
+
+/** 保存一对高相似记忆并预填向量。返回 [新, 旧]（updated_at DESC 序）。 */
+function savePair(service, vectorIndex, titleA, titleB, scopeA, scopeB) {
+  const a = service.saveWithDedupe({
+    type: "project", title: titleA, content: `${titleA} 的正文`,
+    ...(scopeA?.agent ? { agent_scope: scopeA.agent } : {}),
+    ...(scopeA?.workspace ? { workspace_scope: scopeA.workspace } : {})
+  }).memory;
+  const b = service.saveWithDedupe({
+    type: "project", title: titleB, content: `${titleB} 的正文`,
+    ...(scopeB?.agent ? { agent_scope: scopeB.agent } : {}),
+    ...(scopeB?.workspace ? { workspace_scope: scopeB.workspace } : {})
+  }).memory;
+  vectorIndex.saveEmbedding(a.id, [1, 0, 0]);
+  vectorIndex.saveEmbedding(b.id, [1, 0, 0]);
+  return [a, b];
+}
+
+test("freeze mode: cross-scope pair parks with the scope-candidate reason; same-scope pair keeps the plain reason", async () => {
+  const { store, service, vectorIndex } = setup();
+  // updated_at DESC 序决定贪心配对：后保存的对先配。x 对=跨 scope，y 对=同 scope。
+  const [yNew, yOld] = savePair(service, vectorIndex, "构建笔记A", "构建笔记B", { agent: "coder" }, { agent: "coder" });
+  const [xNew, xOld] = savePair(service, vectorIndex, "编辑器主题A", "编辑器主题B", { agent: "coder" }, { agent: "writer" });
+
+  const result = await runSleep(llmCtx(), service, baseConfig({ conflictFreezeEnabled: true }), { warn: () => {}, info: () => {} }, { embedder, vectorIndex }, null);
+  assert.equal(result.status, "ok");
+
+  const queue = store.listConflictPending();
+  assert.equal(queue.length, 2, "both pairs parked exactly once");
+  const crossRow = queue.find((q) => [q.memory_a, q.memory_b].includes(xNew.id));
+  const sameRow = queue.find((q) => [q.memory_a, q.memory_b].includes(yNew.id));
+  assert.ok(crossRow, "cross-scope pair must be parked");
+  assert.match(crossRow.reason, /跨作用域|cross-scope/, "cross pair carries the dedicated reason");
+  assert.ok(sameRow, "same-scope pair still parked in freeze mode");
+  assert.doesNotMatch(sameRow.reason, /跨作用域|cross-scope/, "same-scope pair keeps the plain similarity reason");
+
+  // 再跑一轮：同一对不去重不重复入队。
+  await runSleep(llmCtx(), service, baseConfig({ conflictFreezeEnabled: true }), { warn: () => {}, info: () => {} }, { embedder, vectorIndex }, null);
+  assert.equal(store.countConflictPending(), 2, "pair-level dedupe survives reruns");
+  store.close();
+});
+
+test("NULL (unlabeled) vs labeled counts as a cross-scope pair", async () => {
+  const { store, service, vectorIndex } = setup();
+  savePair(service, vectorIndex, "部署清单A", "部署清单B", {}, { agent: "coder" });
+  const result = await runSleep(llmCtx(), service, baseConfig({ conflictFreezeEnabled: true }), { warn: () => {}, info: () => {} }, { embedder, vectorIndex }, null);
+  assert.equal(result.status, "ok");
+  const queue = store.listConflictPending();
+  assert.equal(queue.length, 1);
+  assert.match(queue[0].reason, /跨作用域|cross-scope/, "global(unlabeled) copy vs scoped copy is an ownership decision");
+  store.close();
+});
+
+test("non-freeze without an LLM route: cross-scope pair still parks; nothing is auto-adjudicated", async () => {
+  const { store, service, vectorIndex } = setup();
+  const [newer, older] = savePair(service, vectorIndex, "发布流程A", "发布流程B", { agent: "coder" }, { agent: "writer" });
+  const result = await runSleep(noRouteCtx(), service, baseConfig(), { warn: () => {}, info: () => {} }, { embedder, vectorIndex }, null);
+
+  const queue = store.listConflictPending();
+  assert.equal(queue.length, 1, "cross-scope pair parks even with no LLM route");
+  assert.match(queue[0].reason, /跨作用域|cross-scope/);
+  assert.equal(store.getById(newer.id).archived, false, "no side is auto-archived");
+  assert.equal(store.getById(older.id).archived, false);
+  assert.ok(queue[0].resolved_at === undefined);
+  store.close();
+});
+
+test("non-freeze with an LLM: cross-scope pair bypasses adjudication; same-scope pair is adjudicated", async () => {
+  const { store, service, vectorIndex } = setup();
+  const [yNew, yOld] = savePair(service, vectorIndex, "缓存策略A", "缓存策略B", { agent: "coder" }, { agent: "coder" });
+  const [xNew, xOld] = savePair(service, vectorIndex, "编辑器主题A", "编辑器主题B", { agent: "coder" }, { agent: "writer" });
+
+  const captured = [];
+  const ctx = llmCtx(captured);
+  // 同 scope 对由 LLM 裁决：保留 yNew、归档 yOld。跨 scope 对绝不进 prompt。
+  ctx.llm.stream = async function* (options) {
+    captured.push(options);
+    const userText = options.messages.find((m) => m.role === "user")?.content?.[0]?.text ?? "";
+    const isConflictPass = userText.startsWith("候选冲突") || userText.startsWith("Candidate conflicts");
+    const text = isConflictPass
+      ? JSON.stringify([{ action: "conflict", winner: yNew.id, loser: yOld.id, reason: "同归属重复" }])
+      : "[]";
+    yield { type: "text-delta", index: 0, text };
+    yield { type: "finish", reason: { kind: "stop" } };
+  };
+
+  const result = await runSleep(ctx, service, baseConfig(), ctx.logger, { embedder, vectorIndex }, null);
+  assert.equal(result.status, "ok");
+
+  const conflictPassTexts = captured
+    .map((o) => o.messages.find((m) => m.role === "user")?.content?.[0]?.text ?? "")
+    .filter((t) => t.startsWith("候选冲突") || t.startsWith("Candidate conflicts"));
+  assert.ok(conflictPassTexts.length >= 1, "conflict pass ran for the same-scope pair");
+  for (const t of conflictPassTexts) {
+    assert.ok(!t.includes(xNew.id) && !t.includes(xOld.id), "cross-scope pair must never enter the LLM prompt");
+    assert.ok(t.includes(yNew.id) && t.includes(yOld.id), "same-scope pair is adjudicated");
+  }
+
+  const queue = store.listConflictPending();
+  assert.equal(queue.length, 1);
+  assert.match(queue[0].reason, /跨作用域|cross-scope/);
+  assert.equal(store.getById(xOld.id).archived, false, "cross-scope loser is NOT archived by the LLM");
+  assert.equal(store.getById(yOld.id).archived, true, "same-scope loser is adjudicated as usual");
+  store.close();
+});

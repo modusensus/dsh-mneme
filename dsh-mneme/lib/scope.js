@@ -103,3 +103,16 @@ export function normalizeExplicitScope(raw) {
   if (!s || s === "*" || s.toLowerCase() === "global") return null;
   return s;
 }
+
+/**
+ * scope 标注的比较键（去重键/检索加权/跨 scope 配对共用口径）：非空 trim 字符串
+ * 原样返回，其余（NULL/undefined/空串/非字符串）统一为 null（「未标注」）。
+ * v0.8.1（issue #170 第 2 步）从 service.js 上提为共享定义——sleep 的跨 scope
+ * 候选配对必须与去重键用同一把钥匙，NULL 与已标注才不会错配。
+ *
+ * @param {unknown} v scope 标注原值
+ * @returns {string|null} 比较键（null=未标注）
+ */
+export function scopeKeyOf(v) {
+  return typeof v === "string" && v.trim() ? v.trim() : null;
+}

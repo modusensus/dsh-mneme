@@ -4,6 +4,8 @@ import { STR, langOf } from "../lang.js";
 //   1. conflict resolution — high-similarity same-type pairs are either parked
 //      for review (freeze mode) or adjudicated by the LLM (winner kept / loser
 //      archived), reusing the dream conflict machinery. Strictness-graded.
+//      v0.8.1 (issue #170): cross-scope pairs are ALWAYS parked for human
+//      ownership review with a dedicated reason — never auto-adjudicated.
 //   2. archival demotion — memories unreferenced past sleepArchiveDays shrink
 //      to a one-line summary with the full body moved to _full_content; past
 //      sleepCompressDays they are archived outright.
@@ -18,6 +20,7 @@ import { STR, langOf } from "../lang.js";
 import { randomUUID, createHash } from "node:crypto";
 import { validateDecisions, applyDecisions, ACTIONS } from "./decisions.js";
 import { findPotentialConflicts, cosineSimilarity } from "./clustering.js";
+import { scopeKeyOf } from "../scope.js";
 import { buildReceipt, describeStreamFailure, resolveDreamEffort, withEffortFallback, maintainIndexAfterDream } from "../dream.js";
 import { computeHeat } from "../heat.js";
 
@@ -169,29 +172,57 @@ async function phaseConflicts(ctx, service, config, logger, runId, semantic = nu
     selected.push(p);
   }
 
-  // Freeze mode: park pairs for manual review, no LLM required.
+  // v0.8.1（issue #170 第 2 步）：跨 scope 相似对分流。同一内容落在两个归属下
+  // （任一维标注键不等即算，NULL=未标注=全局也参与比较——「全局副本 + 专属副本
+  // 并存」正是收窄/提升裁决的典型候选）不能自动裁决：归档败者可能销毁该内容在
+  // 某个归属下的唯一副本，LLM 也无从替用户决定归属。一律停车到冲突待确认队列
+  // （专属 reason），同 scope 对维持既有路径（freeze 停车 / LLM 裁决）。
+  const isCrossScopePair = (p) =>
+    scopeKeyOf(p.a.agent_scope) !== scopeKeyOf(p.b.agent_scope)
+    || scopeKeyOf(p.a.workspace_scope) !== scopeKeyOf(p.b.workspace_scope);
+  const crossPairs = selected.filter(isCrossScopePair);
+  const samePairs = selected.filter((p) => !isCrossScopePair(p));
+  const parkPair = (p, reason) => {
+    try {
+      service.saveConflictPending({ run_id: runId, memory_a: p.a.id, memory_b: p.b.id, reason });
+      return true;
+    } catch (error) {
+      logger?.warn?.(`dsh-mneme sleep: failed to park conflict ${p.a.id}/${p.b.id}: ${String(error)}`);
+      return false;
+    }
+  };
+  const scopeReason = (p) => STR.scopeCandidateReason[language](p.similarity.toFixed(2));
+  const simReason = (p) => STR.similarityReason[language](p.similarity.toFixed(2));
+
+  // Freeze mode: park pairs for manual review, no LLM required. Cross-scope
+  // pairs carry the dedicated scope-candidate reason so the queue reads them
+  // as ownership decisions rather than plain duplicates.
   if (config.conflictFreezeEnabled === true) {
     let frozen = 0;
     for (const p of selected) {
-      try {
-        service.saveConflictPending({ run_id: runId, memory_a: p.a.id, memory_b: p.b.id, reason: STR.similarityReason[language](p.similarity.toFixed(2)) });
-        frozen++;
-      } catch (error) {
-        logger?.warn?.(`dsh-mneme sleep: failed to freeze conflict ${p.a.id}/${p.b.id}: ${String(error)}`);
-      }
+      if (parkPair(p, isCrossScopePair(p) ? scopeReason(p) : simReason(p))) frozen++;
     }
-    return { status: frozen > 0 ? "ok" : "noop", frozen, pairs: selected.length };
+    return { status: frozen > 0 ? "ok" : "noop", frozen, scopeCandidates: crossPairs.length, pairs: selected.length };
   }
 
-  // LLM adjudication.
+  // 非 freeze：跨 scope 对先停车（绝不进 LLM 裁决），同 scope 对照常走 LLM。
+  let scopeParked = 0;
+  for (const p of crossPairs) {
+    if (parkPair(p, scopeReason(p))) scopeParked++;
+  }
+  if (samePairs.length === 0) {
+    return { status: scopeParked > 0 ? "ok" : "noop", frozen: 0, scopeCandidates: scopeParked, pairs: selected.length };
+  }
+
+  // LLM adjudication（仅同 scope 对）。
   const route = resolveSleepRoute(ctx, config, logger);
-  if (!route) return { status: "skipped", reason: "no llm route" };
+  if (!route) return { status: "skipped", reason: "no llm route", scopeCandidates: scopeParked, pairs: selected.length };
   const snapshot = new Map();
-  for (const p of selected) {
+  for (const p of samePairs) {
     snapshot.set(p.a.id, p.a);
     snapshot.set(p.b.id, p.b);
   }
-  const listText = selected.map((p) =>
+  const listText = samePairs.map((p) =>
     STR.candidateConflicts[language](p)
   ).join("\n\n");
   const sleepEffort = await resolveDreamEffort(ctx, route, config.sleepReasoningEffort, logger);
