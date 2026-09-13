@@ -10,11 +10,11 @@ We actively maintain the latest minor version. Security fixes are backported to 
 
 | Version | Supported | Status |
 |---|---|---|
-| 0.7.x | ✅ Yes | Active development (the 0.8.x line is being prepared on `main`, not yet released) |
-| 0.6.x | ⚠️ Best-effort | Critical fixes only |
-| < 0.6.0 | ❌ No | Please upgrade to 0.7.x |
+| 0.8.x | ✅ Yes | Current release line (scope isolation, conflict review queue, injection escaping restored) |
+| 0.7.x | ⚠️ Best-effort | Critical fixes only |
+| < 0.7.0 | ❌ No | Please upgrade to 0.8.x |
 
-**End-of-life notice**: 0.6.x is in best-effort maintenance (critical fixes only). Its end-of-life date will be announced in advance; after that date no security fixes will be provided for 0.6.x.
+**End-of-life notice**: 0.7.x moves to best-effort maintenance with the 0.8.0 release (critical fixes only). Its end-of-life date will be announced in advance; after that date no security fixes will be provided for 0.7.x.
 
 ---
 
@@ -380,11 +380,11 @@ This project is licensed under the **MIT License**. See [LICENSE](https://github
 
 | 版本 | 支持状态 | 说明 |
 |---|---|---|
-| 0.7.x | ✅ 支持 | 活跃开发中（0.8.x 线正在 `main` 上准备，尚未发版） |
-| 0.6.x | ⚠️ 尽力维护 | 仅关键修复 |
-| < 0.6.0 | ❌ 不支持 | 请升级至 0.7.x |
+| 0.8.x | ✅ 支持 | 当前发布线（作用域隔离、冲突队列、注入转义恢复） |
+| 0.7.x | ⚠️ 尽力维护 | 仅关键修复 |
+| < 0.7.0 | ❌ 不支持 | 请升级至 0.8.x |
 
-**停止维护通知**：0.6.x 处于尽力维护阶段（仅关键修复）。停止维护的具体日期将提前公布；该日期之后将不再提供 0.6.x 的安全修复。
+**停止维护通知**：0.7.x 自 0.8.0 发布起转入尽力维护阶段（仅关键修复）。停止维护的具体日期将提前公布；该日期之后将不再提供 0.7.x 的安全修复。
 
 ---
 
