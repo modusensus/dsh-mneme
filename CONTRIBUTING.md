@@ -141,6 +141,36 @@ The standalone external API (`src/api-standalone.js`) and the `bin/cli.mjs` clie
 - Auth additions/changes must keep `timingSafeEqual` token comparison and the `GET /health` exception.
 - The CLI is dependency-free by contract - do not add imports to `bin/cli.mjs`.
 
+## Issue Reporting Requirements (read this first)
+
+Maintainers verify every report against the code before replying — you do not need to read the source. But a report **must come from someone who has actually run the plugin**, and must satisfy the minimums below **in full**. A report missing any required item will be **closed with a completion template**; comment with the missing details to reopen.
+
+### Bug report — all six required
+
+1. dsh-mneme version (settings panel, or `npm ls @modusensus/dsh-mneme`)
+2. DSH version + profile (`web` / desktop / headless)
+3. Operating system / platform
+4. Reproduction steps, starting from a fresh session, each step actionable
+5. Actual behavior vs expected behavior
+6. Relevant console / log snippet (mask tokens)
+
+### Feature request — all three required
+
+1. The **use case** (what you are trying to accomplish — not "add feature X")
+2. A statement that you have checked the current state: README, CHANGELOG, roadmap, and existing issues. Several requested capabilities already exist behind named switches (per-turn auto recall = `autoInject`; idle distillation = `autoSummarize` + `autoDream`)
+3. The behavior change you expect (not a prescribed implementation)
+
+### AI-assisted reports
+
+- Using AI to polish wording or structure: fine.
+- The report content **must be verified by you, item by item**: real environment, real reproduction, real observed behavior.
+- Treated as **spam**: mass-submitted variants of the same topic, fabricated reproduction steps, references to plugin behavior or configuration that does not exist, or reports filed without ever running the plugin.
+- Enforcement: spam reports are **closed on sight** with a link to this section; **repeated spam leads to blocking without further notice**.
+
+### Maintainer commitment
+
+Every report meeting the minimums gets code-level verification and a reply. Issues opened by maintainers (including AI-assisted maintainer workflows) are held to the same minimums.
+
 ## Contact
 
 - **General questions & contributions**: [GitHub Discussions](https://github.com/modusensus/dsh-mneme/discussions) or `work@modusensus.space`
@@ -288,6 +318,36 @@ DSH 上游仍处于 developer preview 阶段，API 与服务接口变动频繁�
 6. **发布 npm**：在**仓库根目录**执行 `npm publish`（`prepublishOnly` 会自动把 `dsh-mneme/package.json` 的版本号写入根 `package.json`，`prepack` 会跑 `scripts/check-sync.js` 校验 src↔lib 一致性，漂移则发布失败——发布前须先 `npm run sync` 并提交 `lib/` 改动）。
 
 ---
+
+## Issue 报告要求（提 issue 前必读）
+
+维护者回复前会对每份报告做代码级核实——你不必读源码，但报告**必须来自真实运行过插件的环境**，且**逐项**满足以下最低要求。缺任何一项，报告会被**关闭并附补正模板**；补齐后评论即可重开。
+
+### Bug 报告——六项缺一不可
+
+1. dsh-mneme 版本（设置面板，或 `npm ls @modusensus/dsh-mneme`）
+2. DSH 版本与 profile（`web` / desktop / headless）
+3. 操作系统 / 平台
+4. 复现步骤（从新会话开始，每步可照做）
+5. 实际行为 vs 预期行为
+6. 相关 console / log 片段（token 打码）
+
+### Feature Request——三项缺一不可
+
+1. **使用场景**（你要完成什么——而不是"加个 XX 功能"）
+2. 已查现状声明：README、CHANGELOG、路线图与已有 issue。不少诉求已被现有开关覆盖（例如逐回合自动唤回 = `autoInject`；空闲期蒸馏 = `autoSummarize` + `autoDream`）
+3. 期望的行为变化（不指定实现方案）
+
+### 关于 AI 辅助
+
+- 用 AI 打磨措辞、组织结构：可以。
+- 报告内容**必须经你本人逐项核实**：环境真实、复现真实、观察到的行为真实。
+- 以下情形视为**垃圾信息（spam）**：批量提交同一主题的变体、编造复现步骤、引用本插件不存在的行为或配置、从未运行过插件就提交。
+- 处置：发现即关闭并附本节链接；**再次提交垃圾信息将直接拉黑，不再另行通知**。
+
+### 维护者承诺
+
+每份满足最低要求的报告都会得到代码级核实与回复。维护者自己（含 AI 辅助的维护者工作流）开的 issue 同受本节约束。
 
 ## 联系方式
 
