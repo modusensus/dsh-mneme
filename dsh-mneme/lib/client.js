@@ -105,6 +105,31 @@ window.__ModuleLoader__.load({
         h("span", { className: "mneme-heatpct" }, `${pct}%`));
     };
 
+    /**
+     * v0.8.0 A4（issue #17）：scope 标注徽章——条目的归属来源一行摘要。
+     *
+     * 仅在条目带任一 scope 标注（agent_scope / workspace_scope / sensitivity）
+     * 时渲染；字段缺省返回 null（未标注条目视觉零变化，前端不感知开关状态，
+     * 与 HeatBadge 的「数据缺省即不渲染」同一模式）。tooltip 展示完整归属，
+     * 标签复用详情抽屉的 i18n 键（云端复验观察点：tooltip 曾硬编码英文）。
+     *
+     * @param {{m: object, t: (key: string) => string}} props
+     * @param {object} props.m 记忆条目（/list、/search 透出的 toApiList 形状，
+     *   scope 四字段条件存在）
+     * @param {(key: string) => string} props.t i18n 取词函数（调用点闭包提供）
+     * @returns {object|null} 徽章 vnode；无任何标注时为 null
+     */
+    const ScopeBadge = ({ m, t }) => {
+      if (!m || (!m.agent_scope && !m.workspace_scope && !m.sensitivity)) return null;
+      const tip = [
+        m.agent_scope ? `${t("memory.explorer.detail.agentScope")}: ${m.agent_scope}` : null,
+        m.workspace_scope ? `${t("memory.explorer.detail.workspaceScope")}: ${m.workspace_scope}` : null,
+        m.sensitivity ? `${t("memory.explorer.detail.sensitivity")}: ${m.sensitivity}` : null
+      ].filter(Boolean).join(" · ");
+      return h("span", { className: "mneme-badge mneme-badge--scope", title: tip },
+        t("memory.explorer.scopeBadge"));
+    };
+
     // Unified API fetcher: attaches the optional apiToken (set in the settings
     // view, persisted in localStorage) as a Bearer header. When no token has
     // been configured the header is omitted and the API stays open (default).
@@ -270,6 +295,7 @@ window.__ModuleLoader__.load({
         "memory.features.group.core": "核心",
         "memory.features.group.enhance": "记忆增强",
         "memory.features.group.dream": "巩固与睡眠",
+        "memory.features.group.scope": "作用域隔离",
         "memory.features.group.advanced": "高级",
         "memory.features.advancedToggle": "高级（注入策略 · 反思 · 实验项）",
         "memory.features.restartHint": "重启 DSH 后生效",
@@ -322,6 +348,10 @@ window.__ModuleLoader__.load({
         "memory.features.bm25SearchEnabled.hint": "传统关键词打分检索，与向量召回互补",
         "memory.features.conflictFreezeEnabled": "冲突冻结",
         "memory.features.conflictFreezeEnabled.hint": "巩固发现互相矛盾的记忆时先冻结待确认",
+        "memory.features.scopeEnabled": "作用域标注",
+        "memory.features.scopeEnabled.hint": "按会话身份（agent/工作区）给新记忆打归属标注；重启 DSH 后生效",
+        "memory.features.strictScope": "严格隔离",
+        "memory.features.strictScope.hint": "检索与注入硬过滤：带他者作用域的记忆完全不可见（关闭时仅降权保留可见）；重启 DSH 后生效",
         "memory.features.trustEpistemicWeighting": "可信度加权",
         "memory.features.trustEpistemicWeighting.hint": "按来源可信度调整召回排序（实验性）",
         "memory.features.reflectionFailureTracking": "反思失败追踪",
@@ -374,6 +404,11 @@ window.__ModuleLoader__.load({
         "memory.explorer.exportFailed": "导出失败",
         "memory.explorer.conflictBadge": "冲突",
         "memory.explorer.archivedBadge": "已归档",
+        "memory.explorer.scopeBadge": "作用域",
+        "memory.explorer.detail.agentScope": "Agent 作用域",
+        "memory.explorer.detail.workspaceScope": "工作区作用域",
+        "memory.explorer.detail.sensitivity": "敏感度",
+        "memory.explorer.detail.occurred": "发生时间",
         "memory.explorer.detail.edit": "编辑",
         "memory.explorer.detail.save": "保存",
         "memory.explorer.detail.cancel": "取消",
@@ -592,6 +627,7 @@ window.__ModuleLoader__.load({
         "memory.features.group.core": "Core",
         "memory.features.group.enhance": "Enhancement",
         "memory.features.group.dream": "Consolidation",
+        "memory.features.group.scope": "Scope isolation",
         "memory.features.group.advanced": "Advanced",
         "memory.features.advancedToggle": "Advanced (injection · reflection · experimental)",
         "memory.features.restartHint": "Takes effect after restarting DSH",
@@ -644,6 +680,10 @@ window.__ModuleLoader__.load({
         "memory.features.bm25SearchEnabled.hint": "Classic keyword scoring, complementary to vector recall",
         "memory.features.conflictFreezeEnabled": "Conflict freezing",
         "memory.features.conflictFreezeEnabled.hint": "Freeze contradictory memories for confirmation during consolidation",
+        "memory.features.scopeEnabled": "Scope tagging",
+        "memory.features.scopeEnabled.hint": "Stamp new memories with the writing session's identity (agent/workspace); takes effect after restarting DSH",
+        "memory.features.strictScope": "Strict isolation",
+        "memory.features.strictScope.hint": "Hard-filter search and injection: memories scoped to other agents/workspaces become invisible (off = demoted but visible); takes effect after restarting DSH",
         "memory.features.trustEpistemicWeighting": "Credibility weighting",
         "memory.features.trustEpistemicWeighting.hint": "Adjust recall ranking by source credibility (experimental)",
         "memory.features.reflectionFailureTracking": "Reflection failure tracking",
@@ -696,6 +736,11 @@ window.__ModuleLoader__.load({
         "memory.explorer.exportFailed": "Export failed",
         "memory.explorer.conflictBadge": "Conflict",
         "memory.explorer.archivedBadge": "Archived",
+        "memory.explorer.scopeBadge": "Scoped",
+        "memory.explorer.detail.agentScope": "Agent scope",
+        "memory.explorer.detail.workspaceScope": "Workspace scope",
+        "memory.explorer.detail.sensitivity": "Sensitivity",
+        "memory.explorer.detail.occurred": "Occurred",
         "memory.explorer.detail.edit": "Edit",
         "memory.explorer.detail.save": "Save",
         "memory.explorer.detail.cancel": "Cancel",
@@ -1043,6 +1088,7 @@ window.__ModuleLoader__.load({
       ".mneme-badge{flex:none;display:inline-flex;align-items:center;gap:4px;height:18px;padding:0 7px;border-radius:6px;font-size:11px;line-height:14px}",
       ".mneme-badge--conflict{color:var(--dsw-alias-state-error,#c33);background:color-mix(in srgb,var(--dsw-alias-state-error,#c33) 10%,transparent);border:1px solid color-mix(in srgb,var(--dsw-alias-state-error,#c33) 30%,transparent)}",
       ".mneme-badge--archived{color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-interactive-bg-hover)}",
+      ".mneme-badge--scope{color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent);border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 30%,transparent)}",
       // 详情抽屉：sheet 内右侧滑出，覆盖在浏览区之上
       ".mneme-xmain{position:relative}",
       "@keyframes mneme-slidein{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:translateX(0)}}",
@@ -1655,7 +1701,9 @@ window.__ModuleLoader__.load({
     const FEATURE_GROUPS = [
       { key: "group.core", items: ["autoInject", "autoSummarize", "hotMemoryEnabled", "memoryQualityFilter.enabled", "llmAudit.enabled"] },
       { key: "group.enhance", items: ["entityExtractionEnabled", "codingRetrospect", "rerankEnabled", "searchSemanticDedup", "bm25SearchEnabled"] },
-      { key: "group.dream", items: ["autoDream", "sleepModeEnabled"] }
+      { key: "group.dream", items: ["autoDream", "sleepModeEnabled"] },
+      // v0.8.0 A4（issue #17）：作用域隔离组——标注总开关 + 严格硬过滤。
+      { key: "group.scope", items: ["scopeEnabled", "strictScope"] }
     ];
     const FEATURE_ADVANCED_BOOLS = ["hybridInject", "selectiveInjectEnabled", "adaptiveThresholdEnabled", "reflectionUpdateEnabled", "reflectionFailureTracking", "conflictFreezeEnabled", "trustEpistemicWeighting"];
     // 字符串键（blur/Enter 提交，空串合法 = 跟随默认）：巩固模型与语义
@@ -3139,6 +3187,18 @@ window.__ModuleLoader__.load({
             memory.source && h(react.Fragment, null,
               h("span", { className: "mneme-dmetakey" }, t("memory.explorer.source")),
               h("span", { className: "mneme-dmetaval", title: memory.source }, memory.source)),
+            memory.occurred_at && h(react.Fragment, null,
+              h("span", { className: "mneme-dmetakey" }, t("memory.explorer.detail.occurred")),
+              h("span", { className: "mneme-dmetaval", title: memory.occurred_at }, formatDateShort(memory.occurred_at))),
+            memory.agent_scope && h(react.Fragment, null,
+              h("span", { className: "mneme-dmetakey" }, t("memory.explorer.detail.agentScope")),
+              h("span", { className: "mneme-dmetaval", title: memory.agent_scope }, memory.agent_scope)),
+            memory.workspace_scope && h(react.Fragment, null,
+              h("span", { className: "mneme-dmetakey" }, t("memory.explorer.detail.workspaceScope")),
+              h("span", { className: "mneme-dmetaval", title: memory.workspace_scope }, memory.workspace_scope)),
+            memory.sensitivity && h(react.Fragment, null,
+              h("span", { className: "mneme-dmetakey" }, t("memory.explorer.detail.sensitivity")),
+              h("span", { className: "mneme-dmetaval", title: memory.sensitivity }, memory.sensitivity)),
             memory.quality_score != null && h(react.Fragment, null,
               h("span", { className: "mneme-dmetakey" }, t("memory.explorer.detail.quality")),
               h("span", { className: "mneme-dmetaval" }, String(memory.quality_score))),
@@ -3800,6 +3860,7 @@ window.__ModuleLoader__.load({
                         h("div", { className: "mneme-cardfoot" },
                           h(ImportanceStars, { value: m.importance || 0, size: 12 }),
                           h(HeatBadge, { value: m.heat }),
+                          h(ScopeBadge, { m, t }),
                           m.source && h("span", { className: "mneme-cardsrc", title: m.source }, m.source)
                         )
                       )),
@@ -3861,7 +3922,8 @@ window.__ModuleLoader__.load({
                               },
                                 h("span", { className: "mneme-xdot", style: { color: memoryTypeColor(m.type) }, title: typeLabel(t, m.type), "aria-hidden": "true" }),
                                 h("span", { className: "mneme-xtime" }, time),
-                                h("span", { className: "mneme-xname" }, m.title || m.content?.slice(0, 40))
+                                h("span", { className: "mneme-xname" }, m.title || m.content?.slice(0, 40)),
+                                h(ScopeBadge, { m, t })
                               );
                             })
                           ))

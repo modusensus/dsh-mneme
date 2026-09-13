@@ -677,3 +677,38 @@ test("vector status card surfaces the configured/degraded split", () => {
     "the degraded state must render its own caption (0 of {m} indexed)"
   );
 });
+
+// v0.8.0 A4（issue #17）：作用域隔离的面板面——设置卡新组（scopeEnabled /
+// strictScope 开关）+ 记忆条目的 scope provenance 展示。i18n 键必须中英双语
+// 齐全；徽章/详情行沿用 heat 徽章的「字段缺省即不渲染」模式，前端不感知开关。
+/**
+ * A4（issue #17）面板面回归：作用域隔离的设置卡分组、十个 i18n 键的中英双语
+ * 齐备（沿用 occurrences ≥ 2 模式），以及 ScopeBadge 组件与三处接线（cards
+ * 脚部 / timeline 行 / 详情抽屉 dmeta）的真实存在性——只做源码断言，不挂
+ * React 渲染环境，与文件内其他 clientSource 断言同一风格。
+ */
+test("scope isolation ships panel switches and provenance surfaces (A4)", () => {
+  assert.ok(
+    /key: "group\.scope", items: \["scopeEnabled", "strictScope"\]/.test(clientSource),
+    "FEATURE_GROUPS must carry a dedicated scope group"
+  );
+  for (const key of [
+    "memory.features.group.scope",
+    "memory.features.scopeEnabled",
+    "memory.features.scopeEnabled.hint",
+    "memory.features.strictScope",
+    "memory.features.strictScope.hint",
+    "memory.explorer.scopeBadge",
+    "memory.explorer.detail.agentScope",
+    "memory.explorer.detail.workspaceScope",
+    "memory.explorer.detail.sensitivity",
+    "memory.explorer.detail.occurred"
+  ]) {
+    const occurrences = clientSource.split(`"${key}"`).length - 1;
+    assert.ok(occurrences >= 2, `i18n key ${key} must exist in both zh and en (got ${occurrences})`);
+  }
+  assert.ok(/const ScopeBadge = \(\{ m, t \}\)/.test(clientSource), "ScopeBadge component must exist");
+  assert.ok(clientSource.includes("h(ScopeBadge, { m, t })"), "ScopeBadge must be wired into browse views");
+  assert.ok(clientSource.includes('t("memory.explorer.detail.agentScope")'), "drawer must render agent scope row");
+  assert.ok(clientSource.includes('t("memory.explorer.detail.occurred")'), "drawer must render occurred row");
+});
