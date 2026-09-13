@@ -82,6 +82,9 @@ Common scripts (all run under `dsh-mneme/`):
 - **Comments in Chinese**, biased toward "why" — core logic, config options, and fail-safe branches must explain their intent.
 - **Fail-safe is a hard rule**: local failures in any background LLM path (autoDream / sleep / autoTag / summarization) must skip or degrade, **never** block the main flow (write, recall, injection).
 - **Config is defined centrally with schemastery in `src/config.js`** (`z.object` + `.default(...)`); new options must keep docs and default-value semantics in sync.
+- **Feature flags are a trio — land all three or none**: a new switch must appear in the `src/config.js` schema, the `src/settings.js` whitelists (`FEATURE_FLAG_BOOLEANS` / int ranges / enums), and — if panel-visible — the `lib/client.js` `FEATURE_GROUPS` with bilingual i18n keys. The panel reads `/features` effective values; a missed whitelist entry silently hides the switch, and `/features` count assertions live in `test/api.test.js`.
+- **Client strings are bilingual**: every user-facing i18n key must exist in both the zh and en dictionaries of `lib/client.js` (`test/client.test.js` enforces occurrences ≥ 2).
+- **JSDoc on newly added functions**: the review bot warns when docstring coverage on touched functions drops below 80% — a short `/** */` block per new function keeps reviews on substance.
 - **Audit honesty**: a run's status (ok / noop / degraded / reconcile / failed) must reflect what actually committed — never a fake ok.
 
 ---
@@ -98,8 +101,10 @@ Common scripts (all run under `dsh-mneme/`):
   ```
 
 - Run `npm test` before committing and confirm green (note any environment-only known exceptions in the commit message).
-- **Small fixes**: can push straight to `main` (this is the project's workflow).
-- **Larger features / breaking changes**: open an Issue first to state the motivation and design, then submit a PR — the PR triggers CI (Node 24 + full suite + Codecov).
+- **All changes land through PRs** — feature branches off the latest `main`, then a PR that triggers CI (CodeQL ×2 + Node 22/24 × windows/ubuntu matrix + Codecov) and maintainer review before squash merge.
+- **One feature, one branch**, named by scope: `feat/<area>-<topic>`, `fix/<topic>`, `docs/<topic>` (e.g. `feat/scope-storage-a1`, `fix/restart-interval-persist`). Small fixes also go through PRs — they are cheap to review and trivially revertible.
+- **Stacked PRs are welcome** when features build on each other (`feat/scope-panel-a4` on top of `feat/scope-strict-a3`, etc.). After the base PR is squash-merged, rebase your branch onto `main` — git auto-skips the already-applied patches, so the conflict resolves itself.
+- **Larger features / breaking changes**: open an Issue first to state the motivation and design, then submit the PR.
 - Release operations (version bumps, tags, Releases, npm publish) are performed by maintainers — see the next section.
 
 ---
@@ -141,35 +146,16 @@ The standalone external API (`src/api-standalone.js`) and the `bin/cli.mjs` clie
 - Auth additions/changes must keep `timingSafeEqual` token comparison and the `GET /health` exception.
 - The CLI is dependency-free by contract - do not add imports to `bin/cli.mjs`.
 
-## Issue Reporting Requirements (read this first)
+## Code of Conduct
 
-Maintainers verify every report against the code before replying — you do not need to read the source. But a report **must come from someone who has actually run the plugin**, and must satisfy the minimums below **in full**. A report missing any required item will be **closed with a completion template**; comment with the missing details to reopen.
+This project adopts the spirit of the [Contributor Covenant v2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct/) — the short version for a memory-plugin codebase:
 
-### Bug report — all six required
+- **Argue about the code, not the person.** Review comments, issue replies, and design debates address behavior of the software, never the author.
+- **Respect differing setups.** Reporters run different models, providers, locales, and platforms — a bug that doesn't reproduce on your machine is still a bug.
+- **Zero tolerance** for harassment, doxxing, or spam (including AI-generated issue noise — see [Issue Reporting Requirements](#issue-reporting-requirements)): maintainers will close and, if repeated, block.
+- Maintainers hold themselves to the same standard; concerns about maintainer conduct go to `work@modusensus.space` privately.
 
-1. dsh-mneme version (settings panel, or `npm ls @modusensus/dsh-mneme`)
-2. DSH version + profile (`web` / desktop / headless)
-3. Operating system / platform
-4. Reproduction steps, starting from a fresh session, each step actionable
-5. Actual behavior vs expected behavior
-6. Relevant console / log snippet (mask tokens)
-
-### Feature request — all three required
-
-1. The **use case** (what you are trying to accomplish — not "add feature X")
-2. A statement that you have checked the current state: README, CHANGELOG, roadmap, and existing issues. Several requested capabilities already exist behind named switches (per-turn auto recall = `autoInject`; idle distillation = `autoSummarize` + `autoDream`)
-3. The behavior change you expect (not a prescribed implementation)
-
-### AI-assisted reports
-
-- Using AI to polish wording or structure: fine.
-- The report content **must be verified by you, item by item**: real environment, real reproduction, real observed behavior.
-- Treated as **spam**: mass-submitted variants of the same topic, fabricated reproduction steps, references to plugin behavior or configuration that does not exist, or reports filed without ever running the plugin.
-- Enforcement: spam reports are **closed on sight** with a link to this section; **repeated spam leads to blocking without further notice**.
-
-### Maintainer commitment
-
-Every report meeting the minimums gets code-level verification and a reply. Issues opened by maintainers (including AI-assisted maintainer workflows) are held to the same minimums.
+---
 
 ## Contact
 
@@ -268,6 +254,9 @@ npm run test:coverage # c8 覆盖率
 - **注释用中文**，且偏向"解释为什么"——核心逻辑、配置项、fail-safe 分支都要求写清意图。
 - **fail-safe 是硬性约定**：所有后台 LLM 链路（autoDream / sleep / autoTag / 摘要）中的局部失败只能跳过或降级，**绝不能**阻断主流程（写入、检索、注入）。
 - **配置项统一用 schemastery 定义在 `src/config.js`**（`z.object` + `.default(...)`），新增配置记得同步文档与默认值语义。
+- **功能开关是三件套——缺一不可**：新开关必须同时落在 `src/config.js` schema、`src/settings.js` 白名单（`FEATURE_FLAG_BOOLEANS` / 整数区间 / 枚举），面板可见的还要加 `lib/client.js` 的 `FEATURE_GROUPS` + 双语 i18n 键。面板读 `/features` 的 effective 值；漏掉白名单项开关会静默消失，`/features` 数量断言在 `test/api.test.js`。
+- **面板文案必须双语**：每个用户可见的 i18n 键都要在 `lib/client.js` 的中英两份字典里同时存在（`test/client.test.js` 强制 occurrences ≥ 2）。
+- **新增函数写 JSDoc**：review 机器人对改动函数的 docstring 覆盖率低于 80% 会告警——每个新函数一段简短 `/** */` 可让评审聚焦实质。
 - **审计诚实性**：任何 run 的状态（ok / noop / degraded / reconcile / failed）必须反映真实提交结果，绝不虚报。
 
 ---
@@ -284,8 +273,10 @@ npm run test:coverage # c8 覆盖率
   ```
 
 - 提交前跑一遍 `npm test` 确认全绿（环境相关的已知例外需在提交说明里注明）。
-- **小改动 / 修复**：可直推 `main`（本项目采用此工作流）。
-- **较大功能 / 破坏性改动**：建议先开 Issue 说明动机与方案，再通过 PR 提交，PR 会触发 CI 校验（node 24 + 全量测试 + Codecov）。
+- **所有改动一律走 PR**——从最新 `main` 切功能分支，提交 PR 触发 CI（CodeQL ×2 + Node 22/24 × win/ubuntu 矩阵 + Codecov），经维护者 review 后 squash 合并。
+- **一个功能一个分支**，按范围命名：`feat/<领域>-<主题>`、`fix/<主题>`、`docs/<主题>`（如 `feat/scope-storage-a1`、`fix/restart-interval-persist`）。小修也走 PR——review 成本低、回滚干净。
+- **允许 stacked PR**：功能相互依赖时叠加（如 `feat/scope-panel-a4` 叠在 `feat/scope-strict-a3` 上）。底 PR 被 squash 合并后把分支 rebase 到 `main` 即可——git 会自动跳过已应用的补丁，冲突自行消解。
+- **较大功能 / 破坏性改动**：建议先开 Issue 说明动机与方案，再提交 PR。
 - 发布相关操作（改版本号、打 tag、发 Release、npm publish）由维护者执行，详见下节。
 
 ---
@@ -319,35 +310,16 @@ DSH 上游仍处于 developer preview 阶段，API 与服务接口变动频繁�
 
 ---
 
-## Issue 报告要求（提 issue 前必读）
+## 行为准则
 
-维护者回复前会对每份报告做代码级核实——你不必读源码，但报告**必须来自真实运行过插件的环境**，且**逐项**满足以下最低要求。缺任何一项，报告会被**关闭并附补正模板**；补齐后评论即可重开。
+本项目遵循 [Contributor Covenant v2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct/) 的精神——对一个记忆插件仓库来说，简版就是这几条：
 
-### Bug 报告——六项缺一不可
+- **对代码争论，不对人争论。**Review 意见、issue 回复、方案讨论针对的是软件的行为，不是作者本人。
+- **尊重不同的环境。**报告者用的模型、服务商、语言、平台各不相同——在你机器上复现不了的 bug 依然是 bug。
+- **对骚扰、人肉与垃圾信息（包括 AI 生成的无效 issue 噪声）零容忍**：维护者会关闭，反复出现则拉黑（细则见 [Issue 报告要求](#issue-报告要求)）。
+- 维护者同样受此约束；对维护者行为的反馈请私下发 `work@modusensus.space`。
 
-1. dsh-mneme 版本（设置面板，或 `npm ls @modusensus/dsh-mneme`）
-2. DSH 版本与 profile（`web` / desktop / headless）
-3. 操作系统 / 平台
-4. 复现步骤（从新会话开始，每步可照做）
-5. 实际行为 vs 预期行为
-6. 相关 console / log 片段（token 打码）
-
-### Feature Request——三项缺一不可
-
-1. **使用场景**（你要完成什么——而不是"加个 XX 功能"）
-2. 已查现状声明：README、CHANGELOG、路线图与已有 issue。不少诉求已被现有开关覆盖（例如逐回合自动唤回 = `autoInject`；空闲期蒸馏 = `autoSummarize` + `autoDream`）
-3. 期望的行为变化（不指定实现方案）
-
-### 关于 AI 辅助
-
-- 用 AI 打磨措辞、组织结构：可以。
-- 报告内容**必须经你本人逐项核实**：环境真实、复现真实、观察到的行为真实。
-- 以下情形视为**垃圾信息（spam）**：批量提交同一主题的变体、编造复现步骤、引用本插件不存在的行为或配置、从未运行过插件就提交。
-- 处置：发现即关闭并附本节链接；**再次提交垃圾信息将直接拉黑，不再另行通知**。
-
-### 维护者承诺
-
-每份满足最低要求的报告都会得到代码级核实与回复。维护者自己（含 AI 辅助的维护者工作流）开的 issue 同受本节约束。
+---
 
 ## 联系方式
 
