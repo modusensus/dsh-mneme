@@ -58,6 +58,11 @@ export const Config = z.object({
   // 编码记忆注入加权系数：编码任务时对 rejected_solution/pitfall/constraint
   // 记忆的 importance 乘以该系数排序，让编码记忆在编码场景更靠前。
   codingBoostFactor: z.number().min(1).max(5).default(2),
+  // 注入边界花括号转义（issue #162，v0.7.4 曾修后被 v0.7.11 重构误删）：默认开启，
+  // 在 memory / 短期上下文 / 用户设置三处注入出口对连续 2+ 个花括号插 `\`
+  // （`{{a}}`→`{\{a\}\}`），让 DSH 的 interpolate() 不再扫到非法变量名而 throw。
+  // 关闭时按原样透传。
+  escapePromptVariables: z.boolean().default(true),
   autoDream: z.boolean().default(true),
   dreamThresholdCount: z.natural().min(1).max(1000).default(10),
   dreamThresholdChars: z.natural().min(100).max(100000).default(5000),
