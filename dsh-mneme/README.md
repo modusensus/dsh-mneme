@@ -21,7 +21,7 @@
 
 | ① 写入 | ② 存储 | ③ 进化 |
 |--------|--------|--------|
-| 对话中模型主动记录（`memory_save`，可带敏感度与事件时间）；会话结束自动提炼（`autoSummarize`） | SQLite 主库 + 人类可编辑 Markdown 镜像；实体 / 属性 / 时间轴三层结构化；记忆带 agent / workspace / 敏感度 / 发生时间标注 | 新会话自动注入相关记忆（按当前作用域加权，strictScope 开启后硬隔离）；autoDream 后台去重 / 合并 / 归档，冲突冻结待人工裁决 |
+| 对话中模型主动记录（`memory_save`，可带敏感度与事件时间）；会话结束自动提炼（`autoSummarize`） | SQLite 主库 + 人类可编辑 Markdown 镜像；实体 / 属性 / 时间轴三层结构化；记忆带 agent / workspace / 敏感度 / 发生时间标注 | 新会话自动注入相关记忆（按当前作用域加权，strictScope 开启后显式收窄的归属硬隔离）；autoDream 后台去重 / 合并 / 归档，冲突冻结待人工裁决 |
 
 ```bash
 # 30 秒上手
@@ -461,7 +461,7 @@ dsh web
 | `memoryQualityFilter` | `{enabled:true, archiveThreshold:30, degradeThreshold:60, minContentLength:10, exemptImportance:4}` | 记忆质量过滤（v0.4.6，默认开）：写库前启发式打分 0-100，元记忆词汇/自指/过短/重复/近似重复扣分；≥60 正常存储，30-60 降权（注入排序按 importance×quality/100），<30 归档标记 `low_quality`（显式搜索仍可召回，永不自动注入；`exemptImportance` 豁免：importance ≥ 该值只降权不归档，#135） |
 | `llmAudit` | `{enabled:true, retentionDays:90}` | LLM 消耗审计（v0.4.6，默认开）：每次后台 LLM 调用（autoDream/autoSummarize）写 `llm_audit_logs`（tokens/duration/status/source）；失败记 error 不阻塞；只读 API `/api/dsh-mneme/semantic/llm-audit` + `/llm-audit/stats` |
 | `scopeEnabled` | `false` | 作用域隔离总开关（v0.8.0，issue #17）：memory_save 按会话身份写入 agent / workspace 标注（agentPreset / 工作区路径，registry 反查取不到回退 header.cwd，再取不到 NULL）；去重键扩展含作用域三元——跨作用域同标题不再物理合并；检索按当前会话作用域加权（命中 ×1.25、他 scope ×0.5 保留可见）。也走 feature_flags 白名单（面板可启停） |
-| `strictScope` | `false` | 作用域硬过滤（v0.8.0，依赖 `scopeEnabled`）：检索 / 注入 / 列表 / 单取四路过滤，带他者作用域的记忆完全不可见；会话身份解析不到时 fail-closed 只见未标注行。关闭时为软隔离（降权保留可见）。也走 feature_flags 白名单 |
+| `strictScope` | `false` | 作用域硬过滤（v0.8.0 引入，v0.8.1 起只认显式声明；依赖 `scopeEnabled`）：检索 / 注入 / 列表 / 单取四路过滤，**显式声明**收窄到他者作用域的记忆完全不可见；载体自动标注只降权保留可见——真正的物理隔离请用 sensitivity。会话身份解析不到时 fail-closed 只挡显式行。关闭时全部为软隔离（降权保留可见）。也走 feature_flags 白名单 |
 | `conflictFreezeEnabled` | `false` | 冲突冻结（v0.4.4）：dream 发现矛盾对不自动裁决，冻结进冲突队列；状态页「冲突队列」支持并排对比与人工确认（保留 A / 保留 B / 仅标记已处理，v0.8.0） |
 | `escapePromptVariables` | `true` | 注入文本花括号转义（v0.8.0 恢复，issue #162）：注入边界把 `{{...}}` 转义，防止 hot memory / 记忆原文里的 Go template / Vue 语法触发宿主 interpolate 抛错卡死会话（v0.7.4 曾修复、v0.7.11 误删） |
 
