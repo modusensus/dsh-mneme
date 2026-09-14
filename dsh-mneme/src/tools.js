@@ -79,6 +79,26 @@ export function createTools(ctx, service, config, embedder) {
   // flag 关闭时恒返回 null——写入不标注，检索不加权，行为与 A1 前完全一致。
   // logger 透传：registry 反查失败时 warnOnce 才有出口（否则静默降级无观测）。
   const resolveSessionScope = createScopeResolver({ ctx, config, logger: ctx.logger });
+
+  // 复核项 4（issue #170）：strictScope 下他 scope（explicit）的行对工具侧按
+  // 「不存在」处理——update/delete 与 memory_get 同款无存在性泄漏。strictScope
+  // 关、或会话身份取不到（scope 为 null）时恒可见（与 get 的短路语义一致）。
+  const visibleUnderStrictScope = (memory, exec) => {
+    if (config?.strictScope !== true) return true;
+    const scope = resolveSessionScope(exec);
+    return !scope || service.isVisibleInScope(memory, scope);
+  };
+  // 在调用点以「展开恒为 undefined」的形态前置校验（抛错即中止写入）。
+  const assertVisibleForTool = (id, exec) => {
+    const memory = id ? service.getById(id) : undefined;
+    if (!visibleUnderStrictScope(memory, exec)) throw new Error("memory not found");
+    return undefined;
+  };
+  // delete 侧需要目标行本身判断存在性（不可见 = 视作不存在，不抛错）。
+  const visibleForTool = (id, exec) => {
+    const memory = id ? service.getById(id) : undefined;
+    return visibleUnderStrictScope(memory, exec) ? memory : undefined;
+  };
   const tools = [
     defineTool({
       name: "memory_save",
@@ -336,6 +356,9 @@ export function createTools(ctx, service, config, embedder) {
           type: args.type,
           tags: args.tags,
           importance: args.importance,
+          // 复核项 4（#170）：strictScope 下他 scope 的行按「不存在」处理（与 get 对齐），
+          // 展开恒为 undefined，仅承担写入前校验。
+          ...(assertVisibleForTool(args.id, arguments[1])),
           ...(args.agent_scope !== undefined ? { agent_scope: args.agent_scope } : {}),
           ...(args.workspace_scope !== undefined ? { workspace_scope: args.workspace_scope } : {})
         }, { query: args.reason });
@@ -358,9 +381,10 @@ export function createTools(ctx, service, config, embedder) {
         render: (_args, value) => TEXT_OUTPUT(value.deleted ? "Memory deleted." : "Memory not found.")
       },
       async execute(args) {
-        const existed = service.getById(args.id) !== undefined;
-        if (existed) service.remove(args.id);
-        return { deleted: existed };
+        // 复核项 4（#170）：不可见（explicit 他 scope）= 视作不存在，无存在性泄漏。
+        const target = visibleForTool(args.id, arguments[1]);
+        if (target) service.remove(args.id);
+        return { deleted: !!target };
       }
     }),
 

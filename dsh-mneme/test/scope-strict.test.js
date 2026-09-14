@@ -131,6 +131,37 @@ test("injectCandidates hard-filters explicit foreign rows when strictScope is on
   assert.deepEqual(unscoped.map((m) => m.title).sort(), ["auto-foreign", "foreign", "global"]);
 });
 
+test("memory_update/memory_delete hide explicit foreign-scope rows under strictScope (review item 4, aligned with memory_get)", async () => {
+  const { store, pick } = setupTools({ scopeEnabled: true, strictScope: true });
+  const theirs = store.save({ type: "pitfall", title: "theirs", content: "c", agent_scope: "other", agent_scope_source: "explicit" });
+  const autoTheirs = store.save({ type: "pitfall", title: "auto-theirs", content: "c", agent_scope: "other", agent_scope_source: "auto" });
+  const update = pick("memory_update");
+  const del = pick("memory_delete");
+
+  // explicit 他 scope：update 按不存在拒绝、delete 视作不存在——不能凭 id 直改直删。
+  await assert.rejects(() => runHandler(update, { id: theirs.id, content: "tampered" }, STRICT_EXEC), /memory not found/);
+  assert.equal(store.getById(theirs.id).content, "c", "row untouched by the rejected update");
+  const delOut = await runHandler(del, { id: theirs.id }, STRICT_EXEC);
+  assert.equal(delOut.deleted, false, "delete treats invisible rows as absent (no existence leak)");
+  assert.ok(store.getById(theirs.id), "row NOT deleted");
+
+  // auto 他 scope：不构成硬墙，照常可改（与 get 的可见性口径一致）。
+  const updAuto = await runHandler(update, { id: autoTheirs.id, content: "updated" }, STRICT_EXEC);
+  assert.equal(updAuto.memory.id, autoTheirs.id);
+
+  // 行主人自己照常可改。
+  const ownerOut = await runHandler(update, { id: theirs.id, content: "owner edit" }, OTHER_EXEC);
+  assert.equal(ownerOut.memory.id, theirs.id);
+
+  // strictScope 关：update/delete 不做可见性校验（管理语义回归）。
+  const { store: store2, pick: pick2 } = setupTools({ scopeEnabled: true });
+  const t2 = store2.save({ type: "pitfall", title: "theirs", content: "c", agent_scope: "other", agent_scope_source: "explicit" });
+  await runHandler(pick2("memory_update"), { id: t2.id, content: "edited" }, STRICT_EXEC);
+  assert.equal(store2.getById(t2.id).content, "edited");
+  const del2 = await runHandler(pick2("memory_delete"), { id: t2.id }, STRICT_EXEC);
+  assert.equal(del2.deleted, true);
+});
+
 function setupTools(config) {
   const store = createStore(":memory:");
   const service = createService({ store, mirror: null, config });
