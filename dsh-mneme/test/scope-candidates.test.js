@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { runSleep } from "../src/dream/sleep.js";
+import { createDreamScheduler } from "../src/dream.js";
 import { createStore } from "../src/store.js";
 import { createService } from "../src/service.js";
 import { createVectorIndex } from "../src/vector-index.js";
@@ -150,6 +151,51 @@ test("reviewed pair does not re-queue until one of its sides changes (review ite
   service.update(newer.id, { content: "备份策略A 的正文（改）" });
   await runSleep(llmCtx(), service, baseConfig({ conflictFreezeEnabled: true }), { warn: () => {}, info: () => {} }, { embedder, vectorIndex }, null);
   assert.equal(store.countConflictPending(), 1, "changed pair is worth a fresh review");
+  store.close();
+});
+
+test("dream (non-freeze): cross-scope conflict parks for review instead of being adjudicated (review item 3)", async () => {
+  const { store, service } = setup();
+  const w = service.saveWithDedupe({ type: "decision", title: "发布时间", content: "8月20日", importance: 4, agent_scope: "coder", agent_scope_source: "explicit" }).memory;
+  const l = service.saveWithDedupe({ type: "decision", title: "发布时间旧", content: "8月15日", importance: 4, agent_scope: "writer", agent_scope_source: "explicit" }).memory;
+  const ctx = {
+    llm: { stream: async function* () {
+      yield { type: "text-delta", text: JSON.stringify([{ action: "conflict", winner: w.id, loser: l.id, reason: "日期更新" }]) };
+      yield { type: "finish", reason: { kind: "ok" } };
+    } },
+    logger: { warn: () => {}, info: () => {} }
+  };
+  const dream = createDreamScheduler({ thresholdCount: 1, thresholdChars: 0, delayMs: 0 });
+  const result = await dream.runDream(ctx, service, { dreamProvider: "mock", dreamModel: "mock-chat" });
+  assert.equal(result.ok, true);
+  assert.equal(result.applied, 0, "cross-scope conflict is NOT auto-adjudicated");
+  assert.equal(result.frozen, 1, "parked pair shows up in the run summary");
+  const pending = store.listConflictPending();
+  assert.equal(pending.length, 1);
+  assert.match(pending[0].reason, /跨作用域|cross-scope/, "dedicated reason");
+  assert.equal(store.getById(l.id).archived, false, "loser NOT archived");
+  assert.ok(!store.getById(w.id).content.includes("已否决旧信息"), "winner untouched");
+  store.close();
+});
+
+test("dream (non-freeze): same-scope conflict is still auto-adjudicated (regression)", async () => {
+  const { store, service } = setup();
+  const w = service.saveWithDedupe({ type: "decision", title: "发布时间", content: "8月20日", importance: 4, agent_scope: "coder", agent_scope_source: "explicit" }).memory;
+  const l = service.saveWithDedupe({ type: "decision", title: "发布时间旧", content: "8月15日", importance: 4, agent_scope: "coder", agent_scope_source: "explicit" }).memory;
+  const ctx = {
+    llm: { stream: async function* () {
+      yield { type: "text-delta", text: JSON.stringify([{ action: "conflict", winner: w.id, loser: l.id, reason: "日期更新" }]) };
+      yield { type: "finish", reason: { kind: "ok" } };
+    } },
+    logger: { warn: () => {}, info: () => {} }
+  };
+  const dream = createDreamScheduler({ thresholdCount: 1, thresholdChars: 0, delayMs: 0 });
+  const result = await dream.runDream(ctx, service, { dreamProvider: "mock", dreamModel: "mock-chat" });
+  assert.equal(result.ok, true);
+  assert.equal(result.applied, 1, "same-scope conflict adjudicated as before");
+  assert.equal(result.frozen, 0);
+  assert.equal(store.listConflictPending().length, 0);
+  assert.equal(store.getById(l.id).archived, true);
   store.close();
 });
 

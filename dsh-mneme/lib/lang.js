@@ -108,6 +108,12 @@ export const STR = {
     zh: (s) => `跨作用域相似 ${s}（疑似同一内容落在两个归属下，请裁决归属/去重）`,
     en: (s) => `cross-scope similar ${s} (same content under two scopes — review ownership)`
   },
+  // v0.8.1（issue #170 复核项 3）：普通 dream 的 LLM 输出跨 scope conflict 时
+  // 停车用（相似度未知，带模型给的裁决理由）。
+  scopeConflictParkReason: {
+    zh: (r) => `跨作用域冲突（归属不同，不自动裁决）${r ? `：${r}` : ""}`,
+    en: (r) => `cross-scope conflict (different ownership — not auto-adjudicated)${r ? `: ${r}` : ""}`
+  },
   candidateConflicts: {
     zh: (p) => `候选冲突：\nid=${p.a.id} | type=${p.a.type} | title=${p.a.title}\n${p.a.content}\n---\nid=${p.b.id} | type=${p.b.type} | title=${p.b.title}\n${p.b.content}\n（相似度 ${p.similarity.toFixed(2)}）`,
     en: (p) => `Candidate conflicts:\nid=${p.a.id} | type=${p.a.type} | title=${p.a.title}\n${p.a.content}\n---\nid=${p.b.id} | type=${p.b.type} | title=${p.b.title}\n${p.b.content}\n(similarity ${p.similarity.toFixed(2)})`
