@@ -773,17 +773,20 @@ export function createStore(path) {
     // occurred_at 闭区间：与 list() 同过滤（visibility 同口径），memory_list
     // 的 total 才能和过滤后的行保持一致。
     if (visibility) {
+      // v0.8.1 第 3 步（issue #170 4.3）：硬过滤只认显式声明——与
+      // service.isVisibleInScope 同口径。IS NOT 是 NULL 安全比较：来源为
+      // auto/NULL（v0.8.0 存量自动标注）的行不吃硬墙，只走 A2 软加权。
       if (visibility.agentScope != null) {
-        clauses.push("(agent_scope IS NULL OR agent_scope = ?)");
+        clauses.push("(agent_scope IS NULL OR agent_scope_source IS NOT 'explicit' OR agent_scope = ?)");
         params.push(visibility.agentScope);
       } else {
-        clauses.push("agent_scope IS NULL");
+        clauses.push("(agent_scope IS NULL OR agent_scope_source IS NOT 'explicit')");
       }
       if (visibility.workspaceScope != null) {
-        clauses.push("(workspace_scope IS NULL OR workspace_scope = ?)");
+        clauses.push("(workspace_scope IS NULL OR workspace_scope_source IS NOT 'explicit' OR workspace_scope = ?)");
         params.push(visibility.workspaceScope);
       } else {
-        clauses.push("workspace_scope IS NULL");
+        clauses.push("(workspace_scope IS NULL OR workspace_scope_source IS NOT 'explicit')");
       }
     }
     if (!includeForgotten) {
@@ -1122,21 +1125,25 @@ export function createStore(path) {
       params.push(occurred.to);
     }
     // v0.8.0 A3（issue #17）：strictScope 硬过滤（memory_list 分页路径）。
-    // SQL 与 service.isVisibleInScope 同口径：未标注(NULL)恒可见；当前维度
-    // 解析不到时该维度只放行未标注行（fail-closed）。只有显式传 visibility
-    // 的用户面调用才过滤——dream/质量过滤等内部 store.list 调用不受影响。
+    // SQL 与 service.isVisibleInScope 同口径：未标注(NULL)恒可见；v0.8.1 起
+    // 硬墙只认 explicit 来源（4.3），当前维度解析不到时该维度只放行未标注/
+    // 非显式行（fail-closed 收窄）。只有显式传 visibility 的用户面调用才
+    // 过滤——dream/质量过滤等内部 store.list 调用不受影响。
     if (visibility) {
+      // v0.8.1 第 3 步（issue #170 4.3）：硬过滤只认显式声明——与
+      // service.isVisibleInScope 同口径。IS NOT 是 NULL 安全比较：来源为
+      // auto/NULL（v0.8.0 存量自动标注）的行不吃硬墙，只走 A2 软加权。
       if (visibility.agentScope != null) {
-        clauses.push("(agent_scope IS NULL OR agent_scope = ?)");
+        clauses.push("(agent_scope IS NULL OR agent_scope_source IS NOT 'explicit' OR agent_scope = ?)");
         params.push(visibility.agentScope);
       } else {
-        clauses.push("agent_scope IS NULL");
+        clauses.push("(agent_scope IS NULL OR agent_scope_source IS NOT 'explicit')");
       }
       if (visibility.workspaceScope != null) {
-        clauses.push("(workspace_scope IS NULL OR workspace_scope = ?)");
+        clauses.push("(workspace_scope IS NULL OR workspace_scope_source IS NOT 'explicit' OR workspace_scope = ?)");
         params.push(visibility.workspaceScope);
       } else {
-        clauses.push("workspace_scope IS NULL");
+        clauses.push("(workspace_scope IS NULL OR workspace_scope_source IS NOT 'explicit')");
       }
     }
     if (!includeForgotten) {

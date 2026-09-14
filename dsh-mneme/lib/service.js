@@ -90,10 +90,18 @@ function inOccurredBounds(m, bounds) {
  * 留给后续批次）。store.list 的 SQL 过滤与此谓词同口径（见 store.js visibility）。
  */
 function isVisibleInScope(m, current) {
-  const agent = scopeKeyOf(m.agent_scope);
-  if (agent !== null && (current.agent_scope === null || agent !== current.agent_scope)) return false;
-  const ws = scopeKeyOf(m.workspace_scope);
-  if (ws !== null && (current.workspace_scope === null || ws !== current.workspace_scope)) return false;
+  // v0.8.1 第 3 步（issue #170 4.3，作者已确认）：硬过滤只认显式声明。某维
+  // 仅当「该维有标注且来源为 explicit」才构成硬墙；auto（含 v0.8.0 存量的
+  // NULL 来源行）只吃 A2 软加权（foreign ×0.5 保留可见），不进硬过滤。
+  // 显式全局（值 NULL + source explicit）与未标注同形，天然恒可见。
+  if (m.agent_scope_source === "explicit") {
+    const agent = scopeKeyOf(m.agent_scope);
+    if (agent !== null && (current.agent_scope === null || agent !== current.agent_scope)) return false;
+  }
+  if (m.workspace_scope_source === "explicit") {
+    const ws = scopeKeyOf(m.workspace_scope);
+    if (ws !== null && (current.workspace_scope === null || ws !== current.workspace_scope)) return false;
+  }
   return true;
 }
 
