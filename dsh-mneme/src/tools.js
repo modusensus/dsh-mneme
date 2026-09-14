@@ -112,17 +112,20 @@ export function createTools(ctx, service, config, embedder) {
       async execute(args, exec) {
         // scope 标注（v0.8.1 底座，issue #170）：默认由会话身份解析（载体自动
         // 标注，盖 auto 章）；显式 agent_scope/workspace_scope 参数逐维覆盖并盖
-        // explicit 章。解析绝不抛错、取不到落 NULL；scopeEnabled 关闭只关自动
-        // 标注——显式声明是直接用户意图，始终生效。"global"/"*"/空 = 显式全局
+        // explicit 章。解析绝不抛错、取不到落 NULL。
+        // 复核项 2（#170）：scopeEnabled 只门控「自动标注」分支——显式声明与
+        // 读取身份（search/list/get/注入经同一解析器）不受 flag 限制，否则
+        // strictScope 硬墙会被 flag 静默拆掉（fail-open）。
         // （存储 NULL，由 source 列与「从未标注」区分）。非字符串参数在工具
         // 入参 schema 层即被拒（type: "string"）——脏值到不了归一化，无静默放宽。
         const scope = resolveSessionScope(exec);
+        const autoStamping = config?.scopeEnabled === true;
         const agentLabel = args.agent_scope !== undefined
           ? { value: normalizeExplicitScope(args.agent_scope), source: "explicit" }
-          : scope ? { value: scope.agent_scope, source: "auto" } : null;
+          : autoStamping && scope ? { value: scope.agent_scope, source: "auto" } : null;
         const workspaceLabel = args.workspace_scope !== undefined
           ? { value: normalizeExplicitScope(args.workspace_scope), source: "explicit" }
-          : scope ? { value: scope.workspace_scope, source: "auto" } : null;
+          : autoStamping && scope ? { value: scope.workspace_scope, source: "auto" } : null;
         const { action, memory } = service.saveWithDedupe({
           type: args.type,
           title: args.title,

@@ -1065,17 +1065,19 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     // 标题变化，若仍按 (type, title) 匹配会出现两个活跃的 summary 同时注入。
     // 其余类型维持 (type, title) 匹配不变。
     const candidates = store.list({ type: memory.type, limit: 100 });
-    // v0.8.0 A1（issue #17）：scopeEnabled 开启时去重键由 (type, title) 扩展为
+    // v0.8.0 A1（issue #17）：去重键由 (type, title) 扩展为
     // (type, title, agent_scope, workspace_scope, sensitivity)——不同作用域的同
     // 标题记忆绝不互相物理合并（旧逻辑跨 agent/workspace 并行，事后无法拆分）。
     // NULL 归一为「未标注」：未标注行之间互相匹配（含存量行），与已标注行不
-    // 匹配。flag 关闭时跳过比较，行为与 A1 前逐字节一致。
-    const scopeOn = config.scopeEnabled === true;
+    // 匹配。
+    // v0.8.1（issue #170 复核项 1）：比较不再受 scopeEnabled 门控——显式声明
+    // flag 关也生效（工具层明写「读了自动标注也生效」，去重必须同口径），否则
+    // 关自动标注后同标题不同 scope 的行会物理合并进第一行的归属。存量全 NULL
+    // 行互相匹配，A1 前行为不变。
     const scopeMatches = (m) =>
-      !scopeOn ||
-      (scopeKeyOf(m.agent_scope) === scopeKeyOf(memory.agent_scope) &&
-        scopeKeyOf(m.workspace_scope) === scopeKeyOf(memory.workspace_scope) &&
-        scopeKeyOf(m.sensitivity) === scopeKeyOf(memory.sensitivity));
+      scopeKeyOf(m.agent_scope) === scopeKeyOf(memory.agent_scope) &&
+      scopeKeyOf(m.workspace_scope) === scopeKeyOf(memory.workspace_scope) &&
+      scopeKeyOf(m.sensitivity) === scopeKeyOf(memory.sensitivity);
     // Issue #127：写入端语义去重命中时，调用方用 _mergeInto 指定并入目标——复用
     // 下面这段并入逻辑（appendContent + content_history + 质量处置），不另写第二份
     // 实现。目标已被并发删除时回落到常规匹配。显式目标同样过 scope 门：跨作用域

@@ -287,6 +287,41 @@ test("memory_save: dirty (non-string) scope args are rejected at the schema laye
   assert.equal(store.count("preference"), 0, "rejected call must not write");
 });
 
+test("dedupe compares scope keys even with scopeEnabled off (review item 1: explicit rows never cross-merge)", () => {
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config: {} });
+  // flag 关 + 显式声明：不同归属的同标题行绝不物理合并（否则内容挂错归属，
+  // strictScope 下原主人反而看不见）。
+  const first = service.saveWithDedupe({
+    type: "preference", title: "editor theme", content: "v1",
+    agent_scope: "writer", agent_scope_source: "explicit"
+  });
+  assert.equal(first.action, "created");
+  const second = service.saveWithDedupe({
+    type: "preference", title: "editor theme", content: "v2",
+    agent_scope: "global", agent_scope_source: "explicit"
+  });
+  assert.equal(second.action, "created", "explicit global never merges into an explicitly scoped row");
+  const third = service.saveWithDedupe({ type: "preference", title: "editor theme", content: "v3" });
+  assert.equal(third.action, "created", "unscoped row does not merge into the labeled row either");
+  assert.equal(store.count("preference"), 3);
+
+  // 同归属显式行仍然并入 + 来源升级。
+  const fourth = service.saveWithDedupe({
+    type: "preference", title: "editor theme", content: "v4",
+    agent_scope: "writer", agent_scope_source: "explicit"
+  });
+  assert.equal(fourth.action, "merged");
+  assert.equal(fourth.memory.id, first.memory.id);
+  assert.equal(store.count("preference"), 3);
+
+  // 存量形状（全 NULL）flag 关下仍互相合并（A1 前行为不变）。
+  const l1 = service.saveWithDedupe({ type: "project", title: "legacy note", content: "a" });
+  const l2 = service.saveWithDedupe({ type: "project", title: "legacy note", content: "b" });
+  assert.equal(l2.action, "merged");
+  assert.equal(l2.memory.id, l1.memory.id);
+});
+
 test("memory_update: explicit scope correction applies, stamps explicit, and audits", async () => {  const { store, service, registered } = setupTools({ scopeEnabled: true });
   const memoryUpdate = registered.find((d) => d.name === "memory_update");
   assert.ok(memoryUpdate, "memory_update registered");

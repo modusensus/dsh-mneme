@@ -8,8 +8,11 @@
 // 硬约束：解析失败绝不阻塞写入——任何一步取不到就落 NULL（读侧 NULL = 未标注
 // = 全局可见），任何异常都被吞掉（registry 故障 warn 一次后降级）。
 //
-// scopeEnabled 关闭时 resolveWriteScope 返回 null，调用方一个字段都不该标注，
-// 写入与去重行为和 A1 之前逐字节一致。
+// v0.8.1（issue #170 复核项 2）：scopeEnabled 的闸门从解析器挪到「写标注」处
+// （memory_save 的 auto 分支）。解析器恒返回会话身份（真取不到才是 null）——
+// 读取侧（strictVisibility / memory_get / inject）与显式声明都依赖它：flag 关
+// 只关「自动标注」，不能连读取身份一起关，否则 strictScope 硬墙被静默拆掉
+// （fail-open）。
 
 /**
  * @param {object} deps
@@ -31,8 +34,6 @@ export function createScopeResolver({ ctx, config, logger } = {}) {
   };
 
   return function resolveWriteScope(exec) {
-    if (config?.scopeEnabled !== true) return null;
-
     let session = null;
     try {
       session = exec?.agent?.session ?? null;

@@ -71,13 +71,15 @@ test("store.update keeps scope columns untouched (write-time annotation is immut
   assert.equal(row.workspace_scope, "w1");
 });
 
-test("scopeEnabled=false keeps legacy dedupe: cross-scope same-title still merges", () => {
+test("scopeEnabled=false: cross-scope same-title does NOT merge (issue #170 复核项 1)", () => {
   const store = createStore(":memory:");
   const service = createService({ store, mirror: null, config: {} });
+  // A1 时代本测试断言「flag 关=跨 scope 合并」；显式声明落地后那是内容挂错
+  // 归属的 bug（strictScope 下原主人反而看不见）——去重键恒按 scope 比较。
   store.save({ type: "project", title: "T", content: "scoped body", agent_scope: "agentA" });
   const { action } = service.saveWithDedupe({ type: "project", title: "T", content: "new body" });
-  assert.equal(action, "merged");
-  assert.equal(store.count("project"), 1);
+  assert.equal(action, "created", "unscoped write never merges into a labeled row (flag off included)");
+  assert.equal(store.count("project"), 2);
 });
 
 test("scopeEnabled=true: dedupe key extends with agent_scope/workspace_scope/sensitivity", () => {
@@ -172,9 +174,15 @@ test("memory_save with the flag off writes rows without any scope annotation", a
   assert.equal(row.workspace_scope, undefined);
 });
 
-test("createScopeResolver returns null when scopeEnabled is off", () => {
+test("createScopeResolver returns identity even when scopeEnabled is off (gate lives at the write-annotation site, issue #170 复核项 2)", () => {
   const resolve = createScopeResolver({ ctx: {}, config: {} });
-  assert.equal(resolve({ agent: { session: { id: "s1" } } }), null);
+  // flag 关只关自动标注：读取侧（strictVisibility/get/注入）与显式声明仍需身份。
+  assert.deepEqual(
+    resolve({ agent: { session: { id: "s1", header: { agentPreset: "coder", cwd: "D:\\p" } } } }),
+    { agent_scope: "coder", workspace_scope: "D:\\p" }
+  );
+  // 真解析不到 → 双 null 对象（fail-closed 读取侧据此只放行未标注/非显式行）。
+  assert.deepEqual(resolve({ agent: { session: { id: "s1" } } }), { agent_scope: null, workspace_scope: null });
 });
 
 test("resolver stamps agentPreset and header cwd; registry hit wins over header cwd", () => {
