@@ -184,8 +184,8 @@ async function phaseConflicts(ctx, service, config, logger, runId, semantic = nu
   const samePairs = selected.filter((p) => !isCrossScopePair(p));
   const parkPair = (p, reason) => {
     try {
-      service.saveConflictPending({ run_id: runId, memory_a: p.a.id, memory_b: p.b.id, reason });
-      return true;
+      // 返回 undefined = 该对已被人工裁决且两侧内容未变（复核项 4）——不算停车。
+      return service.saveConflictPending({ run_id: runId, memory_a: p.a.id, memory_b: p.b.id, reason }) != null;
     } catch (error) {
       logger?.warn?.(`dsh-mneme sleep: failed to park conflict ${p.a.id}/${p.b.id}: ${String(error)}`);
       return false;

@@ -1695,7 +1695,14 @@ export function createStore(path) {
    * order is normalized (sorted by id) so the same two memories are only ever
    * pending once — a re-detection in a later dream run is a no-op, never a
    * duplicate queue entry. Returns the pending row (freshly inserted, or the
-   * existing unresolved row when the pair is already pending).
+   * existing unresolved row when the pair is already pending), or undefined
+   * when the re-detection is suppressed.
+   *
+   * v0.8.1（issue #170 复核项 4）：人工已裁决过的对（resolved_at 非空）不再
+   * 反复入队——除非任一侧在裁决之后又被改过（updated_at 晚于 resolved_at）。
+   * 否则跨 scope 对每轮 sleep 都原样回来，把「保留双方」的决定变成噪声。
+   * updated_at 是宽松代理（任何字段更新都会触发重新评审）——宁可多看一眼，
+   * 不静音真冲突。
    */
   function saveConflictPending({ run_id, memory_a, memory_b, reason }) {
     const [a, b] = [memory_a, memory_b].sort();
@@ -1703,6 +1710,15 @@ export function createStore(path) {
       "SELECT * FROM conflict_pending WHERE memory_a = ? AND memory_b = ? AND resolved_at IS NULL LIMIT 1"
     ).get(a, b);
     if (existing) return toConflictPending(existing);
+    const reviewed = db.prepare(
+      "SELECT * FROM conflict_pending WHERE memory_a = ? AND memory_b = ? AND resolved_at IS NOT NULL ORDER BY resolved_at DESC, rowid DESC LIMIT 1"
+    ).get(a, b);
+    if (reviewed) {
+      const touched = db.prepare(
+        "SELECT count(*) AS c FROM memories WHERE id IN (?, ?) AND updated_at > ?"
+      ).get(a, b, reviewed.resolved_at).c;
+      if (touched === 0) return undefined;
+    }
     const id = randomUUID();
     const now = nowIso();
     db.prepare(

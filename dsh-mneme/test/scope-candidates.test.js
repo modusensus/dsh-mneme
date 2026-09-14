@@ -13,7 +13,9 @@ import { createVectorIndex } from "../src/vector-index.js";
 
 const embedder = {
   embedSingle: async () => [1, 0, 0],
-  embed: async () => [1, 0, 0],
+  // 契约形状：按输入条数返回等长向量数组。update 会失效缓存并调度重嵌入，
+  // sleep 的回填走 embed()——返回单向量会让回填静默失败（no usable vectors）。
+  embed: async (texts) => (Array.isArray(texts) ? texts : [texts]).map(() => [1, 0, 0]),
   schedule: () => {},
   modelHash: "mock#1",
   dimension: 3
@@ -124,6 +126,30 @@ test("non-freeze without an LLM route: cross-scope pair still parks; nothing is 
   assert.equal(store.getById(newer.id).archived, false, "no side is auto-archived");
   assert.equal(store.getById(older.id).archived, false);
   assert.ok(queue[0].resolved_at === undefined);
+  store.close();
+});
+
+test("reviewed pair does not re-queue until one of its sides changes (review item 4)", async () => {
+  const { store, service, vectorIndex } = setup();
+  const [newer, older] = savePair(service, vectorIndex, "备份策略A", "备份策略B", { agent: "coder" }, { agent: "writer" });
+  await runSleep(llmCtx(), service, baseConfig({ conflictFreezeEnabled: true }), { warn: () => {}, info: () => {} }, { embedder, vectorIndex }, null);
+  assert.equal(store.countConflictPending(), 1);
+
+  // 人工「保留双方」（winner=null）后，内容未变 → 下一轮不再入队。
+  const row = store.listConflictPending()[0];
+  store.resolveConflictPending(row.id, { winner: null });
+  assert.equal(store.countConflictPending(), 0);
+  const rerun = await runSleep(llmCtx(), service, baseConfig({ conflictFreezeEnabled: true }), { warn: () => {}, info: () => {} }, { embedder, vectorIndex }, null);
+  assert.equal(store.countConflictPending(), 0, "unchanged reviewed pair must stay dismissed");
+  assert.equal(rerun.status, "noop", "suppressed parks count as noop");
+
+  // 任一侧被改过（updated_at 晚于裁决）→ 重新入队（新决策）。
+  // 留出真实时间间隔：updated_at/resolved_at 都是毫秒精度，同毫秒内
+  // 「裁决后立即修改」会算作未变（生产中人为修改不可能同毫秒）。
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  service.update(newer.id, { content: "备份策略A 的正文（改）" });
+  await runSleep(llmCtx(), service, baseConfig({ conflictFreezeEnabled: true }), { warn: () => {}, info: () => {} }, { embedder, vectorIndex }, null);
+  assert.equal(store.countConflictPending(), 1, "changed pair is worth a fresh review");
   store.close();
 });
 

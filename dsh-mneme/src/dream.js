@@ -1003,7 +1003,10 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
           }
           for (const d of toFreeze) {
             try {
-              service.saveConflictPending({ run_id: runId, memory_a: d.winner, memory_b: d.loser, reason: d.reason });
+              // 返回 undefined = 该对已被人工裁决且两侧内容未变（issue #170 复核
+              // 项 4：内容变了才重新入队）——不算停车、不进 frozenIds。
+              const parked = service.saveConflictPending({ run_id: runId, memory_a: d.winner, memory_b: d.loser, reason: d.reason });
+              if (parked == null) continue;
               frozenCount++;
               frozenIds.push(d.winner, d.loser);
             } catch (error) {
