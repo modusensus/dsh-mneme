@@ -1120,6 +1120,27 @@ export function createService({ store, mirror, config, onWrite, logger }) {
         ...scopeUpgrade,
         ...(quality ? { quality_score: quality.score } : {})
       });
+      // v0.8.1（issue #170 review 3）：来源升级也是归属性质改变——与
+      // updateMemory 的显式修正同等待遇，落一行 scope_changes（actor=tool：
+      // 只有 memory_save 的显式参数会带 explicit 来源走到这里）。审计失败只
+      // warn 不反噬合并。升级只在来源首次变化时触发，不会每次并入都写。
+      if (Object.keys(scopeUpgrade).length) {
+        try {
+          store.saveScopeChange({
+            memory_id: existing.id,
+            actor: "tool",
+            prev_agent_scope: existing.agent_scope ?? null,
+            prev_workspace_scope: existing.workspace_scope ?? null,
+            next_agent_scope: merged.agent_scope ?? null,
+            next_workspace_scope: merged.workspace_scope ?? null,
+            agent_scope_source: merged.agent_scope_source ?? null,
+            workspace_scope_source: merged.workspace_scope_source ?? null,
+            decided_at: scopeUpgrade.scope_decided_at
+          });
+        } catch (e) {
+          try { logger?.warn?.(`[dsh-mneme] scope upgrade audit failed: ${String(e)}`); } catch { /* 不反噬 */ }
+        }
+      }
       // Bug7: a degraded/archived result is applied on top of the merged row.
       const result = applyQualityDisposition(merged, quality, qf);
       afterSync("write");

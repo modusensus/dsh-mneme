@@ -141,6 +141,21 @@ test("explicit save with the same scope values upgrades a merged auto row to exp
   assert.equal(second.memory.agent_scope, "coder");
   assert.equal(second.memory.agent_scope_source, "explicit");
   assert.ok(second.memory.scope_decided_at, "merged upgrade must stamp scope_decided_at");
+
+  // review 3（#170）：来源升级也是归属性质改变 → 落 scope_changes 审计行。
+  const audit = service.listScopeChanges(first.memory.id);
+  assert.equal(audit.length, 1, "exactly one audit row for the one-time upgrade");
+  assert.equal(audit[0].actor, "tool");
+  assert.equal(audit[0].prev_agent_scope, "coder");
+  assert.equal(audit[0].next_agent_scope, "coder");
+  assert.equal(audit[0].agent_scope_source, "explicit");
+
+  // 再次显式并入（来源已是 explicit）→ 不重复升级、不重复审计。
+  service.saveWithDedupe({
+    type: "preference", title: "editor theme", content: "v3",
+    agent_scope: "coder", agent_scope_source: "explicit"
+  });
+  assert.equal(service.listScopeChanges(first.memory.id).length, 1, "no duplicate audit rows on idempotent merges");
 });
 
 test("updateMemory stamps explicit scope, records audit row, and honors actor", () => {
@@ -256,8 +271,23 @@ test("memory_save: flag on without explicit args keeps A1 behavior (auto stamps 
   assert.equal(row.workspace_scope_source, "auto");
 });
 
-test("memory_update: explicit scope correction applies, stamps explicit, and audits", async () => {
-  const { store, service, registered } = setupTools({ scopeEnabled: true });
+test("memory_save: dirty (non-string) scope args are rejected at the schema layer, never silently widened", async () => {
+  const { store, registered } = setupTools({ scopeEnabled: true });
+  const memorySave = registered.find((d) => d.name === "memory_save");
+  // review 2（#170）复核结论：工具入参 schema（type: "string"）在 execute 之前
+  // 就拒绝非字符串——脏值到不了 normalizeExplicitScope，不存在「静默变显式全局」
+  // 的路径（API 路径 400 同理）。本测试钉死该保证防回归。
+  await assert.rejects(
+    () => memorySave.execute.bind(memorySave)(
+      { type: "preference", title: "editor theme", content: "body", agent_scope: 42 },
+      EXEC
+    ),
+    /agent_scope.*string/i
+  );
+  assert.equal(store.count("preference"), 0, "rejected call must not write");
+});
+
+test("memory_update: explicit scope correction applies, stamps explicit, and audits", async () => {  const { store, service, registered } = setupTools({ scopeEnabled: true });
   const memoryUpdate = registered.find((d) => d.name === "memory_update");
   assert.ok(memoryUpdate, "memory_update registered");
   const saveDef = registered.find((d) => d.name === "memory_save");

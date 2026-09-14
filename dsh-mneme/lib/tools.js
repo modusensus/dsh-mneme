@@ -114,7 +114,8 @@ export function createTools(ctx, service, config, embedder) {
         // 标注，盖 auto 章）；显式 agent_scope/workspace_scope 参数逐维覆盖并盖
         // explicit 章。解析绝不抛错、取不到落 NULL；scopeEnabled 关闭只关自动
         // 标注——显式声明是直接用户意图，始终生效。"global"/"*"/空 = 显式全局
-        // （存储 NULL，由 source 列与「从未标注」区分）。
+        // （存储 NULL，由 source 列与「从未标注」区分）。非字符串参数在工具
+        // 入参 schema 层即被拒（type: "string"）——脏值到不了归一化，无静默放宽。
         const scope = resolveSessionScope(exec);
         const agentLabel = args.agent_scope !== undefined
           ? { value: normalizeExplicitScope(args.agent_scope), source: "explicit" }
