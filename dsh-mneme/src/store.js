@@ -1777,8 +1777,11 @@ export function createStore(path) {
   /** Scope 修正审计（单条记忆，新→旧）。审计回放与候选复核用。 */
   function listScopeChanges(memoryId, { limit = 50 } = {}) {
     const lim = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 200) : 50;
+    // tiebreaker 用 rowid（追加写入的单调序）而非 id：decided_at 只有毫秒精度，
+    // 连续两次修正落在同一毫秒时 UUID 排序是随机的（CI windows/node24 抓到的
+    // 真实 flake）——审计回放要求「最新一条」确定。
     const rows = db.prepare(
-      "SELECT * FROM scope_changes WHERE memory_id = ? ORDER BY decided_at DESC, id DESC LIMIT ?"
+      "SELECT * FROM scope_changes WHERE memory_id = ? ORDER BY decided_at DESC, rowid DESC LIMIT ?"
     ).all(memoryId, lim);
     return rows.map(toScopeChange);
   }
