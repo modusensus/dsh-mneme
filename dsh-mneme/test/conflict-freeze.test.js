@@ -111,13 +111,23 @@ test("store: countConflictPending 只统计未决行", () => {
   store.close();
 });
 
-test("store: 已解决的同一对后续可再次 pending", () => {
+test("store: 已解决的同一对在内容变化后才可再次 pending（issue #170 复核项 4）", async () => {
   const store = openStore();
-  const p1 = store.saveConflictPending({ memory_a: "a", memory_b: "b", reason: "r" });
+  const a = store.save({ type: "project", title: "对A", content: "内容A" });
+  const b = store.save({ type: "project", title: "对B", content: "内容B" });
+  const p1 = store.saveConflictPending({ memory_a: a.id, memory_b: b.id, reason: "r" });
   store.resolveConflictPending(p1.id, { winner: "a" });
-  // 去重只看未决行 —— 已解决后再现同一对应产生新 pending
-  const p2 = store.saveConflictPending({ memory_a: "b", memory_b: "a", reason: "again" });
-  assert.notEqual(p2.id, p1.id, "已解决行不参与去重");
+  // 内容未变 → 已裁决对不重新入队：「保留双方」是有效决定，不是待办。
+  const suppressed = store.saveConflictPending({ memory_a: b.id, memory_b: a.id, reason: "again" });
+  assert.equal(suppressed, undefined, "未变化的已裁决对被抑制");
+  assert.equal(store.countConflictPending(), 0);
+  // 任一侧被改过（updated_at 晚于 resolved_at）→ 重新入队产生新 pending。
+  // 留真实时间间隔：updated_at/resolved_at 毫秒精度，同毫秒算未变。
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  store.update(a.id, { content: "内容A（改）" });
+  const p2 = store.saveConflictPending({ memory_a: b.id, memory_b: a.id, reason: "changed" });
+  assert.ok(p2, "内容变化后的对重新入队");
+  assert.notEqual(p2.id, p1.id, "新 pending 是新行");
   assert.equal(p2.resolved_at, undefined);
   assert.equal(store.countConflictPending(), 1);
   store.close();
