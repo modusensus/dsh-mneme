@@ -95,7 +95,7 @@ let cache = { at: -Infinity, latest: null };
  * 响应形状不对/URL 校验不过）都静默返回 null——版本提示是锦上添花，绝不
  * 让它成为新的故障面。失败不写缓存：TTL 起点保持旧值，下次调用立刻重试。
  */
-export async function fetchLatestVersion({ fetchImpl = fetch, now = Date.now } = {}) {
+export async function fetchLatestVersion({ fetchImpl = typeof fetch === "function" ? fetch : () => Promise.reject(new Error("no fetch")), now = Date.now } = {}) {
   if (now() - cache.at < CACHE_TTL_MS) return cache.latest;
   if (!validateRegistryUrl(REGISTRY_URL)) return null;
   let manifest;

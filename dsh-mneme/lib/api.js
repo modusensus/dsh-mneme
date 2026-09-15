@@ -1,5 +1,4 @@
 import { URL } from "node:url";
-import { readFileSync } from "node:fs";
 import { timingSafeEqual, randomBytes } from "node:crypto";
 import { FEATURE_FLAG_SPEC } from "./settings.js";
 import { TYPE_FILE, renderMirrorText, parseHumanEdits } from "./mirror.js";
@@ -8,7 +7,7 @@ import { computeHeat } from "./heat.js";
 import { describeStreamFailure, resolveRoute } from "./dream.js";
 import { describeLocalRuntime, publicRuntimeStatus } from "./runtime/loader.js";
 import { hostModulesDir, provisionRuntime } from "./runtime/provision.js";
-import { classify, fetchLatestVersion } from "./version-check.js";
+import { classify, fetchLatestVersion, PACKAGE_VERSION } from "./version-check.js";
 
 // headers：少数端点（/export 附件下载）需要追加 Content-Disposition 等响应头。
 function sendJson(res, status, payload, headers = {}) {
@@ -25,16 +24,8 @@ function sendAttachment(res, status, contentType, filename, body) {
   res.end(body);
 }
 
-// 导出 JSON 的 version 字段：读插件根的 package.json（src/ 与 lib/ 都在根下
-// 一层，相对 import.meta.url 解析一致）。读取失败（打包/受限环境）降级为
-// "unknown"，导出本身仍然可用。
-const PACKAGE_VERSION = (() => {
-  try {
-    return JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version ?? "unknown";
-  } catch {
-    return "unknown";
-  }
-})();
+// 版本号统一从 version-check.js 取（同一份读 package.json 逻辑，读取失败
+// 同样降级 "unknown"）——/info 与 /version-check 两个路由共用，不再各写一份。
 
 // Defaults for the standalone external API — keep in step with the schema
 // defaults in config.js (externalApiPort / externalApiHost).

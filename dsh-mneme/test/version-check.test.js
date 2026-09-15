@@ -128,6 +128,20 @@ describe('version-check.js', () => {
       assert.equal(await fetchLatestVersion({ fetchImpl, now: () => 1000 }), '0.8.2');
       resetCacheForTest();
     });
+
+    test('运行环境无全局 fetch 时走默认参兜底：resolve null 而非同步抛', async () => {
+      resetCacheForTest();
+      const original = globalThis.fetch;
+      globalThis.fetch = undefined;
+      try {
+        // 修复前：默认参 fetchImpl = fetch 在参数求值期同步抛 ReferenceError，
+        // 路由的 .catch 接不住；修复后应归入常规失败路径静默返 null。
+        assert.equal(await fetchLatestVersion({ now: () => 1000 }), null);
+      } finally {
+        globalThis.fetch = original;
+      }
+      resetCacheForTest();
+    });
   });
 
   // ---- 模块常量：URL 必须过白名单，运行版本可读 ----
