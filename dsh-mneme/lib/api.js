@@ -330,7 +330,7 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
         // 按钮无放大风险。
         maxTokens: 1024,
         ...(reasoningEffort && reasoningEffort !== "none" ? { reasoningEffort } : {}),
-        messages: [{ role: "system", content: [{ type: "text", text: "Reply with exactly one word: ok" }] }]
+        messages: [{ role: "system", content: [{ type: "text", text: "Reply with exactly one word: ok" }], source: { kind: "plugin", plugin: "dsh-mneme" } }]
       })) {
         if (chunk.type === "text-delta" && typeof chunk.text === "string") reply += chunk.text;
         if (chunk.type === "finish" && (chunk.reason?.kind === "error" || chunk.reason?.kind === "aborted")) {

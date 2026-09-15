@@ -239,8 +239,8 @@ async function phaseConflicts(ctx, service, config, logger, runId, semantic = nu
     maxTokens: 2048,
     ...(withEffort && sleepEffort ? { reasoningEffort: sleepEffort } : {}),
     messages: [
-      { role: "system", content: [{ type: "text", text: conflictPrompt }] },
-      { role: "user", content: [{ type: "text", text: listText }] }
+      { role: "system", content: [{ type: "text", text: conflictPrompt }], source: { kind: "plugin", plugin: "dsh-mneme" } },
+      { role: "user", content: [{ type: "text", text: listText }], source: { kind: "plugin", plugin: "dsh-mneme" } }
     ]
   }, (reason) => { conflictStreamFailure = describeStreamFailure(reason); });
   };
@@ -390,8 +390,8 @@ async function phasePatterns(ctx, service, config, logger, runId, signal = null)
     maxTokens: 2048,
     ...(withEffort && sleepEffort ? { reasoningEffort: sleepEffort } : {}),
     messages: [
-      { role: "system", content: [{ type: "text", text: STR.prompts.pattern[language].replace("N", String(maxPatterns)) }] },
-      { role: "user", content: [{ type: "text", text: listText }] }
+      { role: "system", content: [{ type: "text", text: STR.prompts.pattern[language].replace("N", String(maxPatterns)) }], source: { kind: "plugin", plugin: "dsh-mneme" } },
+      { role: "user", content: [{ type: "text", text: listText }], source: { kind: "plugin", plugin: "dsh-mneme" } }
     ]
   }, (reason) => { patternStreamFailure = describeStreamFailure(reason); });
   };

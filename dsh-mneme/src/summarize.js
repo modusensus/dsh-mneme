@@ -144,7 +144,7 @@ function collectMessages(session, maxChars = 8000, language = "zh") {
         break;
     }
   }
-  return lines.length ? [createUserMessage({ content: [{ type: "text", text: trim(lines.join("\n"), maxChars) }] })] : [];
+  return lines.length ? [createUserMessage({ content: [{ type: "text", text: trim(lines.join("\n"), maxChars) }], source: { kind: "plugin", plugin: "dsh-mneme" } })] : [];
 }
 
 // ── 智能调速器（429 保护）─────────────────────────────────────────────
@@ -265,7 +265,7 @@ export function createSummarizer(ctx, service, config) {
         model: route.model,
         purpose: "summarization",
         messages: [
-          { role: "system", content: [{ type: "text", text: config.codingRetrospect ? STR.prompts.codingSummary[langOf(config)] : STR.prompts.summary[langOf(config)] }] },
+          { role: "system", content: [{ type: "text", text: config.codingRetrospect ? STR.prompts.codingSummary[langOf(config)] : STR.prompts.summary[langOf(config)] }], source: { kind: "plugin", plugin: "dsh-mneme" } },
           ...messages
         ],
         signal: controller.signal
