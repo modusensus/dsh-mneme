@@ -40,7 +40,7 @@ test("GET /health is open without a token; every other route 401s", async () => 
     assert.equal(health.status, 200);
     assert.deepEqual(await health.json(), { ok: true });
 
-    for (const path of ["/status", "/memories", "/memories/x", "/search?q=x"]) {
+    for (const path of ["/status", "/profile", "/rules", "/memories", "/memories/x", "/search?q=x"]) {
       const res = await fetch(`${base}${path}`);
       assert.equal(res.status, 401, `${path} requires a token`);
       assert.deepEqual(await res.json(), { error: "unauthorized" });
@@ -48,6 +48,39 @@ test("GET /health is open without a token; every other route 401s", async () => 
 
     const bad = await fetch(`${base}/status`, { headers: { authorization: "Bearer wrong-token" } });
     assert.equal(bad.status, 401, "wrong token rejected");
+  } finally {
+    close();
+  }
+});
+
+test("GET /profile and /rules return saved settings", async () => {
+  const { base, auth, settings, close } = await setup();
+  try {
+    settings.setProfile("我是后端工程师");
+    settings.setRules(["先验证再修改", "默认使用中文回复"]);
+
+    const profile = await fetch(`${base}/profile`, { headers: auth });
+    assert.equal(profile.status, 200);
+    assert.deepEqual(await profile.json(), { profile: "我是后端工程师" });
+
+    const rules = await fetch(`${base}/rules`, { headers: auth });
+    assert.equal(rules.status, 200);
+    assert.deepEqual(await rules.json(), { rules: ["先验证再修改", "默认使用中文回复"] });
+  } finally {
+    close();
+  }
+});
+
+test("GET /profile and /rules return empty values when unset", async () => {
+  const { base, auth, close } = await setup();
+  try {
+    const profile = await fetch(`${base}/profile`, { headers: auth });
+    assert.equal(profile.status, 200);
+    assert.deepEqual(await profile.json(), { profile: "" });
+
+    const rules = await fetch(`${base}/rules`, { headers: auth });
+    assert.equal(rules.status, 200);
+    assert.deepEqual(await rules.json(), { rules: [] });
   } finally {
     close();
   }

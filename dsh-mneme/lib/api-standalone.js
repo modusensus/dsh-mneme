@@ -152,6 +152,18 @@ export function createStandaloneApi({ service, store, config = {}, logger, setti
         return;
       }
 
+      // --- GET /profile: user self-description -------------------------------
+      if (req.method === "GET" && pathname === "/profile") {
+        sendJson(res, 200, { profile: settings?.getProfile?.() ?? "" });
+        return;
+      }
+
+      // --- GET /rules: agent behavior rules -----------------------------------
+      if (req.method === "GET" && pathname === "/rules") {
+        sendJson(res, 200, { rules: settings?.getRules?.() ?? [] });
+        return;
+      }
+
       // --- GET /memories: paged + filtered list (same semantics as the
       //     internal /api/dsh-mneme/list) ------------------------------------
       if (req.method === "GET" && pathname === "/memories") {

@@ -488,6 +488,8 @@ dsh web
 |------|------|------|
 | `GET` | `/health` | 健康检查（免鉴权），返回 `{ok:true}` |
 | `GET` | `/status` | 版本、记忆统计、实体数、运行时长 |
+| `GET` | `/profile` | 用户画像，返回 `{profile:"..."}`；未设置时为空字符串 |
+| `GET` | `/rules` | 行为规则列表，返回 `{rules:[...]}`；未设置时为空数组 |
 | `GET` | `/memories?limit&offset&type&minImportance&source&order=chrono` | 分页列出记忆 |
 | `GET` | `/memories/:id` | 单条记忆 |
 | `POST` | `/memories` | 新增记忆 `{type,title,content,importance?,tags?,source?}` |
