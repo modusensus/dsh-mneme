@@ -165,8 +165,8 @@ test("sleep: dispose clears the timer and prevents further runs", async () => {
     setTimeoutFn: () => 1,
     clearTimeoutFn: () => { cleared = true; }
   });
-  sched.noteWrite(); // arm the idle timer so dispose has something to clear
-  assert.equal(cleared, false, "timer armed, not yet cleared");
+  // #187 起构造即挂表——dispose 必须能清掉这张（以及 noteWrite 重挂过的任何）表。
+  assert.equal(cleared, false, "timer armed at construction, not yet cleared");
   await sched.dispose();
   assert.equal(cleared, true, "idle timer cleared on dispose");
   assert.equal(sched.shouldRun(1_000_000 + 6 * 60000), false, "disposed never runs");

@@ -596,7 +596,33 @@ export function createSleepScheduler({
     const delay = Math.max(0, idleMs - (now() - lastWriteAt)) + 1000;
     idleTimer = setTimeoutFn(async () => {
       idleTimer = null;
-      await maybeSchedule();
+      // Issue #187：false = 撞上 CD（或 run 失败）——此前这里直接丢弃，"CD 到期"
+      // 成了没有监听者的时刻，要等下一次写入才救回来。改为按剩余窗口重排。
+      const ran = await maybeSchedule();
+      if (!ran) armNextWindow();
+    }, delay);
+    idleTimer.unref?.();
+  }
+
+  // Issue #187：撞 CD / run 失败后的补挂表——按「剩余 CD / 剩余静默」里更晚的
+  // 到点时刻重排一次，回调里重复同样的判断所以不会空转。跑成了一轮就不重排：
+  // 安静的库没有要处理的新东西，触发权交还给下一次写入的 noteWrite。
+  function armNextWindow() {
+    if (disposed || idleTimer) return;
+    if (config.sleepModeEnabled !== true) return;
+    // lastRunAt === 0 表示从未跑过（此路径不该出现，防御性返回）。
+    if (lastRunAt <= 0) return;
+    const idleMs = (config.sleepIdleMinutes ?? 5) * 60000;
+    const cdMs = (config.sleepMinIntervalHours ?? 8) * 3600000;
+    const delay = Math.max(
+      lastRunAt + cdMs - now(),
+      lastWriteAt + idleMs - now(),
+      0
+    ) + 1000;
+    idleTimer = setTimeoutFn(async () => {
+      idleTimer = null;
+      const ran = await maybeSchedule();
+      if (!ran) armNextWindow();
     }, delay);
     idleTimer.unref?.();
   }
@@ -664,6 +690,11 @@ export function createSleepScheduler({
       sleepAbort = null;
     }
   }
+
+  // Issue #187（同族缺陷）：构造即挂表——重启后只要没发生过写入，此前永远没有
+  // 闹钟，安静多久都不会触发。lastWriteAt 已在构造时设为当前时刻，shouldRun 的
+  // 静默条件自然生效：重启后静默满 idleMinutes 才可能起跑。
+  armIdleTimer();
 
   return { noteWrite, maybeSchedule, shouldRun, dispose };
 }
