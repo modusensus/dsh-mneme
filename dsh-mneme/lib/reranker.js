@@ -27,7 +27,7 @@ function modelHash(model) {
  * runtimeDir 取走后不混进 transformers 的选项。
  */
 async function defaultPipelineLoader(task, model, options) {
-  const { runtimeDir, ...pipelineOptions } = options ?? {};
+  const { runtimeDir, remoteHost, ...pipelineOptions } = options ?? {};
   const { module } = await loadTransformers({
     runtimeDir: runtimeDir || defaultRuntimeDir()
   });
@@ -36,6 +36,10 @@ async function defaultPipelineLoader(task, model, options) {
   // 的 cache_dir，回退到 env.cacheDir —— 即使模型已完全缓存在本地也会去请求网络。
   // embedder 侧早就镜像了，reranker 侧一直漏着，于是「已缓存 + 离线」时重排初始化会失败。
   if (pipelineOptions.cache_dir) env.cacheDir = pipelineOptions.cache_dir;
+  // issue #188 补充：embedModelMirror 此前是死配置——transformers.js 不认
+  // HF_ENDPOINT（那是 Python huggingface_hub 的变量），下载源由 env.remoteHost
+  // 决定。把镜像接到真正的开关上，huggingface.co 不可达的网络才能自动下载。
+  if (remoteHost) env.remoteHost = remoteHost;
   return pipeline(task, model, pipelineOptions);
 }
 
@@ -85,6 +89,11 @@ export class LocalReranker {
     this.cacheDir = String(opts.cacheDir ?? "").trim() || defaultModelCacheDir();
     // 自管运行时根目录（issue #131）：空表示用默认位置，解析交给 loader。
     this.runtimeDir = String(opts.runtimeDir ?? "").trim();
+    // 与嵌入层同约定：默认 q8（4 倍小的 model_quantized.onnx），"fp32" 可关。
+    // 此前不传 dtype，即使缓存里有量化文件也会去要 1GB 级的 model.onnx（#188）。
+    this.useDtype = String(opts.useDtype ?? "q8").trim() || "q8";
+    // 模型镜像下载源（embedModelMirror，#188 补充）：空 = transformers 默认。
+    this.remoteHost = String(opts.remoteHost ?? "").trim();
     this.logger = opts.logger ?? null;
     this.engineFactory = opts.engineFactory || defaultPipelineLoader;
     // Injectable seam: async (query, passage) => number. When set, init()
@@ -94,6 +103,7 @@ export class LocalReranker {
     this._batchScorer = null;
     this._queryVec = null;
     this._queryKey = null;
+    this._constantScoreWarned = false;
   }
 
   /** Load the model; throws when no strategy can be bound. */
@@ -119,9 +129,10 @@ export class LocalReranker {
   }
 
   _engineOptions() {
-    const options = { device: this.device };
+    const options = { device: this.device, dtype: this.useDtype };
     if (this.cacheDir) options.cache_dir = this.cacheDir;
     if (this.runtimeDir) options.runtimeDir = this.runtimeDir;
+    if (this.remoteHost) options.remoteHost = this.remoteHost;
     return options;
   }
 
@@ -136,8 +147,14 @@ export class LocalReranker {
         return out.map((r) => clamp01(typeof r?.score === "number" ? r.score : 0));
       };
     } else if (strategy === "tc") {
-      // Classification head: tokenize (query, passage) pairs, score with
-      // sigmoid(l1 - l0) so relevance lands in [0, 1].
+      // Classification head: score so relevance lands in [0, 1]. Branch on the
+      // output width (issue #188): a dual-logit head (num_labels=2 exports,
+      // e.g. bge-reranker-v2-m3) gives the positive class as the softmax
+      // probability sigmoid(l1 - l0); a SINGLE-logit head (e.g.
+      // Xenova/bge-reranker-base) emits one raw relevance logit per pair, and
+      // the positive class is simply sigmoid(logit) — reading l1 as l0 there
+      // collapses every score to sigmoid(0) = 0.5 and silently disables
+      // reranking (no error, status still "ready").
       this._batchScorer = async (query, passages) => {
         const { tokenizer, model } = this.pipeline;
         const inputs = tokenizer(passages.map(() => query), {
@@ -151,10 +168,10 @@ export class LocalReranker {
         const rows = [];
         for (let i = 0; i < dims[0]; i++) {
           const base = i * cols;
-          const l0 = logits.data[base];
-          const l1 = cols > 1 ? logits.data[base + 1] : l0;
-          // sigmoid(l1 - l0) == softmax probability of the positive class.
-          rows.push(clamp01(1 / (1 + Math.exp(l0 - l1))));
+          const score = cols > 1
+            ? 1 / (1 + Math.exp(logits.data[base] - logits.data[base + 1]))
+            : 1 / (1 + Math.exp(-logits.data[base]));
+          rows.push(clamp01(score));
         }
         return rows;
       };
@@ -206,6 +223,19 @@ export class LocalReranker {
       }
       for (let j = 0; j < chunk.length; j++) {
         results.push({ id: chunk[j].id, score: clamp01(Number(scores[j]) || 0) });
+      }
+    }
+    // Silent-failure tripwire (issue #188): a reranker whose every candidate
+    // scores identically is not ranking anything — e.g. a single-logit head
+    // read through the dual-logit formula. Warn once so the degradation is
+    // observable instead of a constant 0.5 column hiding behind a "ready"
+    // status forever.
+    if (results.length > 1 && results.every((r) => r.score === results[0].score)) {
+      if (!this._constantScoreWarned) {
+        this._constantScoreWarned = true;
+        this.logger?.warn?.(
+          `[dsh-mneme] reranker scores degenerated to a constant (${results[0].score}) — check the model's output dims (single vs dual logit head)`
+        );
       }
     }
     return results
