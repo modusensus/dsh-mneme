@@ -177,9 +177,48 @@ jobs:
             gh release create "v${VERSION}" --title "v${VERSION}" --notes-file notes/body.md
           fi
 
-  # ── 5. 通知与运行摘要（接入外部通知时往这里加一步 webhook 即可）────────────
+  # ── 5. 徽章对齐：跑一遍全量测试，把双 README 的 tests 徽章与计数注释 ──────
+  #    自动刷成当前 pass 数并提交回 main——发版后徽章不再靠手工追平。
+  #    checkout main（徽章是对 main 的持续承诺，不属于 tag 快照）；测试没跑绿
+  #    时脚本以非零退出且不改任何文件。幂等：已同步则零提交。
+  badge:
+    needs: [verify, test]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: dsh-mneme/package-lock.json
+
+      - name: Install dependencies
+        working-directory: dsh-mneme
+        run: npm ci
+
+      - name: Sync test badge & counts (runs full suite)
+        working-directory: dsh-mneme
+        run: npm run badge:sync
+
+      - name: Commit & push if changed
+        run: |
+          if git diff --quiet; then
+            echo "badge already in sync — nothing to commit"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add README.md dsh-mneme/README.md
+            git commit -m "chore(readme): 测试徽章自动对齐 v${{ needs.verify.outputs.version }}（release 流水线）"
+            git push origin main
+          fi
+
+  # ── 6. 通知与运行摘要（接入外部通知时往这里加一步 webhook 即可）────────────
   notify:
-    needs: [verify, test, publish, release]
+    needs: [verify, test, publish, release, badge]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -194,6 +233,7 @@ jobs:
             echo "| test (win/linux × node 22/24) | ${{ needs.test.result }} |"
             echo "| publish (npm) | ${{ needs.publish.result }} |"
             echo "| release (GitHub) | ${{ needs.release.result }} |"
+            echo "| badge (auto-sync) | ${{ needs.badge.result }} |"
           } >> "$GITHUB_STEP_SUMMARY"
       # 可选：企业微信/Telegram/邮件 webhook。配置 secret（如 NOTIFY_WEBHOOK）后取消注释：
       # - name: Notify webhook
