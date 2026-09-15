@@ -270,6 +270,8 @@ window.__ModuleLoader__.load({
         "memory.settings.feedback.email": "邮件反馈（work@modusensus.space）",
         "memory.settings.feedback.browse": "浏览仓库已知问题",
         "memory.settings.feedback.hint": "反馈前先搜搜是否已有相同问题，能省一份重复的 issue～",
+        "memory.settings.version.outdated": "🆕 有新版本 {v}（当前运行 {c}）",
+        "memory.settings.version.outdatedHint": "若安装时指定过版本号，常规升级不会跨大/小版本（pnpm 钉子）——请重新安装或在升级命令加 --latest；npm 已发布而市场暂未收录属正常（约 1 天延迟）。",
         "memory.settings.mode.title": "运行模式",
         "memory.settings.mode.desc": "轻量模式只保留核心的记忆读写与自动注入（关闭 autoDream 巩固、实体抽取、语义搜索等高级功能），适合只想「记住偏好」的轻量使用；标准模式开启全部功能。",
         "memory.settings.mode.light": "轻量",
@@ -617,6 +619,8 @@ window.__ModuleLoader__.load({
         "memory.settings.feedback.email": "Email feedback (work@modusensus.space)",
         "memory.settings.feedback.browse": "Browse known issues",
         "memory.settings.feedback.hint": "Search for an existing issue first — it saves a duplicate.",
+        "memory.settings.version.outdated": "🆕 New version {v} available (running {c})",
+        "memory.settings.version.outdatedHint": "If the plugin was installed with a pinned version, regular upgrades never cross minor/major lines — reinstall or pass --latest. A fresh npm release may take about a day to appear in the market.",
         "memory.settings.mode.title": "Runtime mode",
         "memory.settings.mode.desc": "Light mode keeps only the core memory read/write and auto-injection (autoDream consolidation, entity extraction and semantic search are off) — for light use where you just want preferences remembered. Standard mode enables everything.",
         "memory.settings.mode.light": "Light",
@@ -2080,6 +2084,9 @@ window.__ModuleLoader__.load({
       const [apiTokenSaved, setApiTokenSaved] = react.useState(false);
       // 反馈入口的插件版本（GET /info）。失败保持 "unknown"，链接仍可用。
       const [pkgVersion, setPkgVersion] = react.useState("unknown");
+      // 版本自检（#174 后续）：运行版本 vs registry latest。仅 outdated 渲染
+      // 横幅，其余状态（up-to-date / ahead / unknown / 查询失败）零渲染零打扰。
+      const [updateInfo, setUpdateInfo] = react.useState(null);
       // 运行模式 — light vs standard; null = still loading. The card keeps
       // its own busy/saved/error state so it never blocks the others.
       const [mode, setMode] = react.useState(null);
@@ -2121,6 +2128,21 @@ window.__ModuleLoader__.load({
         apiFetch("/api/dsh-mneme/info")
           .then((res) => (res.ok ? res.json() : null))
           .then((j) => { if (!cancelled && j && typeof j.version === "string") setPkgVersion(j.version); })
+          .catch(() => {});
+        return () => { cancelled = true; };
+      }, []);
+
+      // 版本自检：只读 /version-check（宿主围栏鉴权）。非 outdated 一律归
+      // null——横幅不出现即是「无需处理」；接口失败也静默，不新增故障面。
+      react.useEffect(() => {
+        let cancelled = false;
+        apiFetch("/api/dsh-mneme/version-check")
+          .then((res) => (res.ok ? res.json() : null))
+          .then((j) => {
+            if (!cancelled && j && j.status === "outdated" && typeof j.latest === "string" && typeof j.version === "string") {
+              setUpdateInfo({ latest: j.latest, current: j.version });
+            }
+          })
           .catch(() => {});
         return () => { cancelled = true; };
       }, []);
@@ -2335,6 +2357,17 @@ window.__ModuleLoader__.load({
       }
 
       return h("div", null,
+        // 版本自检横幅 — 仅 outdated 时渲染（up-to-date/ahead/unknown/失败
+        // 全部零渲染）。钉子警示：安装时指定过版本号的 profile 会被 pnpm
+        // 挡住常规升级（#174 报障者的实际成因）；市场收录新发布约有 1 天延迟。
+        updateInfo && h("section", { className: "mneme-set-sec" },
+          h("div", { className: "mneme-set-title" },
+            t("memory.settings.version.outdated")
+              .replace("{v}", updateInfo.latest)
+              .replace("{c}", updateInfo.current)
+          ),
+          h("div", { className: "mneme-featsubhint" }, t("memory.settings.version.outdatedHint"))
+        ),
         // 用户画像 — who the agent is talking to
         h("section", { className: "mneme-set-sec" },
           h("div", { className: "mneme-set-title" }, t("memory.settings.profile")),

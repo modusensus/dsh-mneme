@@ -8,6 +8,7 @@ import { computeHeat } from "./heat.js";
 import { describeStreamFailure, resolveRoute } from "./dream.js";
 import { describeLocalRuntime, publicRuntimeStatus } from "./runtime/loader.js";
 import { hostModulesDir, provisionRuntime } from "./runtime/provision.js";
+import { classify, fetchLatestVersion } from "./version-check.js";
 
 // headers：少数端点（/export 附件下载）需要追加 Content-Disposition 等响应头。
 function sendJson(res, status, payload, headers = {}) {
@@ -172,6 +173,29 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
     path: "/api/dsh-mneme/info",
     handler(req, res) {
       sendJson(res, 200, { version: PACKAGE_VERSION });
+    }
+  });
+
+  // 版本自检（#174 后续）：运行版本 vs npm registry latest。只读，宿主围栏
+  // 统一鉴权（与 dream-status 同款，面板 apiFetch 直接可用）。registry 查询
+  // 全失败时 latest=null、status=unknown——前端对 unknown 完全静默，版本提示
+  // 是锦上添花，绝不因它新增故障面。
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/version-check",
+    handler(req, res) {
+      if (req.method !== "GET") {
+        sendJson(res, 404, { error: "not-found" });
+        return;
+      }
+      fetchLatestVersion()
+        .then((latest) => sendJson(res, 200, {
+          version: PACKAGE_VERSION,
+          latest,
+          status: classify(PACKAGE_VERSION, latest),
+          checkedAt: new Date().toISOString()
+        }))
+        .catch(() => sendJson(res, 200, { version: PACKAGE_VERSION, latest: null, status: "unknown" }));
     }
   });
 
