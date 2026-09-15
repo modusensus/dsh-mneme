@@ -39,6 +39,8 @@ const MEMORY_ITEM_SCHEMA = {
     updated_at: { type: "string", required: true }
   }
 };
+// 导出供回归测试断言 memory_get 与共享 schema 同源（#184 防漂移护栏）。
+export { MEMORY_ITEM_SCHEMA };
 
 // v0.8.0 A2：occurred 时间窗参数 → store 过滤选项（list/count 同口径）；
 // 未传参返回空对象，既有调用方不受影响。（A3 复核：此处入参仅含 occurred 边界。）
@@ -277,25 +279,10 @@ export function createTools(ctx, service, config, embedder) {
           type: "object",
           additionalProperties: false,
           properties: {
-            memory: {
-              type: "object",
-              additionalProperties: false,
-              properties: {
-                id: { type: "string", required: true },
-                title: { type: "string", required: true },
-                type: { type: "string", required: true },
-                importance: { type: "integer", required: true },
-                tags: { type: "array", items: { type: "string" } },
-                content: { type: "string", required: true },
-                source: { type: "string" },
-                agent_scope: { type: "string" },
-                workspace_scope: { type: "string" },
-                sensitivity: { type: "string" },
-                occurred_at: { type: "string" },
-                created_at: { type: "string" },
-                updated_at: { type: "string" }
-              }
-            }
+            // 与 memory_search / memory_list 共用同一份 item schema——DTO 由
+            // toApiList 统一产出，内联副本曾漏掉 v0.8.1 的 scope 来源三键，
+            // 任何被标注过的行都过不了 in-process 校验（#184）。
+            memory: MEMORY_ITEM_SCHEMA
           }
         },
         render: (_args, value) => {
