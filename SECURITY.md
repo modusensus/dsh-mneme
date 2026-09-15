@@ -10,11 +10,11 @@ We actively maintain the latest minor version. Security fixes are backported to 
 
 | Version | Supported | Status |
 |---|---|---|
-| 0.7.x | ✅ Yes | Active development |
-| 0.6.x | ⚠️ Best-effort | Critical fixes only |
-| < 0.6.0 | ❌ No | Please upgrade to 0.7.x |
+| 0.8.x | ✅ Yes | Current release line (scope isolation, conflict review queue, injection escaping restored) |
+| 0.7.x | ⚠️ Best-effort | Critical fixes only |
+| < 0.7.0 | ❌ No | Please upgrade to 0.8.x |
 
-**End-of-life notice**: 0.6.x is in best-effort maintenance (critical fixes only). Its end-of-life date will be announced in advance; after that date no security fixes will be provided for 0.6.x.
+**End-of-life notice**: 0.7.x moves to best-effort maintenance with the 0.8.0 release (critical fixes only). Its end-of-life date will be announced in advance; after that date no security fixes will be provided for 0.7.x.
 
 ---
 
@@ -44,6 +44,8 @@ The following security features are implemented and maintained in the project:
 | Hybrid Score Clamping | Hybrid fusion scores are clamped to [0, 1] to prevent vector + BM25 stacking from breaking normalization bounds | ✅ Implemented |
 | Standalone External API (v0.7.12, opt-in) | Optional per-plugin HTTP server for ecosystem integrations, bound to `127.0.0.1` by default with an auto-generated persistent Bearer token (`timingSafeEqual` verified); `/health` is the only unauthenticated route; binding a non-loopback host is an explicit operator decision | Implemented |
 | Tag Sanitization | Tag normalization reuses the sanitizer; `autoTag` skips forgotten memories; `setMemoryTags` runs inside a SAVEPOINT for atomic rollback | ✅ Implemented |
+| Scope Isolation (v0.8.0, opt-in) | Memories are stamped with the writing session's agent/workspace identity; retrieval applies soft weighting, and opt-in `strictScope` hard-filters search, injection, list, and get by a four-quadrant visibility formula (unresolvable session identity fails closed). Dedupe keys include the scope triple so cross-scope same-title memories never physically merge | ✅ Implemented |
+| Runtime Provisioning Integrity (v0.8.0) | The self-managed embeddings runtime prefers zero-network adoption of the host's `node_modules`; when a registry download is needed the tarball is verified against its npm-style `sha512-<base64>` integrity string before unpack, then functionally verified (`verifyPayload`) before use | ✅ Implemented |
 
 ### Standalone External API (v0.7.12)
 
@@ -378,11 +380,11 @@ This project is licensed under the **MIT License**. See [LICENSE](https://github
 
 | 版本 | 支持状态 | 说明 |
 |---|---|---|
-| 0.7.x | ✅ 支持 | 活跃开发中 |
-| 0.6.x | ⚠️ 尽力维护 | 仅关键修复 |
-| < 0.6.0 | ❌ 不支持 | 请升级至 0.7.x |
+| 0.8.x | ✅ 支持 | 当前发布线（作用域隔离、冲突队列、注入转义恢复） |
+| 0.7.x | ⚠️ 尽力维护 | 仅关键修复 |
+| < 0.7.0 | ❌ 不支持 | 请升级至 0.8.x |
 
-**停止维护通知**：0.6.x 处于尽力维护阶段（仅关键修复）。停止维护的具体日期将提前公布；该日期之后将不再提供 0.6.x 的安全修复。
+**停止维护通知**：0.7.x 自 0.8.0 发布起转入尽力维护阶段（仅关键修复）。停止维护的具体日期将提前公布；该日期之后将不再提供 0.7.x 的安全修复。
 
 ---
 
@@ -411,6 +413,8 @@ This project is licensed under the **MIT License**. See [LICENSE](https://github
 | Fail-Closed 输入校验 | generation 计数与热记忆参数均做 `Number.isInteger`、有限性、非负校验并配 SQL `CHECK` 约束；非法输入回退安全默认值或被拒绝 | ✅ 已实现 |
 | 混合分数钳制 | 混合检索融合分数钳制在 [0, 1]，防止向量 + BM25 叠加突破归一化边界 | ✅ 已实现 |
 | Tag 净化 | Tag 规范化复用 sanitizer；`autoTag` 跳过已遗忘记忆；`setMemoryTags` 在 SAVEPOINT 内执行，失败原子回滚 | ✅ 已实现 |
+| 作用域隔离（v0.8.0，opt-in） | 记忆按写入会话的 agent/工作区身份标注；检索侧软加权，opt-in 的 `strictScope` 按四象限可见性公式对检索/注入/列表/单取硬过滤（会话身份解析不到时 fail-closed 只见未标注）。去重键纳入 scope 三元，跨作用域同标题记忆绝不物理合并（防泄漏） | ✅ 已实现 |
+| 自管运行时完整性（v0.8.0） | 自管嵌入运行时优先零网络收编宿主 `node_modules`；需要 registry 下载时，tarball 先按 npm 式 `sha512-<base64>` integrity 串校验再解包，装后再做功能级校验（`verifyPayload`）方可使用 | ✅ 已实现 |
 
 ---
 
