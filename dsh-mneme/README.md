@@ -433,6 +433,7 @@ dsh web
 | `rerankBatchSize` | `8` | Rerank 批大小 |
 | `rerankMaxCandidates` | `30` | Rerank 最大候选数 |
 | `rerankScoreThreshold` | `0.1` | Rerank 分数阈值（低于丢弃） |
+| `rerankDtype` | `q8` | Rerank 模型量化档（`q8` ≈ fp32 体积的 1/4，`fp32` 可关） |
 | `reflectionUpdateEnabled` | `true` | update 决策总开关 |
 | `reflectionFailureTracking` | `true` | 失败追踪总开关 |
 | `reflectionUpdateMaxPerRun` | `2` | 每次整理最多 update 数 |

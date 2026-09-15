@@ -257,6 +257,10 @@ export const Config = z.object({
   rerankBatchSize: z.natural().min(1).max(64).default(8),
   rerankMaxCandidates: z.natural().min(5).max(100).default(30),
   rerankScoreThreshold: z.number().min(0).max(1).default(0.1),
+  // #188：量化档，与嵌入层的 useDtype 同语义（q8 = model_quantized.onnx，约为
+  // fp32 体积的 1/4）。此前重排层不传 dtype，即使缓存里已有量化文件也会去下载
+  // 1GB 级的 model.onnx。非法值由 transformers 在 init 时抛出 → 重排降级并告警。
+  rerankDtype: z.string().default("q8"),
 
   // --- reflection: update decision + failure tracking (v0.2.1) ------------
   reflectionUpdateEnabled: z.boolean().default(true),

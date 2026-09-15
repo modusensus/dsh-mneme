@@ -275,6 +275,8 @@ export const apply = (ctx, config) => {
         batchSize: cfg.localEmbedBatchSize,
         cacheDir: cfg.embedModelCacheDir,
         runtimeDir: cfg.runtimeDir,
+        // #188：embedModelMirror 接成 transformers 的下载镜像（此前死配置）。
+        remoteHost: cfg.embedModelMirror,
         baseUrl: cfg.ollamaBaseUrl,
         logger: ctx.logger
       });
@@ -327,6 +329,10 @@ export const apply = (ctx, config) => {
         device: cfg.localEmbedDevice,
         cacheDir: cfg.embedModelCacheDir,
         runtimeDir: cfg.runtimeDir,
+        // #188：量化档默认 q8（此前不传 dtype 会去要 1GB 级 fp32 模型）；
+        // embedModelMirror 此前是死配置，现接成 transformers 的下载镜像。
+        useDtype: cfg.rerankDtype,
+        remoteHost: cfg.embedModelMirror,
         logger: ctx.logger
       });
       service.setReranker(reranker);
