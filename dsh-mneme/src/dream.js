@@ -910,8 +910,8 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       maxTokens: config.dreamMaxTokens ?? 4096,
       ...(withEffort && effort ? { reasoningEffort: effort } : {}),
       messages: [
-        { role: "system", content: [{ type: "text", text: consolidationPrompt }] },
-        { role: "user", content: [{ type: "text", text: listText }] }
+        { role: "system", content: [{ type: "text", text: consolidationPrompt }], source: { kind: "plugin", plugin: "dsh-mneme" } },
+        { role: "user", content: [{ type: "text", text: listText }], source: { kind: "plugin", plugin: "dsh-mneme" } }
       ]
     }, reportUsage, (reason) => { streamFailure = describeStreamFailure(reason); }));
     };
@@ -1130,8 +1130,8 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       maxTokens: config.dreamMaxTokens ?? 2048,
       ...(withEffort && effort ? { reasoningEffort: effort } : {}),
       messages: [
-        { role: "system", content: [{ type: "text", text: STR.prompts.dreamSummary[language] }] },
-        { role: "user", content: [{ type: "text", text: service.all().filter((m) => !m.archived && m.type !== "summary").map((m) => `- ${m.title}: ${m.content}`).join("\n") }] }
+        { role: "system", content: [{ type: "text", text: STR.prompts.dreamSummary[language] }], source: { kind: "plugin", plugin: "dsh-mneme" } },
+        { role: "user", content: [{ type: "text", text: service.all().filter((m) => !m.archived && m.type !== "summary").map((m) => `- ${m.title}: ${m.content}`).join("\n") }], source: { kind: "plugin", plugin: "dsh-mneme" } }
       ]
     }, reportUsage, (reason) => { summaryStreamFailure = describeStreamFailure(reason); }));
     };

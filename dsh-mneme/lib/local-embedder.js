@@ -30,7 +30,7 @@ function modelHash(model) {
  * transformers 的选项里。
  */
 async function defaultPipelineLoader(task, model, options) {
-  const { runtimeDir, ...pipelineOptions } = options ?? {};
+  const { runtimeDir, remoteHost, ...pipelineOptions } = options ?? {};
   const { module } = await loadTransformers({
     runtimeDir: runtimeDir || defaultRuntimeDir()
   });
@@ -41,6 +41,11 @@ async function defaultPipelineLoader(task, model, options) {
   // model is fully cached locally. Mirroring the cache_dir onto env.cacheDir
   // makes that pre-check resolve locally too — fully offline loading.
   if (pipelineOptions.cache_dir) env.cacheDir = pipelineOptions.cache_dir;
+  // issue #188 补充：embedModelMirror 此前是死配置（定义了但全仓无人读取）。
+  // transformers.js 不认 HF_ENDPOINT（那是 Python huggingface_hub 的变量），
+  // 模型下载源由 env.remoteHost 决定——把镜像接到真正的开关上，否则
+  // huggingface.co 不可达的网络连模型都下不下来。
+  if (remoteHost) env.remoteHost = remoteHost;
   return pipeline(task, model, pipelineOptions);
 }
 
@@ -72,6 +77,8 @@ export class LocalEmbedder {
     // 自管运行时根目录（issue #131）：空表示用默认位置，具体解析交给 loader。
     this.runtimeDir = String(opts.runtimeDir ?? "").trim();
     this.useDtype = opts.useDtype || "q8";
+    // 模型镜像下载源（embedModelMirror，#188 补充）：空 = transformers 默认。
+    this.remoteHost = String(opts.remoteHost ?? "").trim();
     this.logger = opts.logger ?? null;
     // Test hook: replace the pipeline factory without touching modules.
     this.engineFactory = opts.engineFactory || defaultPipelineLoader;
@@ -91,6 +98,7 @@ export class LocalEmbedder {
     if (this.cacheDir) options.cache_dir = this.cacheDir;
     // 传给注入的 engineFactory，由 defaultPipelineLoader 取走后交给三层解析。
     if (this.runtimeDir) options.runtimeDir = this.runtimeDir;
+    if (this.remoteHost) options.remoteHost = this.remoteHost;
     this.extractor = await this.engineFactory("feature-extraction", this.model, options);
     this.ready = true; // service reads this to flush queued re-embeds
     this.logger?.info?.(
