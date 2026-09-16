@@ -11,6 +11,15 @@ export const ACTIONS = new Set(["keep", "merge", "archive", "conflict", "update"
 // = preferred. observation (measured) > inferred (derived) > subjective (guess).
 const EPISTEMIC_PRIORITY = { observation: 3, inferred: 2, subjective: 1 };
 
+// Issue #104 方向 2：archive 类型护栏的长保留类型集合——这些类型的存在意义
+// 就是长期保存（踩坑记录、约束、用户偏好、挖掘出的模式），LLM 以「价值判断」
+// 类理由批量归档它们时误伤损失最大。conflict 裁决的败者归档不经过 archive
+// action（走 applyDecisions 的 conflict 分支），不受此护栏影响。
+const ARCHIVE_GUARDED_TYPES = new Set(["preference", "pattern", "rejected_solution", "constraint", "pitfall"]);
+// 「重复 / 过时」类理由的关键词（中英双语）。命中才允许归档长保留类型；
+// 词表宁可放宽也不误拦——护栏只跳过单条并落明细，不整单拒绝。
+const ARCHIVE_RATIONALE_RE = /重复|过时|陈旧|过期|已被取代|被取代|冗余|不再使用|旧版|废弃|stale|outdated|obsolete|dup(?:licate|licat)?|superseded|redundant|deprecated|expired|replaced/i;
+
 /**
  * Validate a dream decision list against a snapshot of eligible memories.
  * @param decisions - LLM-produced decision list. In skipInvalid mode, invalid
@@ -128,6 +137,21 @@ export function validateDecisions(decisions, snapshot, options = {}) {
     // update-specific field validation runs BEFORE claiming ids, so a failing
     // update never pollutes the claimed set (which drives the "every id must
     // appear in a decision" check below).
+    // Issue #104 方向 2：archive 类型护栏。长保留类型的 archive 决策必须携带
+    // 「重复 / 过时」类理由（提示词对 archive 的定义本就如此），「价值判断」类
+    // 理由（保持整洁、参考价值低……）不放行——单条跳过记 skipped（run 记
+    // degraded，明细进 dream_runs.skipped），绝不整单拒绝。未知 id 在下方通用
+    // 校验里另行报错，这里 snapshot.get 为 undefined 时跳过护栏判断。
+    if (local.length === 0 && d?.action === "archive") {
+      const guardedTypes = new Set();
+      for (const id of d.ids) {
+        const mem = snapshot.get(id);
+        if (mem && ARCHIVE_GUARDED_TYPES.has(mem.type)) guardedTypes.add(mem.type);
+      }
+      if (guardedTypes.size > 0 && !ARCHIVE_RATIONALE_RE.test(String(d.reason ?? ""))) {
+        local.push(`${at}: archive of long-retention type(s) ${[...guardedTypes].join(", ")} needs a duplicate/outdated rationale (重复/过时), got: ${JSON.stringify(String(d.reason ?? "")).slice(0, 60)}`);
+      }
+    }
     if (local.length === 0 && d?.action === "update") {
       // 只能更新单条
       if (!Array.isArray(d.ids) || d.ids.length !== 1) {
@@ -215,6 +239,14 @@ export function validateDecisions(decisions, snapshot, options = {}) {
   const maxCreatePerRun = options.maxCreatePerRun ?? 5;
   if (createCount > maxCreatePerRun) {
     errors.push(`too many create decisions: ${createCount} > ${maxCreatePerRun}`);
+  }
+  // Issue #104 方向 2：archive 批量上限——一次性大扫除（12 条互不相关主题被
+  // 批量归档）是失控信号，与 update 上限同一类全局闸门：skipInvalid 也不豁免，
+  // 超限整单拒绝；正常的大规模清理由用户调高 dreamMaxArchivePerRun。
+  const archiveCount = survivors.filter((d) => d.action === "archive").length;
+  const maxArchivePerRun = options.maxArchivePerRun ?? 8;
+  if (archiveCount > maxArchivePerRun) {
+    errors.push(`too many archive decisions: ${archiveCount} > ${maxArchivePerRun}`);
   }
   // Issue #89 防洗白核心（#104 方向 1 重审后保留）：全部决策都被跳过、合法
   // 子集为空时仍整单拒绝——宽容的前提是「有合法子集可应用」；模型输出整体

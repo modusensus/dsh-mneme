@@ -413,6 +413,7 @@ dsh web
 | `dreamCandidateMode` | `window` | dream 候选集构造：`window`（只取最近 `dreamMaxSnapshotSize` 条）/ `hybrid`（在此基础上并入向量翻出的高相似组）。纯时间窗口下，实测 45 对「双方活跃且 sim≥0.85」里 0 对能同时进窗口——该合并的一对几乎永远碰不到面。**已知边界**：dream 侧动作集仍是五分支（keep / merge / archive / update / conflict），hybrid 翻出的互补型 / 演进型对在 dream 里没有 `differentiate` / `supersede` 出口；正确出口在 sleep 侧（`sleepActionSet: full`）|
 | `dreamCandidateMax` | `0` | hybrid 的候选总量上限；`0` = 复用 `dreamMaxSnapshotSize`。候选总量与库总量解耦，输入成本不随库增长 |
 | `dreamCandidateMinSim` | `0.85` | hybrid 判「高相似」的阈值（与 sleep 的 normal 档对齐，两个模块共用同一个「高相似」定义） |
+| `dreamMaxArchivePerRun` | `8` | 单轮 archive 决策上限（超限整单拒绝，防一次性大扫除；正常清理可调高） |
 | `apiToken` | 空 | 可选 API 鉴权 token；设置后写操作与密钥接口要求 `Authorization: Bearer <apiToken>` |
 | `embedProvider` | `openai` | 语义后端：`openai`（默认，兼容 v0.1）/ `local`（ONNX 离线）/ `ollama` |
 | `localEmbedModel` | `Xenova/bge-small-zh-v1.5` | 本地 ONNX embedding 模型 |

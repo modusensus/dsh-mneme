@@ -111,6 +111,10 @@ export const Config = z.object({
   // 记忆做 consolidation。大记忆量下全量快照会把 LLM 输入撑爆（636 记忆 →
   // 677 "missing" errors、applied=0），窗口外的旧记忆不进 snapshot。
   dreamMaxSnapshotSize: z.natural().min(1).max(1000).default(200),
+  // Issue #104 方向 2：单轮 archive 决策上限。一次性大扫除（12 条互不相关主题
+  // 被批量归档，其中 8 条疑似误伤长保留类型）是失控信号，与 update 上限同类的
+  // 全局闸门：skipInvalid 也不豁免，超限整单拒绝。正常清理可调高。
+  dreamMaxArchivePerRun: z.natural().min(1).max(200).default(8),
   // Issue #125：候选集构造方式。"window"（默认，等同现状）只取最近
   // dreamMaxSnapshotSize 条；"hybrid" 在此基础上并入**向量翻出的高相似组**——
   // 本机实测 45 对「双方活跃且 sim≥0.85」里 0 对能同时进窗口（窗口覆盖率 11.7%），

@@ -935,6 +935,8 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     }
     const { ok, errors, skipped, resolvedShortIds, coverageShortfall } = validateDecisions(decisions, snapshot, {
       maxUpdatePerRun: config.reflectionUpdateMaxPerRun,
+      // Issue #104 方向 2：archive 批量上限（全局闸门，超限整单拒绝）。
+      maxArchivePerRun: config.dreamMaxArchivePerRun,
       minAgeHours: config.reflectionUpdateMinAgeHours,
       // v0.4.4 fix：显式透传，用户配 dreamImplicitKeep:false 时严格模式必须
       // 真正生效，dreamMinExplicitCoverage 决定隐式 keep 下的覆盖率下限。

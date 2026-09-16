@@ -789,8 +789,10 @@ test("autoDream with 650 memories: sliding window truncates snapshot + implicit 
     dreamProvider: "deepseek", dreamModel: "deepseek-chat", dreamMaxSnapshotSize: 200,
     // mock only claims 20/200 = 10%; the implicit-keep coverage floor must be
     // lowered so this deliberate "tiny explicit claim" scenario still passes
-    // (it exercises the window + keep-fill, not the coverage guard)
-    dreamMinExplicitCoverage: 0.1
+    // (it exercises the window + keep-fill, not the coverage guard). Same for
+    // the archive cap: 20 mock archives exceed the default 8 — #104 方向 2.
+    dreamMinExplicitCoverage: 0.1,
+    dreamMaxArchivePerRun: 20
   });
   assert.equal(result.ok, true, "run succeeds instead of 677-error rejection");
   assert.ok(result.applied > 0, "archive decisions applied");
