@@ -56,14 +56,8 @@ export function createVectorIndex({ store, logger }) {
 
     /** Read one memory's cached vector; undefined when none/parse failure. */
     getEmbedding(id) {
-      const row = db.prepare("SELECT embedding FROM memories WHERE id = ?").get(id);
-      if (!row?.embedding) return undefined;
-      try {
-        const v = JSON.parse(row.embedding);
-        return Array.isArray(v) && v.length ? v : undefined;
-      } catch {
-        return undefined;
-      }
+      // Issue #202：走 store 的解析缓存（与 searchVector/getEmbeddings 同源）。
+      return store.getParsedEmbedding(id);
     },
 
     /** Cosine search over embedded rows; results carry a 0..1 score. */

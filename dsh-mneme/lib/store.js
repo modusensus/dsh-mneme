@@ -22,6 +22,9 @@ CREATE TABLE IF NOT EXISTS memories (
 );
 CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(type);
 CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance);
+-- Issue #202：all()/list() 按 updated_at 排序，无索引时走临时 B 树全表排序
+-- （5k 行实测 all() 231ms → 135ms）。IF NOT EXISTS 幂等，存量库启动即建。
+CREATE INDEX IF NOT EXISTS idx_memories_updated ON memories(updated_at);
 
 -- autoDream audit trail: one row per consolidation run, capturing the exact
 -- input snapshot digest + the LLM decision list + per-id outcome + a compact
@@ -717,11 +720,51 @@ export function createStore(path) {
     }
   }
 
+  // Issue #202：embedding 解析缓存。检索路径此前每次调用都对全部带向量行
+  // JSON.parse（993 × 512 维 ≈ 48 ms/次，且 SQL 拖着 10 MB 的 TEXT），余弦本身
+  // 只占 3%。向量只经 setEmbedding 写入（单一失效点），把解析结果按 id 缓存，
+  // 命中即零解析；上限 FIFO 驱逐防大库内存无界（4000 × 512 维 double ≈ 16 MB）。
+  const embeddingCache = new Map();
+  const EMBEDDING_CACHE_MAX = 4000;
+
+  function cacheEmbedding(id, vector) {
+    if (embeddingCache.size >= EMBEDDING_CACHE_MAX && !embeddingCache.has(id)) {
+      const oldest = embeddingCache.keys().next().value;
+      embeddingCache.delete(oldest);
+    }
+    embeddingCache.set(id, vector);
+  }
+
+  /** Parsed embedding for one id (cache-first); undefined when none/parse
+   *  failure. Single read path shared by searchVector / getEmbedding(s). */
+  function getParsedEmbedding(id) {
+    const cached = embeddingCache.get(id);
+    if (cached) return cached;
+    const row = db.prepare("SELECT embedding FROM memories WHERE id = ?").get(id);
+    if (!row?.embedding) return undefined;
+    try {
+      const v = JSON.parse(row.embedding);
+      if (Array.isArray(v) && v.length) {
+        cacheEmbedding(id, v);
+        return v;
+      }
+    } catch { /* corrupt embedding text: treated as absent */ }
+    return undefined;
+  }
+
+  // all()/list() 的显式列清单：从实际 schema 派生（迁移后），只排除 embedding
+  // 列——consolidation/sleep/inject 的消费方都不读向量，而它是全表里最重的一列
+  // （5k 行库 ≈ 9.4 MB TEXT），每次全表调用都白搬。经 PRAGMA 派生而非硬编码，
+  // schema 演进时自动跟随。
+  const memoryColumns = db.prepare("PRAGMA table_info(memories)").all()
+    .map((c) => c.name)
+    .filter((n) => n !== "embedding");
+  const memoryColumnList = memoryColumns.join(", ");
+
   // Per-instance monotonic timestamp guard: consecutive writes within the same
   // millisecond must still produce strictly increasing timestamps (test asserts
   // updated_at != created_at). State lives in the store closure, not module scope.
-  let lastTs = "";
-  function nowIso() {
+  let lastTs = "";  function nowIso() {
     let ts = new Date().toISOString();
     if (lastTs && ts <= lastTs) {
       const d = new Date(lastTs);
@@ -925,6 +968,10 @@ export function createStore(path) {
         now,
         id
       );
+      // Issue #202：update 可直写 embedding（patch.embedding），缓存条目失效，
+      // 下次读取按库值重解析。宁滥勿缺——即便本 patch 未含 embedding，丢一条
+      // 缓存只多一次点查重解析。
+      embeddingCache.delete(id);
       // Desired generation bumped in the same transaction as the update (peer
       // blocker 1: crash between write and sync must still be recoverable).
       incrementGeneration();
@@ -995,6 +1042,8 @@ export function createStore(path) {
         expectedUpdatedAt
       );
       if (result.changes === 0) return; // CAS miss: a concurrent write won
+      // Issue #202：同 update——CAS 命中即可能改写 embedding，失效缓存条目。
+      embeddingCache.delete(id);
       // Only bump desired generation on a successful CAS — a miss writes nothing.
       incrementGeneration();
       applied = true;
@@ -1177,7 +1226,9 @@ export function createStore(path) {
   }
 
   function all() {
-    const rows = db.prepare("SELECT * FROM memories ORDER BY updated_at DESC").all();
+    // Issue #202：显式列清单排除 embedding——toRow 本就不输出向量，SELECT *
+    // 纯属把全表最重的列（9.4 MB TEXT/5k 行）拖进内存再丢弃。
+    const rows = db.prepare(`SELECT ${memoryColumnList} FROM memories ORDER BY updated_at DESC`).all();
     return rows.map(toRow);
   }
 
@@ -1185,6 +1236,17 @@ export function createStore(path) {
   function setEmbedding(id, vector) {
     const json = Array.isArray(vector) && vector.length ? JSON.stringify(vector) : null;
     db.prepare("UPDATE memories SET embedding = ? WHERE id = ?").run(json, id);
+    // Issue #202：单一写入口即单一失效点——重写缓存条目（向量在手上不必重解析），
+    // 清空则移除，删除过的 id 不会被下一次 searchVector 的 id 集合选中。
+    if (json) {
+      try {
+        const parsed = JSON.parse(json);
+        if (Array.isArray(parsed) && parsed.length) cacheEmbedding(id, parsed);
+        else embeddingCache.delete(id);
+      } catch { embeddingCache.delete(id); }
+    } else {
+      embeddingCache.delete(id);
+    }
   }
 
   /** Batch fetch stored embeddings by id (v0.5.0 search-time semantic dedup).
@@ -1193,19 +1255,10 @@ export function createStore(path) {
   function getEmbeddings(ids) {
     const out = new Map();
     const list = (Array.isArray(ids) ? ids : []).filter(Boolean);
-    for (let i = 0; i < list.length; i += 100) {
-      const chunk = list.slice(i, i + 100);
-      const rows = db.prepare(
-        `SELECT id, embedding FROM memories
-         WHERE embedding IS NOT NULL AND embedding != ''
-           AND id IN (${chunk.map(() => "?").join(",")})`
-      ).all(...chunk);
-      for (const row of rows) {
-        try {
-          const vec = JSON.parse(row.embedding);
-          if (Array.isArray(vec) && vec.length) out.set(row.id, vec);
-        } catch { /* corrupt row: skip */ }
-      }
+    for (const id of list) {
+      // Issue #202：走同一解析缓存（语义去重的批量读也免重复 parse）。
+      const vec = getParsedEmbedding(id);
+      if (vec) out.set(id, vec);
     }
     return out;
   }
@@ -1280,24 +1333,30 @@ export function createStore(path) {
   function searchVector(vector, { limit = 20, includeArchived = false, threshold = 0 } = {}) {
     if (!Array.isArray(vector) || !vector.length) return [];
     const archivedFilter = includeArchived ? "" : "archived = 0 AND ";
+    // Issue #202：只取 id 列（~40 KB）而非 SELECT *（~11 MB）——向量从缓存取，
+    // 缓存未命中时按 id 点查 embedding 再解析回填。SQL 里保留 embedding 的
+    // IS NOT NULL 过滤，保证「有向量的行」集合始终以库为准（删除/清空即时生效）。
     const rows = db.prepare(
-      `SELECT * FROM memories
+      `SELECT id FROM memories
        WHERE ${archivedFilter}forgotten = 0 AND embedding IS NOT NULL AND embedding != ''`
     ).all();
     const scored = [];
     for (const row of rows) {
-      let v;
-      try {
-        v = JSON.parse(row.embedding);
-      } catch {
-        continue;
-      }
+      const v = getParsedEmbedding(row.id);
+      if (!v) continue;
       const score = cosine(vector, v);
-      if (score >= threshold) scored.push({ row, score });
+      if (score >= threshold) scored.push({ row: { id: row.id }, score });
     }
     scored.sort((a, b) => b.score - a.score);
     const { limit: lim } = sanitizePage(limit, 0, 20);
-    return scored.slice(0, lim).map(({ row, score }) => ({ ...toRow(row), score }));
+    // Top-N 回表：只对入选行取完整字段（主键点查 ≤ lim 行），评分别拖着正文走。
+    const getFull = db.prepare("SELECT * FROM memories WHERE id = ?");
+    const out = [];
+    for (const { row, score } of scored.slice(0, lim)) {
+      const full = getFull.get(row.id);
+      if (full) out.push({ ...toRow(full), score });
+    }
+    return out;
   }
 
   // --- autoDream audit trail ----------------------------------------------
@@ -2245,6 +2304,7 @@ export function createStore(path) {
     search,
     setEmbedding,
     getEmbeddings,
+    getParsedEmbedding,
     embeddedCount,
     needsEmbedding,
     searchVector,
