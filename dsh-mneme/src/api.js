@@ -330,7 +330,17 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
         // 按钮无放大风险。
         maxTokens: 1024,
         ...(reasoningEffort && reasoningEffort !== "none" ? { reasoningEffort } : {}),
-        messages: [{ role: "system", content: [{ type: "text", text: "Reply with exactly one word: ok" }], source: { kind: "plugin", plugin: "dsh-mneme" } }]
+        // role 用 user 而非 system（#189 后续）：0.1.6-alpha.1 起适配器把 system
+        // 抽成顶层参数，system-only 对话会被官方 API 以
+        // 「messages: at least one message is required」整单拒绝——探测按钮 502。
+        // user 消息在任何适配器下都是一条合法对话，探测从此不怕 host 演进。
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Reply with exactly one word: ok" }],
+            source: { kind: "plugin", plugin: "dsh-mneme" }
+          }
+        ]
       })) {
         if (chunk.type === "text-delta" && typeof chunk.text === "string") reply += chunk.text;
         if (chunk.type === "finish" && (chunk.reason?.kind === "error" || chunk.reason?.kind === "aborted")) {

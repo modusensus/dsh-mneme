@@ -1394,6 +1394,11 @@ test("POST /api/dsh-mneme/test-model succeeds and reports reply + latency", asyn
   assert.equal(data.modelId, "deepseek:deepseek-chat", "modelId reports the probed route");
   assert.equal(MOCK_LLM.lastOptions.provider, "deepseek");
   assert.equal(MOCK_LLM.lastOptions.purpose, "dsh-mneme-connectivity-test");
+  // 回归：探测必须是一条 user 消息（带 source）。system-only 对话自
+  // 0.1.6-alpha.1 起被官方 API 整单拒绝（「messages: at least one message
+  // is required」），探测按钮会 502。
+  assert.equal(MOCK_LLM.lastOptions.messages[0].role, "user");
+  assert.equal(MOCK_LLM.lastOptions.messages[0].source?.kind, "plugin");
   assert.equal("reasoningEffort" in MOCK_LLM.lastOptions, false, "no effort configured -> field omitted");
 });
 
