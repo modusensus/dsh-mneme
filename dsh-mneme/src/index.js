@@ -277,6 +277,7 @@ export const apply = (ctx, config) => {
         runtimeDir: cfg.runtimeDir,
         // #188：embedModelMirror 接成 transformers 的下载镜像（此前死配置）。
         remoteHost: cfg.embedModelMirror,
+        resilientModelDownload: cfg.resilientModelDownload,
         baseUrl: cfg.ollamaBaseUrl,
         logger: ctx.logger
       });
@@ -333,6 +334,7 @@ export const apply = (ctx, config) => {
         // embedModelMirror 此前是死配置，现接成 transformers 的下载镜像。
         useDtype: cfg.rerankDtype,
         remoteHost: cfg.embedModelMirror,
+        resilientModelDownload: cfg.resilientModelDownload,
         logger: ctx.logger
       });
       service.setReranker(reranker);

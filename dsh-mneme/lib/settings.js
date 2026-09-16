@@ -52,6 +52,7 @@ const FEATURE_FLAG_BOOLEANS = [
   "selectiveInjectEnabled",
   "searchSemanticDedup",
   "rerankEnabled",
+  "resilientModelDownload",
   "adaptiveThresholdEnabled",
   "reflectionUpdateEnabled",
   "reflectionFailureTracking",

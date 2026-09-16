@@ -59,6 +59,26 @@ test("LocalEmbedder init loads via injected engineFactory with cache_dir", async
   assert.equal(seen.options.device, "cpu");
 });
 
+test("LocalEmbedder init threads resilientModelDownload and logger to engineFactory", async () => {
+  // issue #194：开关与 logger 要能走到 defaultPipelineLoader（那里据此挂 env.fetch），
+  // 但不能混进 pipelineOptions 污染 transformers 的选项。
+  let seen = null;
+  const loader = async (_task, _model, options) => {
+    seen = options;
+    return makeFakeExtractor(512);
+  };
+  const logger = { info() {}, warn() {} };
+  const on = new LocalEmbedder({ cacheDir: "/tmp/model-cache", engineFactory: loader, resilientModelDownload: true, logger });
+  await on.init();
+  assert.equal(seen.resilientModelDownload, true);
+  assert.equal(seen.logger, logger);
+
+  seen = null;
+  const off = new LocalEmbedder({ engineFactory: loader });
+  await off.init();
+  assert.equal(seen.resilientModelDownload, false, "直连构造不显式给 true = 保持现状");
+});
+
 test("LocalEmbedder embed returns [n, dim] with mean pooling and chunking", async () => {
   const calls = [];
   const e = new LocalEmbedder({

@@ -4,6 +4,7 @@
 // can pick a backend by provider name and degrade gracefully on failure.
 // Methods throw on error — the caller decides the fallback chain.
 import { defaultModelCacheDir, defaultRuntimeDir } from "./runtime/layout.js";
+import { installResilientFetch } from "./runtime/model-fetch.js";
 import { loadTransformers } from "./runtime/loader.js";
 
 const DEFAULT_TIMEOUT_MS = 15000;
@@ -30,7 +31,7 @@ function modelHash(model) {
  * transformers 的选项里。
  */
 async function defaultPipelineLoader(task, model, options) {
-  const { runtimeDir, remoteHost, ...pipelineOptions } = options ?? {};
+  const { runtimeDir, remoteHost, resilientModelDownload, logger, ...pipelineOptions } = options ?? {};
   const { module } = await loadTransformers({
     runtimeDir: runtimeDir || defaultRuntimeDir()
   });
@@ -46,6 +47,12 @@ async function defaultPipelineLoader(task, model, options) {
   // 模型下载源由 env.remoteHost 决定——把镜像接到真正的开关上，否则
   // huggingface.co 不可达的网络连模型都下不下来。
   if (remoteHost) env.remoteHost = remoteHost;
+  // issue #194：模型文件（几百 MB～1GB）下载中断后从断点续传。开关关 = env.fetch 一字不动。
+  installResilientFetch(env, {
+    enabled: resilientModelDownload === true,
+    cacheDir: pipelineOptions.cache_dir,
+    logger
+  });
   return pipeline(task, model, pipelineOptions);
 }
 
@@ -76,6 +83,9 @@ export class LocalEmbedder {
     this.cacheDir = String(opts.cacheDir ?? "").trim() || defaultModelCacheDir();
     // 自管运行时根目录（issue #131）：空表示用默认位置，具体解析交给 loader。
     this.runtimeDir = String(opts.runtimeDir ?? "").trim();
+    // issue #194：模型文件下载断点续传。只在显式传 true 时启用——直连构造的旧调用方
+    // （含测试）保持裸 fetch 的现状，配置默认值由 index.js 传进来。
+    this.resilientModelDownload = opts.resilientModelDownload === true;
     this.useDtype = opts.useDtype || "q8";
     // 模型镜像下载源（embedModelMirror，#188 补充）：空 = transformers 默认。
     this.remoteHost = String(opts.remoteHost ?? "").trim();
@@ -99,6 +109,8 @@ export class LocalEmbedder {
     // 传给注入的 engineFactory，由 defaultPipelineLoader 取走后交给三层解析。
     if (this.runtimeDir) options.runtimeDir = this.runtimeDir;
     if (this.remoteHost) options.remoteHost = this.remoteHost;
+    options.resilientModelDownload = this.resilientModelDownload;
+    options.logger = this.logger;
     this.extractor = await this.engineFactory("feature-extraction", this.model, options);
     this.ready = true; // service reads this to flush queued re-embeds
     this.logger?.info?.(

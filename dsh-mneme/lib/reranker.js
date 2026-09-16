@@ -1,4 +1,5 @@
 import { defaultModelCacheDir, defaultRuntimeDir } from "./runtime/layout.js";
+import { installResilientFetch } from "./runtime/model-fetch.js";
 import { loadTransformers } from "./runtime/loader.js";
 
 // Cross-encoder re-ranker for dsh-mneme recall candidates. Uses
@@ -27,7 +28,7 @@ function modelHash(model) {
  * runtimeDir 取走后不混进 transformers 的选项。
  */
 async function defaultPipelineLoader(task, model, options) {
-  const { runtimeDir, remoteHost, ...pipelineOptions } = options ?? {};
+  const { runtimeDir, remoteHost, resilientModelDownload, logger, ...pipelineOptions } = options ?? {};
   const { module } = await loadTransformers({
     runtimeDir: runtimeDir || defaultRuntimeDir()
   });
@@ -40,6 +41,12 @@ async function defaultPipelineLoader(task, model, options) {
   // HF_ENDPOINT（那是 Python huggingface_hub 的变量），下载源由 env.remoteHost
   // 决定。把镜像接到真正的开关上，huggingface.co 不可达的网络才能自动下载。
   if (remoteHost) env.remoteHost = remoteHost;
+  // issue #194：与 embedder 同款断点续传。开关关 = env.fetch 一字不动。
+  installResilientFetch(env, {
+    enabled: resilientModelDownload === true,
+    cacheDir: pipelineOptions.cache_dir,
+    logger
+  });
   return pipeline(task, model, pipelineOptions);
 }
 
@@ -94,6 +101,8 @@ export class LocalReranker {
     this.useDtype = String(opts.useDtype ?? "q8").trim() || "q8";
     // 模型镜像下载源（embedModelMirror，#188 补充）：空 = transformers 默认。
     this.remoteHost = String(opts.remoteHost ?? "").trim();
+    // issue #194：模型文件下载断点续传。只在显式传 true 时启用，与 embedder 同规。
+    this.resilientModelDownload = opts.resilientModelDownload === true;
     this.logger = opts.logger ?? null;
     this.engineFactory = opts.engineFactory || defaultPipelineLoader;
     // Injectable seam: async (query, passage) => number. When set, init()
@@ -129,7 +138,7 @@ export class LocalReranker {
   }
 
   _engineOptions() {
-    const options = { device: this.device, dtype: this.useDtype };
+    const options = { device: this.device, dtype: this.useDtype, resilientModelDownload: this.resilientModelDownload, logger: this.logger };
     if (this.cacheDir) options.cache_dir = this.cacheDir;
     if (this.runtimeDir) options.runtimeDir = this.runtimeDir;
     if (this.remoteHost) options.remoteHost = this.remoteHost;

@@ -180,6 +180,11 @@ export const Config = z.object({
   embedModelCacheDir: z.string().default(""),
   embedModelMirror: z.string().default("https://hf-mirror.com"),
 
+  // issue #194：模型文件下载的断点续传与重试。开启时 transformers.js 的 env.fetch 被
+  // 替换为带断点续传的实现（已收字节落盘、Range/If-Range 续传、空闲看门狗），大文件
+  // 中断后不必整份重来；关闭 = env.fetch 保持原样（线上回滚开关）。
+  resilientModelDownload: z.boolean().default(true),
+
   // 自管运行时目录（issue #131）。空 = ~/.dsh/mneme/runtime：里面放收编或下载来的
   // transformers + onnxruntime 闭包，插件经 src/runtime/loader.js 的三层解析加载它。
   // 目的就是让这条重依赖不必留在宿主 profile 的依赖图里——profile 是所有插件共用的
