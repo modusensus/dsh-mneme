@@ -4,7 +4,30 @@
 
 ## 🐛 修复
 
-- （待填）
+- **memory_get 输出 schema 与共享 DTO 同源（issue #184，PR #186）**：内联 schema 副本漏掉 v0.8.1 的 scope 来源三键，`additionalProperties: false` 下任何被标注过的行都过不了 in-process 校验；改回与 memory_search / memory_list 复用同一份 item schema 并导出防漂移护栏（lujfsd 报告 + 三段式取证）。
+- **LLM 消息补 source 字段（issue #189，PR #190，社区 PR）**：dsh-llm 契约要求每条消息携带 `source`，mneme 手拼的 13 处消息缺该字段——遇到会读 `message.source.kind` 的第三方 provider 适配器时，请求在序列化阶段（0–8 ms、零网络请求）抛 TypeError，dream / summarize / sleep / 实体抽取四条管线全灭；内置 dsh-llm-deepseek 不读该字段所以长期潜伏。13 处全部补 `{ kind: "plugin", plugin: "dsh-mneme" }`，system 消息一并补齐（heptaspirit 报告 + 修复 + 严格桩回归测试 + A/B）。
+- **sleep 计时器撞 CD 不再丢轮（issue #187，PR #192）**：idle 计时器到点时若 `sleepMinIntervalHours` 未满，整轮被静默丢弃且无人重排——「CD 到期」成了没有监听者的时刻，要等下一次写入才救回来。改为按「剩余 CD / 剩余静默」更晚者重排 + 构造即挂表（Philia-FY 报告，注入时钟最小复现）。
+- **本地重排器单 logit 头恒 0.5（issue #188，PR #193）**：`sigmoid(l1 - l0)` 只对双 logit 头成立，`Xenova/bge-reranker-base` 这类单 logit 交叉编码器的全部分数被压成常量 0.5——不抛错、日志照常 ready，重排静默失效。按 `cols` 分支：单 logit 取 `sigmoid(logit)`（双 logit 逐字节等价不变）；恒分批 warn 一次的绊线；顺带把 `embedModelMirror` 死配置接成 transformers 下载镜像（嵌入 + 重排双侧）、重排层补 dtype 默认 q8（新配置 `rerankDtype` 可回 fp32）、README 配置表补行（AoooooE 报告 + 三条补充全部有实测数据）。
+- **连通性探测改发 user 消息（PR #197）**：0.1.6-alpha.1 起 system-only 对话被官方 API 整单拒绝（适配器把 system 抽成顶层参数），面板「测试连通性」502。探测改为一条 user 消息（保留 source 标注），回归断言锁定 role 与 source。
+- **首轮注入跑偏——BM25 同步兜底（issue #198，PR #199）**：注入渲染是同步的（宿主 systemPrompt 不支持异步 text），查询向量只能异步 prefetch 给下一轮——首轮必 miss，落到静态排序后被老的高重要性 preference 占满全部槽位，当前话题的 decision/project 进不来。首轮（无向量、无缓存召回）改用 BM25 词法召回领位（纯进程内、零等待），语义命中时行为不变；优先级链：向量 > 缓存召回 > BM25 > 静态排序（lqs50 报告，根因行号级准确）。
+
+## 🛠️ autoDream 宽容路径（issue #104 三方向闭环）
+
+- **coverage 不足降级为 degraded（PR #200，方向 1）**：`dreamMinExplicitCoverage`（默认 0.5）护栏把提示词自己要求的「挑重点」输出整单拒绝——提示词硬性规则明文「无问题的条目无需输出」，实测官方路由 + 强模型 81 轮 failed 全是 coverage（10%–49%）、另一位报告者把门槛降到 0.3 后覆盖率仍 13%–22% 全线不达标。合法子集照常应用 + 未提及条目隐式 keep，降级理由随 `outcome.degradations` 落库；防洗白核心保留——全部决策被跳过、合法子集为空时仍整单拒绝（零幸存护栏）；`dreamImplicitKeep: false` / `dreamMinExplicitCoverage: 0` 可恢复旧严格行为。
+- **archive 类型护栏 + 批量上限（PR #201，方向 2）**：长保留类型（preference / pattern / rejected_solution / constraint / pitfall）的 archive 决策必须命中「重复/过时」类理由（中英词表，宁宽勿误拦），「价值判断」式大扫除单条跳过记 skipped（明细进 `dream_runs.skipped`，run 记 degraded）——conflict 裁决的败者归档不受影响；新配置 `dreamMaxArchivePerRun`（默认 8）与 update 上限同类的全局闸门；提示词中英同步加固。`allowCrossTypeMerge` 维持 false（288 条 skipped 明细里 94% 跨类型 merge = 护栏正确工作，跨类型意图的正确出口是 `sleepActionSet: full`）。方向 3（失败审计明细）此前已由 #137 + `dream_runs.skipped` 列闭环。
+
+## 🚀 性能（issue #202 第一批，PR #203）
+
+- **检索路径三处固定成本**：`updated_at` 索引入 schema（幂等迁移，ORDER BY 不再走临时 B 树）；`all()` 显式列清单排除 embedding 列（5k 行少搬 ~9.4 MB，toRow 本就不输出向量）；`searchVector` 重写为 id 列查询 + 解析缓存（FIFO 上限 4000）+ Top-N 主键回表，`getParsedEmbedding` 共享读路径（vector-index / 语义去重同源），失效点覆盖 setEmbedding / update / compareAndUpdate。5k 行 / 1000×512 维向量实测：`all()` 231.6 → **50.9 ms**，`searchVector` ~140 → **16.3 ms**（lengduan 报告 + 量化脚本；第二批 TEXT→BLOB 迁移另行跟进）。
+
+## 🆕 新增
+
+- **standalone API 补 profile / rules 只读路由（issue #180，PR #185，社区 PR）**：8790 独立 API 对齐 DSH 内工具的画像 / 规则读取（根路径 GET /profile → {profile}、GET /rules → {rules}，Bearer 同款），MCP server v1（#181）的前置（z2Ace0107 从认领到 PR 不足一小时）。
+
+## 🏗️ 工程
+
+- 测试 1061 项全绿（1060 pass + 1 环境 skip；较 0.8.1 新增 35 项：source 契约四管线 / CD 重排 / 单 logit 两路 / BM25 兜底 / coverage 降级 / archive 护栏 / 向量缓存与失效 / memory_get schema 护栏）。
+- 致谢本轮社区贡献者与报告者：z2Ace0107（#185）、heptaspirit（#190 及 #104 数据）、Philia-FY（#187）、AoooooE（#188）、lqs50（#198）、lujfsd（#184）、lengduan（#202 报告与 #104/#135 数据）、483218131（#104 数据）。
 
 ## [0.8.1] - 2026-09-15
 
