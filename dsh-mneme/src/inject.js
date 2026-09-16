@@ -264,7 +264,9 @@ export function createInjector(ctx, service, settings, config) {
         // Issue #205：跨轮轮换——最近 N 个查询轮次注入过的 id 本轮不再优先。
         const sessionId = ctx?.agent?.session?.id ?? "_";
         const rotate = recentInjectedIds(sessionId, query);
-        const candidates = service.injectCandidates({ query, queryVector, maxItems, threshold, scope, rotate });
+        // rotateWindow 随集合一起传入：候选池按 maxItems×(N+1) 扩容——窗口要的
+        // 牌比既有 maxItems×2 池多时，轮换才有新鲜牌可换（#205 补测）。
+        const candidates = service.injectCandidates({ query, queryVector, maxItems, threshold, scope, rotate, rotateWindow: rotationTurns });
         recordInjection(sessionId, query, candidates);
         // Hot memory (v0.5.0 1.3) leads the single memory block: the agent
         // sees the short-term rounds first, then the cross-session recall —
