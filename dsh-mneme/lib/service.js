@@ -1235,7 +1235,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
    * fills + dedupes the remaining slots. Empty query / no cached recall /
    * hybridInject off → pure legacy rule-based selection.
    */
-  function injectCandidates({ query = "", maxItems = 5, threshold = 3, queryVector, scope = null } = {}) {
+  function injectCandidates({ query = "", maxItems = 5, threshold = 3, queryVector, scope = null, rotate = null } = {}) {
     const q = String(query ?? "").trim();
     // codingRetrospect 读取侧门控：编码记忆（rejected_solution / pitfall /
     // constraint）只在编码任务时注入，防噪声污染其他业务；编码任务时按
@@ -1345,6 +1345,14 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     // 泄进无关注入上下文是最典型的越权通道，检索侧过滤挡不住这里。
     if (config?.strictScope === true && scope) {
       candidates = candidates.filter((m) => isVisibleInScope(m, scope));
+    }
+    // Issue #205：注入位跨轮轮换。rotate = 最近 N 轮注入过的 id 集合（由注入层
+    // 按会话维护并传入）：这些条目本轮不再优先——新鲜者前置（各自内部相对次序
+    // 保持），不足时按原序回填，槽位数与 touchRecall 语义均不变。rotate 为空时
+    // 行为与既有排序完全一致。
+    if (rotate && rotate.size > 0 && candidates.length > 0) {
+      const fresh = candidates.filter((m) => !rotate.has(m.id));
+      if (fresh.length > 0) candidates = [...fresh, ...candidates.filter((m) => rotate.has(m.id))];
     }
     const selected = candidates.slice(0, maxItems);
     touchRecalled(selected);

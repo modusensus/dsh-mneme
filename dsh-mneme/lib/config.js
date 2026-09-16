@@ -37,6 +37,11 @@ export const Config = z.object({
   distillRateLimitRetries: z.natural().min(0).max(10).default(3),
   distillRateLimitBaseDelayMs: z.natural().min(100).max(60000).default(1000),
   maxInjectedItems: z.natural().min(1).max(20).default(5),
+  // Issue #205：注入位跨轮轮换。同一会话里，最近 N 个不同用户查询轮次注入过
+  // 的记忆本轮不再优先（新鲜优先、原序回填，槽位数不变）；长会话中避免相邻
+  // 轮次反复注入同一条（实测 15.5h 会话 86 次注入 93% 重复）。0 = 关闭（默认，
+  // 保持既有行为）。会话边界自动重置：新会话从零开始。
+  injectRotationTurns: z.natural().min(0).max(20).default(0),
   importanceThreshold: z.natural().min(1).max(5).default(3),
   // 编码记忆蒸馏（codingRetrospect，opt-in，默认关）。开启时，turn/end 蒸馏
   // 额外提取三类编码专属记忆：rejected_solution（被否决方案）/ pitfall（踩坑）/

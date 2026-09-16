@@ -404,6 +404,7 @@ dsh web
 | `autoSummarize` | `true` | 会话结束自动提炼摘要 |
 | `summarizeProvider` / `summarizeModel` | 空 | 摘要的 LLM 路由覆盖（空=使用当前会话模型）；推荐轻量模型节省主模型 token |
 | `maxInjectedItems` | `5` | 最多注入几条记忆 |
+| `injectRotationTurns` | `0` | 注入位跨轮轮换：同一条记忆在最近 N 个查询轮次注入过后本轮不再优先（新鲜优先、不足回填，槽位数不变；会话边界自动重置；`0` = 关闭保持现状） |
 | `importanceThreshold` | `3` | 注入的最低重要性（1-5） |
 | `autoDream` | `true` | 自动记忆整理开关 |
 | `dreamThresholdCount` | `10` | 触发整理的记忆条数阈值 |

@@ -94,6 +94,41 @@ export function createInjector(ctx, service, settings, config) {
   const language = langOf(config);
   const maxItems = config.maxInjectedItems ?? 5;
   const threshold = config.importanceThreshold ?? 3;
+  // Issue #205：注入位跨轮轮换。rotationTurns = 最近 N 个「不同用户查询」轮次
+  // 注入过的记忆本轮不再优先（0 = 关闭，保持既有行为）。历史按会话维护——
+  // 新会话从零开始；同一查询的多次渲染（工具调用轮）视为同一轮，不推进窗口。
+  const rotationTurns = Math.max(0, Math.floor(config.injectRotationTurns ?? 0));
+  const rotationHistory = new Map(); // sessionId -> [{ query, ids: Set }]
+  const ROTATION_HISTORY_MAX = 32; // 覆盖 max(20) 配置档仍有余量
+
+  function recentInjectedIds(sessionId, query) {
+    if (rotationTurns <= 0) return null;
+    const deque = rotationHistory.get(sessionId);
+    if (!deque || deque.length === 0) return null;
+    // 只看「之前的轮次」：排除与当前查询相同的条目——同一查询的重复渲染
+    // （工具调用轮）不该拿本轮自己的集合来转自己。
+    const prior = query ? deque.filter((e) => e.query !== query) : deque;
+    if (prior.length === 0) return null;
+    const recent = new Set();
+    for (const entry of prior.slice(-rotationTurns)) {
+      for (const id of entry.ids) recent.add(id);
+    }
+    return recent.size > 0 ? recent : null;
+  }
+
+  function recordInjection(sessionId, query, candidates) {
+    if (rotationTurns <= 0 || !query) return;
+    const deque = rotationHistory.get(sessionId) ?? [];
+    const ids = new Set(candidates.map((c) => c.id));
+    const last = deque[deque.length - 1];
+    if (last && last.query === query) {
+      last.ids = ids; // 同一查询的重复渲染：覆盖本轮内容，不推进窗口
+    } else {
+      deque.push({ query, ids });
+      if (deque.length > ROTATION_HISTORY_MAX) deque.shift();
+      rotationHistory.set(sessionId, deque);
+    }
+  }
   // v0.8.0 A3（issue #17）：注入路径的会话 scope 解析——strictScope 硬过滤
   // 需要。渲染 ctx 与工具 exec 同形（agent.session），解析器直接复用。
   // logger 透传：registry 反查失败时 warnOnce 才有出口。
@@ -226,7 +261,11 @@ export function createInjector(ctx, service, settings, config) {
         // v0.8.0 A3：scope 随请求解析（strict 开启时 injectCandidates 内硬过滤；
         // flag 关闭时解析器返回 null，注入行为不变）。
         const scope = resolveSessionScope(ctx);
-        const candidates = service.injectCandidates({ query, queryVector, maxItems, threshold, scope });
+        // Issue #205：跨轮轮换——最近 N 个查询轮次注入过的 id 本轮不再优先。
+        const sessionId = ctx?.agent?.session?.id ?? "_";
+        const rotate = recentInjectedIds(sessionId, query);
+        const candidates = service.injectCandidates({ query, queryVector, maxItems, threshold, scope, rotate });
+        recordInjection(sessionId, query, candidates);
         // Hot memory (v0.5.0 1.3) leads the single memory block: the agent
         // sees the short-term rounds first, then the cross-session recall —
         // the documented injection order 1→2. Folding it here (instead of a
@@ -246,6 +285,7 @@ export function createInjector(ctx, service, settings, config) {
 
   return () => {
     queryVectorCache.clear();
+    rotationHistory.clear();
     for (const dispose of disposers) {
       if (typeof dispose === "function") dispose();
     }
