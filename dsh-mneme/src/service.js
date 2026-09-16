@@ -1292,6 +1292,22 @@ export function createService({ store, mirror, config, onWrite, logger }) {
           if (m && !m.archived && INJECT_TYPES.has(m.type) && !m.forgotten && codingGate(m)) semanticItems.push(m);
         }
       }
+      // Issue #198：首轮（无向量、无缓存召回）的同步兜底——BM25 词法召回领位。
+      // 注入渲染是同步的（宿主 systemPrompt 的 contexts 不支持异步 text），
+      // 查询向量只能异步 prefetch 给下一轮，首轮必 miss；此时纯静态排序会让
+      // 老的高重要性 summary/preference 占满槽位，当前话题的 decision/project
+      // 进不来。查询文本本身就在手上，BM25 是纯进程内同步计算，词法相关性
+      // 足以把当前话题顶到前排；门控与向量路径一致（含 importance 阈值）。
+      // 语义向量命中时本分支不参与，行为不变。
+      if (!semanticItems.length) {
+        for (const hit of bm25Recall(q, maxItems * 2)) {
+          if (hit && !hit.archived && INJECT_TYPES.has(hit.type) && !hit.forgotten &&
+            codingGate(hit) &&
+            (hit.type === "summary" || hit.type === "preference" || hit.importance >= threshold)) {
+            semanticItems.push(hit);
+          }
+        }
+      }
       if (semanticItems.length) {
         const seen = new Set();
         const merged = [];
