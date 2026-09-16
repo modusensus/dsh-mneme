@@ -1235,7 +1235,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
    * fills + dedupes the remaining slots. Empty query / no cached recall /
    * hybridInject off → pure legacy rule-based selection.
    */
-  function injectCandidates({ query = "", maxItems = 5, threshold = 3, queryVector, scope = null, rotate = null } = {}) {
+  function injectCandidates({ query = "", maxItems = 5, threshold = 3, queryVector, scope = null, rotate = null, rotateWindow = 0 } = {}) {
     const q = String(query ?? "").trim();
     // codingRetrospect 读取侧门控：编码记忆（rejected_solution / pitfall /
     // constraint）只在编码任务时注入，防噪声污染其他业务；编码任务时按
@@ -1246,7 +1246,15 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     // (quality_score null) count as 100 (weight 1), so legacy stores keep their
     // exact summary>preference>importance ordering.
     const qualityWeight = (m) => (m.quality_score != null ? m.quality_score / 100 : 1);
-    const items = store.list({ limit: 200, includeForgotten: false })
+    // Issue #205 补测：候选池必须比轮换窗口大——窗口 N 需要 maxItems×(N+1) 张
+    // 不同的牌，池子只有 maxItems×2 时窗口一开就被吃光、只剩回填（重复率的
+    // 结构性下限由池子大小决定）。无轮换时保持既有 maxItems×2 不变；规则路
+    // 的 200 条上限同样给轮换让路（上限翻倍也只是多读一次 SQL LIMIT）。
+    const rotateWindowN = Number.isInteger(rotateWindow) && rotateWindow > 0 ? rotateWindow : 0;
+    const poolSize = rotateWindowN > 0
+      ? Math.max(maxItems * 2, maxItems * (rotateWindowN + 1))
+      : maxItems * 2;
+    const items = store.list({ limit: Math.max(200, poolSize), includeForgotten: false })
       .filter((m) => !m.archived && INJECT_TYPES.has(m.type) && !m.forgotten &&
         codingGate(m) &&
         (m.type === "summary" || m.type === "preference" || m.importance >= threshold))
@@ -1277,7 +1285,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       const semanticItems = [];
       if (Array.isArray(queryVector) && queryVector.length && vectorIndex) {
         try {
-          const hits = vectorIndex.search(queryVector, { limit: maxItems * 2, threshold: 0 });
+          const hits = vectorIndex.search(queryVector, { limit: poolSize, threshold: 0 });
           for (const m of hits) {
             if (m && !m.archived && INJECT_TYPES.has(m.type) && !m.forgotten &&
               codingGate(m) &&
@@ -1300,7 +1308,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       // 足以把当前话题顶到前排；门控与向量路径一致（含 importance 阈值）。
       // 语义向量命中时本分支不参与，行为不变。
       if (!semanticItems.length) {
-        for (const hit of bm25Recall(q, maxItems * 2)) {
+        for (const hit of bm25Recall(q, poolSize)) {
           if (hit && !hit.archived && INJECT_TYPES.has(hit.type) && !hit.forgotten &&
             codingGate(hit) &&
             (hit.type === "summary" || hit.type === "preference" || hit.importance >= threshold)) {
@@ -1318,10 +1326,10 @@ export function createService({ store, mirror, config, onWrite, logger }) {
         };
         for (const m of semanticItems) {
           push(m);
-          if (merged.length >= maxItems * 2) break;
+          if (merged.length >= poolSize) break;
         }
         for (const m of items) {
-          if (merged.length >= maxItems * 2) break;
+          if (merged.length >= poolSize) break;
           push(m);
         }
         candidates = merged;

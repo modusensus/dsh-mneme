@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createStore } from "../src/store.js";
 import { createService } from "../src/service.js";
+import { createVectorIndex } from "../src/vector-index.js";
 import { createInjector } from "../src/inject.js";
 import { createSettings } from "../src/settings.js";
 
@@ -110,5 +111,51 @@ test("#205: backfill keeps slots full when fresh candidates run out", () => {
   const turn2 = titles(render("s1", "q2"));
   assert.equal(turn2.length, 2, "stale entries backfill when nothing fresh remains");
   assert.deepEqual(turn1, turn2, "no fresh candidates → original selection returned");
+  store.close();
+});
+
+// 回归（issue #205 补测，报告者读码发现）：轮换窗口需要 maxItems×(N+1) 张
+// 不同的牌，但候选池各有硬上限——语义路径截在 maxItems×2、合并层也是
+// maxItems×2。池子只有十来张时，窗口一开就把池子吃光、只剩回填：重复率的
+// 结构性下限由池子大小决定，轮换本身越不出箱子。修复：rotateWindow > 0 时
+// 池子按 maxItems×(N+1) 扩容（语义检索、bm25、合并层三处同步），无轮换时
+// 保持既有上限不变。旧测试样本（4 条记忆 + 注入位 2 = 恰好 maxItems×2）
+// 正好测不到这个边界——本用例刻意用 8 条 + 窗口 2 压过旧上限。
+test("#205 补测: semantic pool grows with the rotation window (no forced repeats)", () => {
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config: {} });
+  const vectorIndex = createVectorIndex({ store });
+  service.setVectorIndex(vectorIndex);
+  const ids = [];
+  for (let i = 0; i < 8; i++) {
+    const theta = i * 0.1; // 角度递增 → 与 query [1,0,0] 的余弦严格递减
+    const m = service.saveWithDedupe({
+      type: "preference",
+      title: `条目${i}`,
+      content: `第 ${i} 条，主题互不相同`,
+      importance: 5
+    }).memory;
+    vectorIndex.saveEmbedding(m.id, [Math.cos(theta), Math.sin(theta), 0]);
+    ids.push(m.id);
+  }
+
+  const call = (rotate, rotateWindow) => service.injectCandidates({
+    query: "q",
+    queryVector: [1, 0, 0],
+    maxItems: 2,
+    threshold: 3,
+    rotate,
+    rotateWindow
+  }).map((m) => m.id);
+
+  const turn1 = call(null, 2);
+  assert.deepEqual(turn1, [ids[0], ids[1]], "baseline: top-2 by cosine");
+  const turn2 = call(new Set(turn1), 2);
+  assert.deepEqual(turn2, [ids[2], ids[3]], "window 1: next two fresh");
+  // 窗口 2 = 前两轮的并集（真实流程里注入层会把最近 N 轮的 id 合成一个集合）
+  const turn3 = call(new Set([...turn1, ...turn2]), 2);
+  // 旧上限（maxItems×2 = 4）下池子只有 m0..m3，第三轮 fresh 为空 → 只能回填
+  // m0/m1（强制重复）。池子扩到 6 后，m4/m5 仍在箱内可被轮换换上来。
+  assert.deepEqual(turn3, [ids[4], ids[5]], "window 2: pool grew with the window, no forced repeat");
   store.close();
 });
