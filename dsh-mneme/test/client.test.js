@@ -573,14 +573,42 @@ test("consolidation/sleep model routing: provider dropdowns from /llm-providers,
     "select changes must commit through the features PUT like the embed provider select"
   );
   assert.ok(
-    /curM && !mVals\.includes\(curM\) \? h\("option", \{ key: "current", value: curM \}, curM\) : null/.test(clientSource),
-    "a configured value missing from the provider's model list must survive as an extra option"
+    /curMStale \? h\("option", \{ key: "current", value: curM \}, staleSuffix\(curM\)\) : null/.test(clientSource),
+    "a configured value missing from the provider's model list must survive as an extra option, now marked as not-in-list"
+  );
+  // issue #191：旧值保留之外还要能看出来——provider/model 各自判定是否越出
+  // 枚举，越出时渲染行内警告，并把「重启后生效」从卡片标题落到具体路由行。
+  assert.ok(
+    /const curMStale = !!curM && !mVals\.includes\(curM\);/.test(clientSource)
+      && /const curPStale = !!curP && !entries\.some\(\(p\) => p\.provider === curP\);/.test(clientSource),
+    "both provider and model staleness must be detected for the route row"
+  );
+  assert.ok(
+    clientSource.includes('(curPStale || curMStale) && h("div", { className: "mneme-routewarn" }'),
+    "a stale route value must render an explicit inline warning (issue #191)"
+  );
+  assert.ok(
+    /routeSaved && h\("div", \{ className: "mneme-routesaved" \}, t\("memory\.features\.routeSavedHint"\)\)/.test(clientSource),
+    "the restart hint must land on the saved route row, not only the card title (issue #191)"
+  );
+  assert.ok(
+    /title: t\("memory\.features\.modelTestHint"\)/.test(clientSource),
+    "the connectivity test button must carry the existing guidance as its tooltip (issue #191)"
+  );
+  assert.ok(
+    /const \[savedKeys, setSavedKeys\] = useState\(\[\]\);/.test(clientSource)
+      && /setSavedKeys\(Object\.keys\(patch\)\)/.test(clientSource),
+    "the features PUT must record which keys were just saved so the route row can flag itself"
   );
   // 5. 双语 i18n 与样式
-  for (const key of ["routeFollowDefault", "modelTest", "modelTesting", "modelTestOk", "modelTestFail", "sleepModelHint"]) {
+  for (const key of ["routeFollowDefault", "modelTest", "modelTesting", "modelTestOk", "modelTestFail", "sleepModelHint", "routeValueNotInList", "routeStaleWarn", "routeSavedHint"]) {
     const occurrences = clientSource.split(`"memory.features.${key}"`).length - 1;
     assert.ok(occurrences >= 2, `i18n key memory.features.${key} must exist in both zh and en (got ${occurrences})`);
   }
+  assert.ok(
+    clientSource.includes(".mneme-routewarn{") && clientSource.includes(".mneme-routesaved{"),
+    "the stale-value warning and the row-level saved hint need their own style hooks"
+  );
   assert.ok(
     clientSource.includes(".mneme-routeselect{width:240px;max-width:60%}"),
     "the route selects must share the string-input width budget"

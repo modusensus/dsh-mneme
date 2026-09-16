@@ -383,6 +383,9 @@ window.__ModuleLoader__.load({
         "memory.features.modelTestOk": "连通正常",
         "memory.features.modelTestFail": "测试失败",
         "memory.features.modelTestHint": "真实发起一次最小巩固调用，验证 Provider/模型连通与 effort 支持",
+        "memory.features.routeValueNotInList": "不在列表中",
+        "memory.features.routeStaleWarn": "当前值不在该 Provider 的模型列表里，可能与 Provider 不配套；这样保存后调用可能报 INVALID_REQUEST。请先点「测试连通性」验证，或改选列表里的模型。",
+        "memory.features.routeSavedHint": "已保存，重启 DSH 后生效",
         "memory.explorer.viewCards": "卡片",
         "memory.explorer.viewTimeline": "时间线",
         "memory.explorer.viewAria": "视图切换",
@@ -734,6 +737,9 @@ window.__ModuleLoader__.load({
         "memory.features.modelTestOk": "Connected",
         "memory.features.modelTestFail": "Test failed",
         "memory.features.modelTestHint": "Fires one minimal consolidation call to verify provider/model connectivity and effort support",
+        "memory.features.routeValueNotInList": "not in list",
+        "memory.features.routeStaleWarn": "The current value is not in this provider's model list and may not match the provider; saved as-is, calls can fail with INVALID_REQUEST. Run \"Test connectivity\" first, or pick a model from the list.",
+        "memory.features.routeSavedHint": "Saved. Takes effect after restarting DSH",
         "memory.explorer.viewCards": "Cards",
         "memory.explorer.viewTimeline": "Timeline",
         "memory.explorer.viewAria": "Switch view",
@@ -1103,6 +1109,10 @@ window.__ModuleLoader__.load({
       ".mneme-featsub{margin:2px 0 8px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;display:flex;flex-direction:column;gap:6px}",
       ".mneme-featsub .mneme-featnum{padding:6px 0;border-bottom:none}",
       ".mneme-featsubhint{font-size:12px;line-height:17px;color:var(--dsw-alias-label-tertiary)}",
+      // 路由行旧值不在 Provider 模型列表里时的警示，以及本行刚保存的重启提示
+      // （issue #191）：前者用 warning 色与普通 hint 区分，后者沿用 success 色。
+      ".mneme-routewarn{font-size:12px;line-height:17px;color:var(--dsw-alias-state-warning,#d97706)}",
+      ".mneme-routesaved{font-size:12px;line-height:17px;color:var(--dsw-alias-state-success,#2a7)}",
       // 运行时那一块的说明文字：比常规 hint 再小一档，它是背景信息而不是要读的正文。
       ".mneme-runtimehint{font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary)}",
       // --- 交互式记忆库：工具栏 / 卡片网格 / 详情抽屉 / 更多菜单 ---
@@ -1787,6 +1797,9 @@ window.__ModuleLoader__.load({
       const [error, setError] = useState("");
       const [busy, setBusy] = useState(false);
       const [savedTick, setSavedTick] = useState(false);
+      // 最近一次保存涉及的键：让「重启 DSH 后生效」从卡片标题的瞬时提示下沉到
+      // 具体的路由行（issue #191）——provider/model 改动后用户能直接看到哪一行要重启。
+      const [savedKeys, setSavedKeys] = useState([]);
       const [showAdv, setShowAdv] = useState(false);
       const [strs, setStrs] = useState({}); // 字符串输入的本地草稿：key -> string
       // 巩固/睡眠模型路由下拉的数据源：GET /llm-providers 探测（云端 v0.7.26+
@@ -1836,7 +1849,8 @@ window.__ModuleLoader__.load({
           if (!res.ok) throw new Error("HTTP " + res.status);
           setState(await res.json());
           setSavedTick(true);
-          setTimeout(() => setSavedTick(false), 1800);
+          setSavedKeys(Object.keys(patch));
+          setTimeout(() => { setSavedTick(false); setSavedKeys([]); }, 1800);
         } catch {
           setError(t("memory.features.loadFailed"));
         } finally {
@@ -1903,7 +1917,11 @@ window.__ModuleLoader__.load({
       // 巩固/睡眠路由行：provider/model 级联下拉（数据来自宿主侧已注册的
       // 适配器，用户不会选到不存在的模型）+ 连通性测试。空值 = 跟随默认
       // 路由；改动即提交（与 embedProvider 下拉一致）。当前值不在枚举里时
-      // 保留为额外选项，避免静默改值。
+      // 保留为额外选项，避免静默改值——但必须显式标注并给出警告：换
+      // provider 后残留旧 model id（provider 已是 deepseek-official、model
+      // 仍是中继风格的 deepseek/deepseek-v4.1-flash）会一路保存成功，直到
+      // 运行时报 INVALID_REQUEST（issue #191）。因此提示与校验都落在路由行：
+      // 「不在列表」后缀 + 警示文案 + 保存后本行显示「重启 DSH 后生效」。
       const routeSelects = (providerKey, modelKey, testState, setTestState) => {
         const curP = strs[providerKey] ?? "";
         const curM = strs[modelKey] ?? "";
@@ -1911,8 +1929,15 @@ window.__ModuleLoader__.load({
         const entry = entries.find((p) => p && p.provider === curP);
         const models = (entry && Array.isArray(entry.models)) ? entry.models : [];
         const mVals = models.map(modelValue);
-        const pList = entries.map((p) => p.provider).concat(
-          curP && !entries.some((p) => p.provider === curP) ? [curP] : []);
+        // provider 与 model 各自判断是否落在当前枚举内：provider 不在列表同样
+        // 意味着级联下拉的模型列表与当前 model 无关，配套性无从保证。
+        const curPStale = !!curP && !entries.some((p) => p.provider === curP);
+        const curMStale = !!curM && !mVals.includes(curM);
+        // 旧值后缀：与正常选项在文本上区分，杜绝「看起来一样」的静默保留。
+        const staleSuffix = (v) => v + " (" + t("memory.features.routeValueNotInList") + ")";
+        const pList = entries.map((p) => p.provider).concat(curPStale ? [curP] : []);
+        // 本行是否刚被保存：把卡片标题的瞬时提示落到具体路由行（issue #191）。
+        const routeSaved = savedKeys.indexOf(providerKey) >= 0 || savedKeys.indexOf(modelKey) >= 0;
         const putKey = (key) => (e) => {
           const v = e.target.value;
           setStrs((c) => ({ ...c, [key]: v }));
@@ -1926,7 +1951,7 @@ window.__ModuleLoader__.load({
               "aria-label": t(`memory.features.${providerKey}`), onChange: putKey(providerKey)
             },
               h("option", { value: "" }, t("memory.features.routeFollowDefault")),
-              pList.map((p) => h("option", { key: p, value: p }, p)))),
+              pList.map((p) => h("option", { key: p, value: p }, p === curP && curPStale ? staleSuffix(p) : p)))),
           h("div", { className: "mneme-featnum" },
             h("span", { className: "mneme-featnumlabel" }, t(`memory.features.${modelKey}`)),
             h("select", {
@@ -1935,17 +1960,21 @@ window.__ModuleLoader__.load({
             },
               h("option", { value: "" }, t("memory.features.routeFollowDefault")),
               models.map((m, i) => h("option", { key: modelValue(m) + "|" + i, value: modelValue(m) }, modelLabel(m))),
-              curM && !mVals.includes(curM) ? h("option", { key: "current", value: curM }, curM) : null)),
+              curMStale ? h("option", { key: "current", value: curM }, staleSuffix(curM)) : null)),
+          (curPStale || curMStale) && h("div", { className: "mneme-routewarn" },
+            "⚠ " + t("memory.features.routeStaleWarn")),
           h("div", { className: "mneme-featnum" },
             h("button", {
               type: "button", className: "mneme-btn",
+              title: t("memory.features.modelTestHint"),
               disabled: busy || (testState && testState.running),
               onClick: () => runModelTest(curP, curM, setTestState)
             }, t((testState && testState.running) ? "memory.features.modelTesting" : "memory.features.modelTest")),
             testState && !testState.running && h("div", { className: "mneme-featsubhint" },
               (testState.ok ? "✓ " + t("memory.features.modelTestOk") : "✗ " + t("memory.features.modelTestFail"))
               + (typeof testState.ms === "number" ? " · " + (testState.ms / 1000).toFixed(1) + "s" : "")
-              + (testState.detail ? " · " + testState.detail : "")))
+              + (testState.detail ? " · " + testState.detail : ""))),
+          routeSaved && h("div", { className: "mneme-routesaved" }, t("memory.features.routeSavedHint"))
         );
       };
 
