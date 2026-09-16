@@ -151,17 +151,19 @@ test("validateDecisions skipInvalid: conflict without a distinct winner/loser is
 
 // ------------------------------------------------------- skipInvalid 与全局闸门
 
-test("validateDecisions skipInvalid: valid subset below the coverage floor still rejects the whole batch", () => {
+test("validateDecisions skipInvalid: valid subset below the coverage floor degrades (Issue #104 方向 1)", () => {
   const snap = makeSnap(["p", "j", "x"]);
   const decisions = [
     { action: "archive", ids: ["p"], reason: "stale" },
     { action: "merge", ids: ["p", "j"], keepSource: "p", title: "跨类型", content: "m", importance: 4 }
   ];
-  const { ok, errors, skipped } = validateDecisions(decisions, snap, { skipInvalid: true });
-  assert.equal(ok, false, "skip does not bypass the coverage floor");
+  const { ok, errors, skipped, coverageShortfall } = validateDecisions(decisions, snap, { skipInvalid: true });
+  assert.equal(ok, true, "valid subset applies — shortfall degrades instead of rejecting");
+  assert.deepEqual(errors, []);
   assert.equal(skipped.length, 1);
-  assert.ok(errors.some((e) => e.includes("coverage")), "coverage error present");
-  assert.equal(decisions.length, 2, "rejected batch left untouched (splice only on the success path)");
+  assert.match(String(coverageShortfall), /coverage/, "shortfall reason surfaced for audit");
+  // claimed {p} = 1/3 = 33% < 50%；j/x 隐式 keep 补齐
+  assert.deepEqual(decisions.map((d) => d.action), ["archive", "keep", "keep"]);
 });
 
 test("validateDecisions skipInvalid: updates skipped for other reasons do not count toward the update cap", () => {

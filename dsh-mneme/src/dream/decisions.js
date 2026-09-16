@@ -216,26 +216,41 @@ export function validateDecisions(decisions, snapshot, options = {}) {
   if (createCount > maxCreatePerRun) {
     errors.push(`too many create decisions: ${createCount} > ${maxCreatePerRun}`);
   }
+  // Issue #89 防洗白核心（#104 方向 1 重审后保留）：全部决策都被跳过、合法
+  // 子集为空时仍整单拒绝——宽容的前提是「有合法子集可应用」；模型输出整体
+  // 非法（如全部幻觉 id）是真故障，不能被隐式 keep 洗成 ok。#104 只豁免
+  // 「有合法子集但覆盖率不足」的良性挑重点（见下方 coverageShortfall）。
+  if (options.skipInvalid === true && skipped.length > 0 && survivors.length === 0 && errors.length === 0) {
+    errors.push(`all ${skipped.length} decision(s) invalid — nothing valid survived validation`);
+    return { ok: false, errors, skipped, resolvedShortIds };
+  }
   // v0.4.4: 隐式 keep。默认（dreamImplicitKeep !== false）下，未 claim 的
   // snapshot 记忆自动补 {action:"keep"}，而不是整体拒绝——大记忆量下 LLM 漏报
   // 一两条就全拒（636 记忆 → 677 errors）会白白浪费整轮 run。设 false 则保留
   // 旧的严格"全量覆盖"校验。补齐的 keep 直接 append 到 decisions，调用方
   // （runDream/applyDecisions/audit）复用同一数组即可覆盖全部 snapshot 记忆。
   //
-  // v0.4.4 fix（残缺输出防洗白）：先收集所有非覆盖类 errors，有错直接 ok:false
-  // 且绝不 push 任何补齐 keep——残缺决策必须被真实拒绝，不能被隐式 keep 洗白成
-  // ok 后再 apply。只有无错时才检查显式覆盖率：LLM 输出被截断只 claim 少量
-  // snapshot（claimed.size / snapshot.size < dreamMinExplicitCoverage）时整单拒绝，
-  // 而不是用 keep 把绝大部分 snapshot 全部"通过"。
+  // v0.4.4 fix（残缺输出防洗白）→ Issue #104 方向 1 重审：显式覆盖率护栏的
+  // 初衷是拦「输出截断 → 只 claim 少量 → 其余被隐式 keep 洗白」，但它无法区分
+  // 恶性截断与良性挑重点——而提示词硬性规则本身要求「无问题的条目无需输出」，
+  // 挑重点正是要求的行为。官方路由 + 强模型的实测（heptaspirit：81 轮 failed
+  // 全是 coverage，LLM 调用本身成功、applied=0）证明这是常规路径而非边角。
+  // 处置：覆盖率不足不再 ok:false 整单拒绝，改为返回 coverageShortfall 理由、
+  // 照常补齐隐式 keep——调用方把 run 记 degraded（合法子集已应用），护栏以
+  // 状态暴露而非一票否决，与 skipInvalid 同一宽容哲学。明确异常信号（create
+  // 上限等硬错误）保持整单拒绝。要恢复旧行为可设 dreamImplicitKeep:false
+  // （严格模式，缺失即 error）或 dreamMinExplicitCoverage: 0（关护栏）。
+  // 非覆盖类硬错误（create 上限溢出、严格模式缺失 id）仍然先整单拒绝——
+  // #104 方向 1 只豁免 coverage 这一个信号，防洗白语义对它们原样保留。
   if (errors.length > 0) {
     return { ok: false, errors, skipped, resolvedShortIds };
   }
   const minCoverage = options.dreamMinExplicitCoverage ?? 0.5;
+  let coverageShortfall = null;
   if (options.dreamImplicitKeep !== false) {
     const coverage = snapshot.size > 0 ? claimed.size / snapshot.size : 1;
     if (coverage < minCoverage) {
-      errors.push(`explicit decision coverage ${Math.round(coverage * 100)}% < minimum ${Math.round(minCoverage * 100)}%`);
-      return { ok: false, errors, skipped, resolvedShortIds };
+      coverageShortfall = `explicit decision coverage ${Math.round(coverage * 100)}% < minimum ${Math.round(minCoverage * 100)}%`;
     }
     for (const id of snapshot.keys()) {
       if (!claimed.has(id)) survivors.push({ action: "keep", ids: [id] });
@@ -252,7 +267,7 @@ export function validateDecisions(decisions, snapshot, options = {}) {
   // 当"被跳过的非法决策数 == 隐式补齐的 keep 数"时长度回到相等但内容已变，
   // 被跳过的决策会残留进 apply/audit。一律无条件 splice 最安全。
   decisions.splice(0, decisions.length, ...survivors);
-  return { ok: true, errors, skipped, resolvedShortIds };
+  return { ok: true, errors, skipped, resolvedShortIds, coverageShortfall };
 }
 
 /** Marker thrown when a decision target changed since the run snapshot. */

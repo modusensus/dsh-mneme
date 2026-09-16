@@ -933,7 +933,7 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       logger?.warn?.(`dsh-mneme dream: no json array in llm output (raw length ${decisionText?.length ?? 0}; head: ${head})`);
       return finish({ ok: false, error: "no json array in llm output", summary: false });
     }
-    const { ok, errors, skipped, resolvedShortIds } = validateDecisions(decisions, snapshot, {
+    const { ok, errors, skipped, resolvedShortIds, coverageShortfall } = validateDecisions(decisions, snapshot, {
       maxUpdatePerRun: config.reflectionUpdateMaxPerRun,
       minAgeHours: config.reflectionUpdateMinAgeHours,
       // v0.4.4 fix：显式透传，用户配 dreamImplicitKeep:false 时严格模式必须
@@ -971,6 +971,12 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     const skippedInvalid = skipped.length > 0;
     if (skippedInvalid) {
       logger?.warn?.(`dsh-mneme dream: ${skipped.length} invalid decision(s) skipped (run degrades): ${skipped.map((s) => s.error).join("; ")}`);
+    }
+    // Issue #104 方向 1：覆盖率不足降级为 degraded（不再整单拒绝）——合法子集
+    // 照常应用、未提及条目隐式 keep，理由随 outcome.degradations 落库供离线定位。
+    const coverageDegraded = typeof coverageShortfall === "string" && coverageShortfall.length > 0;
+    if (coverageDegraded) {
+      logger?.warn?.(`dsh-mneme dream: ${coverageShortfall} (run degrades: valid subset applied, unclaimed ids kept implicitly)`);
     }
 
     // Capture pre-update snapshots so the audit records what each update changed.
@@ -1087,6 +1093,7 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     // claim "merge-archived" (item ②). Conflicts/failures ride along so the
     // audit row records why the run diverged.
     const outcome = { ...buildOutcome(committed), conflicts, failures };
+    if (coverageDegraded) outcome.degradations = [coverageShortfall];
     // Frozen conflicts were not adjudicated: mark both sides pending in the
     // per-id outcome so the audit row shows they were parked, not skipped.
     if (frozenIds.length) {
@@ -1171,7 +1178,9 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
     //   degraded  — real consolidation landed but the run did not produce its
     //               full output: the summary came back empty/missing, or
     //               skipInvalid dropped individually-invalid decisions
-    //               (Issue #89 — marked, not faked). The valid subset was
+    //               (Issue #89 — marked, not faked), or the explicit-decision
+    //               coverage fell below dreamMinExplicitCoverage (Issue #104
+    //               方向 1 — degrade, don't reject). The valid subset was
     //               absorbed (ok for the baseline).
     let status;
     let okResult;
@@ -1182,7 +1191,7 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       status = summaryStored ? "ok" : "noop";
       okResult = summaryStored;
     } else {
-      status = summaryStored && !skippedInvalid ? "ok" : "degraded";
+      status = summaryStored && !skippedInvalid && !coverageDegraded ? "ok" : "degraded";
       okResult = true;
     }
     return finish({

@@ -807,16 +807,18 @@ test("autoDream with 650 memories: sliding window truncates snapshot + implicit 
 
 // --- v0.4.4 fix: 残缺输出防洗白（显式覆盖率下限） + 严格模式透传 --------------
 
-test("validateDecisions rejects a truncated output whose explicit coverage is below the floor", () => {
+test("validateDecisions degrades a low-coverage valid output (Issue #104 方向 1)", () => {
   const snap = snapshot(["a", "b", "c", "d"]);
   const decisions = [{ action: "keep", ids: ["a"] }]; // claims 1/4 = 25%
-  const { ok, errors } = validateDecisions(decisions, snap, { dreamMinExplicitCoverage: 0.5 });
-  assert.equal(ok, false, "low explicit coverage rejects the whole list");
-  assert.ok(
-    errors.some((e) => e.includes("explicit decision coverage 25% < minimum 50%")),
-    `coverage error present, got: ${errors.join("; ")}`
+  const { ok, errors, coverageShortfall } = validateDecisions(decisions, snap, { dreamMinExplicitCoverage: 0.5 });
+  assert.equal(ok, true, "valid subset applies — coverage shortfall degrades instead of rejecting");
+  assert.deepEqual(errors, [], "shortfall is not a per-decision error");
+  assert.match(
+    String(coverageShortfall),
+    /explicit decision coverage 25% < minimum 50%/,
+    `coverage reason surfaced, got: ${coverageShortfall}`
   );
-  assert.equal(decisions.length, 1, "no keep-fill pushed on rejection (nothing washed white)");
+  assert.equal(decisions.length, 4, "implicit keeps fill the unclaimed ids");
 });
 
 test("validateDecisions covers the whole snapshot when explicit coverage meets the floor", () => {
@@ -1014,7 +1016,7 @@ test("validateDecisions skipInvalid: a single invalid decision is skipped, valid
   assert.ok(decisions.some((d) => d.action === "keep" && d.ids.includes("j")), "j auto-kept");
 });
 
-test("validateDecisions skipInvalid: an all-invalid batch still rejects (coverage floor guards truncation)", () => {
+test("validateDecisions skipInvalid: an all-invalid batch still rejects (zero-survivor guard, #104 方向 1 重审后保留)", () => {
   const snap = new Map([
     ["p", { id: "p", type: "preference", title: "语言", content: "中文", importance: 3, archived: false, forgotten: false }],
     ["j", { id: "j", type: "project", title: "插件", content: "内容", importance: 3, archived: false, forgotten: false }],
@@ -1029,7 +1031,7 @@ test("validateDecisions skipInvalid: an all-invalid batch still rejects (coverag
   const { ok, errors, skipped } = validateDecisions(decisions, snap, { skipInvalid: true });
   assert.equal(ok, false, "no valid decisions left → whole batch rejected");
   assert.equal(skipped.length, 2);
-  assert.ok(errors.some((e) => e.includes("coverage")), "coverage error present");
+  assert.ok(errors.some((e) => e.includes("nothing valid survived")), "zero-survivor guard error present");
   assert.equal(decisions.length, 2, "rejected batch left untouched (splice only on the success path)");
 });
 
