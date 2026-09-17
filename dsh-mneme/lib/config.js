@@ -138,6 +138,13 @@ export const Config = z.object({
   // hybrid 判"高相似"的阈值；0.85 与 sleep normal 档对齐——两个模块对"高相似"
   // 保持同一个定义。
   dreamCandidateMinSim: z.number().min(0.5).max(0.99).default(0.85),
+  // 叙述条（#164 对齐，opt-in）：dream 期间按共享 tag 主题聚类（dream/
+  // narratives.js），每簇 LLM 合成一条叙述落库（source=narrative、evidence
+  // 回链簇内原子记忆、求交防捏造）。按需检索、不常驻注入。默认关=行为与
+  // 此前一致；lightMode 强制关闭。
+  dreamNarrativeEnabled: z.boolean().default(false),
+  // 成簇门槛：共享同一 tag 的记忆 ≥ 此值才合成叙述条。
+  dreamNarrativeMinCluster: z.natural().min(2).max(20).default(3),
   // 隐式 keep（v0.4.4）：LLM 未提及的 snapshot 记忆自动补 {action:"keep"}，
   // 避免"未覆盖即全拒"白白浪费整轮 run。设为 false 时保留旧的严格校验
   // （未覆盖即拒绝整单）。
@@ -502,6 +509,8 @@ const LIGHT_MODE_OFF = [
   "bm25SearchEnabled",
   // 轻量模式不开图召回轴（#219，依赖实体抽取产出；抽取本身已被关掉）。
   "entityRecallEnabled",
+  // 轻量模式不开叙述条（额外 LLM 调用；#164 对齐，opt-in）。
+  "dreamNarrativeEnabled",
   // 轻量模式不开热计算（heat 属于重型增强；关掉后 sleep 降级也退回纯时间分层）。
   "heatEnabled"
 ];

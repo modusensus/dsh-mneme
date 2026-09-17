@@ -47,6 +47,9 @@ const FEATURE_FLAG_BOOLEANS = [
   // Issue #219：图召回轴——查询命中实体名时把挂联记忆并入检索融合池
   // （默认关；依赖实体抽取产出，lightMode 强制关闭）。
   "entityRecallEnabled",
+  // Issue #164：叙述条——dream 期间按 tag 主题簇合成叙述落库（source=
+  // narrative，evidence 回链簇内记忆；按需检索不常驻注入；默认关）。
+  "dreamNarrativeEnabled",
   "codingRetrospect",
   "autoDream",
   "sleepModeEnabled",
@@ -97,7 +100,9 @@ const FEATURE_FLAG_INT_RANGES = {
   // Issue #125：hybrid 候选量上限（0 = 复用 dreamMaxSnapshotSize）。
   dreamCandidateMax: [0, 5000],
   // Issue #164①：注入单条正文截断上限（默认 300 = 既有行为）。
-  injectContentMaxChars: [60, 4000]
+  injectContentMaxChars: [60, 4000],
+  // Issue #164：叙述条成簇门槛（共享同一 tag 的记忆数下限）。
+  dreamNarrativeMinCluster: [2, 20]
 };
 // 浮点开关的闭区间（与 config.js 的 z.number().min().max() 对齐）。与整数开关
 // 分开：面板的整数控件要求 Number.isInteger，而余弦相似度阈值必须允许小数。

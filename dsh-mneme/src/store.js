@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS memories (
   epistemic_status TEXT NOT NULL DEFAULT 'subjective',
   last_accessed_at  TEXT,
   _full_content     TEXT,
+  evidence    TEXT,
   created_at  TEXT NOT NULL,
   updated_at  TEXT NOT NULL
 );
@@ -398,6 +399,7 @@ function toRow(row) {
     archived: row.archived === 1,
     source: row.source ?? undefined,
     content_history: parseJsonArray(row.content_history),
+    evidence: parseJsonArray(row.evidence),
     quality_score: row.quality_score !== null && row.quality_score !== undefined ? Number(row.quality_score) : undefined,
     epistemic_status: row.epistemic_status ?? "subjective",
     agent_scope: row.agent_scope ?? undefined,
@@ -669,6 +671,9 @@ export function createStore(path) {
   addColumn("memories", "embedding", "ALTER TABLE memories ADD COLUMN embedding TEXT");
   addColumn("memories", "last_accessed_at", "ALTER TABLE memories ADD COLUMN last_accessed_at TEXT");
   addColumn("memories", "_full_content", "ALTER TABLE memories ADD COLUMN _full_content TEXT");
+  // 叙述条证据链（#164 对齐）：[{memory_id, op, at}] JSON 数组——叙述/模式类
+  // 记忆回链其支撑原子记忆，写入前与候选集求交防模型捏造。
+  addColumn("memories", "evidence", "ALTER TABLE memories ADD COLUMN evidence TEXT");
   addColumn("memories", "epistemic_status", "ALTER TABLE memories ADD COLUMN epistemic_status TEXT NOT NULL DEFAULT 'subjective'");
   addColumn("memories", "content_history", "ALTER TABLE memories ADD COLUMN content_history TEXT");
   addColumn("memories", "quality_score", "ALTER TABLE memories ADD COLUMN quality_score REAL");
@@ -868,6 +873,7 @@ export function createStore(path) {
     const now = nowIso();
     const tags = JSON.stringify(memory.tags ?? []);
     const importance = Number.isInteger(memory.importance) ? memory.importance : 3;
+    const evidence = Array.isArray(memory.evidence) ? JSON.stringify(memory.evidence) : null;
     const embedding = Array.isArray(memory.embedding) && memory.embedding.length
       ? JSON.stringify(memory.embedding)
       : null;
@@ -878,8 +884,8 @@ export function createStore(path) {
       : inferEpistemicStatus(memory);
     runAtomically(() => {
       db.prepare(
-        `INSERT INTO memories (id, type, title, content, tags, importance, forgotten, archived, source, content_history, quality_score, embedding, epistemic_status, agent_scope, workspace_scope, agent_scope_source, workspace_scope_source, scope_decided_at, sensitivity, occurred_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO memories (id, type, title, content, tags, importance, forgotten, archived, source, content_history, quality_score, embedding, epistemic_status, agent_scope, workspace_scope, agent_scope_source, workspace_scope_source, scope_decided_at, sensitivity, occurred_at, evidence, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         id,
         type,
@@ -900,6 +906,7 @@ export function createStore(path) {
         normalizeOccurredAt(memory.scope_decided_at),
         normalizeScopeText(memory.sensitivity),
         normalizeOccurredAt(memory.occurred_at),
+        evidence,
         now,
         now
       );
@@ -931,6 +938,10 @@ export function createStore(path) {
     const qualityScore = patch.quality_score !== undefined && Number.isFinite(patch.quality_score)
       ? patch.quality_score
       : (existing.quality_score ?? null);
+    // 证据链只在本 patch 显式携带时才改写（undefined=保留既有）。
+    const evidence = patch.evidence !== undefined
+      ? (Array.isArray(patch.evidence) ? JSON.stringify(patch.evidence) : null)
+      : (existing.evidence?.length ? JSON.stringify(existing.evidence) : null);
     // v0.8.1 底座（issue #170）：scope 列只在本 patch 显式携带该键时才改写
     // （undefined=不动；null=清空为未标注/global）。来源列只认 auto|explicit。
     const nextAgentScope = patch.agent_scope !== undefined
@@ -950,7 +961,7 @@ export function createStore(path) {
       : (existing.scope_decided_at ?? null);
     runAtomically(() => {
       db.prepare(
-        `UPDATE memories SET type=?, title=?, content=?, tags=?, importance=?, source=?, content_history=?, quality_score=?, embedding=?, epistemic_status=?, agent_scope=?, workspace_scope=?, agent_scope_source=?, workspace_scope_source=?, scope_decided_at=?, updated_at=? WHERE id=?`
+        `UPDATE memories SET type=?, title=?, content=?, tags=?, importance=?, source=?, content_history=?, quality_score=?, embedding=?, epistemic_status=?, agent_scope=?, workspace_scope=?, agent_scope_source=?, workspace_scope_source=?, scope_decided_at=?, evidence=?, updated_at=? WHERE id=?`
       ).run(
         type,
         patch.title ?? existing.title,
@@ -967,6 +978,7 @@ export function createStore(path) {
         nextAgentSource,
         nextWorkspaceSource,
         nextDecidedAt,
+        evidence,
         now,
         id
       );

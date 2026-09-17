@@ -43,6 +43,11 @@ const PROMPTS = {
   "freezeSuffix": {
     "zh": "\n\n当前为「冲突冻结」模式：检测到内容矛盾的条目时，仍请输出 conflict，并以 winner/loser 作为候选、reason 说明理由；冲突不会被自动裁决，而会冻结待人工确认。",
     "en": "\n\nConflict-freeze mode is active: when you detect entries with contradictory content, still output conflict — winner/loser are treated as candidates and reason explains the rationale; conflicts are not auto-adjudicated but frozen for human confirmation."
+  },
+  // 叙述条（#164 对齐）：按主题聚类合成叙述，evidence 只能用簇内真实 id。
+  "narrative": {
+    zh: "你是记忆库叙述助手。下面按主题聚类给出记忆条目（id=... | title=... | 内容）。\n对每个聚类写一段 80-150 字的叙述条：该主题下的事实聚合——当前状态、关键事实、值得注意的走向。只依据给出的条目，不要发明细节。\n输出严格 JSON 数组：\n[{ \"tag\": \"聚类标签（原样照抄）\", \"content\": \"叙述文本\", \"evidence\": [\"支撑本叙述的记忆 id\"] }]\n规则：\n- evidence 只能使用该聚类内真实存在的 id，不要编造\n- 不是每个聚类都必须输出；没有可说的就跳过\n- 只输出 JSON 数组，不要其他文字",
+    en: "You are the memory narrative assistant. Below are memory entries grouped by topic clusters (id=... | title=... | content).\nFor each cluster write an 80-150 word narrative bar: the aggregated facts of that topic — current state, key facts, notable direction. Ground everything in the given entries; never invent details.\nOutput a strict JSON array:\n[{ \"tag\": \"cluster label (copy verbatim)\", \"content\": \"narrative text\", \"evidence\": [\"memory ids supporting this narrative\"] }]\nRules:\n- evidence must only use ids that really exist inside that cluster; never invent them\n- You do not have to cover every cluster; skip ones with nothing to say\n- Output only the JSON array, nothing else"
   }
 };
 
@@ -110,6 +115,12 @@ export const STR = {
   summaryScope: {
     zh: (count, run, date) => `\n\n〔口径：基于整理后 ${count} 条记忆快照 · run ${run} · ${date}〕`,
     en: (count, run, date) => `\n\n[scope: based on a post-consolidation snapshot of ${count} memories · run ${run} · ${date}]`
+  },
+  // per-topic 叙述条标题（#164 对齐）：主题键确定 → 标题跨 run 稳定 → dedupe
+  // 原地刷新不产生重复行
+  narrativeTitle: {
+    zh: (tag) => `叙述：${tag}`,
+    en: (tag) => `Narrative: ${tag}`
   },
 
   // --- dream/sleep.js：冲突候选列表 --------------------------------------------

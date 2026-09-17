@@ -1178,6 +1178,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
         importance,
         tags: memory.tags ?? existing.tags,
         title: memory.title ?? existing.title,
+        ...(memory.evidence !== undefined ? { evidence: memory.evidence } : {}),
         content_history: pushContentHistory(existing, direct
           ? (memory._humanEdited === true ? "human_override" : "overwrite")
           : "auto_merge"),
@@ -1219,6 +1220,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       tags: memory.tags ?? [],
       importance: memory.importance ?? 3,
       source: memory.source ?? "manual",
+      ...(memory.evidence !== undefined ? { evidence: memory.evidence } : {}),
       // v0.8.0 A1：scope 标注透传（store 端归一化，未标注落 NULL）。
       // v0.8.1 底座：来源（auto/explicit）与决策时间随行透传。
       agent_scope: memory.agent_scope,
@@ -1314,6 +1316,9 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       : maxItems * 2;
     const items = store.list({ limit: Math.max(200, poolSize), includeForgotten: false })
       .filter((m) => !m.archived && INJECT_TYPES.has(m.type) && !m.forgotten &&
+        // 叙述条（#164 对齐）按需检索：source=narrative 的 per-topic 叙述不进
+        // 注入候选——常驻位只留给 dream 总览（source=dream）。
+        m.source !== "narrative" &&
         codingGate(m) &&
         (m.type === "summary" || m.type === "preference" || m.importance >= threshold))
       .sort((a, b) => {

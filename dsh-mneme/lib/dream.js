@@ -1,5 +1,6 @@
 import { validateDecisions, applyDecisions } from "./dream/decisions.js";
 import { clusterMemories, findPotentialConflicts, cosineSimilarity } from "./dream/clustering.js";
+import { clusterByTag, intersectEvidence, NARRATIVE_MAX_PER_RUN } from "./dream/narratives.js";
 import { scopeKeyOf } from "./scope.js";
 import { createHash, randomUUID } from "node:crypto";
 import { STR, langOf } from "./lang.js";
@@ -357,9 +358,88 @@ async function withEffortFallback(ctx, effort, attempt, fallback, getStreamError
     // matches both "reasoning effort" (natural language) and the bare
     // "UNSUPPORTED_REASONING_EFFORT" error code (underscore).
     if (!/reasoning[\s_]*effort/i.test(message)) throw error;
-    ctx.logger?.warn?.(`dsh-mneme dream: reasoningEffort "${effort}" rejected (${message}); retrying without it`);
-    return fallback();
+      ctx.logger?.warn?.(`dsh-mneme dream: reasoningEffort "${effort}" rejected (${message}); retrying without it`);
+      return fallback();
   }
+}
+
+/** 向量索引同步（总览与叙述条共用）：fail-safe，失败只 warn 不反噬主流程。 */
+async function reEmbedMemory(semantic, memory, logger) {
+  if (!semantic?.embedder || !semantic?.vectorIndex || !memory) return;
+  try {
+    const v = await semantic.embedder.embedSingle([memory.title, memory.content].filter(Boolean).join("\n"));
+    if (v?.length) semantic.vectorIndex.saveEmbedding(memory.id, v);
+    if (semantic.embedder.modelHash) semantic.vectorIndex.markModel?.(semantic.embedder.modelHash, semantic.embedder.dimension);
+  } catch (error) {
+    logger?.warn?.(`dsh-mneme dream: re-embed failed: ${String(error)}`);
+  }
+}
+
+/**
+ * 叙述条阶段（#164 对齐，opt-in dreamNarrativeEnabled）：共享 tag 主题聚类 →
+ * 单次 LLM 调用按簇合成叙述 → 证据求交（防捏造，dream/narratives.js 纯函数）
+ * → saveWithDedupe(source="narrative", _overwrite) 落库。按需检索不常驻注入。
+ * 任何失败降级为 0 条，绝不反噬 dream 主流程。
+ */
+async function generateNarratives({ ctx, service, config, route, language, effort, semantic, logger }) {
+  const inputs = service.all().filter((m) => !m.archived && !m.forgotten && m.type !== "summary");
+  const clusters = clusterByTag(inputs, { minCluster: config.dreamNarrativeMinCluster ?? 3 });
+  if (!clusters.length) return 0;
+
+  const listing = clusters
+    .map(({ tag, members }) =>
+      [`# ${tag}`, ...members.map((m) => `- id=${m.id} | title=${m.title} | ${m.content}`)].join("\n"))
+    .join("\n\n");
+  let streamFailure = "";
+  const runNarratives = (withEffort) => {
+    streamFailure = "";
+    return runAuditedLlm(ctx, service, config, {
+      triggerSource: "autoDream",
+      operationType: "dream_narrative",
+      modelId: `${route.provider}:${route.model}`,
+      relatedMemoryIds: clusters.flatMap((c) => c.members.map((m) => m.id)),
+      streamError: () => streamFailure
+    }, (reportUsage) => streamText(ctx, {
+      provider: route.provider,
+      model: route.model,
+      purpose: "compaction",
+      maxTokens: config.dreamMaxTokens ?? 2048,
+      ...(withEffort && effort ? { reasoningEffort: effort } : {}),
+      messages: [
+        { role: "system", content: [{ type: "text", text: STR.prompts.narrative[language] }], source: { kind: "plugin", plugin: "dsh-mneme" } },
+        { role: "user", content: [{ type: "text", text: listing }], source: { kind: "plugin", plugin: "dsh-mneme" } }
+      ]
+    }, reportUsage, (reason) => { streamFailure = describeStreamFailure(reason); }));
+  };
+  const text = await withEffortFallback(ctx, effort, () => runNarratives(true), () => runNarratives(false), () => streamFailure);
+
+  const entries = extractJsonArray(text);
+  if (!Array.isArray(entries)) return 0;
+  const clusterByOfferedTag = new Map(clusters.map((c) => [c.tag, c]));
+  const now = new Date().toISOString();
+  let stored = 0;
+  for (const entry of entries) {
+    if (!entry || typeof entry !== "object") continue;
+    const cluster = clusterByOfferedTag.get(typeof entry.tag === "string" ? entry.tag : "");
+    const content = String(entry.content ?? "").trim();
+    if (!cluster || !content) continue; // 未提供的 tag / 空叙述 → 跳过
+    const evidenceIds = intersectEvidence(entry.evidence, cluster.members);
+    const { memory } = service.saveWithDedupe({
+      type: "summary",
+      title: STR.narrativeTitle[language](cluster.tag),
+      content,
+      importance: 3,
+      tags: [cluster.tag],
+      source: "narrative",
+      evidence: evidenceIds.map((id) => ({ memory_id: id, op: "support", at: now })),
+      _overwrite: true
+    });
+    if (!memory) continue;
+    stored++;
+    // 叙述条按需可检索：向量索引同步（与总览共用 reEmbedMemory，fail-safe）。
+    await reEmbedMemory(semantic, memory, logger);
+  }
+  return stored;
 }
 
 /**
@@ -1174,15 +1254,25 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       // Re-embed the fresh summary so the index stays in sync with the store.
       if (semantic?.embedder && semantic?.vectorIndex) {
         try {
-          const summary = service.all().find((m) => m.type === "summary");
-          if (summary) {
-            const v = await semantic.embedder.embedSingle([summary.title, summary.content].filter(Boolean).join("\n"));
-            if (v?.length) semantic.vectorIndex.saveEmbedding(summary.id, v);
-            if (semantic.embedder.modelHash) semantic.vectorIndex.markModel?.(semantic.embedder.modelHash, semantic.embedder.dimension);
-          }
+          // source="dream" 限定：叙述条（source=narrative）同为 summary 类型，
+          // 不加限定时 find 可能截胡，把总览的 re-embed 花在叙述条上。
+          const summary = service.all().find((m) => m.type === "summary" && m.source === "dream");
+          if (summary) await reEmbedMemory(semantic, summary, logger);
         } catch { /* best-effort */ }
       }
     }
+    // Narrative bars (#164 alignment, opt-in dreamNarrativeEnabled): per-topic
+    // on-demand narratives after consolidation + summary. Additive phase —
+    // failures degrade to zero narratives, never break the run.
+    let narrativesStored = 0;
+    if (config.dreamNarrativeEnabled === true) {
+      try {
+        narrativesStored = await generateNarratives({ ctx, service, config, route, language, effort, semantic, logger });
+      } catch (error) {
+        logger?.warn?.(`dsh-mneme dream: narrative phase failed: ${String(error)}`);
+      }
+    }
+
     // Honest status assignment (never a fake ok):
     //   reconcile — some decisions validated but did not commit (CAS/rollback).
     //   noop      — nothing changed and no summary persisted: truly an empty
@@ -1218,6 +1308,7 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       failures,
       frozen: frozenCount,
       summary: summaryStored,
+      narratives: narrativesStored,
       // Issue #104：只有真发生跳过时才落库（degraded 也可能仅因 summary 为空），
       // ok 轮留 NULL，避免「空数组」与「无此字段」两种假明细占据审计行。
       skipped: skippedInvalid ? skipped : undefined
