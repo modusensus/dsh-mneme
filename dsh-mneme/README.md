@@ -557,7 +557,7 @@ dsh-mneme config show                                # 查看当前配置（toke
 
 数据面走上面的**独立外部 API**（8790，Bearer）：写入并发由 DSH 单点负责；DSH 未运行（外部 API 未启动）时 MCP 侧调用会报连接失败。scope 语义注意：外部 API 无会话上下文，`memory_save` 不做自动标注，只认显式 `agent_scope` / `workspace_scope` 声明。
 
-配置优先级沿用 CLI 约定：环境变量 `DSH_MNEME_URL` / `DSH_MNEME_TOKEN` > `~/.dsh-mneme/cli.json` > 默认 `http://127.0.0.1:8790`。
+配置优先级沿用 CLI 约定：环境变量 `DSH_MNEME_URL` / `DSH_MNEME_TOKEN` > `~/.dsh-mneme/cli.json` > 默认 `http://127.0.0.1:8790`。安全注意：服务默认只绑 `127.0.0.1`；若把 `DSH_MNEME_URL` 指向非回环的明文 HTTP 地址，Bearer token 将明文过网（启动时会有 stderr 警告）——远程场景建议走 SSH 隧道。
 
 Claude Code 挂载示例（项目根 `.mcp.json`；token 在面板「设置 → 外部访问 API」查看）：
 

@@ -485,7 +485,18 @@ function runningAsMain() {
 }
 
 export function main() {
-  createMcpServer(resolveMcpConfig()).start();
+  const config = resolveMcpConfig();
+  // 非回环 HTTP 明文传输会把 Bearer token 暴露给链路——与 CLI 同款取舍，但
+  // 至少要喊一声，不让操作者无感地越过「默认仅本机」的安全模型。
+  try {
+    const url = new URL(config.url);
+    const host = url.hostname;
+    const loopback = host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
+    if (url.protocol === "http:" && !loopback) {
+      process.stderr.write(`[dsh-mneme-mcp] warning: ${config.url} is plain HTTP on a non-loopback host — the Bearer token travels unencrypted. Prefer SSH tunneling or a loopback address.\n`);
+    }
+  } catch { /* 非法 URL 交给请求路径报错 */ }
+  createMcpServer(config).start();
 }
 
 if (runningAsMain()) main();
