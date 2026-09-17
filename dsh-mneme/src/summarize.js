@@ -4,21 +4,21 @@ import { STR, langOf } from "./lang.js";
 // 编码记忆蒸馏 prompt（codingRetrospect 开启时启用）：在通用记忆之外，额外提取
 // 三类编码专属记忆，专治重复踩坑 / 遗忘被否决方案 / 丢失工程约束。字段仍沿用
 // title/content 单列结构（store 无结构化字段），信息浓缩进 content。
-/** Extract a JSON array from LLM output that may contain prose around it. */
-export function parseSummaryJson(raw) {
+/** 解析 LLM 输出中的 JSON 数组，并保留数组是否有效的结果。 */
+function parseSummaryJsonResult(raw) {
   const text = String(raw ?? "");
   const start = text.indexOf("[");
   const end = text.lastIndexOf("]");
-  if (start === -1 || end === -1 || end <= start) return [];
+  if (start === -1 || end === -1 || end <= start) return { ok: false, entries: [] };
   let arr;
   try {
     arr = JSON.parse(text.slice(start, end + 1));
   } catch {
-    return [];
+    return { ok: false, entries: [] };
   }
-  if (!Array.isArray(arr)) return [];
+  if (!Array.isArray(arr)) return { ok: false, entries: [] };
   const VALID = new Set(["preference", "project", "decision", "history", "rejected_solution", "pitfall", "constraint"]);
-  return arr.filter(
+  const entries = arr.filter(
     (item) =>
       item &&
       typeof item === "object" &&
@@ -33,6 +33,12 @@ export function parseSummaryJson(raw) {
     content: item.content.trim(),
     importance: Number.isInteger(item.importance) ? Math.min(5, Math.max(1, item.importance)) : 3
   }));
+  return { ok: true, entries };
+}
+
+/** Extract a JSON array from LLM output that may contain prose around it. */
+export function parseSummaryJson(raw) {
+  return parseSummaryJsonResult(raw).entries;
 }
 
 // The dsh-llm StreamChunk protocol BlockAssembler.push() consumes:
@@ -77,20 +83,47 @@ function toProtocolChunk(chunk) {
 // (minimal test doubles) pass the kind check and are handled by the content
 // check below.
 //
-// codingRetrospect: the distill context is the FULL turn transcript —
-// user prompts plus assistant public replies, tool calls + results and code
-// dispatch output — so the summarizer can see tool errors and extract pitfall
-// root causes, not just what the user typed. The same filtering stays: only
-// source.kind === "user" prompts enter (plugin/machine content is excluded).
-// The result is a single text transcript passed to the LLM as one user message
-// (SUMMARY_PROMPT already says "根据下面的会话内容").
+// codingRetrospect: each new distill window contains the complete available
+// transcript for that window — user prompts plus assistant public replies, tool
+// calls + results and code dispatch output — so the summarizer can see tool
+// errors and extract pitfall root causes, not just what the user typed. The same
+// filtering stays: only source.kind === "user" prompts enter (plugin/machine
+// content is excluded). The result is a single text transcript passed to the
+// LLM as one user message (SUMMARY_PROMPT already says "根据下面的会话内容").
 //
 // Privacy: assistant `reasoning` (private thought) blocks are deliberately NOT
 // collected — distilled memories must never sink private reasoning chains.
 // Only public text blocks (type "text") reach the summarizer.
-function collectMessages(session, maxChars = 8000, language = "zh") {
-  // DSH 0.1.2-rc.1 起 Session 改用 snapshotEvents()，兼容旧版 .events
-  const events = session.snapshotEvents?.() ?? session.events ?? [];
+function eventSeq(event) {
+  return Number.isSafeInteger(event?.seq) ? event.seq : undefined;
+}
+
+// DSH 0.1.2-rc.1 起 Session 改用 snapshotEvents()，兼容旧版 .events。
+// snapshotEvents 的范围参数按 seq 传入；再做一次事件级过滤，是为了兼容
+// 旧实现忽略参数、或把边界解释为闭区间的情况，同时避免用数组下标充当游标。
+function snapshotSessionEvents(session, afterSeq, throughSeq) {
+  let events;
+  if (typeof session?.snapshotEvents === "function") {
+    events = afterSeq === undefined && throughSeq === undefined
+      ? session.snapshotEvents()
+      : session.snapshotEvents(afterSeq, throughSeq);
+  } else {
+    events = session?.events ?? [];
+  }
+  if (!Array.isArray(events)) events = session?.events ?? [];
+  if (!Array.isArray(events)) return [];
+  return events.filter((event) => {
+    const seq = eventSeq(event);
+    // 一旦已有 seq 游标，没有 seq 的事件就无法证明是新增事件，不能重新打开
+    // 已经成功消费过的窗口。
+    if (afterSeq !== undefined && (seq === undefined || seq <= afterSeq)) return false;
+    if (throughSeq !== undefined && seq !== undefined && seq > throughSeq) return false;
+    return true;
+  });
+}
+
+function collectMessages(session, maxChars = 8000, language = "zh", afterSeq, throughSeq) {
+  const events = snapshotSessionEvents(session, afterSeq, throughSeq);
   const lines = [];
   // 兼容严格形状 [{type:"text",text}] 与宽松形状 ["字符串", ...]（lib-smoke 用例
   // 直接传字符串数组）。只取公开文本块；reasoning 私有推理块不进蒸馏上下文。
@@ -103,6 +136,11 @@ function collectMessages(session, maxChars = 8000, language = "zh") {
       .join("\n");
   };
   const trim = (s, n) => (typeof s === "string" && s.length > n ? `${s.slice(0, n)}…` : s);
+  const trimTranscript = (s, n) => {
+    if (typeof s !== "string" || s.length <= n) return s;
+    if (n <= 1) return "…".slice(0, n);
+    return `…${s.slice(-(n - 1))}`;
+  };
   for (const event of events) {
     const data = event?.data ?? {};
     const kind = data?.source?.kind;
@@ -144,7 +182,18 @@ function collectMessages(session, maxChars = 8000, language = "zh") {
         break;
     }
   }
-  return lines.length ? [createUserMessage({ content: [{ type: "text", text: trim(lines.join("\n"), maxChars) }], source: { kind: "plugin", plugin: "dsh-mneme" } })] : [];
+  const lastSeq = events.reduce((max, event) => {
+    const seq = eventSeq(event);
+    if (seq === undefined) return max;
+    return max === undefined ? seq : Math.max(max, seq);
+  }, undefined);
+  return {
+    messages: lines.length
+      ? [createUserMessage({ content: [{ type: "text", text: trimTranscript(lines.join("\n"), maxChars) }], source: { kind: "plugin", plugin: "dsh-mneme" } })]
+      : [],
+    hasEvents: events.length > 0,
+    lastSeq
+  };
 }
 
 // ── 智能调速器（429 保护）─────────────────────────────────────────────
@@ -187,6 +236,8 @@ export function createSummarizer(ctx, service, config) {
   // Issue #127：per-session 上一次实际开跑时刻（最小间隔闸门用）。与 inFlight
   // 同生命周期，dispose 时一并清空。
   const lastRunAt = new Map();
+  // Issue #210：只在一次蒸馏完整成功后记录已消费的最后事件 seq。
+  const lastDistilledSeq = new Map();
   let disposed = false;
 
   /** 写一条 autoSummarize 的 LLM 审计行（审计失败绝不阻塞蒸馏本身）。 */
@@ -204,7 +255,7 @@ export function createSummarizer(ctx, service, config) {
     }
   }
 
-  async function summarize(session) {
+  async function summarize(session, triggerEvent) {
     if (disposed || inFlight.has(session.id)) return;
 
     const header = session.requestHeader?.()?.config;
@@ -230,8 +281,6 @@ export function createSummarizer(ctx, service, config) {
       });
       return;
     }
-    lastRunAt.set(session.id, Date.now());
-
     const controller = new AbortController();
     inFlight.set(session.id, controller);
     // audit state for the compression call. null = no audit for this run
@@ -243,10 +292,32 @@ export function createSummarizer(ctx, service, config) {
     let abortedRun = false;
     try {
       if (!route) return;
-      // 完整转录（Codex 式）：蒸馏把整轮对话交给 LLM 提炼原子记忆，不再硬裁
-      // 8000 字截断语义；上限由 distillMaxChars 控制（默认 24000，可调大）。
-      const messages = collectMessages(session, config.distillMaxChars ?? 24000, langOf(config));
-      if (!messages.length) return;
+      const previousSeq = lastDistilledSeq.get(session.id);
+      const triggerSeq = eventSeq(triggerEvent);
+      // 只读取上次成功游标之后、当前 turn/end 之前的事件。旧版 snapshotEvents
+      // 即使忽略范围参数，collectMessages 仍会按事件 seq 二次过滤。
+      const collected = collectMessages(
+        session,
+        config.distillMaxChars ?? 24000,
+        langOf(config),
+        previousSeq,
+        triggerSeq
+      );
+      const hasNewEvents = collected.hasEvents
+        || (triggerSeq !== undefined && (previousSeq === undefined || triggerSeq > previousSeq));
+      if (!hasNewEvents) return;
+
+      const nextSeq = Math.max(collected.lastSeq ?? Number.NEGATIVE_INFINITY, triggerSeq ?? Number.NEGATIVE_INFINITY);
+      if (!collected.messages.length) {
+        // 没有可蒸馏的公开文本也算成功消费当前事件窗口，避免每个 turn/end
+        // 都重新扫描同一批无内容事件；没有 seq 时则不提交不可验证的游标。
+        if (Number.isFinite(nextSeq)) lastDistilledSeq.set(session.id, nextSeq);
+        return;
+      }
+      const messages = collected.messages;
+      // 只有真正准备发起一次 LLM 蒸馏时才占用最小间隔；失败路径仍按原语义
+      // 占用，aborted 则由 finally 回滚。
+      lastRunAt.set(session.id, Date.now());
 
       if (config?.llmAudit?.enabled !== false && typeof service.saveLlmAudit === "function") {
         audit = {
@@ -343,7 +414,16 @@ export function createSummarizer(ctx, service, config) {
         abortedRun = true;
         return;
       }
-      const parsed = parseSummaryJson(text || assembledText);
+      const parsedResult = parseSummaryJsonResult(text || assembledText);
+      // 解析失败不推进 seq 游标，下一次 turn/end 仍会重试同一窗口。
+      if (!parsedResult.ok) {
+        if (audit) {
+          audit.status = "error";
+          audit.errorMessage = "invalid summary JSON";
+        }
+        return;
+      }
+      const parsed = parsedResult.entries;
       // Issue #127 条数上限：0 = 不限（现状）。被截断的条数与去重命中数一并进
       // 审计 metadata——此前产出条数完全由模型输出决定，用户无从自查。
       const cap = config.summarizeMaxEntriesPerRun ?? 0;
@@ -352,6 +432,7 @@ export function createSummarizer(ctx, service, config) {
       const dedupeMode = config.summarizeDedupeMode ?? "off";
       let deduped = 0;
       let dedupeMaxSim = 0;
+      const writes = [];
       for (const entry of entries) {
         // Provenance: the summarizer runs on a real session (turn/end hook), so
         // session.id is always available here — it rides the human-readable
@@ -378,10 +459,24 @@ export function createSummarizer(ctx, service, config) {
           deduped++;
           dedupeMaxSim = Math.max(dedupeMaxSim, dup.sim ?? 0);
         }
-        service.saveWithDedupe({
-          ...entry,
-          source,
-          ...(dup ? { _mergeInto: dup.memory.id } : {})
+        writes.push({ entry, source, dup });
+      }
+      if (writes.length) {
+        // 查询去重目标可以异步执行，但记忆写入必须在同一个事务中完成。
+        // 否则第 N 条写入失败时，前 N-1 条会残留，而重试同一 seq 窗口会重复
+        // 追加它们。createService 始终提供 transaction；缺失时直接失败并保留
+        // 游标窗口，避免退回到不具备原子性的部分写入。
+        if (typeof service.transaction !== "function") {
+          throw new Error("dsh-mneme: atomic summarization writes require service.transaction");
+        }
+        service.transaction(() => {
+          for (const { entry, source, dup } of writes) {
+            service.saveWithDedupe({
+              ...entry,
+              source,
+              ...(dup ? { _mergeInto: dup.memory.id } : {})
+            });
+          }
         });
       }
       if (audit && (capped > 0 || deduped > 0)) {
@@ -391,6 +486,9 @@ export function createSummarizer(ctx, service, config) {
           ...(deduped > 0 ? { deduped, mode: dedupeMode, maxSim: Number(dedupeMaxSim.toFixed(4)) } : {})
         };
       }
+      // 记忆写入和解析都成功后才提交窗口；流失败、中止、解析失败或写入异常
+      // 都会在此之前退出，从而保留窗口供下一次重试。
+      if (Number.isFinite(nextSeq)) lastDistilledSeq.set(session.id, nextSeq);
     } finally {
       // Issue #127：aborted（会话关闭 / 插件 dispose）不占间隔，避免误伤该会话的
       // 下一次蒸馏；其余情况（含失败）的打点保留，与 dreamMinIntervalMinutes 一致。
@@ -430,7 +528,7 @@ export function createSummarizer(ctx, service, config) {
     // Return the summarization promise so awaiters observe the writes; the
     // catch keeps listener dispatch from rejecting. Dispose-initiated aborts
     // and external AbortErrors are silent.
-    return summarize(session).catch((error) => {
+    return summarize(session, event).catch((error) => {
       if (disposed || error?.name === "AbortError") return;
       ctx.logger?.warn?.(`dsh-mneme: summarization failed: ${String(error)}`);
     });
@@ -444,6 +542,7 @@ export function createSummarizer(ctx, service, config) {
       for (const controller of inFlight.values()) controller.abort();
       inFlight.clear();
       lastRunAt.clear();
+      lastDistilledSeq.clear();
     }
   };
 }

@@ -41,11 +41,13 @@ function setup(over = {}, opts = {}) {
 }
 
 // A realistic direct human prompt event (source.kind === "user").
-function userMessage(text) {
-  return {
+function userMessage(text, seq) {
+  const event = {
     type: "user/message",
     data: { source: { kind: "user" }, content: [{ type: "text", text }] }
   };
+  if (seq !== undefined) event.seq = seq;
+  return event;
 }
 
 test("parseSummaryJson extracts valid entries and skips malformed ones", () => {
@@ -111,6 +113,61 @@ test("reads events from snapshotEvents() when Session.events is absent", async (
   assert.equal(store.count(), 2);
 });
 
+test("does not call the LLM when no event was added after the last successful seq", async () => {
+  const { events, calls } = setup({ distillRateLimitIntervalMs: 0 });
+  const handler = events.find((e) => e.name === "session/event").fn;
+  const transcript = [userMessage("首轮", 1), { seq: 2, type: "turn/end" }];
+  const ranges = [];
+  const session = {
+    id: "s-noop",
+    requestHeader: () => ({ config: { provider: "deepseek", model: "deepseek-chat" } }),
+    snapshotEvents(fromSeq, toSeq) {
+      ranges.push([fromSeq, toSeq]);
+      return transcript;
+    }
+  };
+
+  await handler(session, { seq: 2, type: "turn/end" });
+  await handler(session, { seq: 2, type: "turn/end" });
+
+  assert.equal(calls.length, 1, "a successful window must not be distilled twice");
+  assert.equal(ranges[1][0], 2, "the successful event seq is passed as the next snapshot lower bound");
+});
+
+test("distills only new seq events and keeps the recent tail when a window exceeds distillMaxChars", async () => {
+  const { events, calls } = setup(
+    { distillMaxChars: 80, distillRateLimitIntervalMs: 0 },
+    { stream: streamOf([]) }
+  );
+  const handler = events.find((e) => e.name === "session/event").fn;
+  const transcript = [
+    userMessage(`OLD_BEGINNING ${"x".repeat(160)} OLD_RECENT`, 1),
+    { seq: 2, type: "assistant/message", data: { message: { content: [{ type: "text", text: "旧回复" }] } } },
+    { seq: 3, type: "turn/end" }
+  ];
+  const session = {
+    id: "s-incremental",
+    requestHeader: () => ({ config: { provider: "deepseek", model: "deepseek-chat" } }),
+    snapshotEvents: () => transcript
+  };
+
+  await handler(session, { seq: 3, type: "turn/end" });
+  const firstInput = calls[0].messages.find((message) => message.role === "user").content[0].text;
+
+  transcript.push(
+    userMessage(`NEW_BEGINNING ${"y".repeat(160)} NEW_RECENT`, 4),
+    { seq: 5, type: "assistant/message", data: { message: { content: [{ type: "text", text: "新回复" }] } } },
+    { seq: 6, type: "turn/end" }
+  );
+  await handler(session, { seq: 6, type: "turn/end" });
+  const secondInput = calls[1].messages.find((message) => message.role === "user").content[0].text;
+
+  assert.notEqual(firstInput, secondInput, "successive distills must receive different windows");
+  assert.ok(secondInput.includes("NEW_RECENT"), "the newest event content remains in the bounded window");
+  assert.ok(!secondInput.includes("OLD_BEGINNING"), "the second window must not restart at the session beginning");
+  assert.ok(!secondInput.includes("OLD_RECENT"), "the previous successful window must not be repeated");
+});
+
 test("dispose unsubscribes and stops later turn/end events from summarizing", async () => {
   const { events, summarizer, calls } = setup();
   const handler = events.find((e) => e.name === "session/event").fn;
@@ -151,13 +208,20 @@ test("excludes plugin-injected user/message events from summarization input", as
   assert.equal(store.count(), 2);
 });
 
-test("aborted finish does not store entries", async () => {
-  const { events, store, calls } = setup({}, {
+test("aborted finish does not store entries and leaves the seq window retryable", async () => {
+  let attempt = 0;
+  const { events, store, calls } = setup({ distillRateLimitIntervalMs: 0 }, {
     stream() {
+      attempt++;
       return (async function* () {
         yield { type: "block-start", block: { type: "text" } };
-        yield { type: "text-delta", delta: "[]" };
-        yield { type: "finish", kind: "aborted" };
+        if (attempt === 1) {
+          yield { type: "text-delta", delta: "[]" };
+          yield { type: "finish", kind: "aborted" };
+          return;
+        }
+        yield { type: "text-delta", delta: JSON.stringify([{ type: "history", title: "重试", content: "保留原窗口", importance: 3 }]) };
+        yield { type: "finish", kind: "ok" };
       })();
     }
   });
@@ -165,11 +229,109 @@ test("aborted finish does not store entries", async () => {
   const session = {
     id: "s3",
     requestHeader: () => ({ config: { provider: "deepseek", model: "deepseek-chat" } }),
-    events: [userMessage("继续"), { seq: 2, type: "turn/end" }]
+    events: [userMessage("继续", 1), { seq: 2, type: "turn/end" }]
   };
   await handler(session, { seq: 2, type: "turn/end" });
   assert.equal(calls.length, 1); // the stream was actually reached
   assert.equal(store.count(), 0);
+  await handler(session, { seq: 2, type: "turn/end" });
+  assert.equal(calls.length, 2, "an aborted window must be retried instead of being marked consumed");
+  assert.equal(store.count(), 1);
+});
+
+test("a stream failure leaves the seq window retryable", async () => {
+  let attempt = 0;
+  const { events, store, calls } = setup({ distillRateLimitIntervalMs: 0 }, {
+    stream() {
+      attempt++;
+      if (attempt === 1) {
+        return (async function* () {
+          throw new Error("temporary stream failure");
+        })();
+      }
+      return streamOf([{ type: "history", title: "重试成功", content: "失败窗口未丢失", importance: 3 }])();
+    }
+  });
+  const handler = events.find((e) => e.name === "session/event").fn;
+  const session = {
+    id: "s-stream-failure",
+    requestHeader: () => ({ config: { provider: "deepseek", model: "deepseek-chat" } }),
+    events: [userMessage("保留失败窗口", 1), { seq: 2, type: "turn/end" }]
+  };
+
+  await handler(session, { seq: 2, type: "turn/end" });
+  assert.equal(calls.length, 1);
+  assert.equal(store.count(), 0);
+  await handler(session, { seq: 2, type: "turn/end" });
+  assert.equal(calls.length, 2, "a failed stream must be retried even without new events");
+  assert.equal(store.count(), 1);
+});
+
+test("invalid summary JSON leaves the seq window retryable", async () => {
+  let attempt = 0;
+  const { events, store, calls } = setup({ distillRateLimitIntervalMs: 0 }, {
+    stream() {
+      attempt++;
+      const output = attempt === 1 ? "not a JSON array" : "[]";
+      return (async function* () {
+        yield { type: "block-start", block: { type: "text" } };
+        yield { type: "text-delta", delta: output };
+        yield { type: "finish", kind: "ok" };
+      })();
+    }
+  });
+  const handler = events.find((e) => e.name === "session/event").fn;
+  const session = {
+    id: "s-parse-failure",
+    requestHeader: () => ({ config: { provider: "deepseek", model: "deepseek-chat" } }),
+    events: [userMessage("保留解析窗口", 1), { seq: 2, type: "turn/end" }]
+  };
+
+  await handler(session, { seq: 2, type: "turn/end" });
+  await handler(session, { seq: 2, type: "turn/end" });
+  assert.equal(calls.length, 2, "a parse failure must not advance the seq cursor");
+  assert.equal(store.count(), 0, "the valid empty retry remains a no-op");
+});
+
+test("rolls back partial memory writes so retrying a failed window does not duplicate entries", async () => {
+  const { events, store, service, calls } = setup(
+    { distillRateLimitIntervalMs: 0 },
+    {
+      stream: streamOf([
+        { type: "history", title: "第一条", content: "第一条内容", importance: 3 },
+        { type: "decision", title: "第二条", content: "第二条内容", importance: 4 }
+      ])
+    }
+  );
+  const originalSave = service.saveWithDedupe.bind(service);
+  let failOnSecondEntry = true;
+  service.saveWithDedupe = (memory) => {
+    const result = originalSave(memory);
+    if (failOnSecondEntry && memory.title === "第二条") {
+      failOnSecondEntry = false;
+      throw new Error("simulated memory write failure");
+    }
+    return result;
+  };
+  const handler = events.find((e) => e.name === "session/event").fn;
+  const session = {
+    id: "s-partial-write",
+    requestHeader: () => ({ config: { provider: "deepseek", model: "deepseek-chat" } }),
+    events: [userMessage("不要丢失这个窗口", 1), { seq: 2, type: "turn/end" }]
+  };
+
+  await handler(session, { seq: 2, type: "turn/end" });
+  assert.equal(calls.length, 1);
+  assert.equal(store.count(), 0, "a failed write transaction must leave no partial memory");
+
+  await handler(session, { seq: 2, type: "turn/end" });
+  assert.equal(calls.length, 2, "the failed seq window must be retried");
+  assert.equal(store.count(), 2);
+  assert.equal(store.all().find((memory) => memory.title === "第一条")?.content, "第一条内容");
+
+  await handler(session, { seq: 2, type: "turn/end" });
+  assert.equal(calls.length, 2, "a successfully retried window must not be distilled again");
+  assert.equal(store.count(), 2);
 });
 
 test("uses summarizeProvider/summarizeModel config override when set", async () => {
@@ -294,6 +456,27 @@ test("distills full transcript (tool calls, results, code output) with atomic-me
   assert.ok(calls[0].messages[0].content[0].text.includes("原子记忆"));
 });
 
+test("keeps prefix trimming for tool arguments and tool results", async () => {
+  const { events, calls } = setup({ distillRateLimitIntervalMs: 0 });
+  const handler = events.find((e) => e.name === "session/event").fn;
+  const session = {
+    id: "s-trim",
+    requestHeader: () => ({ config: { provider: "deepseek", model: "deepseek-chat" } }),
+    events: [
+      userMessage("检查截断", 1),
+      { seq: 2, type: "tool/call", data: { name: "Bash", arguments: `ARG_START ${"a".repeat(350)} ARG_END` } },
+      { seq: 3, type: "tool/result", data: { ok: true, output: `OUT_START ${"b".repeat(550)} OUT_END` } },
+      { seq: 4, type: "turn/end" }
+    ]
+  };
+  await handler(session, { seq: 4, type: "turn/end" });
+  const transcript = JSON.stringify(calls[0].messages);
+  assert.ok(transcript.includes("ARG_START"));
+  assert.ok(!transcript.includes("ARG_END"), "tool arguments keep their existing prefix trim");
+  assert.ok(transcript.includes("OUT_START"));
+  assert.ok(!transcript.includes("OUT_END"), "tool results keep their existing prefix trim");
+});
+
 test("distill excludes private assistant reasoning blocks from the transcript", async () => {
   const { events, calls } = setup();
   const handler = events.find((e) => e.name === "session/event").fn;
@@ -388,12 +571,13 @@ test("issue#127: min-interval gate suppresses the second turn/end and audits it 
   );
 });
 
-test("issue#127: min-interval 0 keeps the historical every-turn behavior", async () => {
+test("issue#127: min-interval 0 still distills every new event window", async () => {
   const { events, calls } = setup({ summarizeMinIntervalMinutes: 0 });
   const handler = events.find((e) => e.name === "session/event").fn;
   const session = sessionFor("t2");
   await handler(session, { seq: 2, type: "turn/end" });
-  await handler(session, { seq: 3, type: "turn/end" });
+  session.events.push(userMessage("第二轮", 3), { seq: 4, type: "turn/end" });
+  await handler(session, { seq: 4, type: "turn/end" });
   assert.equal(calls.length, 2, "0 = no gate (zero behavior change)");
 });
 
@@ -546,7 +730,8 @@ test("issue#127: an aborted run rolls the interval claim back so the next turn i
   await handler(session, { seq: 2, type: "turn/end" }); // T1：成功，占用间隔
   assert.equal(call, 1, "the first turn distills");
   await new Promise((r) => setTimeout(r, 700)); // 越过 600ms 间隔窗
-  await handler(session, { seq: 3, type: "turn/end" }); // T2：aborted → 回滚到 T1
+  session.events.push(userMessage("第二轮", 3), { seq: 4, type: "turn/end" });
+  await handler(session, { seq: 4, type: "turn/end" }); // T2：aborted → 回滚到 T1
   assert.equal(call, 2, "the aborted turn still reached the LLM call");
   await handler(session, { seq: 4, type: "turn/end" }); // 立刻再发：只有回滚到 T1 才会被接纳
   assert.equal(call, 3, "the aborted run did not consume the interval window");
