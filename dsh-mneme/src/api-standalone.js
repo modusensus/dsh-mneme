@@ -4,6 +4,12 @@
 // those routes but with mandatory Bearer-token auth on everything except
 // GET /health, so the store can be exposed safely on loopback.
 //
+// #181 (MCP stdio server, bin/dsh-mneme-mcp.mjs) rides on these routes as its
+// data plane: the six-tool surface (memory_save/search/list/get/update/delete)
+// is fully served here — PUT /memories/:id, the save passthrough fields
+// (sensitivity / occurred_at / explicit scope) and the list/search archived +
+// occurred-window filters exist for that parity, with tool-identical semantics.
+//
 // Security: the default bind host is 127.0.0.1. Pointing externalApiHost at a
 // non-loopback address exposes the whole memory store to the network — that is
 // the operator's explicit responsibility (documented in README).
@@ -176,13 +182,19 @@ export function createStandaloneApi({ service, store, config = {}, logger, setti
           ? Number(minRaw)
           : undefined;
         const source = url.searchParams.get("source") || undefined;
-        const items = service.toApiList(service.list({ type, limit, offset, order, minImportance, source }));
+        // include_archived + occurred 时间窗：与 memory_list 工具同口径（工具
+        // 面六件套经 8790 全量可用，#181）；缺省行为与既有调用方逐字节一致。
+        const includeArchived = url.searchParams.get("include_archived") === "true";
+        const occurredFrom = url.searchParams.get("occurred_from") ?? undefined;
+        const occurredTo = url.searchParams.get("occurred_to") ?? undefined;
+        const listFilters = { includeArchived, ...(occurredFrom ? { occurredFrom } : {}), ...(occurredTo ? { occurredTo } : {}) };
+        const items = service.toApiList(service.list({ type, limit, offset, order, minImportance, source, ...listFilters }));
         // Total honors the same filters so pager math stays correct.
-        sendJson(res, 200, { items, total: service.count(type, { minImportance, source }) });
+        sendJson(res, 200, { items, total: service.count(type, { minImportance, source, ...listFilters }) });
         return;
       }
 
-      // --- GET/DELETE /memories/:id ------------------------------------------
+      // --- GET/PUT/DELETE /memories/:id --------------------------------------
       const idMatch = pathname.match(/^\/memories\/([^/]+)$/);
       if (idMatch) {
         let id = idMatch[1];
@@ -204,6 +216,98 @@ export function createStandaloneApi({ service, store, config = {}, logger, setti
           }
           service.remove(id);
           sendJson(res, 200, { ok: true });
+          return;
+        }
+        // --- PUT: field patch（memory_update 工具的外部通道，#181）。字段校验
+        // 与内部 /api/dsh-mneme/update 同风格：字段出现就必须合法，宁 400 不静默
+        // 纠正；content 改写按 human_override 入档；scope 修正归一化在 service
+        // 层做（null=放宽到全局，字符串=收窄/改标），审计 actor 记 "tool"。
+        if (req.method === "PUT") {
+          void readBody(req).then((text) => {
+            let body;
+            try {
+              body = JSON.parse(text || "{}");
+            } catch {
+              sendJson(res, 400, { error: "invalid-json" });
+              return;
+            }
+            if (body === null || typeof body !== "object" || Array.isArray(body)) {
+              sendJson(res, 400, { error: "invalid-body" });
+              return;
+            }
+            const patch = {};
+            if (body.title !== undefined) {
+              if (typeof body.title !== "string" || !body.title.trim()) {
+                sendJson(res, 400, { error: "invalid-title" });
+                return;
+              }
+              patch.title = body.title.trim();
+            }
+            if (body.content !== undefined) {
+              if (typeof body.content !== "string" || !body.content.trim()) {
+                sendJson(res, 400, { error: "invalid-content" });
+                return;
+              }
+              patch.content = body.content.trim();
+            }
+            if (body.type !== undefined) {
+              if (!TYPES.has(body.type)) {
+                sendJson(res, 400, { error: "invalid-type" });
+                return;
+              }
+              patch.type = body.type;
+            }
+            if (body.importance !== undefined) {
+              if (!Number.isInteger(body.importance) || body.importance < 1 || body.importance > 5) {
+                sendJson(res, 400, { error: "invalid-importance" });
+                return;
+              }
+              patch.importance = body.importance;
+            }
+            if (body.tags !== undefined) {
+              if (!Array.isArray(body.tags) || !body.tags.every((t) => typeof t === "string")) {
+                sendJson(res, 400, { error: "invalid-tags" });
+                return;
+              }
+              patch.tags = body.tags;
+            }
+            if (body.agent_scope !== undefined && body.agent_scope !== null && typeof body.agent_scope !== "string") {
+              sendJson(res, 400, { error: "invalid-agent-scope" });
+              return;
+            }
+            if (body.workspace_scope !== undefined && body.workspace_scope !== null && typeof body.workspace_scope !== "string") {
+              sendJson(res, 400, { error: "invalid-workspace-scope" });
+              return;
+            }
+            if (body.agent_scope !== undefined) patch.agent_scope = body.agent_scope;
+            if (body.workspace_scope !== undefined) patch.workspace_scope = body.workspace_scope;
+            if (body.reason !== undefined && (typeof body.reason !== "string" || (typeof body.reason === "string" && !body.reason.trim()))) {
+              sendJson(res, 400, { error: "invalid-reason" });
+              return;
+            }
+            if (Object.keys(patch).length === 0) {
+              sendJson(res, 400, { error: "no-fields" });
+              return;
+            }
+            const existing = service.getById(id);
+            if (!existing) {
+              sendJson(res, 404, { error: "not-found" });
+              return;
+            }
+            // 内容被改写时旧版本先入档（human_override），与内部面板写路径一致。
+            if (patch.content !== undefined && patch.content !== existing.content) {
+              const history = Array.isArray(existing.content_history) ? existing.content_history : [];
+              patch.content_history = [
+                { content: existing.content ?? "", source: "human_override", updated_at: new Date().toISOString() },
+                ...history
+              ].slice(0, 20);
+            }
+            service.update(id, patch, {
+              actor: "tool",
+              ...(typeof body.reason === "string" && body.reason.trim() ? { query: body.reason.trim() } : {})
+            });
+            sendJson(res, 200, { memory: service.toApiList([service.getById(id)])[0] });
+          });
           return;
         }
         sendJson(res, 404, { error: "not-found" });
@@ -242,6 +346,15 @@ export function createStandaloneApi({ service, store, config = {}, logger, setti
             sendJson(res, 400, { error: "tags-must-be-an-array" });
             return;
           }
+          // memory_save 工具的其余可选字段（#181）：sensitivity / occurred_at /
+          // 显式 scope。scope 仅收显式声明（standalone API 无会话上下文，自动
+          // 标注无从解析，语义与工具的显式参数一致）；形状不对宁 400 不静默丢。
+          for (const key of ["sensitivity", "occurred_at", "agent_scope", "workspace_scope"]) {
+            if (body[key] !== undefined && (typeof body[key] !== "string" || !body[key].trim())) {
+              sendJson(res, 400, { error: `invalid-${key.replace(/_/g, "-")}` });
+              return;
+            }
+          }
           try {
             const { action, memory } = service.saveWithDedupe({
               type: body.type,
@@ -249,9 +362,15 @@ export function createStandaloneApi({ service, store, config = {}, logger, setti
               content: body.content,
               importance: body.importance,
               tags: body.tags,
-              source: body.source
+              source: body.source,
+              ...(body.sensitivity !== undefined ? { sensitivity: body.sensitivity } : {}),
+              ...(body.occurred_at !== undefined ? { occurred_at: body.occurred_at } : {}),
+              ...(body.agent_scope !== undefined ? { agent_scope: body.agent_scope, agent_scope_source: "explicit" } : {}),
+              ...(body.workspace_scope !== undefined ? { workspace_scope: body.workspace_scope, workspace_scope_source: "explicit" } : {})
             });
-            sendJson(res, action === "created" ? 201 : 200, service.toApiList([memory])[0]);
+            // action 随行透出（created/merged）：memory_save 工具语义对齐所需，
+            // 附加键对既有消费方（CLI add 等）向后兼容。
+            sendJson(res, action === "created" ? 201 : 200, { ...service.toApiList([memory])[0], action });
           } catch (error) {
             logger?.warn?.(`[dsh-mneme] standalone API save failed: ${String(error)}`);
             sendJson(res, 500, { error: "internal" });
@@ -266,6 +385,8 @@ export function createStandaloneApi({ service, store, config = {}, logger, setti
         const limit = Number(url.searchParams.get("topK") ?? url.searchParams.get("limit") ?? 20);
         const mode = url.searchParams.get("mode") ?? "auto";
         const rerank = url.searchParams.get("rerank") !== "false";
+        const occurredFrom = url.searchParams.get("occurred_from") ?? null;
+        const occurredTo = url.searchParams.get("occurred_to") ?? null;
         const query = q.trim();
         if (!query) {
           sendJson(res, 200, { items: [], mode: "keyword" });
@@ -273,7 +394,12 @@ export function createStandaloneApi({ service, store, config = {}, logger, setti
         }
         // Any vector/rerank failure degrades to keyword inside searchMemories.
         void Promise.resolve(
-          service.searchMemories(query, { mode, topK: limit, useRerank: rerank })
+          service.searchMemories(query, {
+            mode,
+            topK: limit,
+            useRerank: rerank,
+            ...(occurredFrom !== null || occurredTo !== null ? { occurredFrom, occurredTo } : {})
+          })
         ).then((rows) => {
           const used = rows.some((m) => m.vector === true) ? "vector" : "keyword";
           sendJson(res, 200, { items: service.toApiList(rows), mode: used });

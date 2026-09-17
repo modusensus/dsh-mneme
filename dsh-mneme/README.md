@@ -497,11 +497,12 @@ dsh web
 | `GET` | `/status` | 版本、记忆统计、实体数、运行时长 |
 | `GET` | `/profile` | 用户画像，返回 `{profile:"..."}`；未设置时为空字符串 |
 | `GET` | `/rules` | 行为规则列表，返回 `{rules:[...]}`；未设置时为空数组 |
-| `GET` | `/memories?limit&offset&type&minImportance&source&order=chrono` | 分页列出记忆 |
+| `GET` | `/memories?limit&offset&type&minImportance&source&order=chrono&include_archived&occurred_from&occurred_to` | 分页列出记忆（`include_archived=true` 含归档；occurred 时间窗按 `occurred_at` 回退 `created_at`） |
 | `GET` | `/memories/:id` | 单条记忆 |
-| `POST` | `/memories` | 新增记忆 `{type,title,content,importance?,tags?,source?}` |
+| `POST` | `/memories` | 新增记忆 `{type,title,content,importance?,tags?,source?,sensitivity?,occurred_at?,agent_scope?,workspace_scope?}`；响应含 `action: created\|merged` |
+| `PUT` | `/memories/:id` | 局部更新 `{title?,content?,type?,importance?,tags?,reason?,agent_scope?,workspace_scope?}`；content 改写按 human_override 入档 |
 | `DELETE` | `/memories/:id` | 删除记忆 |
-| `GET` | `/search?q&mode=keyword\|vector\|auto&topK` | 搜索（关键词 / 向量 / 自动） |
+| `GET` | `/search?q&mode=keyword\|vector\|auto&topK&occurred_from&occurred_to` | 搜索（关键词 / 向量 / 自动） |
 
 ### curl 示例
 
@@ -549,6 +550,29 @@ dsh-mneme config show                                # 查看当前配置（toke
 ```
 
 > 所有读取/写入命令支持 `--json` 输出原始 JSON；`config path` 打印配置文件路径（`~/.dsh-mneme/cli.json`）。
+
+### MCP Server（任意 MCP 客户端接入）
+
+插件自带 stdio MCP server（`bin/dsh-mneme-mcp.mjs`，零依赖，随 npm 包发布，bin 名 `dsh-mneme-mcp`）。任何支持 Model Context Protocol 的客户端（Claude Code、Cursor 等）挂载后即可获得与 DSH 内一致的记忆工具六件套：`memory_save` / `memory_search` / `memory_list` / `memory_get` / `memory_update` / `memory_delete`——工具名、参数与去重合并、重要性等语义与 DSH 内工具对齐（测试锁漂移）。
+
+数据面走上面的**独立外部 API**（8790，Bearer）：写入并发由 DSH 单点负责；DSH 未运行（外部 API 未启动）时 MCP 侧调用会报连接失败。scope 语义注意：外部 API 无会话上下文，`memory_save` 不做自动标注，只认显式 `agent_scope` / `workspace_scope` 声明。
+
+配置优先级沿用 CLI 约定：环境变量 `DSH_MNEME_URL` / `DSH_MNEME_TOKEN` > `~/.dsh-mneme/cli.json` > 默认 `http://127.0.0.1:8790`。
+
+Claude Code 挂载示例（项目根 `.mcp.json`；token 在面板「设置 → 外部访问 API」查看）：
+
+```json
+{
+  "mcpServers": {
+    "dsh-mneme": {
+      "command": "dsh-mneme-mcp",
+      "env": { "DSH_MNEME_TOKEN": "<你的token>" }
+    }
+  }
+}
+```
+
+未全局安装 npm 包时，把 `command` 换成 `npx`、加 `args: ["-p", "@modusensus/dsh-mneme", "dsh-mneme-mcp"]` 即可。
 
 ## 🏗️ 架构
 

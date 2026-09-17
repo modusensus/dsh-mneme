@@ -357,3 +357,162 @@ test("persisted panel_mode=light wins over a bundle config that did not ask for 
     store.close();
   }
 });
+
+// --- #181：MCP 六件套的 API 面（PUT / save 透传 / archived 与 occurred 窗口）---
+
+test("PUT /memories/:id patches fields and returns the DTO (unauthorized without token)", async () => {
+  const { base, auth, service, close } = await setup();
+  try {
+    const created = await (await fetch(`${base}/memories`, {
+      method: "POST",
+      headers: { ...auth, "content-type": "application/json" },
+      body: JSON.stringify({ type: "preference", title: "编辑器", content: "用 vim", importance: 3 })
+    })).json();
+
+    const noAuth = await fetch(`${base}/memories/${created.id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: "用 nvim" })
+    });
+    assert.equal(noAuth.status, 401, "PUT requires the Bearer token");
+
+    const put = await fetch(`${base}/memories/${created.id}`, {
+      method: "PUT",
+      headers: { ...auth, "content-type": "application/json" },
+      body: JSON.stringify({ content: "用 nvim", importance: 4, tags: ["工具"], reason: "用户改用 nvim 了" })
+    });
+    assert.equal(put.status, 200);
+    const { memory } = await put.json();
+    assert.equal(memory.content, "用 nvim");
+    assert.equal(memory.importance, 4);
+    assert.deepEqual(memory.tags, ["工具"]);
+
+    // content 改写按 human_override 入档（与内部面板写路径一致）。
+    const raw = service.getById(created.id);
+    assert.equal(raw.content_history?.[0]?.source, "human_override");
+    assert.equal(raw.content_history?.[0]?.content, "用 vim");
+  } finally {
+    close();
+  }
+});
+
+test("PUT /memories/:id validation: bad fields → 400, empty patch → 400, missing id → 404", async () => {
+  const { base, auth, close } = await setup();
+  try {
+    const put = (body, id = "whatever") => fetch(`${base}/memories/${id}`, {
+      method: "PUT",
+      headers: { ...auth, "content-type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    assert.equal((await put({ title: "" })).status, 400);
+    assert.equal((await put({ importance: 9 })).status, 400);
+    assert.equal((await put({ tags: "x" })).status, 400);
+    assert.equal((await put({ type: "nope" })).status, 400);
+    assert.equal((await put({})).status, 400, "empty patch is no-fields");
+    assert.equal((await put({ content: "x" }, "missing-id")).status, 404);
+    assert.equal((await put({ agent_scope: 5 })).status, 400);
+  } finally {
+    close();
+  }
+});
+
+test("POST /memories passes through sensitivity/occurred_at/scope and returns action", async () => {
+  const { base, auth, close } = await setup();
+  try {
+    const post = await fetch(`${base}/memories`, {
+      method: "POST",
+      headers: { ...auth, "content-type": "application/json" },
+      body: JSON.stringify({
+        type: "decision",
+        title: "迁移",
+        content: "迁到 sqlite 分支",
+        sensitivity: "personal",
+        occurred_at: "2026-01-15T10:00:00Z",
+        agent_scope: "global"
+      })
+    });
+    assert.equal(post.status, 201);
+    const created = await post.json();
+    assert.equal(created.action, "created", "action rides along for tool parity");
+    assert.equal(created.sensitivity, "personal");
+    // store 把 ISO 瞬时归一化成完整毫秒形式（2026-01-15T10:00:00Z → …T10:00:00.000Z）。
+    assert.match(created.occurred_at, /^2026-01-15T10:00:00/);
+    assert.equal(created.agent_scope, "global");
+    assert.equal(created.agent_scope_source, "explicit");
+
+    // 合并判据=同 type + 同标题 + 同 sensitivity + 同作用域三元（0.8.0 起去重键
+    // 含 scope，跨作用域同标题本就分开存）：补齐 agent_scope 才 merged。
+    const merged = await (await fetch(`${base}/memories`, {
+      method: "POST",
+      headers: { ...auth, "content-type": "application/json" },
+      body: JSON.stringify({ type: "decision", title: "迁移", content: "迁到 sqlite 分支（更新）", sensitivity: "personal", agent_scope: "global" })
+    })).json();
+    assert.equal(merged.action, "merged", "same dedupe key reports merged");
+
+    const separate = await (await fetch(`${base}/memories`, {
+      method: "POST",
+      headers: { ...auth, "content-type": "application/json" },
+      body: JSON.stringify({ type: "decision", title: "迁移", content: "无标注版本" })
+    })).json();
+    assert.equal(separate.action, "created", "no sensitivity/scope → different dedupe key");
+
+    const bad = await fetch(`${base}/memories`, {
+      method: "POST",
+      headers: { ...auth, "content-type": "application/json" },
+      body: JSON.stringify({ type: "decision", title: "x", content: "y", sensitivity: 5 })
+    });
+    assert.equal(bad.status, 400);
+    assert.equal((await bad.json()).error, "invalid-sensitivity");
+  } finally {
+    close();
+  }
+});
+
+test("GET /memories supports include_archived and the occurred_at window", async () => {
+  const { base, auth, service, close } = await setup();
+  try {
+    const save = (title, occurredAt) => fetch(`${base}/memories`, {
+      method: "POST",
+      headers: { ...auth, "content-type": "application/json" },
+      body: JSON.stringify({ type: "history", title, content: `body of ${title}`, ...(occurredAt ? { occurred_at: occurredAt } : {}) })
+    });
+    const january = await (await save("一月的事", "2026-01-15T10:00:00Z")).json();
+    await save("二月的事", "2026-02-15T10:00:00Z");
+    await save("无时间戳的事", null);
+
+    const february = await (await fetch(`${base}/memories?occurred_from=2026-02-01`, { headers: auth })).json();
+    // 「无时间戳的事」按 occurred_at→created_at 回退（写入日 2026-09），落在窗口内。
+    assert.deepEqual(february.items.map((m) => m.title).sort(), ["二月的事", "无时间戳的事"]);
+    assert.equal(february.total, 2, "total honors the same window");
+
+    const upToJanuary = await (await fetch(`${base}/memories?occurred_to=2026-01-31`, { headers: auth })).json();
+    assert.deepEqual(upToJanuary.items.map((m) => m.title), ["一月的事"]);
+
+    service.setArchived(january.id, true);
+    const active = await (await fetch(`${base}/memories`, { headers: auth })).json();
+    assert.equal(active.total, 2, "archived rows stay hidden by default");
+    const withArchived = await (await fetch(`${base}/memories?include_archived=true`, { headers: auth })).json();
+    assert.equal(withArchived.total, 3, "include_archived=true surfaces archived rows");
+  } finally {
+    close();
+  }
+});
+
+test("GET /search honors the occurred_at window", async () => {
+  const { base, auth, close } = await setup();
+  try {
+    const save = (title, occurredAt) => fetch(`${base}/memories`, {
+      method: "POST",
+      headers: { ...auth, "content-type": "application/json" },
+      body: JSON.stringify({ type: "history", title, content: `记忆星球 ${title}`, ...(occurredAt ? { occurred_at: occurredAt } : {}) })
+    });
+    await save("旧事", "2026-01-15T10:00:00Z");
+    await save("新事", "2026-03-15T10:00:00Z");
+
+    const hit = await (await fetch(`${base}/search?q=${encodeURIComponent("记忆星球")}&occurred_from=2026-03-01`, { headers: auth })).json();
+    assert.equal(hit.items.length, 1);
+    assert.equal(hit.items[0].title, "新事");
+  } finally {
+    close();
+  }
+});
