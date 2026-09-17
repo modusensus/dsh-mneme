@@ -441,7 +441,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
   function entityRecall(q, limit) {
     if (config?.entityRecallEnabled !== true) return [];
     try {
-      const entities = store.findEntitiesMentionedIn(q, { limit: 5 });
+      const entities = store.findEntitiesMentionedIn(q);
       if (!entities.length) return [];
       const linked = store.getLinkedMemoryIds(entities.map((e) => e.id));
       if (!linked.size) return [];
@@ -535,7 +535,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
    * Returns { merged, signals }, where signals is Map<id, {keyword, vector,
    * bm25}> so searchMemories can decorate rows when signalTransparency is on.
    */
-  function fuseRecall({ keyword, vector, bm25, entity = [], lim, mode, wv, wk, wb, we = 0 }) {
+  function fuseRecall({ keyword, vector, bm25, entity, lim, mode, wv, wk, wb, we }) {
     const recipe = config?.recallFusion ?? "blend";
 
     // Per-source scores are recorded for every recipe so signalTransparency
@@ -784,16 +784,14 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     // mode stays text-only per the mode contract, so the axis is skipped
     // there even when enabled.
     const entity = mode === "keyword" ? [] : entityRecall(q, lim);
-    // Entity blend weight: a direct entity→memory link is stronger evidence
-    // than BM25 token scatter, so it edges out wb slightly — still a
-    // confirm/backfill signal, never the lead.
-    const we = 0.35;
+    // Entity axis shares BM25's backfill weight (we = wb) until #217 recall
+    // data justifies a distinct entity weight.
 
     // Hybrid blending weights from config when provided.
     const wv = config?.hybridSearchVectorWeight ?? DEFAULT_HYBRID_WEIGHTS.vector;
     const wk = config?.hybridSearchKeywordWeight ?? DEFAULT_HYBRID_WEIGHTS.keyword;
 
-    const { merged: fusedMerged, signals } = fuseRecall({ keyword, vector, bm25, entity, lim, mode, wv, wk, wb, we });
+    const { merged: fusedMerged, signals } = fuseRecall({ keyword, vector, bm25, entity, lim, mode, wv, wk, wb, we: wb });
     let merged = fusedMerged;
     // v0.8.0 A3（issue #17）：strictScope 硬过滤——他 scope 的候选直接出局
     // （区别于 A2 的降权保留可见）；未标注行与命中行保留。strict 与 A2 加权

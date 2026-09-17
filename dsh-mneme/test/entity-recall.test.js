@@ -80,8 +80,8 @@ test("blend/hybrid: attr tier scores we*1.0, relation tier we*0.9", async () => 
 
   const rows = await service.searchMemories("PostgreSQL 现状", { mode: "hybrid" });
   assert.deepEqual(rows.map((r) => r.id), [attrMem.id, relMem.id]);
-  assert.ok(Math.abs(rows[0].score - 0.35) < 1e-9);
-  assert.ok(Math.abs(rows[1].score - 0.315) < 1e-9);
+  assert.ok(Math.abs(rows[0].score - 0.3) < 1e-9);
+  assert.ok(Math.abs(rows[1].score - 0.27) < 1e-9);
 });
 
 test("archived memories are excluded from the entity axis", async () => {

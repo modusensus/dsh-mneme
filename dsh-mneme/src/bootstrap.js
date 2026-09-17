@@ -30,11 +30,11 @@ export class BootstrapError extends Error {
   }
 }
 
-/** 读文件前 limit 字符；失败（不存在/不可读）返回 null。 */
-function readHead(path, limit = READ_LIMIT) {
+/** 读文件前 READ_LIMIT 字符；失败（不存在/不可读）返回 null。 */
+function readHead(path) {
   try {
     const text = readFileSync(path, "utf8");
-    return text.length > limit ? text.slice(0, limit) : text;
+    return text.length > READ_LIMIT ? text.slice(0, READ_LIMIT) : text;
   } catch {
     return null;
   }
@@ -43,7 +43,7 @@ function readHead(path, limit = READ_LIMIT) {
 /** 顶层目录名（跳过依赖与构建产物，截 TOP_DIRS_MAX）。 */
 function topDirs(root) {
   try {
-    const SKIP = new Set(["node_modules", ".git", "dist", "build", "coverage", ".cache", ".v2c"]);
+    const SKIP = new Set(["node_modules", ".git", "dist", "build", "coverage", ".cache"]);
     return readdirSync(root, { withFileTypes: true })
       .filter((e) => e.isDirectory() && !SKIP.has(e.name))
       .map((e) => e.name)
