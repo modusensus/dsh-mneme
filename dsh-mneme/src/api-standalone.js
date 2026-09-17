@@ -16,6 +16,7 @@
 import { createServer } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { TYPES } from "./store.js";
+import { bootstrapFromDirectory } from "./bootstrap.js";
 
 const DEFAULT_PORT = 8790;
 const DEFAULT_HOST = "127.0.0.1";
@@ -393,6 +394,40 @@ export function createStandaloneApi({ service, store, config = {}, logger, setti
             logger?.warn?.(`[dsh-mneme] standalone API save failed: ${String(error)}`);
             sendJson(res, 500, { error: "internal" });
           }
+        });
+        return;
+      }
+
+      // --- POST /bootstrap: cold-start memories from repo files (#220) -------
+      // 显式收 dir（插件没有工作区根目录概念，不猜路径）；确定性解析零 LLM；
+      // 幂等骑 saveWithDedupe 的 (type, title, scope) 去重 + _overwrite 刷新。
+      if (req.method === "POST" && pathname === "/bootstrap") {
+        void readBody(req).then((text) => {
+          let body;
+          try {
+            body = JSON.parse(text || "{}");
+          } catch {
+            sendJson(res, 400, { error: "invalid-json" });
+            return;
+          }
+          if (body === null || typeof body !== "object" || Array.isArray(body)) {
+            sendJson(res, 400, { error: "invalid-body" });
+            return;
+          }
+          if (typeof body.dir !== "string" || !body.dir.trim()) {
+            sendJson(res, 400, { error: "missing-dir" });
+            return;
+          }
+          bootstrapFromDirectory({ service, dir: body.dir, logger })
+            .then((summary) => sendJson(res, 200, summary))
+            .catch((error) => {
+              if (error?.code) {
+                sendJson(res, 400, { error: error.code });
+                return;
+              }
+              logger?.warn?.(`[dsh-mneme] standalone API bootstrap failed: ${String(error)}`);
+              sendJson(res, 500, { error: "internal" });
+            });
         });
         return;
       }
