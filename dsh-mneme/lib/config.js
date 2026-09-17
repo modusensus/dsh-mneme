@@ -42,6 +42,10 @@ export const Config = z.object({
   // 轮次反复注入同一条（实测 15.5h 会话 86 次注入 93% 重复）。0 = 关闭（默认，
   // 保持既有行为）。会话边界自动重置：新会话从零开始。
   injectRotationTurns: z.natural().min(0).max(20).default(0),
+  // Issue #164①：注入单条正文截断上限可配（原硬编码 300）。截断时尾部带
+  // 提示：上限/原长/全文 memory_get 指引（BUDGET_EXCEEDED 原则——绝不静默）。
+  // 默认 300 = 与既有行为一致。
+  injectContentMaxChars: z.natural().min(60).max(4000).default(300),
   importanceThreshold: z.natural().min(1).max(5).default(3),
   // 编码记忆蒸馏（codingRetrospect，opt-in，默认关）。开启时，turn/end 蒸馏
   // 额外提取三类编码专属记忆：rejected_solution（被否决方案）/ pitfall（踩坑）/

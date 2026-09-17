@@ -65,6 +65,11 @@ export const STR = {
     zh: (type, verified, title, content) => `- [${type}] ${verified}${title}：${content}`,
     en: (type, verified, title, content) => `- [${type}] ${verified}${title}: ${content}`
   },
+  // Issue #164①：注入截断不静默——上限/原长/memory_get 全文指引。
+  truncatedHint: {
+    zh: (max, len, id) => `〔已截断：上限 ${max}，原 ${len} 字符；全文用 memory_get "${id}" 查看〕`,
+    en: (max, len, id) => `[truncated: limit ${max}, original ${len} chars; memory_get "${id}" for full text]`
+  },
   userSettingsHeader: {
     zh: "[用户设置] 来自 dsh-mneme 的用户画像与规则：",
     en: "[User settings] Profile and rules from dsh-mneme:"

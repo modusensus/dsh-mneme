@@ -135,20 +135,24 @@ export function createInjector(ctx, service, settings, config) {
   const resolveSessionScope = createScopeResolver({ ctx, config, logger: ctx.logger });
 
   // Bug6: bound the injected memory block. Each entry's content is truncated to
-  // MAX_CONTENT chars (trailing `…`); the whole block gets a MAX_BLOCK budget
-  // and an entry that would exceed it collapses to its title only, so a long
-  // memory can never push the injected context past a few thousand chars.
-  const MAX_CONTENT = 300;
-  const MAX_BLOCK = 1500;
+  // injectContentMaxChars chars (issue #164①: configurable, was a hardcoded
+  // 300); a truncated entry carries a tail hint (limit / original length /
+  // memory_get id) so the cut is never silent — BUDGET_EXCEEDED principle, the
+  // agent can always fetch the full text. The whole block gets a block budget
+  // (scales up with the per-entry cap so raising the cap is not defeated by a
+  // stale 1500) and an entry that would exceed it collapses to its title only.
+  const maxContent = config.injectContentMaxChars ?? 300;
+  const MAX_BLOCK = Math.max(1500, maxContent + 600);
 
   // Compressed injection (v0.5.0 2.1): a sleep-demoted row already carries its
   // summary in `content` with the original parked in `_full_content` — inject
   // the summary verbatim instead of re-truncating the (already short) text.
   // Regular long rows keep the hard truncate.
-  function injectMemory(m, maxLength = MAX_CONTENT) {
+  function injectMemory(m, maxLength = maxContent) {
     if (m?._full_content) return String(m.content ?? "");
     const text = String(m?.content ?? "");
-    return text.length <= maxLength ? text : `${text.slice(0, maxLength)}…`;
+    if (text.length <= maxLength) return text;
+    return `${text.slice(0, maxLength)}…${STR.truncatedHint[language](maxLength, text.length, m.id)}`;
   }
 
   // Prompt-variable brace escaping (issue #162, restored from v0.7.4 #40):

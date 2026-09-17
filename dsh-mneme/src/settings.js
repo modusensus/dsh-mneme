@@ -95,7 +95,9 @@ const FEATURE_FLAG_INT_RANGES = {
   summarizeMaxEntriesPerRun: [0, 50],
   summarizeDedupeWindowHours: [0, 168],
   // Issue #125：hybrid 候选量上限（0 = 复用 dreamMaxSnapshotSize）。
-  dreamCandidateMax: [0, 5000]
+  dreamCandidateMax: [0, 5000],
+  // Issue #164①：注入单条正文截断上限（默认 300 = 既有行为）。
+  injectContentMaxChars: [60, 4000]
 };
 // 浮点开关的闭区间（与 config.js 的 z.number().min().max() 对齐）。与整数开关
 // 分开：面板的整数控件要求 Number.isInteger，而余弦相似度阈值必须允许小数。
