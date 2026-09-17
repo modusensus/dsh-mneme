@@ -1140,10 +1140,21 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       ...(withEffort && effort ? { reasoningEffort: effort } : {}),
       messages: [
         { role: "system", content: [{ type: "text", text: STR.prompts.dreamSummary[language] }], source: { kind: "plugin", plugin: "dsh-mneme" } },
-        { role: "user", content: [{ type: "text", text: service.all().filter((m) => !m.archived && m.type !== "summary").map((m) => `- ${m.title}: ${m.content}`).join("\n") }], source: { kind: "plugin", plugin: "dsh-mneme" } }
+        { role: "user", content: [{ type: "text", text: summaryInputs.map((m) => `- ${m.title}: ${m.content}`).join("\n") }], source: { kind: "plugin", plugin: "dsh-mneme" } }
       ]
     }, reportUsage, (reason) => { summaryStreamFailure = describeStreamFailure(reason); }));
     };
+    // Resident status bar (#164 alignment): the overview is THE one resident
+    // narrative — summary tier 0, refreshed every run via _overwrite (supersede
+    // v1, content_history traceable). Its 口径 (what snapshot produced it) is
+    // stamped into the content so the standing answer is always auditable; the
+    // formal evidence column lands with the narrative-bars batch.
+    const summaryInputs = service.all().filter((m) => !m.archived && m.type !== "summary");
+    const summaryScope = STR.summaryScope[language](
+      summaryInputs.length,
+      runId.slice(0, 8),
+      new Date().toISOString().slice(0, 10)
+    );
     try {
       // Bug8: the summary call is audited too (operation dream_summarize).
       summaryText = await withEffortFallback(ctx, effort, () => runSummary(true), () => runSummary(false), () => summaryStreamFailure);
@@ -1156,8 +1167,9 @@ export function createDreamScheduler({ onRun, thresholdCount = 10, thresholdChar
       // Bug5 carve-out: the library overview is regenerated every run, so it
       // must REPLACE the previous overview (not append — that would grow the
       // summary unboundedly). `_overwrite` still archives the old overview into
-      // content_history before replacing it.
-      service.saveWithDedupe({ type: "summary", title: STR.summaryTitle[language], content: summaryText.trim(), importance: 5, source: "dream", _overwrite: true });
+      // content_history before replacing it. Content carries the snapshot-scope
+      // footer computed above — the resident bar states its own 口径.
+      service.saveWithDedupe({ type: "summary", title: STR.summaryTitle[language], content: `${summaryText.trim()}${summaryScope}`, importance: 5, source: "dream", _overwrite: true });
       summaryStored = true;
       // Re-embed the fresh summary so the index stays in sync with the store.
       if (semantic?.embedder && semantic?.vectorIndex) {

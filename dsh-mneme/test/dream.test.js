@@ -504,7 +504,10 @@ test("runDream stores summary and applies decisions", async () => {
   const summary = store.all().find((m) => m.type === "summary");
   assert.ok(summary, "summary created");
   assert.equal(summary.title, "记忆库总览");
-  assert.equal(summary.content, "记忆库总览摘要文本");
+  // 常驻状态条（#164 对齐）：叙述正文 + 快照口径脚注
+  assert.ok(summary.content.startsWith("记忆库总览摘要文本"));
+  assert.ok(summary.content.includes("〔口径：基于整理后"), "scope footer present");
+  assert.ok(summary.content.includes("条记忆快照"), "scope footer carries input count");
   store.close();
 });
 
