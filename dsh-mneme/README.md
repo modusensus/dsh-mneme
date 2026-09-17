@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/@modusensus/dsh-mneme?color=blue&label=npm)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Awesome](https://awesome-dsh-plugin.com/badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
-[![tests](https://img.shields.io/badge/tests-1061%20passed-success)](https://github.com/modusensus/dsh-mneme)
+[![tests](https://img.shields.io/badge/tests-1079%20passed-success)](https://github.com/modusensus/dsh-mneme)
 [![CI](https://img.shields.io/github/actions/workflow/status/modusensus/dsh-mneme/ci.yml)](https://github.com/modusensus/dsh-mneme/actions)
 [![node](https://img.shields.io/badge/node-22%2B-blue)](https://nodejs.org)
 [![npm downloads](https://img.shields.io/npm/dm/@modusensus/dsh-mneme?color=blue&label=downloads)](https://www.npmjs.com/package/@modusensus/dsh-mneme)
@@ -230,6 +230,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 |------|------|
 | **v0.8.1** | 归属显式声明与人工纠偏 + 插件版本自检：记忆归属三段式可控——per-dim 来源列 + save/update scope 参数 + 面板可编辑（#170 第 1 步，#171）；sleep 跨 scope 相似对停车进冲突队列人工裁决（第 2 步，#172）；`strictScope` 硬过滤只认显式声明、自动标注降为纯软加权（第 3 步，#173，4.3 已确认）；`GET /api/dsh-mneme/version-check` 只读路由 + 设置页偏差横幅（仅 outdated 渲染，registry 精确 host 白名单 + TTL 缓存 + 全失败静默，pnpm 钉子警示 + 市场收录延迟说明，#174 后续）；1026 测试全绿 |
 | **v0.8.2** | 生态与性能批次（社区贡献集中合入）：LLM 消息补 source 契约——严格 provider 下 dream/summarize/sleep/实体抽取不再序列化抛错（#189/#190）；memory_get 输出 schema 与共享 DTO 同源（#184/#186）；sleep 计时器撞 CD 重排 + 构造挂表（#187/#192）；单 logit 重排器恒 0.5 修复 + 镜像/量化接线（#188/#193）；连通性探测改发 user 消息（#197）；首轮注入 BM25 同步兜底——老偏好不再占满槽位（#198/#199）；autoDream 宽容路径闭环——coverage 不足降级 degraded + archive 类型护栏/批量上限 `dreamMaxArchivePerRun`（#104/#200/#201）；检索路径性能第一批——updated_at 索引 + all() 剪列 + 向量解析缓存（#202/#203，all() 231→51ms、searchVector ~140→16ms）；standalone API 补 profile/rules 路由（#180/#185）；1061 测试全绿 |
+| **v0.8.3** | （待填） |
 | **v0.8.0** | 作用域隔离（issue #17 批次 A）+ 冲突集中处理 + 斜杠命令提交 Agent + 注入转义回归修复：记忆按 agent 与工作区双维标注（agent_scope / workspace_scope / sensitivity / occurred_at 四列可空），检索按当前会话作用域加权（命中 ×1.25、他 scope ×0.5 保留可见），opt-in `strictScope` 硬过滤贯通检索/注入/列表/单取（fail-closed）；`scopeEnabled` / `strictScope` 默认关、面板「作用域隔离」组可启停；去重键扩展含作用域三元——跨作用域同标题不再物理合并；`occurred_at` 事件发生时间 + `occurred_from/to` 过滤贯通搜索与列表；冲突冻结（conflictFreezeEnabled）新增人工出口——状态页冲突队列并排对比 + 保留 A/B/仅标记（#166）；斜杠命令经 agent.followup 真正提交模型（#152）；恢复 v0.7.4 的注入花括号转义 + hot memory 跳过 reasoning——`{{.Server.Version}}` 类文本不再卡死会话（#165）；988 测试全绿 |
 | **v0.7.32** | 冲突动作集扩展 + 运行时自管化 + 记忆/提示语言 + 候选集 hybrid 档 + 一批修复：`sleepActionSet` 新增 `full` 档（supersede/differentiate/update/merge/conflict/keep 六分支，默认 `conflict` 零行为变化）——supersede 赢家正文干净、输家归档附「已被取代」注记，differentiate 双留+差异注记；sleep 校验接入 `dreamSkipInvalid` 宽容策略（默认 true，一票否决变宽容，严格可关）；运行时三档取件（收编/本地 .tgz/registry）+ transformers 转可选 peer（#131）；`memory.language`（zh/en）提示/注入/镜像语言可选（#124）；summarize 节流 + 产出上限 + 同会话去重（#127）；inject 正文读取修复（#129）、#135 五连修（前缀解析/effort 最低档/importance 豁免/ready 语义/覆盖度降级告警）、boot 回填指纹短路修复（#128）、degraded 轮跳过明细落库（#104）；916 测试全绿、总覆盖 92.7%（runtime 96%、embedding 100%） |
 | **v0.7.30** | 状态页向量卡修复（issue #118）：改读开放的 `/semantic`——不再吃 `/vector-config` 的 401「加载失败」，ollama/local 模式不再恒显「未启用」；新增「初始化中（embedder 不可达，正在重试）」与「已索引 N / M 条」回填进度显示；legacy OpenAI 兼容 embedder「Object · 0D」显示修复（embedder 显式 `name: "OpenAI"` + 维度回退 `index.dimension`）；「已索引 N / M」分子分母同口径（`embeddedCount` 剔除归档/遗忘，与 `count()` 默认过滤对齐）；embedder init 失败有界重试（共 5 次，不再一次性永久降级，unload 清理定时器）+ `OllamaEmbedder.ready` 生命周期位 + `/semantic` 新增 `ready` 字段；745 测试全绿 |
@@ -339,6 +340,7 @@ v0.3.0 起新增**记忆基因**层：从记忆里抽取**命名实体**、**带
 | **v0.8.0** | ✅ 完成 | 作用域隔离 + 冲突队列 | 按 agent 与工作区双维隔离记忆（标注 / 检索加权 / opt-in strictScope 四路硬过滤，issue #17 批次 A）；冻结冲突新增人工确认队列（状态页并排对比，#166）；斜杠命令真正提交 Agent（#152）；注入转义回归恢复 + hot memory 跳过 reasoning（#162）。图谱增强（兴趣漂移可视化）、跨 workspace 记忆共享仍在规划 |
 | **v0.8.1** | ✅ 完成 | 归属显式声明与人工纠偏 + 插件版本自检 | 归属三段式可控：per-dim 来源列 + save/update scope 参数 + 面板可编辑（#170 第 1 步，#171）；sleep 跨 scope 相似对停车人工裁决接冲突队列（第 2 步，#172）；`strictScope` 硬过滤只认显式声明、自动标注降纯软加权（第 3 步，#173）。插件自报新版本：/version-check 只读路由 + 设置页 outdated 横幅（registry 精确白名单 + TTL 缓存 + 全失败静默，pnpm 钉子警示，#174 后续，#176）；1026 测试全绿 |
 | **v0.8.2** | ✅ 完成 | 生态与性能批次：宽容路径闭环 + 检索提速 + 社区贡献集中合入 | autoDream 宽容路径三方向闭环：coverage 不足降级 degraded、archive 类型护栏 + `dreamMaxArchivePerRun` 批量上限、失败审计明细贯通（#104/#200/#201）；检索路径三处固定成本：updated_at 索引 + all() 剪列 + 向量解析缓存，all() 231→51ms、searchVector ~140→16ms（#202/#203）；LLM 消息补 source 契约（#189/#190）；首轮注入 BM25 同步兜底（#198/#199）；memory_get schema 同源（#184/#186）；sleep CD 重排（#187/#192）；单 logit 重排器修复（#188/#193）；standalone profile/rules 路由（#180/#185）；1061 测试全绿 |
+| **v0.8.3** | 🚧 准备中 | （待填） | （待填） |
 
 > 新能力一律做成**可开关的功能**（配置启用/关闭），默认保守开启、不破坏现有行为。`failure_memories` 表与 autoDream 决策引擎已为后续反思性成长铺好路。
 
