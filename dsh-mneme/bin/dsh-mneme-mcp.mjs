@@ -84,7 +84,10 @@ async function apiRequest(config, pathname, { method = "GET", body, query } = {}
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   let res;
+  let text;
   try {
+    // res.text() 必须留在本块内：超时信号要覆盖到响应正文读完——只拿到响应头
+    // 不算完成，正文停摆同样要被 abort（CodeRabbit 评审项）。
     res = await fetch(`${config.url}${pathname}${search}`, {
       method,
       headers: {
@@ -94,13 +97,13 @@ async function apiRequest(config, pathname, { method = "GET", body, query } = {}
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
       signal: controller.signal
     });
+    text = await res.text();
   } catch (error) {
     const reason = error?.cause?.code ?? error?.name ?? String(error);
     throw new Error(`dsh-mneme API unreachable at ${config.url}: ${reason}`);
   } finally {
     clearTimeout(timer);
   }
-  const text = await res.text();
   let json = null;
   try {
     json = text ? JSON.parse(text) : null;
@@ -428,7 +431,13 @@ function createMcpServer(config) {
       return;
     }
     if (!msg || typeof msg !== "object" || typeof msg.method !== "string") {
-      if (msg && msg.id !== undefined) write({ jsonrpc: "2.0", id: msg.id, error: rpcError(-32600, "Invalid Request") });
+      // 合法 JSON 但不是有效请求/通知（{}、数组等）：按 JSON-RPC 回 -32600，
+      // 提取得到 id 就带上、取不到用 null——客户端不该分不清「无效」和「无响应」。
+      write({
+        jsonrpc: "2.0",
+        id: msg && typeof msg === "object" && msg.id !== undefined ? msg.id : null,
+        error: rpcError(-32600, "Invalid Request")
+      });
       return;
     }
     // 通知（无 id）：不回复。initialized/cancelled 等一律静默。

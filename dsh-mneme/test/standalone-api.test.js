@@ -416,6 +416,32 @@ test("PUT /memories/:id validation: bad fields → 400, empty patch → 400, mis
   }
 });
 
+test("PUT /memories/:id surfaces service failures as 500 instead of a hung request", async () => {
+  const { base, auth, service, close } = await setup();
+  try {
+    const created = await (await fetch(`${base}/memories`, {
+      method: "POST",
+      headers: { ...auth, "content-type": "application/json" },
+      body: JSON.stringify({ type: "preference", title: "会抛错", content: "v1" })
+    })).json();
+    const original = service.update;
+    service.update = () => { throw new Error("boom"); };
+    try {
+      const res = await fetch(`${base}/memories/${created.id}`, {
+        method: "PUT",
+        headers: { ...auth, "content-type": "application/json" },
+        body: JSON.stringify({ content: "v2" })
+      });
+      assert.equal(res.status, 500, "service throw must not strand the request");
+      assert.deepEqual(await res.json(), { error: "internal" });
+    } finally {
+      service.update = original;
+    }
+  } finally {
+    close();
+  }
+});
+
 test("POST /memories passes through sensitivity/occurred_at/scope and returns action", async () => {
   const { base, auth, close } = await setup();
   try {

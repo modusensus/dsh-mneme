@@ -88,6 +88,99 @@ function readBody(req) {
 }
 
 /**
+ * PUT /memories/:id 的请求体处理（模块级函数便于在调用点被 try/catch 包住：
+ * service 抛错绝不能变成未处理拒绝或悬着不回的请求）。校验与内部
+ * /api/dsh-mneme/update 同风格：字段出现就必须合法，宁 400 不静默纠正；
+ * content 改写按 human_override 入档；scope 修正归一化在 service 层做
+ * （null=放宽到全局，字符串=收窄/改标），审计 actor 记 "tool"。
+ */
+async function handlePutBody(res, service, logger, id, text) {
+  let body;
+  try {
+    body = JSON.parse(text || "{}");
+  } catch {
+    sendJson(res, 400, { error: "invalid-json" });
+    return;
+  }
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    sendJson(res, 400, { error: "invalid-body" });
+    return;
+  }
+  const patch = {};
+  if (body.title !== undefined) {
+    if (typeof body.title !== "string" || !body.title.trim()) {
+      sendJson(res, 400, { error: "invalid-title" });
+      return;
+    }
+    patch.title = body.title.trim();
+  }
+  if (body.content !== undefined) {
+    if (typeof body.content !== "string" || !body.content.trim()) {
+      sendJson(res, 400, { error: "invalid-content" });
+      return;
+    }
+    patch.content = body.content.trim();
+  }
+  if (body.type !== undefined) {
+    if (!TYPES.has(body.type)) {
+      sendJson(res, 400, { error: "invalid-type" });
+      return;
+    }
+    patch.type = body.type;
+  }
+  if (body.importance !== undefined) {
+    if (!Number.isInteger(body.importance) || body.importance < 1 || body.importance > 5) {
+      sendJson(res, 400, { error: "invalid-importance" });
+      return;
+    }
+    patch.importance = body.importance;
+  }
+  if (body.tags !== undefined) {
+    if (!Array.isArray(body.tags) || !body.tags.every((t) => typeof t === "string")) {
+      sendJson(res, 400, { error: "invalid-tags" });
+      return;
+    }
+    patch.tags = body.tags;
+  }
+  if (body.agent_scope !== undefined && body.agent_scope !== null && typeof body.agent_scope !== "string") {
+    sendJson(res, 400, { error: "invalid-agent-scope" });
+    return;
+  }
+  if (body.workspace_scope !== undefined && body.workspace_scope !== null && typeof body.workspace_scope !== "string") {
+    sendJson(res, 400, { error: "invalid-workspace-scope" });
+    return;
+  }
+  if (body.agent_scope !== undefined) patch.agent_scope = body.agent_scope;
+  if (body.workspace_scope !== undefined) patch.workspace_scope = body.workspace_scope;
+  if (body.reason !== undefined && (typeof body.reason !== "string" || !body.reason.trim())) {
+    sendJson(res, 400, { error: "invalid-reason" });
+    return;
+  }
+  if (Object.keys(patch).length === 0) {
+    sendJson(res, 400, { error: "no-fields" });
+    return;
+  }
+  const existing = service.getById(id);
+  if (!existing) {
+    sendJson(res, 404, { error: "not-found" });
+    return;
+  }
+  // 内容被改写时旧版本先入档（human_override），与内部面板写路径一致。
+  if (patch.content !== undefined && patch.content !== existing.content) {
+    const history = Array.isArray(existing.content_history) ? existing.content_history : [];
+    patch.content_history = [
+      { content: existing.content ?? "", source: "human_override", updated_at: new Date().toISOString() },
+      ...history
+    ].slice(0, 20);
+  }
+  service.update(id, patch, {
+    actor: "tool",
+    ...(typeof body.reason === "string" && body.reason.trim() ? { query: body.reason.trim() } : {})
+  });
+  sendJson(res, 200, { memory: service.toApiList([service.getById(id)])[0] });
+}
+
+/**
  * Create (and start) the standalone API server.
  * Accepts { service, store, config, logger, settings, port, host }:
  *   - token: persisted settings kv "external_api" wins; auto-generated
@@ -222,91 +315,16 @@ export function createStandaloneApi({ service, store, config = {}, logger, setti
         // 与内部 /api/dsh-mneme/update 同风格：字段出现就必须合法，宁 400 不静默
         // 纠正；content 改写按 human_override 入档；scope 修正归一化在 service
         // 层做（null=放宽到全局，字符串=收窄/改标），审计 actor 记 "tool"。
+        // 整个异步回调套 try/catch：service 抛错不能变成未处理拒绝（Node 默认
+        // 策略下会终止宿主进程）或悬着不回的请求（外层同步 try 捕不到这里）。
         if (req.method === "PUT") {
-          void readBody(req).then((text) => {
-            let body;
+          void readBody(req).then(async (text) => {
             try {
-              body = JSON.parse(text || "{}");
-            } catch {
-              sendJson(res, 400, { error: "invalid-json" });
-              return;
+              await handlePutBody(res, service, logger, id, text);
+            } catch (error) {
+              logger?.warn?.(`[dsh-mneme] standalone API update failed: ${String(error)}`);
+              sendJson(res, 500, { error: "internal" });
             }
-            if (body === null || typeof body !== "object" || Array.isArray(body)) {
-              sendJson(res, 400, { error: "invalid-body" });
-              return;
-            }
-            const patch = {};
-            if (body.title !== undefined) {
-              if (typeof body.title !== "string" || !body.title.trim()) {
-                sendJson(res, 400, { error: "invalid-title" });
-                return;
-              }
-              patch.title = body.title.trim();
-            }
-            if (body.content !== undefined) {
-              if (typeof body.content !== "string" || !body.content.trim()) {
-                sendJson(res, 400, { error: "invalid-content" });
-                return;
-              }
-              patch.content = body.content.trim();
-            }
-            if (body.type !== undefined) {
-              if (!TYPES.has(body.type)) {
-                sendJson(res, 400, { error: "invalid-type" });
-                return;
-              }
-              patch.type = body.type;
-            }
-            if (body.importance !== undefined) {
-              if (!Number.isInteger(body.importance) || body.importance < 1 || body.importance > 5) {
-                sendJson(res, 400, { error: "invalid-importance" });
-                return;
-              }
-              patch.importance = body.importance;
-            }
-            if (body.tags !== undefined) {
-              if (!Array.isArray(body.tags) || !body.tags.every((t) => typeof t === "string")) {
-                sendJson(res, 400, { error: "invalid-tags" });
-                return;
-              }
-              patch.tags = body.tags;
-            }
-            if (body.agent_scope !== undefined && body.agent_scope !== null && typeof body.agent_scope !== "string") {
-              sendJson(res, 400, { error: "invalid-agent-scope" });
-              return;
-            }
-            if (body.workspace_scope !== undefined && body.workspace_scope !== null && typeof body.workspace_scope !== "string") {
-              sendJson(res, 400, { error: "invalid-workspace-scope" });
-              return;
-            }
-            if (body.agent_scope !== undefined) patch.agent_scope = body.agent_scope;
-            if (body.workspace_scope !== undefined) patch.workspace_scope = body.workspace_scope;
-            if (body.reason !== undefined && (typeof body.reason !== "string" || (typeof body.reason === "string" && !body.reason.trim()))) {
-              sendJson(res, 400, { error: "invalid-reason" });
-              return;
-            }
-            if (Object.keys(patch).length === 0) {
-              sendJson(res, 400, { error: "no-fields" });
-              return;
-            }
-            const existing = service.getById(id);
-            if (!existing) {
-              sendJson(res, 404, { error: "not-found" });
-              return;
-            }
-            // 内容被改写时旧版本先入档（human_override），与内部面板写路径一致。
-            if (patch.content !== undefined && patch.content !== existing.content) {
-              const history = Array.isArray(existing.content_history) ? existing.content_history : [];
-              patch.content_history = [
-                { content: existing.content ?? "", source: "human_override", updated_at: new Date().toISOString() },
-                ...history
-              ].slice(0, 20);
-            }
-            service.update(id, patch, {
-              actor: "tool",
-              ...(typeof body.reason === "string" && body.reason.trim() ? { query: body.reason.trim() } : {})
-            });
-            sendJson(res, 200, { memory: service.toApiList([service.getById(id)])[0] });
           });
           return;
         }

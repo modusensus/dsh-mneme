@@ -502,7 +502,7 @@ dsh web
 | `POST` | `/memories` | 新增记忆 `{type,title,content,importance?,tags?,source?,sensitivity?,occurred_at?,agent_scope?,workspace_scope?}`；响应含 `action: created\|merged` |
 | `PUT` | `/memories/:id` | 局部更新 `{title?,content?,type?,importance?,tags?,reason?,agent_scope?,workspace_scope?}`；content 改写按 human_override 入档 |
 | `DELETE` | `/memories/:id` | 删除记忆 |
-| `GET` | `/search?q&mode=keyword\|vector\|auto&topK&occurred_from&occurred_to` | 搜索（关键词 / 向量 / 自动） |
+| `GET` | `/search?q&mode=keyword\|vector\|hybrid\|auto&topK&occurred_from&occurred_to` | 搜索（关键词 / 向量 / hybrid=向量领位关键词补位 / 自动） |
 
 ### curl 示例
 

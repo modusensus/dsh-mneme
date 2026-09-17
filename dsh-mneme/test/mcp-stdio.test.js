@@ -192,6 +192,20 @@ test("malformed JSON line answers -32700 with null id", async () => {
     const msg = await parseError;
     assert.equal(msg.error.code, -32700);
     assert.equal(msg.id, null);
+
+    // 合法 JSON 但不是有效请求（{}、数组）：-32600 Invalid Request，取不到 id 用 null。
+    const invalidRequest = new Promise((resolve) => {
+      const off = mcp.onMessage((msg2) => {
+        if (msg2.error?.code === -32600) {
+          off();
+          resolve(msg2);
+        }
+      });
+      mcp.child.stdin.write("{}\n");
+    });
+    const invalid = await invalidRequest;
+    assert.equal(invalid.error.code, -32600);
+    assert.equal(invalid.id, null);
   } finally {
     await mcp.stop();
     api.close();
