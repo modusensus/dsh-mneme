@@ -44,6 +44,9 @@ const FEATURE_FLAG_BOOLEANS = [
   "autoSummarize",
   "hotMemoryEnabled",
   "entityExtractionEnabled",
+  // Issue #219：图召回轴——查询命中实体名时把挂联记忆并入检索融合池
+  // （默认关；依赖实体抽取产出，lightMode 强制关闭）。
+  "entityRecallEnabled",
   "codingRetrospect",
   "autoDream",
   "sleepModeEnabled",

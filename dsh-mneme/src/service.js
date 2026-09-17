@@ -429,6 +429,36 @@ export function createService({ store, mirror, config, onWrite, logger }) {
   }
 
   /**
+   * Graph fourth recall path (issue #219). When the query text mentions a
+   * known entity name, memories linked to that entity (attrs + relations)
+   * join the fusion pool as a confirm/backfill signal — same standing as
+   * BM25, never dominating the semantic ranking. Tier scores: attr-linked
+   * 1.0 (direct evidence, same source searchByEntity trusts) > relation
+   * edge 0.9. Archived/forgotten rows never participate. Failures degrade
+   * to [] — a recall booster, never a correctness gate (same contract as
+   * bm25Recall).
+   */
+  function entityRecall(q, limit) {
+    if (config?.entityRecallEnabled !== true) return [];
+    try {
+      const entities = store.findEntitiesMentionedIn(q, { limit: 5 });
+      if (!entities.length) return [];
+      const linked = store.getLinkedMemoryIds(entities.map((e) => e.id));
+      if (!linked.size) return [];
+      const hits = [];
+      for (const [id, tier] of linked) {
+        const row = store.getById(id);
+        if (!row || row.archived || row.forgotten) continue;
+        hits.push({ ...row, score: tier === "attr" ? 1.0 : 0.9, source: "entity" });
+        if (hits.length >= limit * 2) break;
+      }
+      return hits;
+    } catch {
+      return [];
+    }
+  }
+
+  /**
    * Search-time semantic dedup (v0.5.0 2.3): greedy pass dropping candidates
    * whose embedding similarity to an already-kept row exceeds the threshold.
    * Rows without a stored embedding are always kept (no signal = no drop).
@@ -505,7 +535,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
    * Returns { merged, signals }, where signals is Map<id, {keyword, vector,
    * bm25}> so searchMemories can decorate rows when signalTransparency is on.
    */
-  function fuseRecall({ keyword, vector, bm25, lim, mode, wv, wk, wb }) {
+  function fuseRecall({ keyword, vector, bm25, entity = [], lim, mode, wv, wk, wb, we = 0 }) {
     const recipe = config?.recallFusion ?? "blend";
 
     // Per-source scores are recorded for every recipe so signalTransparency
@@ -519,6 +549,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     for (const m of keyword) addSig(m.id, "keyword", m.score ?? 0);
     for (const m of vector) addSig(m.id, "vector", m.score ?? 0);
     for (const m of bm25) addSig(m.id, "bm25", m.score ?? 0);
+    for (const m of entity) addSig(m.id, "entity", m.score ?? 0);
 
     const vectorIds = new Set(vector.map((m) => m.id));
     const keywordIds = new Set(keyword.map((m) => m.id));
@@ -546,6 +577,7 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       addList(keyword);
       addList(vector);
       addList(bm25);
+      addList(entity);
       merged = [...rows.values()].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, lim);
     } else if (recipe === "minmax") {
       // Scale-aware weighted sum: each source list is min-max normalized to
@@ -560,17 +592,19 @@ export function createService({ store, mirror, config, onWrite, logger }) {
         for (const m of list) out.set(m.id, range > 0 ? ((m.score ?? 0) - min) / range : 0.5);
         return out;
       };
-      const kw = norm(keyword), ve = norm(vector), bm = norm(bm25);
+      const kw = norm(keyword), ve = norm(vector), bm = norm(bm25), en = norm(entity);
       const rows = new Map();
       const seed = (m) => { if (!rows.has(m.id)) rows.set(m.id, { ...m, score: 0 }); };
       for (const m of keyword) seed(m);
       for (const m of vector) seed(m);
       for (const m of bm25) seed(m);
+      for (const m of entity) seed(m);
       for (const [id, row] of rows) {
         const k = kw.get(id) ?? 0;
         const v = ve.get(id) ?? 0;
         const b = bm.get(id) ?? 0;
-        row.score = v * wv + k * wk + b * wb;
+        const e = en.get(id) ?? 0;
+        row.score = v * wv + k * wk + b * wb + e * we;
       }
       merged = [...rows.values()].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, lim);
     } else {
@@ -600,13 +634,23 @@ export function createService({ store, mirror, config, onWrite, logger }) {
             byId.set(m.id, { ...m, score: wb * (m.score ?? 0) });
           }
         }
+        // Entity axis (#219): same confirm/backfill contract as BM25 —
+        // seen rows get a weighted bonus, unseen ids backfill at we·score.
+        for (const m of entity) {
+          const rec = byId.get(m.id);
+          if (rec) {
+            byId.set(m.id, { ...rec, score: (rec.score ?? 0) + we * (m.score ?? 0) });
+          } else {
+            byId.set(m.id, { ...m, score: we * (m.score ?? 0) });
+          }
+        }
         const ranked = [...byId.values()].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
         merged = ranked.slice(0, lim);
         if (merged.length < lim && !merged.length) {
           merged = keyword.slice(0, lim);
         }
       } else {
-        // auto: keyword leads, vector + BM25 fill remaining slots.
+        // auto: keyword leads, vector + BM25 + entity fill remaining slots.
         merged = keyword.slice(0, lim);
         const seen = new Set(merged.map((m) => m.id));
         for (const m of vector) {
@@ -614,6 +658,10 @@ export function createService({ store, mirror, config, onWrite, logger }) {
           if (!seen.has(m.id)) { seen.add(m.id); merged.push(m); }
         }
         for (const m of bm25) {
+          if (merged.length >= lim) break;
+          if (!seen.has(m.id)) { seen.add(m.id); merged.push(m); }
+        }
+        for (const m of entity) {
           if (merged.length >= lim) break;
           if (!seen.has(m.id)) { seen.add(m.id); merged.push(m); }
         }
@@ -637,8 +685,10 @@ export function createService({ store, mirror, config, onWrite, logger }) {
   }
 
   /**
-   * Search memories for a query. Merges up to three recall sources (keyword,
-   * vector, BM25) according to config.recallFusion (blend/rrf/minmax — see
+   * Search memories for a query. Merges up to four recall sources (keyword,
+   * vector, BM25, and — when config.entityRecallEnabled is on — entity-linked
+   * memories whose entity names the query mentions; see fuseRecall) according
+   * to config.recallFusion (blend/rrf/minmax — see
    * fuseRecall), then optionally decorates rows with per-source signals
    * (config.signalTransparency), applies semantic dedup (non-keyword modes),
    * reranking, and epistemic trust re-weighting, and finally hands the merged
@@ -729,11 +779,21 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     // semantic signal. Same-memory overlap boosts, unseen ids backfill.
     const wb = 0.3;
 
+    // Graph fourth path (issue #219, opt-in entityRecallEnabled): query-
+    // mentioned entities pull their linked memories into the pool. Keyword
+    // mode stays text-only per the mode contract, so the axis is skipped
+    // there even when enabled.
+    const entity = mode === "keyword" ? [] : entityRecall(q, lim);
+    // Entity blend weight: a direct entity→memory link is stronger evidence
+    // than BM25 token scatter, so it edges out wb slightly — still a
+    // confirm/backfill signal, never the lead.
+    const we = 0.35;
+
     // Hybrid blending weights from config when provided.
     const wv = config?.hybridSearchVectorWeight ?? DEFAULT_HYBRID_WEIGHTS.vector;
     const wk = config?.hybridSearchKeywordWeight ?? DEFAULT_HYBRID_WEIGHTS.keyword;
 
-    const { merged: fusedMerged, signals } = fuseRecall({ keyword, vector, bm25, lim, mode, wv, wk, wb });
+    const { merged: fusedMerged, signals } = fuseRecall({ keyword, vector, bm25, entity, lim, mode, wv, wk, wb, we });
     let merged = fusedMerged;
     // v0.8.0 A3（issue #17）：strictScope 硬过滤——他 scope 的候选直接出局
     // （区别于 A2 的降权保留可见）；未标注行与命中行保留。strict 与 A2 加权

@@ -316,6 +316,10 @@ export const Config = z.object({
   entityExtractionMaxAttrs: z.natural().min(1).max(50).default(20),
   // Prefix/semantic search over entity names (used by recall).
   entitySearchEnabled: z.boolean().default(true),
+  // 图召回轴（issue #219）：查询文本命中实体名时，把该实体挂联的记忆并入
+  // 检索融合池（与 BM25 同级的确认/回填信号）。默认关=检索行为与 #219 前
+  // 逐字节一致；走 feature_flags 面板可启停，lightMode 强制关闭。
+  entityRecallEnabled: z.boolean().default(false),
 
   // --- sleep mode: idle-triggered deep maintenance (v0.4.0) ---------------
   // Opt-in, off by default. Unlike autoDream (threshold-triggered, lightweight)
@@ -492,6 +496,8 @@ const LIGHT_MODE_OFF = [
   "searchSemanticDedup",
   "selectiveInjectEnabled",
   "bm25SearchEnabled",
+  // 轻量模式不开图召回轴（#219，依赖实体抽取产出；抽取本身已被关掉）。
+  "entityRecallEnabled",
   // 轻量模式不开热计算（heat 属于重型增强；关掉后 sleep 降级也退回纯时间分层）。
   "heatEnabled"
 ];

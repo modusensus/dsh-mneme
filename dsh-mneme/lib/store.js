@@ -240,6 +240,8 @@ CREATE TABLE IF NOT EXISTS entity_relations (
 CREATE INDEX IF NOT EXISTS idx_relations_from ON entity_relations(from_entity);
 CREATE INDEX IF NOT EXISTS idx_relations_to ON entity_relations(to_entity);
 CREATE INDEX IF NOT EXISTS idx_relations_type ON entity_relations(relation_type);
+-- Issue #219：图召回轴按 memory_id 反查关系行，无索引时退化为全表扫描。
+CREATE INDEX IF NOT EXISTS idx_relations_memory ON entity_relations(memory_id);
 
 -- mirror 渲染状态 (F-NEW-03): 单行持久记录 mirror 同步失败/成功状态，使
 -- syncMirror 失败不再只靠瞬时 console.warn —— dirty=1 提示镜像脏了需重渲染，
@@ -2097,6 +2099,53 @@ export function createStore(path) {
     return rows.map(toEntity);
   }
 
+  // --- 图召回轴（issue #219）-------------------------------------------------
+
+  /**
+   * 找出名称出现在文本中的实体（图召回的查询侧匹配）。大小写折叠在 JS 侧做
+   * （SQLite lower() 只折 ASCII，JS toLowerCase 覆盖全 Unicode）；名称长度
+   * 下限 2，防单字符实体把任意查询吃成万金油命中。entities 表量级小（千级），
+   * 线性扫描的查询期成本可忽略。返回按名称长度降序的 {id, name}——更具体的
+   * 长名字优先占 limit 名额。
+   */
+  function findEntitiesMentionedIn(text, { limit = 5 } = {}) {
+    const hay = String(text ?? "").toLowerCase();
+    if (!hay) return [];
+    const rows = db.prepare("SELECT id, name FROM entities WHERE length(name) >= 2").all();
+    const hits = [];
+    for (const row of rows) {
+      if (hay.includes(row.name.toLowerCase())) hits.push({ id: row.id, name: row.name });
+    }
+    hits.sort((a, b) => b.name.length - a.name.length);
+    return hits.slice(0, limit);
+  }
+
+  /**
+   * 给定实体 id 集合，反查挂联的记忆 id，带连接层级（图召回的候选侧）。
+   * tier "attr" = 当前有效属性行直接挂的记忆（与 searchByEntity 同口径，
+   * valid_until IS NULL）；tier "relation" = 实体作为 from/to 出现的关系行
+   * 所挂记忆。两层都排除空 memory_id；同一记忆两条边都有时取更强的 attr。
+   * 返回 Map<memory_id, "attr" | "relation">。
+   */
+  function getLinkedMemoryIds(entityIds) {
+    const out = new Map();
+    if (!Array.isArray(entityIds) || !entityIds.length) return out;
+    const placeholders = entityIds.map(() => "?").join(",");
+    const attrRows = db.prepare(
+      `SELECT DISTINCT memory_id FROM entity_attrs
+       WHERE valid_until IS NULL AND memory_id IS NOT NULL AND memory_id != ''
+         AND entity_id IN (${placeholders})`
+    ).all(...entityIds);
+    for (const r of attrRows) out.set(r.memory_id, "attr");
+    const relRows = db.prepare(
+      `SELECT DISTINCT memory_id FROM entity_relations
+       WHERE memory_id IS NOT NULL AND memory_id != ''
+         AND (from_entity IN (${placeholders}) OR to_entity IN (${placeholders}))`
+    ).all(...entityIds, ...entityIds);
+    for (const r of relRows) if (!out.has(r.memory_id)) out.set(r.memory_id, "relation");
+    return out;
+  }
+
   // --- mirror sync state (F-NEW-03) -----------------------------------------
 
   /**
@@ -2348,6 +2397,8 @@ export function createStore(path) {
     getAttrsByMemory,
     entitiesForMemory,
     findMemoriesByAttr,
+    findEntitiesMentionedIn,
+    getLinkedMemoryIds,
     saveRelation,
     migrateAttrsToMemory,
     getRelations,
