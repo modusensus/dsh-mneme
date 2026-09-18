@@ -134,6 +134,18 @@ test("below minCluster threshold: no narrative call even when enabled", async ()
 
 // ============================================================ 注入排除
 
+test("narrative dedupes by tag across language switches (no duplicate row)", () => {
+  const { store, service } = setup();
+  service.saveWithDedupe({ type: "summary", title: "叙述：部署", content: "中文叙述", importance: 3, source: "narrative", tags: ["部署"] });
+  // generateNarratives 落库恒走 _overwrite（标题=主题键，原地刷新）。
+  service.saveWithDedupe({ type: "summary", title: "Narrative: 部署", content: "English narrative", importance: 3, source: "narrative", tags: ["部署"], _overwrite: true });
+  const bars = store.all().filter((m) => m.source === "narrative");
+  assert.equal(bars.length, 1, "language switch must not create a duplicate narrative row");
+  assert.equal(bars[0].title, "Narrative: 部署", "row refreshes to the new language title");
+  assert.equal(bars[0].content, "English narrative");
+  store.close();
+});
+
 test("narrative bars are on-demand: excluded from injection, reachable via search", async () => {
   const { store, service } = setup({ dreamNarrativeEnabled: false });
   service.saveWithDedupe({ type: "summary", title: "记忆库总览", content: "当前状态叙述", importance: 5, source: "dream" });

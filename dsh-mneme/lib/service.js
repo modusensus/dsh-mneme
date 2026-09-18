@@ -1150,6 +1150,12 @@ export function createService({ store, mirror, config, onWrite, logger }) {
       : (memory.type === "summary" && memory.source === "dream")
         ? (candidates.find((m) => m.source === "dream" && scopeMatches(m))
           ?? candidates.find((m) => scopeMatches(m) && m.title.trim() === String(memory.title).trim()))
+        : (memory.type === "summary" && memory.source === "narrative")
+          // 叙述条（#164）按主题键去重而非本地化标题：标题随语言变
+          // （叙述：X / Narrative: X），title 匹配在语言切换后会残留同 tag 双行。
+          // tag 存于 tags[0]（generateNarratives 落库），跨语言稳定 → 原地刷新。
+          ? (candidates.find((m) => m.source === "narrative" && m.tags?.[0] === memory.tags?.[0] && scopeMatches(m))
+            ?? candidates.find((m) => scopeMatches(m) && m.title.trim() === String(memory.title).trim()))
         : candidates.find((m) => scopeMatches(m) && m.title.trim() === String(memory.title).trim());
     if (existing) {
       const newContent = String(memory.content ?? "");

@@ -1,6 +1,6 @@
 import { validateDecisions, applyDecisions } from "./dream/decisions.js";
 import { clusterMemories, findPotentialConflicts, cosineSimilarity } from "./dream/clustering.js";
-import { clusterByTag, intersectEvidence, NARRATIVE_MAX_PER_RUN } from "./dream/narratives.js";
+import { clusterByTag, intersectEvidence } from "./dream/narratives.js";
 import { scopeKeyOf } from "./scope.js";
 import { createHash, randomUUID } from "node:crypto";
 import { STR, langOf } from "./lang.js";
@@ -358,8 +358,8 @@ async function withEffortFallback(ctx, effort, attempt, fallback, getStreamError
     // matches both "reasoning effort" (natural language) and the bare
     // "UNSUPPORTED_REASONING_EFFORT" error code (underscore).
     if (!/reasoning[\s_]*effort/i.test(message)) throw error;
-      ctx.logger?.warn?.(`dsh-mneme dream: reasoningEffort "${effort}" rejected (${message}); retrying without it`);
-      return fallback();
+    ctx.logger?.warn?.(`dsh-mneme dream: reasoningEffort "${effort}" rejected (${message}); retrying without it`);
+    return fallback();
   }
 }
 
