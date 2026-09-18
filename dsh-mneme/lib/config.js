@@ -467,8 +467,9 @@ export const Config = z.object({
   // 恒 1，sleep 降级退回纯时间分层。
   // 也走 feature_flags（FEATURE_FLAG_BOOLEANS 白名单），面板可启停=线上回滚开关。
   heatEnabled: z.boolean().default(false),
-  // 广义指数形状参数 β（heat = exp(-λ·Δt^β)，issue #218 拍板）：β=1 纯指数，
-  // β<1 亚线性长尾，β>1 加速前期衰减。专家调优项，不进面板白名单。
+  // 广义指数形状参数 β（heat = exp(-λ·Δt^β)，issue #218 拍板）：β=1 纯指数。
+  // 快慢以 Δt>1 小时为准——β<1 衰减更慢（亚线性长尾）、β>1 更快（超线性）；
+  // 0<Δt<1 的首小时内方向相反（Δt^β 随 β 增大而变小）。专家调优项，不进面板白名单。
   heatGlobalBeta: z.number().min(0.5).max(2).default(1.0),
   // per-type 衰减因子 λ；λ=0 的类型免疫（热度恒 1.0，sleep 永不降级）。
   // 未知类型走默认 0.002。dict 的键为 type 字符串、值为数字 λ。
