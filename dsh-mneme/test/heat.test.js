@@ -53,7 +53,7 @@ describe('heat.js', () => {
     const now = Date.now();
     const config = {
       heatTypeDecay: { decision: 0.002 },
-      heatGlobalAlpha: 1.0,
+      heatGlobalBeta: 1.0,
     };
 
     const withLast = computeHeat(
@@ -101,7 +101,7 @@ describe('heat.js', () => {
     );
   });
 
-  test('α 越大衰减越快（同一 Δt 下 α=2 的热度低于 α=1）', () => {
+  test('β 越大衰减越快（同一 Δt 下 β=2 的热度低于 β=1）', () => {
     const now = Date.now();
     const base = {
       type: 'decision',
@@ -110,15 +110,42 @@ describe('heat.js', () => {
 
     const h1 = computeHeat(base, now, {
       heatTypeDecay: { decision: 0.002 },
-      heatGlobalAlpha: 1.0,
+      heatGlobalBeta: 1.0,
     });
 
     const h2 = computeHeat(base, now, {
       heatTypeDecay: { decision: 0.002 },
-      heatGlobalAlpha: 2.0,
+      heatGlobalBeta: 2.0,
     });
 
-    assert(h2 < h1, 'α 更大时，同一 Δt 热度应更低');
+    assert(h2 < h1, 'β 更大时，同一 Δt 热度应更低');
+  });
+
+  test('β=1 退化为纯指数：H=exp(-λΔt)（精确值锚定）', () => {
+    const now = Date.now();
+    const heat = computeHeat(
+      { type: 'decision', last_accessed_at: now - 100 * HOUR },
+      now,
+      { heatTypeDecay: { decision: 0.002 }, heatGlobalBeta: 1.0 }
+    );
+    assert.ok(Math.abs(heat - Math.exp(-0.2)) < 1e-12, 'λ=0.002、Δt=100h、β=1 → exp(-0.2)');
+  });
+
+  test('β 管形状：同 Δt（>1h）下 β=0.5 的亚线性长尾热度高于 β=2', () => {
+    const now = Date.now();
+    const base = { type: 'decision', last_accessed_at: now - 24 * HOUR };
+    const slow = computeHeat(base, now, { heatTypeDecay: { decision: 0.002 }, heatGlobalBeta: 0.5 });
+    const fast = computeHeat(base, now, { heatTypeDecay: { decision: 0.002 }, heatGlobalBeta: 2.0 });
+    assert.ok(slow > fast, 'β 越小长尾越厚');
+  });
+
+  test('touch 回温：last_accessed_at 刷新后热度回到满格', () => {
+    const now = Date.now();
+    const config = { heatTypeDecay: { decision: 0.002 } };
+    const cold = computeHeat({ type: 'decision', last_accessed_at: now - 500 * HOUR }, now, config);
+    const rewarmed = computeHeat({ type: 'decision', last_accessed_at: now - 1 }, now, config);
+    assert.ok(cold < 0.5, '500h 未访问已显著降温');
+    assert.ok(rewarmed > 0.999, '刚触达即回满');
   });
 
   test('buildHeatSignals 返回字段齐全且 deltaHours 正确', () => {
@@ -127,12 +154,12 @@ describe('heat.js', () => {
 
     const signals = buildHeatSignals(
       { type: 'project', last_accessed_at: ref },
-      { heatGlobalAlpha: 1.5 },
+      { heatGlobalBeta: 1.5 },
       now
     );
 
     assert.deepStrictEqual(Object.keys(signals).sort(), [
-      'alpha',
+      'beta',
       'deltaHours',
       'lambda',
       'ref',
@@ -141,7 +168,7 @@ describe('heat.js', () => {
 
     assert.strictEqual(signals.type, 'project');
     assert.strictEqual(signals.lambda, 0.0008);
-    assert.strictEqual(signals.alpha, 1.5);
+    assert.strictEqual(signals.beta, 1.5);
     assert.strictEqual(signals.ref, ref);
     assert.strictEqual(signals.deltaHours, 12);
   });

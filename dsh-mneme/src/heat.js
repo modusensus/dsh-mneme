@@ -1,6 +1,12 @@
 // dsh-mneme/src/heat.js
-// 热度（heat）纯函数模块：基于类遗忘曲线计算 memory 的当前热度。
+// 热度（heat）纯函数模块：基于广义指数遗忘曲线计算 memory 的当前热度。
 // 零数据库依赖，不引入任何外部依赖。
+//
+// 曲线选型（issue #218，2026-09-18 与维护者对齐）：H = exp(-λ·Δt^β)。
+// FadeMem v2 Eq4 的广义指数族——λ 管速率（per-type 差异），β 管形状
+// （β=1 退化为纯指数，β<1 呈亚线性长尾）；λ=0 免疫位在指数式下同样恒 1。
+// v0.7.0–0.8.3 存量为幂律 H=(1+λΔt)^-α；幂律在 #164 已收集论文集外，
+// 真实负载回放（#218 验收 4）时对两个曲线族做拟合 A/B，幂律更贴合再议。
 
 /**
  * 默认的 per-type 衰减因子 λ。
@@ -16,7 +22,7 @@ export const TYPE_DECAY_DEFAULTS = Object.freeze({
 });
 
 const HOUR_MS = 3600000;
-const DEFAULT_ALPHA = 1.2;
+const DEFAULT_BETA = 1.0;
 const DEFAULT_LAMBDA = 0.002;
 
 /**
@@ -53,19 +59,19 @@ function getRef(memory) {
 }
 
 /**
- * 解析并校验配置，提供安全的 alpha 与衰减表。
+ * 解析并校验配置，提供安全的 β 与衰减表。
  */
 function resolveConfig(config) {
   const safe = config && typeof config === 'object' ? config : {};
 
-  let alpha = safe.heatGlobalAlpha ?? DEFAULT_ALPHA;
-  if (!Number.isFinite(alpha) || alpha <= 0) {
-    alpha = DEFAULT_ALPHA;
+  let beta = safe.heatGlobalBeta ?? DEFAULT_BETA;
+  if (!Number.isFinite(beta) || beta <= 0) {
+    beta = DEFAULT_BETA;
   }
 
   const decayMap = safe.heatTypeDecay ?? TYPE_DECAY_DEFAULTS;
 
-  return { alpha, decayMap };
+  return { beta, decayMap };
 }
 
 /**
@@ -74,12 +80,12 @@ function resolveConfig(config) {
  * @param {object} memory - memory 记录
  * @param {object} config - 插件配置
  * @param {number} [now=Date.now()] - 当前毫秒时间戳
- * @returns {{ type, ref, lambda, alpha, deltaHours }}
+ * @returns {{ type, ref, lambda, beta, deltaHours }}
  */
 export function buildHeatSignals(memory, config, now = Date.now()) {
   const nowMs = Number.isFinite(now) ? now : Date.now();
   const ref = getRef(memory);
-  const { alpha, decayMap } = resolveConfig(config);
+  const { beta, decayMap } = resolveConfig(config);
 
   const type = memory?.type;
 
@@ -102,13 +108,13 @@ export function buildHeatSignals(memory, config, now = Date.now()) {
     deltaHours = (nowMs - ref) / HOUR_MS;
   }
 
-  return { type, ref, lambda, alpha, deltaHours };
+  return { type, ref, lambda, beta, deltaHours };
 }
 
 /**
  * 计算 memory 的热度 H ∈ [0, 1]。
  *
- * 公式：H = 1 / (1 + λ · ΔtHours)^α
+ * 公式：H = exp(-λ · ΔtHours^β)
  *
  * @param {object} memory - memory 记录
  * @param {number} [now=Date.now()] - 当前毫秒时间戳
@@ -117,7 +123,7 @@ export function buildHeatSignals(memory, config, now = Date.now()) {
  */
 export function computeHeat(memory, now = Date.now(), config = {}) {
   const signals = buildHeatSignals(memory, config, now);
-  const { alpha, lambda, deltaHours, ref } = signals;
+  const { beta, lambda, deltaHours, ref } = signals;
 
   // 无有效参考时间、或未来时间，热度视为满格
   if (!Number.isFinite(ref) || deltaHours <= 0) {
@@ -129,7 +135,7 @@ export function computeHeat(memory, now = Date.now(), config = {}) {
     return 1.0;
   }
 
-  const heat = 1 / Math.pow(1 + lambda * deltaHours, alpha);
+  const heat = Math.exp(-lambda * deltaHours ** beta);
 
   // 防止浮点误差越界
   return Math.min(1, Math.max(0, heat));

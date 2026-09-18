@@ -322,6 +322,8 @@ window.__ModuleLoader__.load({
         "memory.features.codingRetrospect.hint": "用完整转录（含工具调用与报错）提炼踩坑、约束与被否决方案",
         "memory.features.rerankEnabled": "结果重排",
         "memory.features.rerankEnabled.hint": "本地重排模型对召回结果精排，更慢更准",
+        "memory.features.heatEnabled": "热度衰减",
+        "memory.features.heatEnabled.hint": "按遗忘曲线给记忆降温：久未访问热度越低，参与注入排序与睡眠降级判定",
         "memory.features.resilientModelDownload": "模型下载断点续传",
         "memory.features.resilientModelDownload.hint": "模型文件下载中断后从已下载部分续传并自动重试，失败会记录中断位置；关闭后回到一次性下载",
         "memory.features.searchSemanticDedup": "语义去重",
@@ -677,6 +679,8 @@ window.__ModuleLoader__.load({
         "memory.features.codingRetrospect.hint": "Distill pitfalls, constraints and rejected solutions from full transcripts (tools and errors included)",
         "memory.features.rerankEnabled": "Reranking",
         "memory.features.rerankEnabled.hint": "Rerank recalled results with a local model — slower, more precise",
+        "memory.features.heatEnabled": "Heat decay",
+        "memory.features.heatEnabled.hint": "Decay memory heat since last access; feeds injection ranking and sleep demotion",
         "memory.features.resilientModelDownload": "Resumable model downloads",
         "memory.features.resilientModelDownload.hint": "Resume model file downloads from received bytes and retry on failure; failures log where they stopped",
         "memory.features.searchSemanticDedup": "Semantic dedup",
@@ -1759,7 +1763,7 @@ window.__ModuleLoader__.load({
     // 属调优噪音，按对齐结论留在配置文件，不上 UI。
     const FEATURE_GROUPS = [
       { key: "group.core", items: ["autoInject", "autoSummarize", "hotMemoryEnabled", "memoryQualityFilter.enabled", "llmAudit.enabled"] },
-      { key: "group.enhance", items: ["entityExtractionEnabled", "codingRetrospect", "rerankEnabled", "resilientModelDownload", "searchSemanticDedup", "bm25SearchEnabled"] },
+      { key: "group.enhance", items: ["entityExtractionEnabled", "codingRetrospect", "rerankEnabled", "resilientModelDownload", "searchSemanticDedup", "bm25SearchEnabled", "heatEnabled"] },
       { key: "group.dream", items: ["autoDream", "sleepModeEnabled"] },
       // v0.8.0 A4（issue #17）：作用域隔离组——标注总开关 + 严格硬过滤。
       { key: "group.scope", items: ["scopeEnabled", "strictScope"] }

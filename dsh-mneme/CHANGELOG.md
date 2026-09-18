@@ -5,6 +5,7 @@
 ## 🆕 新增
 
 - **记忆复用统计端点与面板卡（issue #217）**：`GET /api/dsh-mneme/recall-stats?window=30`（整数天数，1-365 钳制，缺省 30）只读聚合——Top-N 召回（按窗口内 recall_runs 候选计数，join memories 补 type/source，已删记忆 type=null）、僵尸记忆率（活跃且窗口内零曝光，豁免期 7 天单独报数）、覆盖度标注（earliestRunAt / 扫描超上限 truncated）；纯读聚合独立成模块 `src/recall-stats.js`（service.js 过 2000 行参考线，barrel 出口调用方零改动）；面板状态页新增「记忆复用」卡（自门控，窗口内无回执整卡不渲染）。注入命中率与「入池未中」零召回语义（B）待注入留痕口径拍板后接入。
+- **heat 广义指数衰减 + 注入排序热度乘数（issue #218）**：衰减式由幂律 `H=1/(1+λΔt)^α` 换为广义指数 `H=exp(-λ·Δt^β)`（FadeMem v2 Eq4，维护者拍板选型；幂律在 Wixted & Ebbesen 1991 / Rubin & Wenzel 1996 / FSRS 有支持但不在 #164 论文集内，留待真实负载回放两族 A/B）；`heatGlobalAlpha` → `heatGlobalBeta`（0.5–2，默认 1.0，默认关期间零迁移成本），λ=0 免疫位语义不变；`heatEnabled` 补进面板「记忆增强」组（feature flags 白名单第三处落位，面板可启停=回滚开关）；开启后注入排序规则路在优先级层内乘 heat——同级内乘数，priority 分层与 `order=chrono` 分页序不动，关闭时排序逐字节一致；touch 回温 / sleep 热联合判定 / 前端热度投影沿用存量路径。
 
 ## [0.8.3] - 2026-09-17
 
