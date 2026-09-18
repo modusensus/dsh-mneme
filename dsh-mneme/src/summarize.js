@@ -33,7 +33,9 @@ function parseSummaryJsonResult(raw) {
     content: item.content.trim(),
     importance: Number.isInteger(item.importance) ? Math.min(5, Math.max(1, item.importance)) : 3
   }));
-  return { ok: true, entries };
+  // 空数组表示模型明确判断本轮没有可沉淀内容；非空数组若全部无效，
+  // 则不能消费窗口，否则无效输出会永久推进 seq 游标。
+  return { ok: arr.length === 0 || entries.length > 0, entries };
 }
 
 /** Extract a JSON array from LLM output that may contain prose around it. */
@@ -98,6 +100,8 @@ function eventSeq(event) {
   return Number.isSafeInteger(event?.seq) ? event.seq : undefined;
 }
 
+const SUBAGENT_MESSAGE_KINDS = new Set(["agent-message", "subagent-settled"]);
+
 // DSH 0.1.2-rc.1 起 Session 改用 snapshotEvents()，兼容旧版 .events。
 // snapshotEvents 的范围参数按 seq 传入；再做一次事件级过滤，是为了兼容
 // 旧实现忽略参数、或把边界解释为闭区间的情况，同时避免用数组下标充当游标。
@@ -125,6 +129,7 @@ function snapshotSessionEvents(session, afterSeq, throughSeq) {
 function collectMessages(session, maxChars = 8000, language = "zh", afterSeq, throughSeq) {
   const events = snapshotSessionEvents(session, afterSeq, throughSeq);
   const lines = [];
+  const seenSubagentMessages = new Set();
   // 兼容严格形状 [{type:"text",text}] 与宽松形状 ["字符串", ...]（lib-smoke 用例
   // 直接传字符串数组）。只取公开文本块；reasoning 私有推理块不进蒸馏上下文。
   const textOf = (content) => {
@@ -141,14 +146,33 @@ function collectMessages(session, maxChars = 8000, language = "zh", afterSeq, th
     if (n <= 1) return "…".slice(0, n);
     return `…${s.slice(-(n - 1))}`;
   };
+  const appendSubagentMessage = (message) => {
+    const kind = message?.source?.kind;
+    if (!SUBAGENT_MESSAGE_KINDS.has(kind)) return;
+    const text = textOf(message?.content);
+    if (!text.trim()) return;
+    const key = typeof message?.id === "string" && message.id
+      ? `id:${message.id}`
+      : `content:${kind}:${text}`;
+    if (seenSubagentMessages.has(key)) return;
+    seenSubagentMessages.add(key);
+    lines.push(STR.transcriptAgent[language](text));
+  };
   for (const event of events) {
     const data = event?.data ?? {};
     const kind = data?.source?.kind;
     switch (event.type) {
       case "user/message": {
-        if (kind !== undefined && kind !== "user") break;
+        if (kind !== undefined && kind !== "user" && !SUBAGENT_MESSAGE_KINDS.has(kind)) break;
         const text = textOf(data?.content);
-        if (text.trim()) lines.push(STR.transcriptUser[language](text));
+        if (!text.trim()) break;
+        if (SUBAGENT_MESSAGE_KINDS.has(kind)) appendSubagentMessage(data);
+        else lines.push(STR.transcriptUser[language](text));
+        break;
+      }
+      case "agent/inbox/spliced": {
+        const inserted = Array.isArray(data?.inserted) ? data.inserted : [];
+        for (const message of inserted) appendSubagentMessage(message);
         break;
       }
       case "assistant/message": {
@@ -167,14 +191,17 @@ function collectMessages(session, maxChars = 8000, language = "zh", afterSeq, th
         break;
       }
       case "tool/result": {
-        const out = typeof data.output === "string" ? data.output : data.output ? JSON.stringify(data.output) : "";
-        const status = data.ok === false ? STR.statusFail[language] : STR.statusOk[language];
+        const result = Array.isArray(data?.message?.content)
+          ? data.message.content.find((block) => block?.type === "tool-result")
+          : undefined;
+        const out = textOf(result?.content);
+        const status = result?.isError === true ? STR.statusFail[language] : STR.statusOk[language];
         lines.push(STR.transcriptToolResult[language](status, trim(out, 500)));
         break;
       }
       case "tool/code-dispatch": {
-        const out = typeof data.output === "string" ? data.output : data.output ? JSON.stringify(data.output) : "";
-        const status = data.ok === false ? STR.statusFail[language] : STR.statusOk[language];
+        const out = textOf(data.content);
+        const status = data.isError === true ? STR.statusFail[language] : STR.statusOk[language];
         lines.push(STR.transcriptCode[language](status, trim(out, 500)));
         break;
       }

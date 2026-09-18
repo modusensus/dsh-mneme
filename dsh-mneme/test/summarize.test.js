@@ -50,6 +50,44 @@ function userMessage(text, seq) {
   return event;
 }
 
+function toolResultEvent(text, isError, seq) {
+  return {
+    seq,
+    type: "tool/result",
+    data: {
+      message: {
+        source: { kind: "tool", callId: `call-${seq}` },
+        content: [{
+          type: "tool-result",
+          toolCallId: `call-${seq}`,
+          isError,
+          content: [{ type: "text", text }]
+        }]
+      }
+    }
+  };
+}
+
+function codeDispatchEvent(text, isError, seq) {
+  return {
+    seq,
+    type: "tool/code-dispatch",
+    data: {
+      isError,
+      content: [{ type: "text", text }]
+    }
+  };
+}
+
+function inboxMessage(id, kind, text) {
+  return {
+    id,
+    role: "user",
+    source: { kind },
+    content: [{ type: "text", text }]
+  };
+}
+
 test("parseSummaryJson extracts valid entries and skips malformed ones", () => {
   const parsed = parseSummaryJson(`前导文字 {"a":1}
   [
@@ -293,6 +331,48 @@ test("invalid summary JSON leaves the seq window retryable", async () => {
   assert.equal(store.count(), 0, "the valid empty retry remains a no-op");
 });
 
+test("an all-invalid summary leaves the same window retryable until valid memories are saved", async (t) => {
+  for (const invalid of [
+    [{}],
+    [{ type: "unknown", title: "无效类型", content: "不能消费窗口" }],
+    [{ type: "history", title: " ", content: "不能消费窗口" }, null, "garbage"]
+  ]) {
+    await t.test(JSON.stringify(invalid), async (t) => {
+      let attempt = 0;
+      const valid = { type: "history", title: "重试成功", content: "全无效摘要后仍保留原窗口", importance: 3 };
+      const { events, service, store, calls, summarizer } = setup({ distillRateLimitIntervalMs: 0 }, {
+        stream() {
+          return streamOf(attempt++ === 0 ? invalid : [valid])();
+        }
+      });
+      t.after(() => { summarizer.dispose(); store.close(); });
+      const handler = events.find((e) => e.name === "session/event").fn;
+      const session = {
+        id: "s-all-invalid",
+        requestHeader: () => ({ config: { provider: "deepseek", model: "deepseek-chat" } }),
+        events: [userMessage("保留原窗口", 1), { seq: 2, type: "turn/end" }]
+      };
+
+      await handler(session, { seq: 2, type: "turn/end" });
+      assert.equal(service.count(), 0);
+      await handler(session, { seq: 2, type: "turn/end" });
+      assert.equal(calls.length, 2, "all-invalid entries must not consume the window");
+      const firstTranscript = calls[0].messages.find((message) => message.role === "user").content[0].text;
+      const retryTranscript = calls[1].messages.find((message) => message.role === "user").content[0].text;
+      assert.equal(retryTranscript, firstTranscript, "retry receives the original transcript");
+      assert.equal(service.count(), 1);
+      assert.equal(service.list()[0].content, valid.content);
+      assert.ok(service.listLlmAudits({ source: "autoSummarize" }).some(
+        (audit) => audit.status === "error" && audit.error_message === "invalid summary JSON"
+      ), "an all-invalid summary must be audited as an error");
+
+      await handler(session, { seq: 2, type: "turn/end" });
+      assert.equal(calls.length, 2, "the successfully retried window is consumed once");
+      assert.equal(service.count(), 1);
+    });
+  }
+});
+
 test("rolls back partial memory writes so retrying a failed window does not duplicate entries", async () => {
   const { events, store, service, calls } = setup(
     { distillRateLimitIntervalMs: 0 },
@@ -442,8 +522,8 @@ test("distills full transcript (tool calls, results, code output) with atomic-me
     events: [
       userMessage("帮我修这个 bug"),
       { seq: 2, type: "tool/call", data: { name: "Bash", arguments: "node test.js" } },
-      { seq: 3, type: "tool/result", data: { ok: false, output: "TypeError: x is not a function" } },
-      { seq: 4, type: "tool/code-dispatch", data: { ok: true, output: "fixed" } },
+      toolResultEvent("TypeError: x is not a function", true, 3),
+      codeDispatchEvent("fixed", false, 4),
       { seq: 5, type: "turn/end" }
     ]
   };
@@ -456,6 +536,50 @@ test("distills full transcript (tool calls, results, code output) with atomic-me
   assert.ok(calls[0].messages[0].content[0].text.includes("原子记忆"));
 });
 
+test("collects real tool result and code dispatch payloads with failure status", async () => {
+  const { events, calls } = setup({ distillRateLimitIntervalMs: 0 });
+  const handler = events.find((e) => e.name === "session/event").fn;
+  const session = {
+    id: "s-real-payloads",
+    requestHeader: () => ({ config: { provider: "deepseek", model: "deepseek-chat" } }),
+    events: [
+      userMessage("检查真实事件形状", 1),
+      toolResultEvent("TypeError: tool failed", true, 2),
+      codeDispatchEvent("代码执行结果", false, 3),
+      { seq: 4, type: "turn/end" }
+    ]
+  };
+
+  await handler(session, { seq: 4, type: "turn/end" });
+  const transcript = calls[0].messages.find((message) => message.role === "user").content[0].text;
+  assert.match(transcript, /工具结果（失败）：TypeError: tool failed/);
+  assert.match(transcript, /代码执行（成功）：代码执行结果/);
+});
+
+test("collects subagent delivery once across inbox and user-message views", async () => {
+  const { events, calls } = setup({ distillRateLimitIntervalMs: 0 });
+  const handler = events.find((e) => e.name === "session/event").fn;
+  const delivery = inboxMessage("delivery-1", "subagent-settled", "子会话 closing message");
+  const agentMessage = inboxMessage("delivery-2", "agent-message", "子代理补充报告");
+  const injectedInstruction = inboxMessage("instruction-1", "agent-instructions", "不要把这条注入指令沉淀为记忆");
+  const session = {
+    id: "s-agent-delivery",
+    requestHeader: () => ({ config: { provider: "deepseek", model: "deepseek-chat" } }),
+    events: [
+      userMessage("检查子会话交付", 1),
+      { seq: 2, type: "agent/inbox/spliced", data: { inserted: [delivery, agentMessage, injectedInstruction] } },
+      { seq: 3, type: "user/message", data: delivery },
+      { seq: 4, type: "turn/end" }
+    ]
+  };
+
+  await handler(session, { seq: 4, type: "turn/end" });
+  const transcript = calls[0].messages.find((message) => message.role === "user").content[0].text;
+  assert.equal(transcript.match(/子会话 closing message/g)?.length, 1);
+  assert.equal(transcript.match(/子代理补充报告/g)?.length, 1);
+  assert.ok(!transcript.includes("不要把这条注入指令沉淀为记忆"));
+});
+
 test("keeps prefix trimming for tool arguments and tool results", async () => {
   const { events, calls } = setup({ distillRateLimitIntervalMs: 0 });
   const handler = events.find((e) => e.name === "session/event").fn;
@@ -465,7 +589,7 @@ test("keeps prefix trimming for tool arguments and tool results", async () => {
     events: [
       userMessage("检查截断", 1),
       { seq: 2, type: "tool/call", data: { name: "Bash", arguments: `ARG_START ${"a".repeat(350)} ARG_END` } },
-      { seq: 3, type: "tool/result", data: { ok: true, output: `OUT_START ${"b".repeat(550)} OUT_END` } },
+      toolResultEvent(`OUT_START ${"b".repeat(550)} OUT_END`, false, 3),
       { seq: 4, type: "turn/end" }
     ]
   };

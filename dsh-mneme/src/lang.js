@@ -91,6 +91,7 @@ export const STR = {
   // --- summarize.js：蒸馏转录标签（进入 LLM 上下文） --------------------------
   transcriptUser: { zh: (t) => `用户：${t}`, en: (t) => `User: ${t}` },
   transcriptAssistant: { zh: (t) => `助手：${t}`, en: (t) => `Assistant: ${t}` },
+  transcriptAgent: { zh: (t) => `子会话交付：${t}`, en: (t) => `Subagent delivery: ${t}` },
   transcriptToolCall: {
     zh: (name, args) => `工具调用：${name}(${args})`,
     en: (name, args) => `Tool call: ${name}(${args})`
