@@ -8,6 +8,7 @@ import { recallStats } from "./recall-stats.js";
 import { evaluateMemoryQuality } from "./quality-filter.js";
 import { applyDecisions } from "./dream/decisions.js";
 import { createDocumentRegistrar } from "./document.js";
+import { createOrganizer } from "./organize.js";
 import { createBM25Index } from "./search/bm25.js";
 import { adaptiveThreshold } from "./search/adaptive.js";
 
@@ -2071,9 +2072,27 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     }
   });
 
+  // agent 主动整理接口（#231）：dryRun 比对报告 → agent 判断 → apply 落库，筛除项
+  // 进归档不删，全程复用 dream_runs 的 receipt 语义（不新建审计面）。走
+  // saveWithDedupe 落库 = 复用常规写路径的镜像/通知语；重嵌入由 finalize 在事务
+  // 提交后补（事务里的 scheduleEmbed 被 txDepth 挡掉）——document 同款先例。
+  const { organize } = createOrganizer({
+    store,
+    embedQuery,
+    saveWithDedupe,
+    transaction,
+    finalize: (rows) => {
+      for (const row of rows) scheduleEmbed(row);
+    }
+  });
+
   return {
     saveWithDedupe,
     registerDocument,
+    // agent 主动整理接口（#231）：内聚块在 src/organize.js，这里只做依赖注入 +
+    // barrel 出口。刻意不加 opt-in 开关（维护者口径：功能本体不做开关，与 #249
+    // 同批暴露时再定配置面），也不进工具列表——工具注册在 #249 那批。
+    organize,
     recoverMirror,
     getMirrorHealth,
     getMirrorState: () => store.getMirrorState(),

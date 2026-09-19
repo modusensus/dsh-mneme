@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS dream_runs (
   summary_stored INTEGER NOT NULL DEFAULT 0,
   receipt        TEXT NOT NULL,
   policy_epoch   INTEGER NOT NULL DEFAULT 0,  -- 裁决规则版本：规则升级后旧裁决降级为历史证据
-  run_type       TEXT NOT NULL DEFAULT 'auto', -- auto | sleep：睡眠周期的审计区分
+  run_type       TEXT NOT NULL DEFAULT 'auto', -- auto | sleep | organize：周期审计的类别区分
   skipped        TEXT                     -- JSON: degraded 轮被跳过的逐条明细（index/action/ids/error）
 );
 CREATE INDEX IF NOT EXISTS idx_dream_runs_created ON dream_runs(created_at);
