@@ -77,6 +77,20 @@ export const Config = z.object({
   // maxInjectedItems 上限——只做**单向收缩**，绝不越过用户配置的上限；判据只看
   // 查询本身，不做额外检索（先探针检索等于白付一次 fuseRecall）。
   injectUncertaintyAdaptive: z.boolean().default(false),
+  // #249（第一批）：能力说明——「怎么用记忆」的判断指引。落两个零注入成本的
+  // 位：①`memory_search` / `memory_save` 的工具描述补一句判断指引（工具描述是
+  // 常驻文本，不进每轮上下文）；②一段 order 150 的系统提示段（一次性、同会话
+  // 内不随轮次变化，因此不作废前缀缓存），只讲总则（优先序、何时查、何时写、
+  // 何时 no-op）。默认关：关闭时工具描述与提示段与既有行为逐字节一致。
+  injectGuidanceEnabled: z.boolean().default(false),
+  // #249（第一批）：B1 pin 池预算——约束/偏好类注入条目的独立小上限。约束与
+  // 偏好被静默降级是本议题的立项核心（同类知识与情景日志同池同速率摘要，实测
+  // 一轮压缩后仅保 53%、五轮 10%），故这两类不进相关性竞争、不参与跨轮轮换、
+  // 逐字保真（仅受超大条目的硬顶保护，截断仍带提示）并排在块内排序之前。
+  // 独立预算的意义：pin 不占 maxInjectedItems 名额，不会把当前任务需要的情景
+  // 候选挤出预算（另一种「批量塞历史」）。0（默认）= 关闭，注入块构成与既有
+  // 行为逐字节一致；超出预算的条数在块内如实标注未展示条数，绝不静默。
+  pinnedInjectBudget: z.natural().min(0).max(5).default(0),
   // 编码记忆蒸馏（codingRetrospect，opt-in，默认关）。开启时，turn/end 蒸馏
   // 额外提取三类编码专属记忆：rejected_solution（被否决方案）/ pitfall（踩坑）/
   // constraint（工程约束）。蒸馏上下文为整轮完整对话（用户输入 → 助手思考/回答

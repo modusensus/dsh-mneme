@@ -23,6 +23,13 @@ const INJECT_TYPES_WITH_DOCUMENT = new Set([...INJECT_TYPES, "document"]);
 // 加权排序提前。
 const CODING_MEMORY_TYPES = new Set(["rejected_solution", "pitfall", "constraint"]);
 
+// pin 池类型（#249 第一批）：约束与偏好是「对谁都成立的边界」，需要逐字保真
+// 而不是相关性排序——它们与情景日志同池同速率摘要会被静默降级（立项依据）。
+// 注意 constraint 同时属于 CODING_MEMORY_TYPES，非编码任务里已被 codingGate
+// 滤掉，pin 池同样拿不到它；是否豁免该门控是待维护者拍板的口径问题，本批次
+// 不动既有门控（不放大行为面）。
+const PINNED_MEMORY_TYPES = new Set(["constraint", "preference"]);
+
 /**
  * 判断一段文本是否编码类任务（关键词匹配，codingRetrospect 读取侧门控）。
  * 纯函数，无副作用，便于单测。
@@ -1316,8 +1323,13 @@ export function createService({ store, mirror, config, onWrite, logger }) {
    * lead the selection (up to maxItems*2 candidates) and the rule-based pick
    * fills + dedupes the remaining slots. Empty query / no cached recall /
    * hybridInject off → pure legacy rule-based selection.
+   *
+   * #249 第一批（B1 pin 池）：`pinnedInjectBudget` > 0 时，约束/偏好类先按相关性
+   * 取满独立预算、再从候选里摘除（于是轮换重排碰不到它们），由调用方前置到块
+   * 头。`pinnedStats` 是可选出参：回报实际 pin 条数与超预算未展示条数，不改变
+   * 本函数「返回数组」的既有契约。预算为 0 时整段不执行，行为逐字节不变。
    */
-  function injectCandidates({ query = "", maxItems = 5, threshold = 3, queryVector, scope = null, rotate = null, rotateWindow = 0 } = {}) {
+  function injectCandidates({ query = "", maxItems = 5, threshold = 3, queryVector, scope = null, rotate = null, rotateWindow = 0, pinnedStats = null } = {}) {
     const q = String(query ?? "").trim();
     // codingRetrospect 读取侧门控：编码记忆（rejected_solution / pitfall /
     // constraint）只在编码任务时注入，防噪声污染其他业务；编码任务时按
@@ -1465,6 +1477,28 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     if (config?.strictScope === true && scope) {
       candidates = candidates.filter((m) => isVisibleInScope(m, scope));
     }
+    // #249 第一批：B1 pin 池。取在相关性排序之后、轮换之前——取谁按此刻的候选
+    // 次序（即相关性次序），取到后从候选中摘除，于是下面的轮换重排碰不到它们
+    // （验收：pin 不参与跨轮轮换）。独立预算的两层意义：pin 既不占 maxItems
+    // 名额、也不被 document 预算截断，因此不会把当前任务需要的情景候选挤出去；
+    // 超预算的条数回报给调用方，在块内如实标注（绝不静默省略）。
+    const pinnedBudget = Math.max(0, Math.min(5, Math.floor(config?.pinnedInjectBudget ?? 0)));
+    let pinned = [];
+    if (pinnedBudget > 0) {
+      const eligible = candidates.filter((m) => PINNED_MEMORY_TYPES.has(m.type));
+      pinned = eligible.slice(0, pinnedBudget);
+      if (pinned.length > 0) {
+        const pinnedIds = new Set(pinned.map((m) => m.id));
+        candidates = candidates.filter((m) => !pinnedIds.has(m.id));
+      }
+      if (pinnedStats) {
+        pinnedStats.shown = pinned.length;
+        pinnedStats.suppressed = eligible.length - pinned.length;
+      }
+    } else if (pinnedStats) {
+      pinnedStats.shown = 0;
+      pinnedStats.suppressed = 0;
+    }
     // Issue #205：注入位跨轮轮换。rotate = 最近 N 轮注入过的 id 集合（由注入层
     // 按会话维护并传入）：这些条目本轮不再优先——新鲜者前置（各自内部相对次序
     // 保持），不足时按原序回填，槽位数与 touchRecall 语义均不变。rotate 为空时
@@ -1479,15 +1513,18 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     // 注入块变成文档目录（#164 失败判据：批量把历史塞进上下文）。
     const documentBudget = config?.documentInjectBudget ?? 2;
     let documentSeen = 0;
-    const selected = [];
+    const general = [];
     for (const m of candidates) {
-      if (selected.length >= maxItems) break;
+      if (general.length >= maxItems) break;
       if (m.type === "document") {
         if (documentSeen >= documentBudget) continue;
         documentSeen++;
       }
-      selected.push(m);
+      general.push(m);
     }
+    // #249 第一批：pin 前置到块内相关性排序之前（验收项），且不占 maxItems 名额。
+    // pinned 为空时 selected 就是 general 本身——关闭态与改动前逐字节一致。
+    const selected = pinned.length > 0 ? [...pinned, ...general] : general;
     touchRecalled(selected);
     // #217 口径（2026-09-19 拍板）：注入是曝光型访问事件，与检索命中同表分账
     // （mode='inject'，candidates 存实际注入集）。跟随 recallRecordDefault——

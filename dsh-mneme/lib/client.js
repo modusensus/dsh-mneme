@@ -305,6 +305,8 @@ window.__ModuleLoader__.load({
         "memory.features.loadFailed": "加载失败",
         "memory.features.autoInject": "自动注入",
         "memory.features.autoInject.hint": "每轮对话自动携带相关记忆",
+        "memory.features.injectGuidanceEnabled": "能力说明",
+        "memory.features.injectGuidanceEnabled.hint": "在工具描述与一次性提示段里说明怎么用记忆（何时查、何时写、拿不准就不做）",
         "memory.features.autoSummarize": "自动总结",
         "memory.features.autoSummarize.hint": "对话结束自动提炼记忆条目",
         "memory.features.hotMemoryEnabled": "热记忆",
@@ -668,6 +670,8 @@ window.__ModuleLoader__.load({
         "memory.features.loadFailed": "Failed to load",
         "memory.features.autoInject": "Auto injection",
         "memory.features.autoInject.hint": "Carry relevant memories into every turn",
+        "memory.features.injectGuidanceEnabled": "Capability guide",
+        "memory.features.injectGuidanceEnabled.hint": "Explain how to use memory (when to search, when to save, when to do nothing) in tool descriptions plus a one-time prompt section",
         "memory.features.autoSummarize": "Auto summarization",
         "memory.features.autoSummarize.hint": "Distill memory entries when a conversation ends",
         "memory.features.hotMemoryEnabled": "Hot memory",
@@ -1774,7 +1778,7 @@ window.__ModuleLoader__.load({
     // 不被专业项淹没。429 调速器参数、distillMaxChars、codingBoostFactor
     // 属调优噪音，按对齐结论留在配置文件，不上 UI。
     const FEATURE_GROUPS = [
-      { key: "group.core", items: ["autoInject", "autoSummarize", "hotMemoryEnabled", "memoryQualityFilter.enabled", "llmAudit.enabled"] },
+      { key: "group.core", items: ["autoInject", "injectGuidanceEnabled", "autoSummarize", "hotMemoryEnabled", "memoryQualityFilter.enabled", "llmAudit.enabled"] },
       { key: "group.enhance", items: ["entityExtractionEnabled", "codingRetrospect", "rerankEnabled", "resilientModelDownload", "searchSemanticDedup", "bm25SearchEnabled", "heatEnabled", "documentMemoryEnabled"] },
       { key: "group.dream", items: ["autoDream", "sleepModeEnabled"] },
       // v0.8.0 A4（issue #17）：作用域隔离组——标注总开关 + 严格硬过滤。

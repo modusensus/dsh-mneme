@@ -5,6 +5,7 @@ import { defaultRuntimeDir } from "./runtime/layout.js";
 import { hostModulesDir, loadRuntimeManifest, provisionRuntime } from "./runtime/provision.js";
 import { matchesPlatform } from "./runtime/closure.js";
 import { verifyPayload } from "./runtime/verify.js";
+import { TOOL_GUIDE } from "./guide.js";
 
 const TEXT_OUTPUT = (text) => [{ type: "text", text }];
 // Per-registry tool-name registry: guards against duplicate registration on
@@ -83,6 +84,11 @@ export function createTools(ctx, service, config, embedder) {
   // flag 关闭时恒返回 null——写入不标注，检索不加权，行为与 A1 前完全一致。
   // logger 透传：registry 反查失败时 warnOnce 才有出口（否则静默降级无观测）。
   const resolveSessionScope = createScopeResolver({ ctx, config, logger: ctx.logger });
+  // #249 第一批：能力说明（injectGuidanceEnabled）开启时，给「何时用」最有歧义
+  // 的两个工具补一句判断指引。工具描述常驻、不进每轮上下文，这个位子零注入
+  // 成本；关闭时描述逐字节不变，也不动其他工具的文案。
+  const withToolGuide = (name, description) =>
+    config?.injectGuidanceEnabled === true && TOOL_GUIDE[name] ? `${description}${TOOL_GUIDE[name]}` : description;
 
   // 复核项 4（issue #170）：strictScope 下他 scope（explicit）的行对工具侧按
   // 「不存在」处理——update/delete 与 memory_get 同款无存在性泄漏。strictScope
@@ -106,10 +112,12 @@ export function createTools(ctx, service, config, embedder) {
   const tools = [
     defineTool({
       name: "memory_save",
-      description:
+      description: withToolGuide(
+        "memory_save",
         "Persist one memory entry for future sessions (user preferences, project state, decisions). " +
-        "Call this when the user states a durable preference, a project decision is made, or a lesson is learned. " +
-        "Merges into an existing entry of the same type when the title matches.",
+          "Call this when the user states a durable preference, a project decision is made, or a lesson is learned. " +
+          "Merges into an existing entry of the same type when the title matches."
+      ),
       parameters: {
         // document 不在此列（#230）：document 行只能经 memory_register_document
         // 铸造（注册校验 + doc_path + evidence），防止 memory_save 造出无指针
@@ -171,7 +179,10 @@ export function createTools(ctx, service, config, embedder) {
 
     defineTool({
       name: "memory_search",
-      description: "Search the cross-session memory store. Use when you need past context: how a problem was solved, user preferences, project decisions. Substring-matches title/content/tags, and augments results with semantic (vector) recall + optional rerank when an embeddings provider is configured. Returns matching entries with source and timestamps.",
+      description: withToolGuide(
+        "memory_search",
+        "Search the cross-session memory store. Use when you need past context: how a problem was solved, user preferences, project decisions. Substring-matches title/content/tags, and augments results with semantic (vector) recall + optional rerank when an embeddings provider is configured. Returns matching entries with source and timestamps."
+      ),
       // A2 检索接线：occurred 时间窗 + 会话 scope 加成（见 execute）。
       parameters: {
         query: { type: "string", required: true, description: "Search text; substring match over title/content/tags" },

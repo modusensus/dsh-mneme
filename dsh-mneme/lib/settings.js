@@ -45,6 +45,8 @@ const FEATURE_FLAG_BOOLEANS = [
   "hotMemoryEnabled",
   // Issue #239 第 5 项：注入条数的查询自适应（确定性强则收缩注入条数，默认关）。
   "injectUncertaintyAdaptive",
+  // Issue #249 第一批：能力说明（工具描述判断指引 + order 150 总则段，默认关）。
+  "injectGuidanceEnabled",
   "entityExtractionEnabled",
   // Issue #219：图召回轴——查询命中实体名时把挂联记忆并入检索融合池
   // （默认关；依赖实体抽取产出，lightMode 强制关闭）。
@@ -115,6 +117,8 @@ const FEATURE_FLAG_INT_RANGES = {
   dreamNarrativeMinCluster: [2, 20],
   // Issue #230：document 摘要行的注入预算（次优先档内最多几条指针行）。
   documentInjectBudget: [1, 5],
+  // Issue #249 第一批：B1 pin 池（约束/偏好）的独立条数预算（0 = 关闭/现状）。
+  pinnedInjectBudget: [0, 5],
   // Issue #257：sleep 冲突/模式阶段的 LLM 输出预算（原硬编码 2048，实测不足）。
   sleepMaxTokens: [256, 131072],
   // Issue #258：总览（dream_summarize）输入条数硬上限（0 = 不设上限）。

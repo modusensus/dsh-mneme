@@ -75,6 +75,12 @@ export const STR = {
     zh: (max, len, id) => `〔已截断：上限 ${max}，原 ${len} 字符；全文用 memory_get "${id}" 查看〕`,
     en: (max, len, id) => `[truncated: limit ${max}, original ${len} chars; memory_get "${id}" for full text]`
   },
+  // Issue #249（第一批）：pin 池超预算时的如实标注——分层不等于丢弃，也不允许
+  // 静默省略未展示条数（agent 才知道库里的约束不止这几条，需按需 memory_search）。
+  pinnedOverflow: {
+    zh: (n) => `〔约束/偏好类另有 ${n} 条未展示〕`,
+    en: (n) => `[${n} more constraint/preference entries not shown]`
+  },
   userSettingsHeader: {
     zh: "[用户设置] 来自 dsh-mneme 的用户画像与规则：",
     en: "[User settings] Profile and rules from dsh-mneme:"
