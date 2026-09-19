@@ -6,6 +6,14 @@
 
 - **注入命中留痕与注入命中率（issue #217 增量，2026-09-19 口径确认）**：注入终选集落一行 `mode='inject'` 审计（candidates 存实际注入条目，跟随 `recallRecordDefault` 不设新配置键；`heatEnabled=false` 时照写——留痕与消费解耦）；recall-stats 新增注入口径（轮数 / 注入条数 / 槽位填充率 `slotFillRate`，注入候选计入 Top-N 与僵尸零曝光判定）；面板「记忆复用」卡追加注入段（窗口内无注入行时省略）。
 
+## 🐛 修复
+
+- **审计记账改读 `chunk.usage`，token 不再恒为 0（issue #242）**：dsh-llm 的 StreamChunk 契约把用量嵌在 `{type:"usage", usage:TokenUsage}`（TokenUsage = inputTokens / outputTokens / …），chunk 顶层没有 token 字段——dream / summarize 的审计读取把整个 chunk 当用量对象，input/output 恒为 undefined，审计行落 0（实测 7 天 49 次 success 调用 token 全 0，面板「LLM 消耗」长期显示 0）。改读 `chunk.usage ?? chunk`，`?? chunk` 兜底兼容用量平铺在顶层的替身（嵌套 + 平铺双形状回归测试）。
+
+## 🧪 工程
+
+- **全工具矩阵的「DTO 键集 ⊆ output schema」系统性断言（issue #195）**：#184（memory_get 内联 schema 漏声明 v0.8.1 的 scope 来源三键 → 任何被标注过的行都过不了 in-process 校验）此前只有单点回归护住 `memory_get` 一个工具，换一个工具、换一个键，同类事故可以原样重演。新增 `test/tools-dto-schema-matrix.test.js`，四层断言各管一段：① 9 个工具每个可安全触达分支的**真实 execute 返回值**过生产同款校验器 `validateJsonSchemaValue`（不写手抄期望值）；② DTO 唯一产地 `toApiList` 在全形态（极简 / 敏感度 / 事件时间 / 单维与全量 scope 标注）下的输出 ⊆ `MEMORY_ITEM_SCHEMA`，并**反向**要求声明里的每个键都被至少一种形态真实产出（死声明会在下次增键时暴露）；③ 全部工具 schema 的结构不变量（闭合、required ⊆ properties、每项带 type——否则前两层会因校验器形同虚设而静默失效）；④ 负例锁：注入未声明键**必须**报错。护栏自证：两次变异测试（删共享 schema 一个键 / 给 memory_get 塞手抄小副本）分别让 2 条与 3 条断言转红。`memory_runtime` 的 provision（联网下载）与 verify 命中载荷（真实加载模型）不在单测内驱动，由 ③ 兜底声明合规。
+
 ## [0.8.4] - 2026-09-19
 
 ## 🆕 新增
@@ -33,10 +41,6 @@
 - **复杂度自查收尾——实体召回与冷启动 5 处瘦身（PR #224）**：对 #222/#223 diff 的过度设计自查落地——bootstrap SKIP 集合去掉 .v2c、readHead 删无人覆盖的 limit 参数；findEntitiesMentionedIn 去掉等于默认值的实参、fuseRecall 删唯一调用方恒传的 entity/we 默认值、we 并入 wb（实体轴与 BM25 共用 0.3 回填权重，等 #217 数据说话再议独立权重）。
 - 测试 1160 项全绿（较 0.8.3 新增 81 项：MCP stdio 帧级 / 实体召回 / 冷启动 / 注入截断 / 增量蒸馏 / 叙述条 / 常驻状态条 / 复用统计 / heat 广义指数 / 极简模式注入状态）。
 - 致谢：heptaspirit（#213 路由旧值标记 + #216 reasoningEffort 透传）、z2Ace0107（#226 增量蒸馏 + #232 工具结果与子会话蒸馏）。
-
-## 🧪 工程
-
-- **全工具矩阵的「DTO 键集 ⊆ output schema」系统性断言（issue #195）**：#184（memory_get 内联 schema 漏声明 v0.8.1 的 scope 来源三键 → 任何被标注过的行都过不了 in-process 校验）此前只有单点回归护住 `memory_get` 一个工具，换一个工具、换一个键，同类事故可以原样重演。新增 `test/tools-dto-schema-matrix.test.js`，四层断言各管一段：① 9 个工具每个可安全触达分支的**真实 execute 返回值**过生产同款校验器 `validateJsonSchemaValue`（不写手抄期望值）；② DTO 唯一产地 `toApiList` 在全形态（极简 / 敏感度 / 事件时间 / 单维与全量 scope 标注）下的输出 ⊆ `MEMORY_ITEM_SCHEMA`，并**反向**要求声明里的每个键都被至少一种形态真实产出（死声明会在下次增键时暴露）；③ 全部工具 schema 的结构不变量（闭合、required ⊆ properties、每项带 type——否则前两层会因校验器形同虚设而静默失效）；④ 负例锁：注入未声明键**必须**报错。护栏自证：两次变异测试（删共享 schema 一个键 / 给 memory_get 塞手抄小副本）分别让 2 条与 3 条断言转红。`memory_runtime` 的 provision（联网下载）与 verify 命中载荷（真实加载模型）不在单测内驱动，由 ③ 兜底声明合规。
 
 ## [0.8.3] - 2026-09-17
 
