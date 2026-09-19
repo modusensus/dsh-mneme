@@ -214,6 +214,24 @@ test("describeLocalRuntime：可用时报出 payload 与来源，且不假装验
   assert.match(report.hint, /mneme-runtime\.mjs/);
 });
 
+test("describeLocalRuntime：下载档的完整性结论投影成字符串，不把对象漏进免鉴权端点（issue #268）", () => {
+  const runtimeDir = emptyRuntime();
+  const dir = makePayload(runtimeDir);
+  writeFileSync(
+    join(dir, "mneme-runtime.json"),
+    JSON.stringify({
+      procedure: "downloaded",
+      integrity: { status: "verified", checked: 3, detail: "每个 tarball 的 sha512 与 runtime-manifest.json 一致" }
+    })
+  );
+  const report = describeLocalRuntime({ runtimeDir, platform: "win32", arch: "x64" });
+  assert.equal(report.status, "available");
+  // DTO 声明是 string|null（见 publicRuntimeStatus 的注释），对象溜出去就是形状违约。
+  assert.equal(typeof report.integrity, "string");
+  assert.equal(report.integrity, "verified");
+  assert.equal(publicRuntimeStatus(report).integrity, "verified");
+});
+
 test("describeLocalRuntime：没有 payload 时报 missing，而不是报坏掉", () => {
   const report = describeLocalRuntime({ runtimeDir: emptyRuntime(), platform: "win32", arch: "x64" });
   assert.equal(report.status, "missing");

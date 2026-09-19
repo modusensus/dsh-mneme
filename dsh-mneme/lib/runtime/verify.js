@@ -20,7 +20,16 @@
 // @module dsh-mneme/runtime/verify
 import { pathToFileURL } from "node:url";
 import { join } from "node:path";
-import { TRANSFORMERS_ENTRY, describePayload } from "./layout.js";
+import { TRANSFORMERS_ENTRY, describePayload, recordedIntegrity } from "./layout.js";
+
+/**
+ * 能证明「与清单里的 sha512 一致」的状态词。下载通道（`download.js`）记的是 `"verified"`，
+ * 本模块的强校验路径记的是 `"sha512-matched"` —— 同一件事的两种记法，判据必须都认，
+ * 否则清单里那份结论喂进来就是系统性判失败（issue #268）。
+ */
+const MATCHED_INTEGRITY = new Set(["sha512-matched", "verified"]);
+/** 没有可比对原始产物时的说明文案（收编路径的默认值）。 */
+const UNVERIFIED_DETAIL = "该来源没有可比对的原始产物（收编）；如需强校验请用 --strict 走 tarball 通道";
 
 /** 默认探针文本：中英各一条，避免只覆盖单字节语种。 */
 export const DEFAULT_PROBE_TEXTS = ["猫咪喜欢晒太阳", "the quick brown fox"];
@@ -157,8 +166,8 @@ export async function verifyFunctional(dir, {
  * @param {string} dir - payload 目录。
  * @param {object} [opts] - 选项。
  * @param {{status: string, detail?: string}} [opts.integrity] - 调用方算好的完整性结论
- *   （下载/本地 tarball 路径在解包前比对过 sha512，把结果传进来；收编路径没有可比对
- *   的原始产物，默认 unverified）。
+ *   （下载/本地 tarball 路径在解包前比对过 sha512，把结果传进来）。省略时读 payload
+ *   清单里记下的那份（下载通道会把结论写进去）；两边都没有才如实标 unverified。
  * @returns {Promise<object>} 三件套结果 + 总判定。
  */
 export async function verifyPayload(dir, {
@@ -172,9 +181,13 @@ export async function verifyPayload(dir, {
   integrity
 } = {}) {
   const structural = describePayload(dir, { platform });
-  const integrityResult = integrity
-    ? { ok: integrity.status === "sha512-matched", status: integrity.status, detail: integrity.detail ?? null }
-    : { ok: true, status: "unverified", detail: "该来源没有可比对的原始产物（收编）；如需强校验请用 --strict 走 tarball 通道" };
+  // 调用方没显式给结论时，读清单里记下的那份：下载档在落盘前逐个 tarball 比对过 sha512，
+  // 结论就落在 <dir>/mneme-runtime.json 里。不读它，这一层在生产路径上永远不生效（issue #268）。
+  const claimed = recordedIntegrity(integrity ?? structural.manifest?.integrity);
+  const integrityResult =
+    claimed.status === "unverified"
+      ? { ok: true, status: "unverified", detail: claimed.detail ?? UNVERIFIED_DETAIL }
+      : { ok: MATCHED_INTEGRITY.has(claimed.status), status: claimed.status, detail: claimed.detail };
 
   const functional = structural.ok
     ? await verifyFunctional(dir, { engine, probeTexts, cacheDir, model, dtype, device })

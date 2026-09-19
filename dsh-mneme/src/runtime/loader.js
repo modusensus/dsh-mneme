@@ -27,6 +27,7 @@ import {
   describePayload,
   listPayloadDirs,
   payloadDir,
+  recordedIntegrity,
   transformersVersionOk
 } from "./layout.js";
 
@@ -129,7 +130,9 @@ export function describeLocalRuntime({
       materialize: candidate.manifest?.materialize?.mode ?? null,
       // 历史 payload（收编来的）清单里没有 integrity 字段，如实报 unverified；
       // 下载通道会把校验结果写进清单，这里不改代码就能读到。
-      integrity: candidate.manifest?.integrity ?? "unverified",
+      // 必须投影成**状态字符串**：这个字段经免鉴权的 /semantic 出网，形状按 DTO 声明来
+      // —— 原来直接把清单里的对象塞进去，是形状违约（issue #268）。
+      integrity: recordedIntegrity(candidate.manifest?.integrity).status,
       functional: "unknown",
       hint: RUNTIME_HINT
     };

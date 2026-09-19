@@ -160,6 +160,27 @@ export function readJsonSafe(file) {
 }
 
 /**
+ * 归一清单里记下的完整性结论。
+ *
+ * 为什么要有这一处：这个字段有两种形态 —— 下载通道写的是 `{status, checked, detail}` 对象，
+ * 而收编来的历史清单根本没有它。判据（verify）与投影（loader）各自猜形状就出过真事故
+ * （issue #268：判据只认 `"sha512-matched"`，下载档写的 `"verified"` 进去恒判失败，
+ * 而 loader 又把那个对象直接当字符串外发）。形状归一收在这里，两边都只调它。
+ *
+ * 它只回答「清单里声称什么」，不重新验算 —— 原始 tarball 落盘后就没了，重算无从谈起。
+ * @param {string|{status?: string, detail?: string}|null|undefined} recorded - 清单里的 integrity 字段。
+ * @returns {{status: string, detail: string|null}} 状态词；缺失一律为 "unverified"。
+ */
+export function recordedIntegrity(recorded) {
+  const asStatus = (value) => (typeof value === "string" && value.trim() !== "" ? value.trim() : "unverified");
+  if (typeof recorded === "string") return { status: asStatus(recorded), detail: null };
+  return {
+    status: asStatus(recorded?.status),
+    detail: typeof recorded?.detail === "string" ? recorded.detail : null
+  };
+}
+
+/**
  * 列出运行时根目录下所有 payload 目录（名称排序）。目录不存在返回空数组。
  * 加载器用它挑候选，再逐个 describePayload 判断可用性。
  * @param {string} runtimeDir - 运行时根目录。

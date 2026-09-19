@@ -146,6 +146,57 @@ test("三件套：--strict 场景下哈希不匹配即整体不通过", async ()
   assert.equal(mismatch.functional.ok, true);
 });
 
+test("三件套：清单里记下的来源完整性被认账，不因状态词不同就判失败（issue #268）", async () => {
+  const dir = makePayload();
+  // download.js 在落盘前逐个 tarball 比对过 sha512，把这个结论写进清单的形状与词就是下面这样。
+  writeFileSync(
+    join(dir, "mneme-runtime.json"),
+    JSON.stringify({
+      procedure: "downloaded",
+      version: "4.2.0",
+      integrity: { status: "verified", checked: 3, detail: "每个 tarball 的 sha512 与 runtime-manifest.json 一致" }
+    })
+  );
+  const result = await verifyPayload(dir, {
+    platform: "win32",
+    arch: "x64",
+    engine: engineReturning(fakeRows(2, 8))
+  });
+  assert.equal(result.integrity.status, "verified");
+  assert.equal(result.integrity.ok, true, "下载档记下的 verified 是可用结论，不是失败");
+  assert.match(result.integrity.detail, /每个 tarball/);
+  assert.equal(result.ok, true);
+});
+
+test("三件套：清单里记下的不一致照样判失败（别把「读到一份结论」变成「一律放过」）", async () => {
+  const dir = makePayload();
+  writeFileSync(
+    join(dir, "mneme-runtime.json"),
+    JSON.stringify({ procedure: "downloaded", integrity: { status: "sha512-mismatch", detail: "与钉死的哈希不一致" } })
+  );
+  const result = await verifyPayload(dir, {
+    platform: "win32",
+    arch: "x64",
+    engine: engineReturning(fakeRows(2, 8))
+  });
+  assert.equal(result.integrity.ok, false);
+  assert.equal(result.integrity.status, "sha512-mismatch");
+  assert.equal(result.ok, false);
+});
+
+test("三件套：显式报 unverified 与「没传」同判，不因为说出口就变失败", async () => {
+  const dir = makePayload();
+  const result = await verifyPayload(dir, {
+    platform: "win32",
+    arch: "x64",
+    engine: engineReturning(fakeRows(2, 8)),
+    integrity: { status: "unverified" }
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.integrity.status, "unverified");
+  assert.match(result.integrity.detail, /没有可比对的原始产物/);
+});
+
 test("假通过防线 ①：行不是数组时返回失败，而不是抛异常", async () => {
   // 契约是「任何失败都返回结果对象，不抛」；非数组行会让 .length/.some 直接抛。
   const dir = makePayload();
