@@ -1321,14 +1321,23 @@ export function createService({ store, mirror, config, onWrite, logger }) {
     const poolSize = rotateWindowN > 0
       ? Math.max(maxItems * 2, maxItems * (rotateWindowN + 1))
       : maxItems * 2;
-    const items = store.list({ limit: Math.max(200, poolSize), includeForgotten: false })
+    const filtered = store.list({ limit: Math.max(200, poolSize), includeForgotten: false })
       .filter((m) => !m.archived && INJECT_TYPES.has(m.type) && !m.forgotten &&
         // 叙述条（#164 对齐）按需检索：source=narrative 的 per-topic 叙述不进
         // 注入候选——常驻位只留给 dream 总览（source=dream）。
         m.source !== "narrative" &&
         codingGate(m) &&
-        (m.type === "summary" || m.type === "preference" || m.importance >= threshold))
-      .sort((a, b) => {
+        (m.type === "summary" || m.type === "preference" || m.importance >= threshold));
+    // #218 v1: heat 乘数——heatEnabled 时在优先级层内给 importance×quality 乘
+    // heat（同级内的乘数；priority 分层、store 的 order=chrono 分页序与召回融
+    // 合序都不动）。heat 关闭时不建表、不算 heat，权重恒 1，排序与改动前一致。
+    // selectiveInject 相似度重排（下方）开启且向量可用时相似度优先——heat 只
+    // 生效于规则路排序与语义路回填序。
+    const heatMap = config?.heatEnabled === true
+      ? new Map(filtered.map((m) => [m.id, computeHeat(m, Date.now(), config)]))
+      : null;
+    const heatOf = (m) => (heatMap ? heatMap.get(m.id) ?? 1 : 1);
+    const items = filtered.sort((a, b) => {
         // 编码记忆在编码任务时优先于普通 decision（与 preference 同级），
         // importance 乘 codingBoostFactor 加权（封顶 5，保持 importance 语义）。
         const priority = (m) => {
@@ -1343,7 +1352,8 @@ export function createService({ store, mirror, config, onWrite, logger }) {
             : m.importance;
         const pa = priority(a);
         const pb = priority(b);
-        return pa - pb || (effImportance(b) * qualityWeight(b)) - (effImportance(a) * qualityWeight(a));
+        return pa - pb ||
+          (effImportance(b) * qualityWeight(b) * heatOf(b)) - (effImportance(a) * qualityWeight(a) * heatOf(a));
       });
     let candidates = items;
     if (config.hybridInject !== false && q) {

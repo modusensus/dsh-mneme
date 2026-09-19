@@ -461,12 +461,16 @@ export const Config = z.object({
 
   // --- heat: v0.7.0 self-evolution (heat + interest drift) ----------------
   // 总开关，默认关（v0.7.12+ 用户已习惯无 heat 行为，默认开=全员行为变更）。
-  // 开启后：提供热度字段 / sleep 降级联合判定保护 / 前端热度投影，不改变
-  // 召回排序。关闭则跳过所有 heat 计算与热度触达，sleep 降级退回纯时间分层。
+  // 开启后：提供热度字段 / sleep 降级联合判定保护 / 前端热度投影，并只在
+  // 注入排序的优先级层内乘 heat（#218 v1；store 的 order=chrono 分页序与
+  // 召回融合序不动）。关闭则跳过所有 heat 计算与热度触达，注入排序乘数
+  // 恒 1，sleep 降级退回纯时间分层。
   // 也走 feature_flags（FEATURE_FLAG_BOOLEANS 白名单），面板可启停=线上回滚开关。
   heatEnabled: z.boolean().default(false),
-  // 幂律形状参数 α（heat = 1/(1+λΔt)^α），越大衰减越快。
-  heatGlobalAlpha: z.number().min(0.1).max(5).default(1.2),
+  // 广义指数形状参数 β（heat = exp(-λ·Δt^β)，issue #218 拍板）：β=1 纯指数。
+  // 快慢以 Δt>1 小时为准——β<1 衰减更慢（亚线性长尾）、β>1 更快（超线性）；
+  // 0<Δt<1 的首小时内方向相反（Δt^β 随 β 增大而变小）。专家调优项，不进面板白名单。
+  heatGlobalBeta: z.number().min(0.5).max(2).default(1.0),
   // per-type 衰减因子 λ；λ=0 的类型免疫（热度恒 1.0，sleep 永不降级）。
   // 未知类型走默认 0.002。dict 的键为 type 字符串、值为数字 λ。
   heatTypeDecay: z.dict(z.number(), z.string()).default({ ...TYPE_DECAY_DEFAULTS }),
