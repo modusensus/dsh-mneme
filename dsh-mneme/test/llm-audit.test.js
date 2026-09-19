@@ -303,6 +303,51 @@ test("flat top-level usage shape still records tokens", async () => {
   store.close();
 });
 
+// --- token 记账的边界语义 ----------------------------------------------------
+// 上面三例锁的是「有 usage chunk 且形状正确」。契约的另一半是「没有用量时的
+// 行为」：未知不等于错误，记 0（不崩，也不凭空编数），同时保留协议演进时
+// 用量平铺在 chunk 根的读法。
+
+test("no usage chunk at all still writes 0 tokens and never crashes", async () => {
+  const { store, service, config } = dreamSetup();
+  service.saveWithDedupe({ type: "project", title: "旧1", content: "第一段内容" });
+  // 桩的原始形状就是不发 usage chunk：适配器未上报用量的情形走这条路径。
+  const ctx = mockCtx({ onConsolidation: keepAllDecisions });
+  const dream = createDreamScheduler({ thresholdCount: 1, thresholdChars: 0, delayMs: 0 });
+  const result = await dream.runDream(ctx, service, config);
+  assert.equal(result.ok, true, "缺少用量不该让巩固本身失败");
+  const rows = service.listLlmAudits();
+  assert.ok(rows.length >= 1, "巩固那行仍然要写下");
+  for (const row of rows) {
+    assert.equal(row.input_tokens, 0, "未知用量记 0，不编数");
+    assert.equal(row.output_tokens, 0);
+    assert.equal(row.total_tokens, 0);
+  }
+  store.close();
+});
+
+test("root-level flattened usage fields still record tokens (protocol fallback)", async () => {
+  const { store, service, config } = dreamSetup();
+  service.saveWithDedupe({ type: "project", title: "旧1", content: "第一段内容" });
+  // 用量数字直接挂在 chunk 根、没有嵌套 usage 对象，命中的是 `chunk.usage ?? chunk`
+  // 的兜底分支；这里用 snake_case，锁住读取端的别名链。
+  const ctx = withUsageChunk(
+    mockCtx({ onConsolidation: keepAllDecisions }),
+    { type: "usage", input_tokens: 9, output_tokens: 3 }
+  );
+  const dream = createDreamScheduler({ thresholdCount: 1, thresholdChars: 0, delayMs: 0 });
+  const result = await dream.runDream(ctx, service, config);
+  assert.equal(result.ok, true);
+  const rows = service.listLlmAudits();
+  assert.ok(rows.length >= 1);
+  for (const row of rows) {
+    assert.equal(row.input_tokens, 9, "根级平铺字段仍可读");
+    assert.equal(row.output_tokens, 3);
+    assert.equal(row.total_tokens, 12);
+  }
+  store.close();
+});
+
 // --- API surface ------------------------------------------------------------
 
 class FakeRes extends EventEmitter {
