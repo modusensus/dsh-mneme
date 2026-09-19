@@ -94,6 +94,25 @@ function parseBody(text) {
 export function createApi(ctx, service, settings, commands, embedder, semantic = null, apiToken = "", config = null) {
   const disposers = [];
 
+  // #182 注入状态探测：面板状态页的「极简模式下注入按宿主设计关闭」提示需要
+  // 知道当前会话的 agentPreset。注入回调在 minimal 下被宿主整体压制（#175 的
+  // 定论），不能作为检测源；session/event 是 preset 无关钩子（蒸馏同款），任
+  // 何事件都带完整 session 对象。只记最近一次会话头——这是面板展示用的「当前
+  // 会话」最佳近似，不是逐会话账本。读法与 scope.js 同源（session.header 冻结
+  // 的 SessionHeader，降级 requestHeader().config；agentPreset 取不到留 null，
+  // 面板对 null 静默）。任何失败静默：纯可观测性，不新增故障面。
+  let lastAgentPreset = null;
+  try {
+    const unsubscribe = ctx.on?.("session/event", (session) => {
+      try {
+        const header = session?.header ?? session?.requestHeader?.()?.config ?? null;
+        const preset = header?.agentPreset;
+        lastAgentPreset = typeof preset === "string" && preset.trim() ? preset.trim() : null;
+      } catch { /* 观测失败不影响会话流 */ }
+    });
+    if (typeof unsubscribe === "function") disposers.push(unsubscribe);
+  } catch { /* 宿主无 session/event 时面板提示退化为「未知」，不报错 */ }
+
   // webServer 在 index.js 的 inject 声明中（cordis 等宿主服务就绪后 apply），
   // 这里做防御性读取：cordis ctx 的 Proxy 不允许直接访问未 inject 的属性
   // （会抛 "cannot get property without inject"），用 ctx.reflect.get 免
@@ -1286,6 +1305,31 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
           });
         }
         sendJson(res, 200, featureSnapshot());
+      } catch {
+        sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
+  // 注入状态（#182，只读）：面板状态页据此决定是否渲染「极简模式下注入按宿主
+  // 设计关闭」提示卡。suppressed=true 需同时满足：autoInject 生效值开着（否则
+  // 关注入是用户自己的选择，不是黑盒）、会话头 preset 为 minimal、且 preset 确
+  // 实观测到了（null=未知会话/宿主不支持，面板静默不猜）。preset 值按字符串
+  // 精确匹配 "minimal"——host bundle 的 preset id（#175 逐字证据），不做模糊。
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/inject-status",
+    handler(req, res) {
+      try {
+        if (req.method !== "GET") {
+          sendJson(res, 404, { error: "not-found" });
+          return;
+        }
+        const effective = featureSnapshot().effective;
+        const autoInject = effective.autoInject === true;
+        const agentPreset = lastAgentPreset;
+        const suppressed = autoInject && agentPreset === "minimal";
+        sendJson(res, 200, { autoInject, agentPreset, suppressed });
       } catch {
         sendJson(res, 500, { error: "internal" });
       }

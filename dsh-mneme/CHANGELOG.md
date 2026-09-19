@@ -4,6 +4,8 @@
 
 ## 🆕 新增
 
+- **面板标注「极简模式下注入按宿主设计关闭」（issue #182）**：`GET /api/dsh-mneme/inject-status`（只读）返回 `{autoInject, agentPreset, suppressed}`——preset 探测走 `session/event` 钩子记最近会话头（注入回调在 minimal 下被宿主整体压制，#175 定论，不能作检测源；读法与 scope.js 同源），`suppressed` 需同时满足 autoInject 生效值开启 + 观测到 `agentPreset === "minimal"`；面板状态页在 suppressed 时渲染提示卡（含解法：标准模式 / `agent-presets.default: standard` / AGENTS.md 过渡），standard 会话与 preset 未知的宿主零渲染零打扰。不新增配置键。
+
 - **记忆复用统计端点与面板卡（issue #217）**：`GET /api/dsh-mneme/recall-stats?window=30`（整数天数，1-365 钳制，缺省 30）只读聚合——Top-N 召回（按窗口内 recall_runs 候选计数，join memories 补 type/source，已删记忆 type=null）、僵尸记忆率（活跃且窗口内零曝光，豁免期 7 天单独报数）、覆盖度标注（earliestRunAt / 扫描超上限 truncated）；纯读聚合独立成模块 `src/recall-stats.js`（service.js 过 2000 行参考线，barrel 出口调用方零改动）；面板状态页新增「记忆复用」卡（自门控，窗口内无回执整卡不渲染）。注入命中率与「入池未中」零召回语义（B）待注入留痕口径拍板后接入。
 
 ## [0.8.3] - 2026-09-17

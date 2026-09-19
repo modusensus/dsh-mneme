@@ -1481,3 +1481,98 @@ test("POST /api/dsh-mneme/test-model is auth-gated like other expensive endpoint
   await route.handler(req("/api/dsh-mneme/test-model", "POST", { provider: "deepseek", model: "deepseek-chat" }), res);
   assert.equal(res.statusCode, 401, "probe spends the user's API quota, so it must require auth");
 });
+
+test("GET /api/dsh-mneme/inject-status: suppressed only when minimal preset observed (issue #182)", async () => {
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config: {} });
+  const settings = createSettings(store.db);
+  const routes = [];
+  let onEvent = null;
+  const ctx = {
+    webServer: {
+      register(route) {
+        routes.push(route);
+        return () => {};
+      }
+    },
+    on(type, fn) {
+      onEvent = fn;
+      return () => {};
+    }
+  };
+  const api = createApi(
+    ctx,
+    service,
+    settings,
+    { add() {}, remove() {}, list() { return []; } },
+    undefined,
+    undefined,
+    "",
+    Config({}) // autoInject default true
+  );
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/inject-status");
+
+  // 未观测到任何会话：agentPreset=null，不猜、不压制。
+  let res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/inject-status"), res);
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(JSON.parse(res.body), { autoInject: true, agentPreset: null, suppressed: false });
+
+  // minimal 会话事件到达（session/event 的第一参为 session）→ suppressed。
+  onEvent({ header: { agentPreset: "minimal" } });
+  res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/inject-status"), res);
+  assert.deepEqual(JSON.parse(res.body), { autoInject: true, agentPreset: "minimal", suppressed: true });
+
+  // standard 会话 → 无提示。
+  onEvent({ header: { agentPreset: "standard" } });
+  res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/inject-status"), res);
+  assert.deepEqual(JSON.parse(res.body), { autoInject: true, agentPreset: "standard", suppressed: false });
+
+  // 头里没有 agentPreset（降级形状）→ 回落 null，静默不猜。
+  onEvent({ header: {} });
+  res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/inject-status"), res);
+  assert.deepEqual(JSON.parse(res.body), { autoInject: true, agentPreset: null, suppressed: false });
+
+  // 非 GET → 404（与其他只读端点同款）。
+  res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/inject-status", "POST"), res);
+  assert.equal(res.statusCode, 404);
+});
+
+test("inject-status: autoInject off is never suppressed (user's own choice, not a black box)", async () => {
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config: {} });
+  const settings = createSettings(store.db);
+  const routes = [];
+  let onEvent = null;
+  const ctx = {
+    webServer: {
+      register(route) {
+        routes.push(route);
+        return () => {};
+      }
+    },
+    on(type, fn) {
+      onEvent = fn;
+      return () => {};
+    }
+  };
+  const api = createApi(
+    ctx,
+    service,
+    settings,
+    { add() {}, remove() {}, list() { return []; } },
+    undefined,
+    undefined,
+    "",
+    Config({ autoInject: false })
+  );
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/inject-status");
+  onEvent({ header: { agentPreset: "minimal" } });
+  const res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/inject-status"), res);
+  assert.deepEqual(JSON.parse(res.body), { autoInject: false, agentPreset: "minimal", suppressed: false });
+});

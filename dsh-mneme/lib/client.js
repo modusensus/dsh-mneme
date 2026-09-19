@@ -441,6 +441,8 @@ window.__ModuleLoader__.load({
         "memory.status.dreamNever": "尚未运行",
         "memory.status.conflicts": "待确认冲突",
         "memory.status.conflictsHint": "冻结的矛盾记忆，等待人工确认",
+        "memory.status.injectSuppressed": "极简模式下注入按宿主设计关闭",
+        "memory.status.injectSuppressedHint": "当前会话使用 minimal 预设，记忆注入 / 用户画像 / hot memory 不送达模型（宿主设计，非插件缺陷）。解法：切换标准模式，或在 ~/.dsh/settings.yaml 设 agent-presets.default: standard；过渡方案：把画像与规则写入 AGENTS.md",
         "memory.status.conflictQueue.reason": "原因",
         "memory.status.conflictQueue.sideA": "A 方",
         "memory.status.conflictQueue.sideB": "B 方",
@@ -796,6 +798,8 @@ window.__ModuleLoader__.load({
         "memory.status.dreamNever": "Not yet run",
         "memory.status.conflicts": "Pending conflicts",
         "memory.status.conflictsHint": "Frozen contradictory memories awaiting confirmation",
+        "memory.status.injectSuppressed": "Injection disabled by host minimal preset",
+        "memory.status.injectSuppressedHint": "This session uses the minimal preset: memory injection / user profile / hot memory never reach the model (by host design, not a plugin defect). Fix: switch to standard mode, or set agent-presets.default: standard in ~/.dsh/settings.yaml. Interim: put profile and rules in AGENTS.md",
         "memory.status.conflictQueue.reason": "Reason",
         "memory.status.conflictQueue.sideA": "Side A",
         "memory.status.conflictQueue.sideB": "Side B",
@@ -3015,6 +3019,26 @@ window.__ModuleLoader__.load({
       );
     }
 
+    // #182 注入状态卡：极简模式下宿主按设计压制全部注入（#175 定论），这里
+    // 主动提示，把「为什么没注入」从逐帧解压日志降为看一眼状态页。只在
+    // suppressed=true 时渲染——standard 会话与 preset 未知的宿主零打扰。
+    function InjectStatusCard({ t }) {
+      const [state, setState] = useState({ loading: true, suppressed: false });
+      useEffect(() => {
+        let cancelled = false;
+        apiFetch("/api/dsh-mneme/inject-status")
+          .then((res) => { if (!res.ok) throw new Error("http"); return res.json(); })
+          .then((j) => { if (!cancelled) setState({ loading: false, suppressed: !!(j && j.suppressed) }); })
+          .catch(() => { if (!cancelled) setState({ loading: false, suppressed: false }); });
+        return () => { cancelled = true; };
+      }, []);
+      if (state.loading || !state.suppressed) return null;
+      return h("div", { className: "mneme-statuscard", style: { borderColor: "var(--dsw-alias-state-warning,#e6a23c)" } },
+        h("div", { className: "mneme-statusnum", style: { fontSize: "16px", lineHeight: "24px" } }, t("memory.status.injectSuppressed")),
+        h("div", { className: "mneme-statuscap" }, t("memory.status.injectSuppressedHint"))
+      );
+    }
+
     // --- 冲突集中处理队列（v0.8.0，状态页）---------------------------------
     // 此前冻结冲突只有计数与散落徽章，resolveConflictPending 无任何调用方——
     // 这里是第一处理入口：并排展示双方内容 + reason，人工选保留方后走
@@ -3308,7 +3332,8 @@ window.__ModuleLoader__.load({
           h(LlmStatusCard, { t }),
           h(DreamStatusCards, { t }),
           h(HeatStatusCard, { t }),
-          h(RecallStatsCard, { t })
+          h(RecallStatsCard, { t }),
+          h(InjectStatusCard, { t })
         ),
         h(ConflictsQueue, { t }),
         h(WorkbenchSection, { t, onBrowse })
