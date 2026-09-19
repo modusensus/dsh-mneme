@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createStore } from "../src/store.js";
 import { createService } from "../src/service.js";
-import { createInjector } from "../src/inject.js";
+import { createInjector, getInjectionSnapshot } from "../src/inject.js";
 import { createSettings } from "../src/settings.js";
 
 function setup(over = {}) {
@@ -246,4 +246,38 @@ test("issue #162: escapePromptVariables=false passes {{...}} through verbatim", 
   const text = contexts[0].text({});
   assert.ok(text.includes("{{挖空}}"), "raw braces preserved when escaping disabled");
   assert.ok(text.includes("{{hl|term}}"), "raw ASCII braces preserved when escaping disabled");
+});
+
+// --- Issue #179：注入预览快照（旁路缓存最近一帧组装） ---
+
+test("injection snapshot: records last assembly and clears on dispose (issue #179)", () => {
+  const { contexts, service, injector } = setup();
+  service.saveWithDedupe({ type: "preference", title: "语言", content: "用户用中文交流", importance: 5 });
+  contexts[0].text({});
+  let snap = getInjectionSnapshot();
+  assert.ok(snap, "snapshot exists after first render");
+  assert.equal(snap.entries.length, 1, "entries mirror the injected candidates");
+  assert.equal(snap.entries[0].title, "语言");
+  assert.equal(snap.entries[0].type, "preference");
+  assert.ok(snap.entries[0].chars > 0, "per-entry char count recorded");
+  assert.ok(snap.totalChars > 0, "total char count recorded");
+  assert.ok(snap.totalChars >= snap.entries.reduce((a, e) => a + e.chars, 0), "total >= sum of entry contents");
+  assert.equal(snap.maxItems, 3, "effective maxItems recorded (adaptive off → base)");
+  assert.equal(snap.hotChars, 0, "no hot context in this mock");
+  const before = snap.at;
+  contexts[0].text({});
+  snap = getInjectionSnapshot();
+  assert.ok(snap.at >= before, "second render refreshes the snapshot");
+  injector();
+  assert.equal(getInjectionSnapshot(), null, "dispose clears the snapshot");
+});
+
+test("injection snapshot: records adaptive budget and rotation state (issue #179)", () => {
+  const { contexts, service } = setup({ injectUncertaintyAdaptive: true, injectRotationTurns: 2 });
+  service.saveWithDedupe({ type: "project", title: "记忆插件", content: "SQLite+Markdown", importance: 4 });
+  contexts[0].text({});
+  const snap = getInjectionSnapshot();
+  assert.equal(snap.adaptive, true, "adaptive flag recorded");
+  assert.equal(snap.rotated, 0, "no suppression on first render of a fresh session");
+  assert.equal(snap.scoped, null, "no scope when strict scope is off");
 });

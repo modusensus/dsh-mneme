@@ -5,6 +5,7 @@ import { TYPE_FILE, renderMirrorText, parseHumanEdits } from "./mirror.js";
 import { langOf } from "./lang.js";
 import { computeHeat } from "./heat.js";
 import { describeStreamFailure, resolveRoute } from "./dream.js";
+import { getInjectionSnapshot } from "./inject.js";
 import { describeLocalRuntime, publicRuntimeStatus } from "./runtime/loader.js";
 import { hostModulesDir, provisionRuntime } from "./runtime/provision.js";
 import { classify, fetchLatestVersion, PACKAGE_VERSION } from "./version-check.js";
@@ -1330,6 +1331,26 @@ export function createApi(ctx, service, settings, commands, embedder, semantic =
         const agentPreset = lastAgentPreset;
         const suppressed = autoInject && agentPreset === "minimal";
         sendJson(res, 200, { autoInject, agentPreset, suppressed });
+      } catch {
+        sendJson(res, 500, { error: "internal" });
+      }
+    }
+  });
+
+  // 注入预览（#179，只读）：最近一帧 systemPrompt 组装的构成与体积——快照由
+  // inject.js 在真实渲染路径旁路缓存（同一份 candidates，不二次检索）。null =
+  // 尚未发生过渲染（新宿主/新会话）或 autoInject 关闭（注入器未注册），面板对
+  // 两者都以「暂无预览」呈现，不区分也不猜。
+  register({
+    kind: "exact",
+    path: "/api/dsh-mneme/inject-preview",
+    handler(req, res) {
+      try {
+        if (req.method !== "GET") {
+          sendJson(res, 404, { error: "not-found" });
+          return;
+        }
+        sendJson(res, 200, { snapshot: getInjectionSnapshot() });
       } catch {
         sendJson(res, 500, { error: "internal" });
       }

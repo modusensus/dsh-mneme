@@ -798,3 +798,64 @@ test("conflict queue ships a central review surface on the status tab", () => {
   assert.ok(clientSource.includes('"/api/dsh-mneme/conflicts/resolve"'), "queue must call the resolve endpoint");
   assert.ok(clientSource.includes("h(ConflictsQueue, { t })"), "status tab must render the queue");
 });
+
+// --- issue #178 批次一：无障碍（aria-live 网络 / 语义标题 / 焦点管理 / 图摘要） ---
+
+// 面板瞬时反馈（保存/裁决/刷新/复制）不能只靠纯视觉 span：announce() 单例
+// polite live region 是唯一的播报通道，所有接线点都必须走它。
+test("a11y: announce() live region exists and every transient feedback routes through it", () => {
+  assert.ok(clientSource.includes('function announce(text)'), "module-level announce() must exist");
+  assert.ok(clientSource.includes('"aria-live"'), "live region must set aria-live");
+  assert.ok(clientSource.includes('"role", "status"'), "live region must carry role=status");
+  // 接线点：功能开关保存、画像、向量、token、模式、extapi 保存+复制、
+  // 记忆编辑保存、队列刷新、裁决完成 —— 至少 9 处。
+  const wired = (clientSource.match(/\bannounce\(t\(/g) || []).length;
+  assert.ok(wired >= 9, `announce() wiring points expected >= 9, got ${wired}`);
+});
+
+// 状态卡标题原来是 div，读屏无法按标题导航；统一 h3（CSS margin 归零防回归）。
+test("a11y: status card titles are real headings", () => {
+  assert.ok(clientSource.includes('h("h3", { className: "mneme-xcolhead" }'), "StatusCard title must be an h3");
+  const css = clientSource.match(/\.mneme-xcolhead\{[^}]*\}/);
+  assert.ok(css && css[0].includes("margin:0"), "h3 default margin must be neutralized in CSS");
+});
+
+// 弹层焦点管理：Tab 圈在面板内，关闭后焦点还给触发元素（两个 opener 都要标记）。
+test("a11y: overlay focus trap and focus restore are wired", () => {
+  const openers = (clientSource.match(/"data-mneme-overlay-opener"/g) || []).length;
+  assert.equal(openers, 2, "both overlay entry buttons must carry the opener marker");
+  assert.ok(clientSource.includes('querySelectorAll(\'button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])\')'),
+    "overlay must enumerate focusables for the Tab cycle");
+  assert.ok(/querySelector\('\[data-mneme-overlay-opener\]'\)/.test(clientSource), "closing must restore focus to the opener");
+});
+
+// 冲突裁决按钮「保留 A/B」在同文案多卡片下不可区分，必须带条目标题的 aria-label。
+test("a11y: conflict keep buttons carry item-title aria-labels", () => {
+  const labels = (clientSource.match(/"aria-label": `\$\{t\("memory\.status\.conflictQueue\.keep/g) || []).length;
+  assert.equal(labels, 2, "keepA/keepB buttons must both set aria-label");
+});
+
+// ego 关系图对读屏是一块不可达 SVG，必须 role=img + 计数摘要（键中英各一）。
+test("a11y: entity graph svg exposes a count summary", () => {
+  assert.ok(clientSource.includes('role: "img"'), "graph svg must be role=img");
+  for (const key of ["memory.graph.summary"]) {
+    const occurrences = clientSource.split(`"${key}"`).length - 1;
+    assert.ok(occurrences >= 2, `i18n key ${key} must exist in both zh and en (got ${occurrences})`);
+  }
+});
+
+// --- issue #179：注入预览（状态页卡片 + /inject-preview 端点透传的旁路快照） ---
+
+test("a11y+preview: inject preview card is wired on the status tab", () => {
+  assert.ok(clientSource.includes('"/api/dsh-mneme/inject-preview"'), "card must fetch the preview endpoint");
+  assert.ok(clientSource.includes("h(InjectPreviewCard, { t })"), "status grid must render the preview card");
+  for (const key of [
+    "memory.status.injectPreview",
+    "memory.status.injectPreviewNone",
+    "memory.status.injectPreview.chars",
+    "memory.status.injectPreview.empty"
+  ]) {
+    const occurrences = clientSource.split(`"${key}"`).length - 1;
+    assert.ok(occurrences >= 2, `i18n key ${key} must exist in both zh and en (got ${occurrences})`);
+  }
+});

@@ -3,6 +3,17 @@ import { createHotMemory } from "./hot-memory.js";
 import { STR, langOf } from "./lang.js";
 import { adaptiveInjectBudget } from "./search/adaptive.js";
 
+// Issue #179：注入预览的数据底座。systemPrompt 渲染是同步回调，面板只能事后
+// 拉取，所以在这里旁路缓存「最近一帧组装」——快照就是本次渲染用过的同一份
+// candidates/hotText/body，不重新检索、不二次组装，零额外开销。模块级单例：
+// 注入器全局唯一（index.js 仅在 autoInject 开启时注册一个），面板经 api.js 的
+// 只读 getter 读取；autoInject 关闭时注入器不存在，快照保持 null——「预览
+// 不可用」本身就是「注入关闭」的诚实呈现。
+let injectionSnapshot = null;
+export function getInjectionSnapshot() {
+  return injectionSnapshot;
+}
+
 // Best-effort extraction of the current user's latest message text from the
 // live session, for semantic-first injection (Bug4). The system-prompt
 // interpolator renders synchronously, so this walks the already-materialized
@@ -285,8 +296,30 @@ export function createInjector(ctx, service, settings, config) {
         // separate context) keeps the prompt assembly stable at two blocks.
         const hotText = renderHotContext(ctx);
         const body = render(candidates);
-        if (!hotText) return body;
-        return body ? `${hotText}\n\n${body}` : hotText;
+        const finalBody = !hotText ? body : body ? `${hotText}\n\n${body}` : hotText;
+        // Issue #179：旁路缓存一帧——面板「注入预览」卡据此展示构成与体积。
+        // chars 为条目内容的截断后近似值（与 render 同一函数计长），totalChars
+        // 是本次实际返回块的精确长度。maxItems 反映自适应收缩后的生效值。
+        injectionSnapshot = {
+          at: Date.now(),
+          sessionId,
+          query: query || "",
+          maxItems,
+          threshold,
+          adaptive: config.injectUncertaintyAdaptive === true,
+          scoped: scope && (scope.agent_scope || scope.workspace_scope) ? scope : null,
+          rotated: rotate ? rotate.size : 0,
+          hotChars: hotText.length,
+          entries: candidates.map((m) => ({
+            id: m.id,
+            type: m.type,
+            title: m.title,
+            importance: m.importance,
+            chars: injectMemory(m).length
+          })),
+          totalChars: finalBody.length
+        };
+        return finalBody;
       }
     }),
     ctx.systemPrompt.context({
@@ -299,6 +332,7 @@ export function createInjector(ctx, service, settings, config) {
   return () => {
     queryVectorCache.clear();
     rotationHistory.clear();
+    injectionSnapshot = null; // 注入器卸载即失效：快照不得跨生命周期存留
     for (const dispose of disposers) {
       if (typeof dispose === "function") dispose();
     }

@@ -7,6 +7,25 @@ window.__ModuleLoader__.load({
     let react = require("react");
     let primitives = require("@deepseek-ai/dsh-client-ui-primitives");
     let { useState, useEffect, useCallback, useRef } = react;
+
+    // #178 无障碍批次一：aria-live 网络。模块级单例 polite live region +
+    // announce()：面板所有瞬时反馈（保存成功/失败、队列刷新、裁决完成、
+    // 复制成功）经此播报，读屏用户不再依赖纯视觉 span。单例挂 <body>，
+    // 与面板组件生命周期解耦；文本先清空下一帧再写入，让连续两次相同
+    // 文案也能各播报一次。
+    let liveRegion = null;
+    function announce(text) {
+      if (!text || typeof document === "undefined") return;
+      if (!liveRegion || !liveRegion.isConnected) {
+        liveRegion = document.createElement("div");
+        liveRegion.setAttribute("role", "status");
+        liveRegion.setAttribute("aria-live", "polite");
+        liveRegion.style.cssText = "position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap";
+        document.body.appendChild(liveRegion);
+      }
+      liveRegion.textContent = "";
+      window.requestAnimationFrame(() => { if (liveRegion) liveRegion.textContent = text; });
+    }
     const IconArchiveOutline20 = primitives.IconArchiveOutline20;
 
     // Portal target for the hero fallback surface. The host whitelists
@@ -245,6 +264,7 @@ window.__ModuleLoader__.load({
         "memory.graph.sourceMemory": "查看来源记忆",
         "memory.graph.hint": "拖拽节点调整布局 · 空白处拖动平移 · 滚轮缩放",
         "memory.graph.resetView": "重置视图",
+        "memory.graph.summary": "实体关系图：{entity} 及其 {nodes} 个节点、{edges} 条关系",
         "memory.graph.viewInGraph": "在实体视图中打开",
         "memory.graph.loading": "加载中…",
         "memory.graph.distance": "距中心 {n} 跳",
@@ -448,6 +468,15 @@ window.__ModuleLoader__.load({
         "memory.status.conflictsHint": "冻结的矛盾记忆，等待人工确认",
         "memory.status.injectSuppressed": "极简模式下注入按宿主设计关闭",
         "memory.status.injectSuppressedHint": "当前会话使用 minimal 预设，记忆注入 / 用户画像 / hot memory 不送达模型（宿主设计，非插件缺陷）。解法：切换标准模式，或在 ~/.dsh/settings.yaml 设 agent-presets.default: standard；过渡方案：把画像与规则写入 AGENTS.md",
+        "memory.status.injectPreview": "注入预览",
+        "memory.status.injectPreviewNone": "暂无预览——尚未发生注入（新会话或注入已关闭）",
+        "memory.status.injectPreview.chars": "总体积 {chars} 字符",
+        "memory.status.injectPreview.charsUnit": " 字符",
+        "memory.status.injectPreview.query": "查询「{query}…」",
+        "memory.status.injectPreview.hot": "hot memory",
+        "memory.status.injectPreview.adaptiveOn": "自适应条数",
+        "memory.status.injectPreview.rotated": "轮换抑制",
+        "memory.status.injectPreview.empty": "本次组装未注入任何跨会话记忆（阈值或轮换过滤）",
         "memory.status.conflictQueue.reason": "原因",
         "memory.status.conflictQueue.sideA": "A 方",
         "memory.status.conflictQueue.sideB": "B 方",
@@ -456,7 +485,10 @@ window.__ModuleLoader__.load({
         "memory.status.conflictQueue.markReviewed": "仅标记已处理",
         "memory.status.conflictQueue.applyHint": "确认后：保留方正文追加已否决注记，另一方归档。",
         "memory.status.conflictQueue.missing": "（该记忆已不存在）",
+        "memory.status.conflictQueue.goto": "查看待确认冲突队列",
+        "memory.status.conflictQueue.resolved": "已裁决：保留{name}",
         "memory.status.conflictQueue.refresh": "刷新队列",
+        "memory.status.conflictQueue.refreshed": "冲突队列已刷新",
         "memory.status.workbench": "工作动态",
         "memory.status.dreamConsolidate": "记忆巩固",
         "memory.status.summarize": "总结提炼",
@@ -608,6 +640,7 @@ window.__ModuleLoader__.load({
         "memory.graph.sourceMemory": "View source memory",
         "memory.graph.hint": "Drag nodes to rearrange · drag the background to pan · scroll to zoom",
         "memory.graph.resetView": "Reset view",
+        "memory.graph.summary": "Entity graph: {entity} with {nodes} nodes and {edges} edges",
         "memory.graph.viewInGraph": "Open in entity explorer",
         "memory.graph.loading": "Loading…",
         "memory.graph.distance": "{n} hop(s) from root",
@@ -811,6 +844,15 @@ window.__ModuleLoader__.load({
         "memory.status.conflictsHint": "Frozen contradictory memories awaiting confirmation",
         "memory.status.injectSuppressed": "Injection disabled by host minimal preset",
         "memory.status.injectSuppressedHint": "This session uses the minimal preset: memory injection / user profile / hot memory never reach the model (by host design, not a plugin defect). Fix: switch to standard mode, or set agent-presets.default: standard in ~/.dsh/settings.yaml. Interim: put profile and rules in AGENTS.md",
+        "memory.status.injectPreview": "Injection preview",
+        "memory.status.injectPreviewNone": "No preview yet — no injection has happened (new session or injection off)",
+        "memory.status.injectPreview.chars": "total {chars} chars",
+        "memory.status.injectPreview.charsUnit": " chars",
+        "memory.status.injectPreview.query": "query \"{query}…\"",
+        "memory.status.injectPreview.hot": "hot memory",
+        "memory.status.injectPreview.adaptiveOn": "adaptive budget",
+        "memory.status.injectPreview.rotated": "rotation-suppressed",
+        "memory.status.injectPreview.empty": "No cross-session memories injected this assembly (threshold or rotation filter)",
         "memory.status.conflictQueue.reason": "Reason",
         "memory.status.conflictQueue.sideA": "Side A",
         "memory.status.conflictQueue.sideB": "Side B",
@@ -819,7 +861,10 @@ window.__ModuleLoader__.load({
         "memory.status.conflictQueue.markReviewed": "Mark reviewed only",
         "memory.status.conflictQueue.applyHint": "On confirm: a veto note is appended to the kept side and the other side is archived.",
         "memory.status.conflictQueue.missing": "(memory no longer exists)",
+        "memory.status.conflictQueue.goto": "View pending conflict queue",
+        "memory.status.conflictQueue.resolved": "Resolved: kept {name}",
         "memory.status.conflictQueue.refresh": "Refresh queue",
+        "memory.status.conflictQueue.refreshed": "Conflict queue refreshed",
         "memory.status.workbench": "Activity",
         "memory.status.dreamConsolidate": "Consolidation",
         "memory.status.summarize": "Summarization",
@@ -972,7 +1017,7 @@ window.__ModuleLoader__.load({
       ".mneme-xrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}",
       ".mneme-xsearch{width:100%}",
       ".mneme-xselect{flex:1;min-width:0}",
-      ".mneme-xcolhead{flex:none;font-size:12px;font-weight:500;color:var(--dsw-alias-label-tertiary);padding:2px 8px 8px}",
+      ".mneme-xcolhead{flex:none;font-size:12px;font-weight:500;margin:0;color:var(--dsw-alias-label-tertiary);padding:2px 8px 8px}",
       ".mneme-xtype{display:flex;justify-content:flex-start;align-items:center;gap:8px;width:100%;padding:5px 8px;border:none;border-radius:8px;background:none;color:var(--dsw-alias-label-secondary);cursor:pointer;font-family:inherit;font-size:13px;line-height:18px;text-align:left}",
       ".mneme-xtype:hover{background:var(--dsw-alias-interactive-bg-hover)}",
       ".mneme-xtype.mneme-active{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary);font-weight:500}",
@@ -1727,6 +1772,11 @@ window.__ModuleLoader__.load({
                       className: "mneme-graphsvg",
                       viewBox: `0 0 ${VIEW_W} ${VIEW_H}`,
                       style: { height: 320 },
+                      role: "img",
+                      "aria-label": t("memory.graph.summary")
+                        .replace("{entity}", (data.root && (data.root.label || data.root.name)) || "")
+                        .replace("{nodes}", String(data.nodes.length))
+                        .replace("{edges}", String(data.edges.length)),
                       onMouseDown: onSurfaceMouseDown
                     },
                       h("g", {
@@ -1859,6 +1909,7 @@ window.__ModuleLoader__.load({
           });
           if (!res.ok) throw new Error("HTTP " + res.status);
           setState(await res.json());
+          announce(t("memory.features.restartHint"));
           setSavedTick(true);
           setTimeout(() => setSavedTick(false), 1800);
         } catch {
@@ -2245,6 +2296,7 @@ window.__ModuleLoader__.load({
             body: JSON.stringify({ profile })
           });
           setSaved(true);
+          announce(t("memory.settings.profileSaved"));
           setTimeout(() => setSaved(false), 1500);
         } catch { /* ignore */ }
       }
@@ -2303,6 +2355,7 @@ window.__ModuleLoader__.load({
             body: JSON.stringify(vector)
           });
           setVectorSaved(true);
+          announce(t("memory.settings.vectorSaved"));
           setTimeout(() => setVectorSaved(false), 1500);
         } catch { /* ignore */ }
       }
@@ -2324,6 +2377,7 @@ window.__ModuleLoader__.load({
           if (apiToken.trim()) window.localStorage.setItem("dsh-mneme-api-token", apiToken.trim());
           else window.localStorage.removeItem("dsh-mneme-api-token");
           setApiTokenSaved(true);
+          announce(t("memory.settings.apiTokenSaved"));
           setTimeout(() => setApiTokenSaved(false), 1500);
         } catch { /* ignore */ }
       }
@@ -2344,6 +2398,7 @@ window.__ModuleLoader__.load({
           });
           if (!res.ok) throw new Error("HTTP " + res.status);
           setModeSaved(true);
+          announce(t("memory.settings.mode.savedHint"));
           setTimeout(() => setModeSaved(false), 2500);
         } catch (err) {
           setMode(prev);
@@ -2376,6 +2431,7 @@ window.__ModuleLoader__.load({
           setExtapiHost(next.host);
           setExtapiPort(next.port ? String(next.port) : "");
           setExtapiSaved(true);
+          announce(t("memory.settings.extapi.savedHint"));
           setTimeout(() => setExtapiSaved(false), 2500);
         } catch (err) {
           setExtapiError((err && err.message) || "failed");
@@ -2402,7 +2458,7 @@ window.__ModuleLoader__.load({
       function copyExtapiToken() {
         const token = extapi ? extapi.token || "" : "";
         navigator.clipboard?.writeText(token).then(
-          () => { setExtapiCopied(true); setTimeout(() => setExtapiCopied(false), 1500); },
+          () => { setExtapiCopied(true); announce(t("memory.settings.extapi.copied")); setTimeout(() => setExtapiCopied(false), 1500); },
           () => {}
         );
       }
@@ -2670,11 +2726,35 @@ window.__ModuleLoader__.load({
     // 上下文裁不住它；运行时拒绝 react-dom 时就地渲染（position:fixed 仍然成立）。
     function MemoryOverlay({ t }) {
       const [open, setOpen] = useOverlayOpen();
+      // #178：弹层焦点管理——打开时把焦点移入面板（关闭按钮为入口），
+      // Tab 循环圈在面板内（Tab 从最后一个元素出去回到关闭按钮），
+      // Esc/关闭时把焦点还给触发元素（侧边栏入口）。
+      const panelRef = useRef(null);
+      const closeBtnRef = useRef(null);
       useEffect(() => {
         if (!open) return undefined;
-        const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+        const onKey = (e) => {
+          if (e.key === "Escape") { setOpen(false); return; }
+          if (e.key !== "Tab" || !panelRef.current) return;
+          const focusables = panelRef.current.querySelectorAll('button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])');
+          if (focusables.length === 0) return;
+          const first = focusables[0];
+          const last = focusables[focusables.length - 1];
+          if (e.shiftKey && (document.activeElement === first || !panelRef.current.contains(document.activeElement))) {
+            e.preventDefault();
+            last.focus();
+          } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        };
         window.addEventListener("keydown", onKey);
-        return () => window.removeEventListener("keydown", onKey);
+        if (closeBtnRef.current) closeBtnRef.current.focus();
+        return () => {
+          window.removeEventListener("keydown", onKey);
+          const opener = document.querySelector('[data-mneme-overlay-opener]');
+          if (opener) opener.focus();
+        };
       }, [open]);
       if (!open) return null;
       // 背板与 sheet 是兄弟节点而不是嵌套：点击背板自身才关闭，sheet 内部
@@ -2685,7 +2765,7 @@ window.__ModuleLoader__.load({
           onClick: () => setOpen(false),
           "aria-hidden": "true"
         }),
-        h("div", { className: "mneme-overlay", role: "region", "aria-label": t("memory.view.label") },
+        h("div", { className: "mneme-overlay", role: "region", "aria-label": t("memory.view.label"), ref: panelRef },
           h("div", { className: "mneme-overlaybar" },
             h("span", { className: "mneme-overlaytitle" },
               h(IconArchiveOutline20, { size: 15 }),
@@ -2694,6 +2774,7 @@ window.__ModuleLoader__.load({
             h("button", {
               type: "button",
               className: "mneme-footbtn",
+              ref: closeBtnRef,
               "aria-label": t("memory.overlay.close"),
               title: t("memory.overlay.close"),
               onClick: () => setOpen(false)
@@ -2714,7 +2795,7 @@ window.__ModuleLoader__.load({
     // never blanks or blocks the others. ---
     function StatusCard({ t, title, loading, error, num, cap }) {
       return h("div", { className: "mneme-statuscard" },
-        h("div", { className: "mneme-xcolhead" }, title),
+        h("h3", { className: "mneme-xcolhead" }, title),
         loading
           ? h("div", { className: "mneme-statusnum" }, "…")
           : error
@@ -2995,7 +3076,7 @@ window.__ModuleLoader__.load({
 
     // 巩固状态卡（×2）：最近一次 autoDream 运行 + 待确认冲突计数。数据来自
     // /dream-status，一次取回两张卡共用；失败只影响这两张卡自身。
-    function DreamStatusCards({ t }) {
+    function DreamStatusCards({ t, onGotoQueue }) {
       const [state, setState] = useState({ loading: true, error: false, lastRun: null, pending: 0 });
       useEffect(() => {
         let cancelled = false;
@@ -3018,16 +3099,29 @@ window.__ModuleLoader__.load({
       const cap = run
         ? `${run.status || "—"}${run.model ? ` · ${run.model}` : ""}`
         : t("memory.settings.mode.offList");
+      // #178：pending>0 时冲突卡可激活（role=button + 可聚焦 + 回车/空格），
+      // 激活直达队列——StatusPanel 把 onGotoQueue 传进来（一步 prop，无线程）。
+      const pending = state.pending > 0;
+      const gotoQueue = () => { if (pending && onGotoQueue) onGotoQueue(); };
       return h(react.Fragment, null,
         h(StatusCard, { t, title: t("memory.status.dream"), loading: state.loading, error: state.error, num, cap }),
-        h(StatusCard, {
-          t,
-          title: t("memory.status.conflicts"),
-          loading: state.loading,
-          error: state.error,
-          num: state.pending.toLocaleString(),
-          cap: t("memory.status.conflictsHint")
-        })
+        h("div", {
+          role: pending ? "button" : undefined,
+          tabIndex: pending ? 0 : undefined,
+          "aria-label": pending ? t("memory.status.conflictQueue.goto") : undefined,
+          style: pending ? { cursor: "pointer" } : undefined,
+          onClick: pending ? gotoQueue : undefined,
+          onKeyDown: pending ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); gotoQueue(); } } : undefined
+        },
+          h(StatusCard, {
+            t,
+            title: t("memory.status.conflicts"),
+            loading: state.loading,
+            error: state.error,
+            num: state.pending.toLocaleString(),
+            cap: t("memory.status.conflictsHint")
+          })
+        )
       );
     }
 
@@ -3051,6 +3145,55 @@ window.__ModuleLoader__.load({
       );
     }
 
+    // --- 注入预览（issue #179，状态页）---------------------------------------
+    // 展示最近一帧 prompt 组装注入了什么：条目构成（类型/标题/重要性/字符数）、
+    // hot memory 与总体积、当前生效参数（maxItems/threshold/自适应/scope/轮换）。
+    // 数据来自 /inject-preview 的旁路快照——就是上次真实渲染用的同一份候选，
+    // 不二次检索。无快照（autoInject 关/新会话/旧宿主）整卡退化为「暂无预览」。
+    function InjectPreviewCard({ t }) {
+      const [snap, setSnap] = useState(null);
+      const [loading, setLoading] = useState(true);
+      useEffect(() => {
+        let cancelled = false;
+        apiFetch("/api/dsh-mneme/inject-preview")
+          .then((res) => { if (!res.ok) throw new Error("http"); return res.json(); })
+          .then((j) => { if (!cancelled) { setSnap(j && j.snapshot); setLoading(false); } })
+          .catch(() => { if (!cancelled) setLoading(false); });
+        return () => { cancelled = true; };
+      }, []);
+      if (loading) return null;
+      if (!snap) {
+        return h("div", { className: "mneme-statuscard" },
+          h("h3", { className: "mneme-xcolhead" }, t("memory.status.injectPreview")),
+          h("div", { className: "mneme-statuscap" }, t("memory.status.injectPreviewNone"))
+        );
+      }
+      const params = [
+        `maxItems=${snap.maxItems}`,
+        `threshold=${snap.threshold}`,
+        snap.adaptive ? t("memory.status.injectPreview.adaptiveOn") : null,
+        snap.scoped ? `scope=${snap.scoped.agent_scope || snap.scoped.workspace_scope}` : null,
+        snap.rotated > 0 ? `${t("memory.status.injectPreview.rotated")} ${snap.rotated}` : null
+      ].filter(Boolean).join(" · ");
+      return h("div", { className: "mneme-statuscard", style: { gridColumn: "1 / -1" } },
+        h("h3", { className: "mneme-xcolhead" }, t("memory.status.injectPreview")),
+        h("div", { className: "mneme-statuscap" },
+          params,
+          ` · ${t("memory.status.injectPreview.chars").replace("{chars}", String(snap.totalChars))}`,
+          snap.query ? ` · ${t("memory.status.injectPreview.query").replace("{query}", snap.query.slice(0, 24))}` : ""
+        ),
+        snap.hotChars > 0 && h("div", { className: "mneme-statuscap", style: { marginTop: 4 } },
+          `${t("memory.status.injectPreview.hot")} · ${snap.hotChars}${t("memory.status.injectPreview.charsUnit")}`),
+        h("div", { style: { marginTop: 6 } },
+          (snap.entries || []).length === 0
+            ? h("div", { className: "mneme-statuscap" }, t("memory.status.injectPreview.empty"))
+            : (snap.entries || []).map((m) => h("div", { key: m.id, style: { display: "flex", gap: 8, alignItems: "baseline", fontSize: 12, padding: "2px 0" } },
+                h("span", { className: "mneme-xcolhead" }, typeLabel(t, m.type)),
+                h("span", { style: { flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, m.title || "—"),
+                h("span", { className: "mneme-xcolhead" }, `★${m.importance ?? "—"} · ${m.chars}${t("memory.status.injectPreview.charsUnit")}`))))
+      );
+    }
+
     // --- 冲突集中处理队列（v0.8.0，状态页）---------------------------------
     // 此前冻结冲突只有计数与散落徽章，resolveConflictPending 无任何调用方——
     // 这里是第一处理入口：并排展示双方内容 + reason，人工选保留方后走
@@ -3062,20 +3205,27 @@ window.__ModuleLoader__.load({
       const load = () => {
         apiFetch("/api/dsh-mneme/conflicts")
           .then((res) => { if (!res.ok) throw new Error("http"); return res.json(); })
-          .then((d) => setItems(d.items || []))
+          .then((d) => { setItems(d.items || []); announce(t("memory.status.conflictQueue.refreshed")); })
           .catch(() => setItems([]));
       };
       useEffect(() => { load(); }, []);
       if (!items || items.length === 0) return null;
       const resolve = (id, winner) => {
+        if (busy) return;
         setBusy(true);
+        // #178：裁决结果经 live region 播报（纯视觉刷新读屏不可感知）
+        const it = (items || []).find((x) => x.id === id) || {};
         apiFetch("/api/dsh-mneme/conflicts/resolve", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id, winner, apply: winner !== null })
         })
           .then((res) => { if (!res.ok) throw new Error("http"); return res.json(); })
-          .then(() => load())
+          .then(() => {
+            announce(t("memory.status.conflictQueue.resolved").replace("{name}",
+              (winner === "a" ? (it.memory_a && it.memory_a.title) : winner === "b" ? (it.memory_b && it.memory_b.title) : "") || ""));
+            load();
+          })
           .catch(() => {})
           .finally(() => setBusy(false));
       };
@@ -3101,8 +3251,8 @@ window.__ModuleLoader__.load({
             side(it.memory_b, t("memory.status.conflictQueue.sideB"))),
           h("div", { className: "mneme-conflict-actions" },
             h("span", { className: "mneme-conflict-hint" }, t("memory.status.conflictQueue.applyHint")),
-            h("button", { className: "mneme-footbtn", disabled: busy, onClick: () => resolve(it.id, "a") }, t("memory.status.conflictQueue.keepA")),
-            h("button", { className: "mneme-footbtn", disabled: busy, onClick: () => resolve(it.id, "b") }, t("memory.status.conflictQueue.keepB")),
+            h("button", { className: "mneme-footbtn", disabled: busy, "aria-label": `${t("memory.status.conflictQueue.keepA")}: ${(it.memory_a && it.memory_a.title) || ""}`, onClick: () => resolve(it.id, "a") }, t("memory.status.conflictQueue.keepA")),
+            h("button", { className: "mneme-footbtn", disabled: busy, "aria-label": `${t("memory.status.conflictQueue.keepB")}: ${(it.memory_b && it.memory_b.title) || ""}`, onClick: () => resolve(it.id, "b") }, t("memory.status.conflictQueue.keepB")),
             h("button", { className: "mneme-footbtn", disabled: busy, onClick: () => resolve(it.id, null) }, t("memory.status.conflictQueue.markReviewed"))))
         ));
     }
@@ -3344,18 +3494,27 @@ window.__ModuleLoader__.load({
     }
 
     function StatusPanel({ t, onBrowse }) {
+      // #178：冲突卡键盘直达——激活后把焦点与视口带到队列块。
+      const queueRef = useRef(null);
+      const gotoQueue = () => {
+        if (!queueRef.current) return;
+        queueRef.current.setAttribute("tabindex", "-1");
+        queueRef.current.focus({ preventScroll: true });
+        if (queueRef.current.scrollIntoView) queueRef.current.scrollIntoView({ block: "start", behavior: "smooth" });
+      };
       return h("div", { className: "mneme-status" },
         h("div", { className: "mneme-statusgrid" },
           h(MemoriesStatusCard, { t }),
           h(EntitiesStatusCard, { t }),
           h(VectorStatusCard, { t }),
           h(LlmStatusCard, { t }),
-          h(DreamStatusCards, { t }),
+          h(DreamStatusCards, { t, onGotoQueue: gotoQueue }),
           h(HeatStatusCard, { t }),
           h(RecallStatsCard, { t }),
-          h(InjectStatusCard, { t })
+          h(InjectStatusCard, { t }),
+          h(InjectPreviewCard, { t })
         ),
-        h(ConflictsQueue, { t }),
+        h("div", { ref: queueRef }, h(ConflictsQueue, { t })),
         h(WorkbenchSection, { t, onBrowse })
       );
     }
@@ -3417,6 +3576,7 @@ window.__ModuleLoader__.load({
           .then((d) => {
             onSaved(d.memory, opts);
             setEditing(false);
+            announce(t("memory.explorer.detail.saved"));
             setSavedTick(true);
             setTimeout(() => setSavedTick(false), 2000);
           })
@@ -4317,7 +4477,8 @@ window.__ModuleLoader__.load({
         className: wide ? "mneme-trigger" : "mneme-trigger mneme-rail",
         "aria-label": t("memory.sidebar.aria"),
         title: t("memory.panel.open"),
-        onClick: openLibrary
+        onClick: openLibrary,
+        "data-mneme-overlay-opener": "true"
       },
         h(IconArchiveOutline20, { size: wide ? 16 : 18 }),
         wide && h("span", { className: "mneme-trigger-label" }, t("memory.panel.open"))
@@ -4404,7 +4565,8 @@ window.__ModuleLoader__.load({
             className: `${nativeCls} mneme-topentry-native`.trim(),
             "aria-label": t("memory.sidebar.aria"),
             title: t("memory.panel.open"),
-            onClick: openLibrary
+            onClick: openLibrary,
+            "data-mneme-overlay-opener": "true"
           },
             h(IconArchiveOutline20, { size: wide ? 15 : 18 }),
             wide && h("span", { className: "mneme-topentry-label" }, t("memory.panel.open"))

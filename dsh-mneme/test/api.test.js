@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { createStore } from "../src/store.js";
 import { createService } from "../src/service.js";
 import { createApi } from "../src/api.js";
+import { createInjector } from "../src/inject.js";
 import { createSettings } from "../src/settings.js";
 import { createVectorIndex } from "../src/vector-index.js";
 import { Config } from "../src/config.js";
@@ -1581,4 +1582,58 @@ test("inject-status: autoInject off is never suppressed (user's own choice, not 
   const res = new FakeRes();
   await route.handler(req("/api/dsh-mneme/inject-status"), res);
   assert.deepEqual(JSON.parse(res.body), { autoInject: false, agentPreset: "minimal", suppressed: false });
+});
+
+test("GET /api/dsh-mneme/inject-preview: returns last assembly snapshot (issue #179)", async () => {
+  const store = createStore(":memory:");
+  const service = createService({ store, mirror: null, config: {} });
+  const settings = createSettings(store.db);
+  const routes = [];
+  const ctx = {
+    webServer: {
+      register(route) {
+        routes.push(route);
+        return () => {};
+      }
+    }
+  };
+  const api = createApi(
+    ctx,
+    service,
+    settings,
+    { add() {}, remove() {}, list() { return []; } },
+    undefined,
+    undefined,
+    "",
+    Config({})
+  );
+  const route = routes.find((r) => r.path === "/api/dsh-mneme/inject-preview");
+  assert.ok(route, "preview endpoint must be registered");
+
+  // 无渲染发生：snapshot=null（新宿主/新会话/autoInject 关闭同形）。
+  let res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/inject-preview"), res);
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(JSON.parse(res.body), { snapshot: null });
+
+  // 真实渲染一帧后：快照透传（api 层不做任何加工）。
+  service.saveWithDedupe({ type: "preference", title: "语言", content: "用户用中文交流", importance: 5 });
+  const contexts = [];
+  const promptCtx = {
+    systemPrompt: { context(def) { contexts.push(def); return () => {}; } }
+  };
+  const injector = createInjector(promptCtx, service, settings, Config({ maxInjectedItems: 3, importanceThreshold: 3 }));
+  contexts[0].text({});
+  res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/inject-preview"), res);
+  const body = JSON.parse(res.body);
+  assert.ok(body.snapshot, "snapshot present after a real render");
+  assert.equal(body.snapshot.entries[0].title, "语言");
+  assert.ok(body.snapshot.totalChars > 0);
+
+  // 非 GET → 404（与 inject-status 同款）。
+  res = new FakeRes();
+  await route.handler(req("/api/dsh-mneme/inject-preview", "POST"), res);
+  assert.equal(res.statusCode, 404);
+  injector(); // 快照是模块全局：用完即清，不污染后续用例
 });
