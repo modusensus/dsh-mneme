@@ -24,6 +24,17 @@ export const Config = z.object({
   // 同一事实 6 小时铸出 28+ 条。阀门交给用户按需拧，升级本身不改行为。
   summarizeMinIntervalMinutes: z.natural().min(0).max(10080).default(0),
   summarizeMaxEntriesPerRun: z.natural().min(0).max(50).default(0),
+  // Issue #239（成本感知级联第一级）：蒸馏前的零 LLM 预判——窗口内可蒸馏文本
+  // 不足此字符数时直接跳过 LLM 调用（0 = 关闭，行为与现状逐字节一致）。判定
+  // 纯规则、无模型参与；被挡下的窗口照常消费游标（否则每个 turn/end 都会重新
+  // 评估同一段短文本），并留一行 status='skipped' 审计，error_message 写明原因
+  // ——「这一窗为什么没蒸馏」必须可观测，否则阀门等于黑盒。
+  summarizeMinWindowChars: z.natural().min(0).max(100000).default(0),
+  // Issue #239（有界检查点）：同一会话最多发起多少次蒸馏（0 = 不限，等同现状）。
+  // 只统计真正发起过 LLM 调用的 run——被预判挡下的窗口不占预算，否则阀门会把
+  // 额度浪费在零成本窗口上。计数是进程内 per-session（与最小间隔闸门同生命
+  // 周期），宿主重启即清零，与 #229 的游标持久化是两件事。
+  summarizeMaxRunsPerSession: z.natural().min(0).max(1000).default(0),
   // 落库前去重档位：off（默认，等同现状）/ title（零成本，仅拦完全同名）/
   // vector（复用已有 embedding 列做同会话语义近邻，无 LLM 调用）。
   summarizeDedupeMode: z.union([z.const("off"), z.const("title"), z.const("vector")]).default("off"),

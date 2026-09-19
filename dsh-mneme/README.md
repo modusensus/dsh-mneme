@@ -416,6 +416,8 @@ dsh web
 | `summarizeProvider` / `summarizeModel` | 空 | 摘要的 LLM 路由覆盖（空=使用当前会话模型）；推荐轻量模型节省主模型 token |
 | `summarizeMinIntervalMinutes` | `0` | autoSummarize 最小触发间隔（0-10080，0=不限）：两次蒸馏之间最短间隔，失败/degraded run 也占用（#127） |
 | `summarizeMaxEntriesPerRun` | `0` | 单次蒸馏产出记忆条数上限（0-50，0=不限）：节流防单会话大量重复条目（#127） |
+| `summarizeMinWindowChars` | `0` | 蒸馏前零 LLM 预判：窗口可蒸馏文本不足此字符数直接跳过调用（0-100000，0=关）；skip 原因写入审计（#239） |
+| `summarizeMaxRunsPerSession` | `0` | 每会话最多发起多少次蒸馏 LLM 调用（0-1000，0=不限）；只计真实调用，被预判拦下的不占额度（#239） |
 | `summarizeDedupeMode` | `off` | 落库前去重档位：`off`（默认=现状）/ `title`（零成本，仅拦完全同名）/ `vector`（复用 embedding 列做同会话语义近邻，无 LLM 调用，#127） |
 | `summarizeDedupeMinSim` | `0.92` | vector 去重档的相似度阈值（0.5-0.99） |
 | `summarizeDedupeWindowHours` | `24` | vector 去重的同会话时间窗（小时，0-168） |

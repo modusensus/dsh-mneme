@@ -151,6 +151,89 @@ test("reads events from snapshotEvents() when Session.events is absent", async (
   assert.equal(store.count(), 2);
 });
 
+// --- Issue #239：成本感知级联（零 LLM 预判）与有界检查点 ---------------------
+// 验收对齐 #239：日志可见 skip 原因、默认配置下行为零变化、开启后调用量下降。
+
+test("#239 预判默认关：阈值为 0 时不改变现状，照常发起调用", async () => {
+  const { events, calls, store } = setup();
+  const handler = events.find((e) => e.name === "session/event").fn;
+  const session = {
+    id: "s239-default",
+    requestHeader: () => ({ config: { provider: "deepseek", model: "deepseek-chat" } }),
+    events: [userMessage("短", 1), { seq: 2, type: "turn/end" }]
+  };
+  await handler(session, { seq: 2, type: "turn/end" });
+  assert.equal(calls.length, 1, "默认不预判：再短的窗口也照常蒸馏");
+  assert.equal(store.count(), 2);
+});
+
+test("#239 窗口过短：零 LLM 预判拦下调用，留 skip 审计并消费游标", async () => {
+  const { events, calls, service, store } = setup({ summarizeMinWindowChars: 1000 });
+  const handler = events.find((e) => e.name === "session/event").fn;
+  const session = {
+    id: "s239-small",
+    requestHeader: () => ({ config: { provider: "deepseek", model: "deepseek-chat" } }),
+    events: [userMessage("好", 1), { seq: 2, type: "turn/end" }]
+  };
+  await handler(session, { seq: 2, type: "turn/end" });
+  assert.equal(calls.length, 0, "短窗口不得发起 LLM 调用");
+  assert.equal(store.count(), 0, "被拦下就不该写入记忆");
+  const rows = service.listLlmAudits();
+  assert.equal(rows[0].status, "skipped");
+  assert.equal(rows[0].error_message, "window-too-small", "skip 原因必须可观测");
+
+  await handler(session, { seq: 2, type: "turn/end" });
+  assert.equal(calls.length, 0);
+  assert.equal(service.listLlmAudits().length, 1, "游标已消费：同一窗口不重复评估、不重复审计");
+});
+
+test("#239 窗口达到阈值时预判放行（不误杀）", async () => {
+  const { events, calls } = setup({ summarizeMinWindowChars: 5 });
+  const handler = events.find((e) => e.name === "session/event").fn;
+  const session = {
+    id: "s239-pass",
+    requestHeader: () => ({ config: { provider: "deepseek", model: "deepseek-chat" } }),
+    events: [userMessage("这是一段足够长的用户输入", 1), { seq: 2, type: "turn/end" }]
+  };
+  await handler(session, { seq: 2, type: "turn/end" });
+  assert.equal(calls.length, 1);
+});
+
+test("#239 每会话 run 预算：额度用尽后不再调用，审计写明原因", async () => {
+  const { events, calls, service } = setup({ summarizeMaxRunsPerSession: 1, distillRateLimitIntervalMs: 0 });
+  const handler = events.find((e) => e.name === "session/event").fn;
+  const session = {
+    id: "s239-cap",
+    requestHeader: () => ({ config: { provider: "deepseek", model: "deepseek-chat" } }),
+    events: [userMessage("第一轮", 1), { seq: 2, type: "turn/end" }]
+  };
+  await handler(session, { seq: 2, type: "turn/end" });
+  assert.equal(calls.length, 1, "第一次在预算内");
+
+  session.events.push(userMessage("第二轮", 3), { seq: 4, type: "turn/end" });
+  await handler(session, { seq: 4, type: "turn/end" });
+  assert.equal(calls.length, 1, "预算用尽后不得再调用");
+  const rows = service.listLlmAudits();
+  assert.equal(rows[0].status, "skipped");
+  assert.equal(rows[0].error_message, "max-runs-per-session");
+});
+
+test("#239 预算只计真实调用：被预判拦下的窗口不消耗额度", async () => {
+  const { events, calls } = setup({ summarizeMaxRunsPerSession: 1, summarizeMinWindowChars: 10, distillRateLimitIntervalMs: 0 });
+  const handler = events.find((e) => e.name === "session/event").fn;
+  const session = {
+    id: "s239-budget",
+    requestHeader: () => ({ config: { provider: "deepseek", model: "deepseek-chat" } }),
+    events: [userMessage("短", 1), { seq: 2, type: "turn/end" }]
+  };
+  await handler(session, { seq: 2, type: "turn/end" });
+  assert.equal(calls.length, 0, "第一轮被零 LLM 预判拦下");
+
+  session.events.push(userMessage("第二轮写得足够长，应该放行并消耗唯一的一次额度", 3), { seq: 4, type: "turn/end" });
+  await handler(session, { seq: 4, type: "turn/end" });
+  assert.equal(calls.length, 1, "零成本窗口不该吃掉预算");
+});
+
 test("does not call the LLM when no event was added after the last successful seq", async () => {
   const { events, calls } = setup({ distillRateLimitIntervalMs: 0 });
   const handler = events.find((e) => e.name === "session/event").fn;

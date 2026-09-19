@@ -263,6 +263,9 @@ export function createSummarizer(ctx, service, config) {
   // Issue #127：per-session 上一次实际开跑时刻（最小间隔闸门用）。与 inFlight
   // 同生命周期，dispose 时一并清空。
   const lastRunAt = new Map();
+  // Issue #239：per-session 已发起的蒸馏次数（有界检查点用）。只在实际发起 LLM
+  // 调用时自增，因此被零 LLM 预判挡下的窗口不消耗预算。
+  const runsUsed = new Map();
   // Issue #210：只在一次蒸馏完整成功后记录已消费的最后事件 seq。
   const lastDistilledSeq = new Map();
   let disposed = false;
@@ -308,6 +311,24 @@ export function createSummarizer(ctx, service, config) {
       });
       return;
     }
+    // Issue #239（有界检查点）：每会话 run 预算。放在间隔门之后，两者都命中时
+    // 先报间隔——间隔是「刚刚跑过」，预算是「额度用尽」，前者信息量更大。skip
+    // 仍写审计（沿用间隔门的 error_message 口径），否则「为什么不再蒸馏了」对
+    // 用户不可观测。prevRuns 在这里捕获、finally 里按 aborted 回滚（同 lastRunAt）。
+    // 游标刻意不消费：预算是「这个会话先不再蒸馏了」，把窗口留在原地，日后调高
+    // 额度（或宿主重启）仍能蒸馏到它；这与 window-too-small 主动消费游标相反——
+    // 后者是「这些事件不值得蒸馏」，留着只会每个 turn/end 重评一次。
+    const prevRuns = runsUsed.get(session.id);
+    const maxRuns = config.summarizeMaxRunsPerSession ?? 0;
+    if (maxRuns > 0 && (prevRuns ?? 0) >= maxRuns) {
+      writeAudit({
+        timestamp: new Date().toISOString(),
+        model_id: route ? `${route.provider}:${route.model}` : "unknown",
+        status: "skipped",
+        error_message: "max-runs-per-session"
+      });
+      return;
+    }
     const controller = new AbortController();
     inFlight.set(session.id, controller);
     // audit state for the compression call. null = no audit for this run
@@ -342,9 +363,33 @@ export function createSummarizer(ctx, service, config) {
         return;
       }
       const messages = collected.messages;
-      // 只有真正准备发起一次 LLM 蒸馏时才占用最小间隔；失败路径仍按原语义
-      // 占用，aborted 则由 finally 回滚。
+      // Issue #239（成本感知级联第一级）：零 LLM 预判。窗口内可蒸馏文本不足阈值
+      // 时直接跳过——短窗口交给模型的产出多是泛泛而谈，代价却是一次完整调用。
+      // 判定纯规则（字符数），无模型参与；被挡下的窗口照常消费游标，否则每个
+      // turn/end 都会重新评估同一段短文本。skip 原因进审计，作为后续按真实负载
+      // 决定下一级规则的依据。
+      const minWindowChars = config.summarizeMinWindowChars ?? 0;
+      if (minWindowChars > 0) {
+        const distillChars = messages.reduce(
+          (total, message) => total + (Array.isArray(message.content) ? message.content : [])
+            .reduce((n, part) => n + (typeof part?.text === "string" ? part.text.length : 0), 0),
+          0
+        );
+        if (distillChars < minWindowChars) {
+          if (Number.isFinite(nextSeq)) lastDistilledSeq.set(session.id, nextSeq);
+          writeAudit({
+            timestamp: new Date().toISOString(),
+            model_id: route ? `${route.provider}:${route.model}` : "unknown",
+            status: "skipped",
+            error_message: "window-too-small"
+          });
+          return;
+        }
+      }
+      // 只有真正准备发起一次 LLM 蒸馏时才占用最小间隔与 run 预算；失败路径仍按
+      // 原语义占用（调用确实发生过），aborted 则由 finally 回滚。
       lastRunAt.set(session.id, Date.now());
+      runsUsed.set(session.id, (prevRuns ?? 0) + 1);
 
       if (config?.llmAudit?.enabled !== false && typeof service.saveLlmAudit === "function") {
         audit = {
@@ -525,6 +570,10 @@ export function createSummarizer(ctx, service, config) {
       if (abortedRun || controller.signal.aborted) {
         if (prevClaim === undefined) lastRunAt.delete(session.id);
         else lastRunAt.set(session.id, prevClaim);
+        // Issue #239：aborted 同样不占 run 预算——调用没有真正发生，占了会误伤
+        // 该会话后续的蒸馏（与上面的间隔回滚同一口径）。
+        if (prevRuns === undefined) runsUsed.delete(session.id);
+        else runsUsed.set(session.id, prevRuns);
       }
       if (audit) {
         try {

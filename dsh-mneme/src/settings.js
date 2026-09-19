@@ -97,6 +97,9 @@ const FEATURE_FLAG_INT_RANGES = {
   summarizeMinIntervalMinutes: [0, 10080],
   summarizeMaxEntriesPerRun: [0, 50],
   summarizeDedupeWindowHours: [0, 168],
+  // Issue #239：蒸馏零 LLM 预判（窗口最小字符数）与每会话 run 预算（0 = 零行为变化）。
+  summarizeMinWindowChars: [0, 100000],
+  summarizeMaxRunsPerSession: [0, 1000],
   // Issue #125：hybrid 候选量上限（0 = 复用 dreamMaxSnapshotSize）。
   dreamCandidateMax: [0, 5000],
   // Issue #164①：注入单条正文截断上限（默认 300 = 既有行为）。
